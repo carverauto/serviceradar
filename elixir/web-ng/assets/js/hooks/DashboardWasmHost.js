@@ -78,17 +78,21 @@ function shouldUseMapbox(mapbox) {
   return looksLikeMapboxPublicToken(mapbox?.access_token)
 }
 
-function createSrqlApi({frames, pushQuery}) {
+function createSrqlApi({frames, pushQuery, pageFrame}) {
   const currentQuery = (frameId = "sites") => {
     const preferred = frames.find((frame) => String(frame?.id || "") === String(frameId || ""))
     return preferred?.query || frames[0]?.query || ""
   }
   const update = (query, frameQueries = {}) => pushQuery(query, frameQueries)
+  const page = (frameId, cursor) => {
+    if (typeof pageFrame === "function") pageFrame(frameId, cursor)
+  }
   const api = Object.assign(() => ({query: currentQuery()}), {
     query: currentQuery,
     update,
     updateQuery: update,
     setQuery: update,
+    page,
     escapeValue: srqlValue,
     list: (values) => `(${Array.from(values || []).map(srqlValue).join(",")})`,
     build: buildSrqlQuery,
@@ -549,7 +553,24 @@ const DashboardWasmHost = {
       }
       this.pushEvent("dashboard_srql_query", payload)
     }
-    const srql = createSrqlApi({frames, pushQuery: pushSrqlQuery})
+    const pageFrame = (frameId, cursor) => {
+      if (!capabilityAllowed("srql.execute")) {
+        throw new Error("dashboard capability is not approved: srql.execute")
+      }
+
+      const id = String(frameId || "").trim()
+      const token = String(cursor || "").trim()
+      if (!id || !token) {
+        throw new Error("dashboard frame page requires frame id and cursor")
+      }
+
+      if (!this._frameChannel || typeof this._frameChannel.push !== "function") {
+        throw new Error("dashboard frame stream is not connected")
+      }
+
+      this._frameChannel.push("frames:page", {frame_id: id, cursor: token})
+    }
+    const srql = createSrqlApi({frames, pushQuery: pushSrqlQuery, pageFrame})
     const navigate = (target) => {
       if (!capabilityAllowed("navigation.open")) {
         throw new Error("dashboard capability is not approved: navigation.open")

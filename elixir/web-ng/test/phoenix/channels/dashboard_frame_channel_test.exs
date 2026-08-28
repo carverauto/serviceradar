@@ -21,6 +21,17 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
       {:ok, %{"results" => [%{"id" => "row-1", "value" => 7}], "pagination" => %{"limit" => 1}}}
     end
 
+    def query("in:test_paged_rows", opts) do
+      notify_query({"in:test_paged_rows", Map.get(opts, :cursor)})
+      id = if Map.get(opts, :cursor) == "page-two", do: "row-2", else: "row-1"
+
+      {:ok,
+       %{
+         "results" => [%{"id" => id, "value" => 7}],
+         "pagination" => %{"next_cursor" => "page-two", "prev_cursor" => Map.get(opts, :cursor), "limit" => 1}
+       }}
+    end
+
     def query("in:test_optional_rows", _opts) do
       notify_query("in:test_optional_rows")
       {:ok, %{"results" => [%{"id" => "row-optional", "value" => 9}], "pagination" => %{"limit" => 1}}}
@@ -102,6 +113,33 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     }
 
     refute_push "frame:binary", _payload, 100
+  end
+
+  test "pages one frame through the existing SRQL cursor without replacing the query", %{user: user, scope: scope} do
+    route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+    data_frames = [%{"id" => "rows", "query" => "in:test_paged_rows", "encoding" => "json_rows", "limit" => 1}]
+    create_dashboard_instance!(route_slug, data_frames, scope)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames)
+
+    assert {:ok, _reply, socket} =
+             UserSocket
+             |> socket("user-id", %{current_user: user, current_scope: scope})
+             |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
+
+    assert_push "frames:replace", %{"frames" => [%{"id" => "rows", "results" => [%{"id" => "row-1"}]}]}
+
+    ref = push(socket, "frames:page", %{"frame_id" => "rows", "cursor" => "page-two"})
+    assert_reply ref, :ok, %{}
+
+    assert_push "frames:replace", %{
+      "frames" => [
+        %{
+          "id" => "rows",
+          "query" => "in:test_paged_rows",
+          "results" => [%{"id" => "row-2"}]
+        }
+      ]
+    }
   end
 
   test "streams Arrow IPC frame payloads as channel binary frames", %{user: user, scope: scope} do

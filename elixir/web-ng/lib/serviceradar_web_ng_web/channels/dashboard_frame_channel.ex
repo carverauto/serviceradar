@@ -30,9 +30,11 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
         socket
         |> assign(:current_scope, scope)
         |> assign(:route_slug, route_slug)
+        |> assign(:all_data_frames, normalize_data_frames(stream["data_frames"] || stream[:data_frames]))
         |> assign(:initial_data_frames, initial_data_frames(stream))
         |> assign(:deferred_data_frames, deferred_data_frames(stream))
         |> assign(:refresh_data_frames, refresh_data_frames(stream))
+        |> assign(:frame_cursors, %{})
         |> assign(:last_frames, [])
         |> assign(:initial_frame_sent, false)
         |> assign(:deferred_frame_sent, false)
@@ -101,10 +103,33 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
     socket =
       socket
       |> assign(:last_frame_hash, nil)
+      |> assign(:frame_cursors, %{})
       |> assign(:deferred_frame_sent, false)
       |> start_frame_refresh(socket.assigns.initial_data_frames, :initial)
 
     {:reply, {:ok, %{}}, socket}
+  end
+
+  def handle_in("frames:page", payload, socket) do
+    frame_id = payload |> Map.get("frame_id") |> to_string() |> String.trim()
+    cursor = payload |> Map.get("cursor") |> to_string() |> String.trim()
+
+    if frame_id == "" or cursor == "" do
+      {:reply, {:error, %{reason: "frame_id and cursor are required"}}, socket}
+    else
+      case find_data_frame(socket, frame_id) do
+        nil ->
+          {:reply, {:error, %{reason: "unknown_frame"}}, socket}
+
+        frame ->
+          socket =
+            socket
+            |> assign(:frame_cursors, Map.put(socket.assigns.frame_cursors, frame_id, cursor))
+            |> start_frame_refresh([Map.put(frame, "cursor", cursor)], :page)
+
+          {:reply, {:ok, %{}}, socket}
+      end
+    end
   end
 
   defp start_frame_refresh(%{assigns: %{refresh_task_ref: ref}} = socket, _data_frames, _kind) when not is_nil(ref),
@@ -114,6 +139,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
     ref = make_ref()
     parent = self()
     scope = socket.assigns.current_scope
+    data_frames = apply_frame_cursors(data_frames, socket.assigns[:frame_cursors] || %{})
 
     case Task.start(fn -> send(parent, {:dashboard_frame_result, ref, run_data_frames(data_frames, scope)}) end) do
       {:ok, _pid} ->
@@ -282,6 +308,21 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   defp frame_id(%{"id" => id}) when is_binary(id), do: id
   defp frame_id(%{id: id}) when is_binary(id), do: id
   defp frame_id(_frame), do: ""
+
+  defp find_data_frame(socket, frame_id) do
+    Enum.find(socket.assigns[:all_data_frames] || [], fn frame -> frame_id(frame) == frame_id end)
+  end
+
+  defp apply_frame_cursors(data_frames, cursors) when is_map(cursors) and map_size(cursors) > 0 do
+    Enum.map(data_frames, fn frame ->
+      case Map.get(cursors, frame_id(frame)) do
+        cursor when is_binary(cursor) and cursor != "" -> Map.put(frame, "cursor", cursor)
+        _ -> frame
+      end
+    end)
+  end
+
+  defp apply_frame_cursors(data_frames, _cursors), do: data_frames
 
   defp frame_value(frame, string_key, atom_key) when is_map(frame) do
     cond do
