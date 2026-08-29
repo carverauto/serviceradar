@@ -236,6 +236,13 @@ config :serviceradar_web_ng, :client_ip,
   trust_x_forwarded_for: false,
   trusted_proxy_cidrs: []
 
+# SEED VALUES, not the live source of truth. Plugin catalog sources are rows in
+# `platform.plugin_repositories`; the migration that created that table seeded the
+# built-in row from `repo_url`, `index_asset_name` and the trusted signing keys
+# below. Every import -- foreground and background -- now resolves a repository
+# row and verifies against *that repository's* key. These keys remain the
+# fallback for callers that pass none (the importer's unit tests, and any
+# package whose source is not a registered repository).
 config :serviceradar_web_ng, :first_party_plugin_import,
   repo_url: "https://github.com/carverauto/serviceradar",
   index_asset_name: "serviceradar-wasm-plugin-index.json",
@@ -296,6 +303,9 @@ config :serviceradar_web_ng, :plugin_verification,
   # plugin -- the same failure as an unset cosign_public_key, one gate further in. Public
   # verification key, not a secret; kept in step by
   # //:first_party_plugin_cosign_key_consistency_test.
+  # Fallback only. A package imported from a registered repository is verified
+  # against that repository's `signing_public_key` instead of this map; see
+  # `Packages.repository_policy/2`.
   trusted_upload_signing_keys: %{
     "serviceradar-first-party-v1" => "L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo=",
     "serviceradar-first-party-v2" => "2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I="

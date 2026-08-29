@@ -7,14 +7,18 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   import ServiceRadarWebNGWeb.PluginConfigForm
 
+  alias Ash.Error.Invalid
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.IntegrationCatalog
   alias ServiceRadar.Plugins.Manifest
+  alias ServiceRadar.Plugins.PluginRepository
+  alias ServiceRadar.Plugins.RepositoryCredentials
   alias ServiceRadarWebNG.Observability.ContractRegistry
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.CredentialCoverage
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.Packages
+  alias ServiceRadarWebNG.Plugins.Repositories
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -29,6 +33,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   @official_release_tag_regex ~r/^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$/
   @plugin_assignment_manage_permission "settings.plugins.manage"
   @credential_manage_permission "settings.credentials.manage"
+  # Deliberately not implied by plugins.stage: staging imports from a source the
+  # platform already trusts, while this decides which sources are trusted.
+  @repository_manage_permission "plugins.repositories.manage"
   @policy_recovery_poll_delay_ms 2_000
   @policy_recovery_poll_attempt_limit 30
   @legacy_recovery_candidate_page_size 50
@@ -85,8 +92,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:first_party_release_options, release_options)
         |> assign(:first_party_release_tag, selected_first_party_release(release_options, nil))
         |> assign(:first_party_release_selected?, false)
-        |> assign(:first_party_repo_url, first_party_repo_url())
-        |> assign_first_party_repository_form()
+        |> assign(:can_manage_repositories, RBAC.can?(scope, @repository_manage_permission))
+        |> assign_plugin_repositories(scope)
+        |> assign(:show_repository_modal, false)
+        |> assign(:repository_form, default_repository_form())
+        |> assign(:repository_errors, [])
+        |> assign(:editing_repository_id, nil)
         |> assign(:import_running?, false)
         |> assign(:show_create_modal, false)
         |> assign(:show_details_modal, false)
@@ -348,17 +359,25 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      |> assign_first_party_catalog_view(socket.assigns.first_party_catalog_all, release_tag)}
   end
 
-  def handle_event("select_first_party_repository", _params, %{assigns: %{can_stage_plugins: false}} = socket) do
-    {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
+  # Selecting a repository is a read: anyone who can view plugins may switch the
+  # catalog they are looking at. Managing repositories is the gated action.
+  def handle_event("select_first_party_repository", %{"repository_id" => "__add_new__"}, socket) do
+    if socket.assigns.can_manage_repositories do
+      {:noreply,
+       socket
+       |> assign(:show_repository_modal, true)
+       |> assign(:editing_repository_id, nil)
+       |> assign(:repository_form, default_repository_form())
+       |> assign(:repository_errors, [])}
+    else
+      {:noreply, put_flash(socket, :error, repository_permission_message())}
+    end
   end
 
-  def handle_event("select_first_party_repository", %{"catalog_repository" => %{"repo_url" => repo_url}}, socket) do
-    repo_url = normalize_first_party_repo_url(repo_url)
-
+  def handle_event("select_first_party_repository", %{"repository_id" => repository_id}, socket) do
     {:noreply,
      socket
-     |> assign(:first_party_repo_url, repo_url)
-     |> assign_first_party_repository_form()
+     |> assign_plugin_repositories(socket.assigns.current_scope, repository_id)
      |> assign(:first_party_release_selected?, false)
      |> assign(:first_party_release_tag, nil)
      |> assign(:first_party_catalog, [])
@@ -369,6 +388,132 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   def handle_event("select_first_party_repository", _params, socket) do
     {:noreply, put_flash(socket, :error, "Catalog repository is required.")}
+  end
+
+  def handle_event("open_repository_modal", _params, %{assigns: %{can_manage_repositories: false}} = socket) do
+    {:noreply, put_flash(socket, :error, repository_permission_message())}
+  end
+
+  def handle_event("open_repository_modal", %{"id" => id}, socket) do
+    case Enum.find(socket.assigns.plugin_repositories, &(&1.id == id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "That repository no longer exists.")}
+
+      repository ->
+        {:noreply,
+         socket
+         |> assign(:show_repository_modal, true)
+         |> assign(:editing_repository_id, repository.id)
+         |> assign(:repository_form, repository_form_from(repository))
+         |> assign(:repository_errors, [])}
+    end
+  end
+
+  def handle_event("close_repository_modal", _params, socket) do
+    # Dismissing returns the dropdown to its prior selection: the `… Add New`
+    # option is an action, not a selectable value, so leaving it selected would
+    # misreport which catalog is being viewed.
+    {:noreply,
+     socket
+     |> assign(:show_repository_modal, false)
+     |> assign(:editing_repository_id, nil)
+     |> assign(:repository_errors, [])}
+  end
+
+  def handle_event("save_repository", _params, %{assigns: %{can_manage_repositories: false}} = socket) do
+    {:noreply, put_flash(socket, :error, repository_permission_message())}
+  end
+
+  def handle_event("save_repository", %{"repository" => params}, socket) do
+    socket = assign(socket, :repository_form, params)
+    scope = socket.assigns.current_scope
+
+    case save_repository(socket.assigns.editing_repository_id, params, scope) do
+      {:ok, repository} ->
+        {:noreply,
+         socket
+         |> assign(:show_repository_modal, false)
+         |> assign(:editing_repository_id, nil)
+         |> assign(:repository_form, default_repository_form())
+         |> assign(:repository_errors, [])
+         |> put_flash(:info, "Saved plugin repository #{repository.name}")
+         |> assign_plugin_repositories(scope, repository.id)
+         |> assign(:first_party_catalog, [])
+         |> assign(:first_party_catalog_all, [])
+         |> assign(:first_party_release_tag, nil)
+         |> assign(:first_party_release_selected?, false)
+         |> load_first_party_catalog()}
+
+      {:error, errors} ->
+        # Modal stays open with field-level errors rather than closing and
+        # dropping what was typed.
+        {:noreply, assign(socket, :repository_errors, errors)}
+    end
+  end
+
+  def handle_event("toggle_repository", _params, %{assigns: %{can_manage_repositories: false}} = socket) do
+    {:noreply, put_flash(socket, :error, repository_permission_message())}
+  end
+
+  def handle_event("toggle_repository", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with repository when not is_nil(repository) <-
+           Enum.find(socket.assigns.plugin_repositories, &(&1.id == id)),
+         action = if(repository.enabled, do: :disable, else: :enable),
+         {:ok, updated} <- update_repository_state(repository, action, scope) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "#{if updated.enabled, do: "Enabled", else: "Disabled"} #{updated.name}")
+       |> assign_plugin_repositories(scope)
+       |> load_first_party_catalog()}
+    else
+      nil -> {:noreply, put_flash(socket, :error, "That repository no longer exists.")}
+      {:error, reason} -> {:noreply, put_flash(socket, :error, "Could not update repository: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("delete_repository", _params, %{assigns: %{can_manage_repositories: false}} = socket) do
+    {:noreply, put_flash(socket, :error, repository_permission_message())}
+  end
+
+  def handle_event("delete_repository", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with repository when not is_nil(repository) <-
+           Enum.find(socket.assigns.plugin_repositories, &(&1.id == id)),
+         :ok <- destroy_repository(repository, scope) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Removed plugin repository #{repository.name}")
+       |> assign_plugin_repositories(scope)
+       |> assign(:first_party_catalog, [])
+       |> assign(:first_party_catalog_all, [])
+       |> load_first_party_catalog()}
+    else
+      nil -> {:noreply, put_flash(socket, :error, "That repository no longer exists.")}
+      {:error, reason} -> {:noreply, put_flash(socket, :error, "Could not remove repository: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("clear_repository_token", _params, %{assigns: %{can_manage_repositories: false}} = socket) do
+    {:noreply, put_flash(socket, :error, repository_permission_message())}
+  end
+
+  def handle_event("clear_repository_token", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with repository when not is_nil(repository) <-
+           Enum.find(socket.assigns.plugin_repositories, &(&1.id == id)),
+         {:ok, _repository} <- RepositoryCredentials.clear_token(repository, actor: scope_actor(scope)) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Removed the access token for #{repository.name}")
+       |> assign_plugin_repositories(scope, repository.id)}
+    else
+      nil -> {:noreply, put_flash(socket, :error, "That repository no longer exists.")}
+      {:error, reason} -> {:noreply, put_flash(socket, :error, "Could not clear the token: #{format_error(reason)}")}
+    end
   end
 
   def handle_event("first_party_catalog_page", %{"page" => page}, socket) do
@@ -1272,31 +1417,96 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             <div>
               <div class="text-sm font-semibold">Plugin catalog</div>
               <p class="text-xs text-sr-muted">
-                Signed Wasm plugins discovered from {@first_party_repo_url}, plus imported packages.
+                <span :if={@selected_repository}>
+                  Signed Wasm plugins discovered from {@selected_repository.name} ({@selected_repository.repo_url}), plus imported packages.
+                </span>
+                <span :if={is_nil(@selected_repository)}>
+                  No enabled plugin repository. Imported packages are still listed below.
+                </span>
               </p>
             </div>
             <div class="flex flex-wrap items-center justify-end gap-2">
-              <.form
-                :if={@can_stage_plugins}
-                for={@first_party_repository_form}
+              <form
                 id="select-first-party-repository-form"
-                phx-submit="select_first_party_repository"
+                phx-change="select_first_party_repository"
                 class="flex w-full min-w-0 items-center gap-2 sm:w-auto"
               >
-                <.input
-                  field={@first_party_repository_form[:repo_url]}
-                  id="first-party-repository-url"
-                  type="url"
-                  label="Catalog repository"
-                  label_class="sr-only"
-                  wrapper_class="min-w-0 flex-1 sm:w-80"
-                  class={ui_field_class(size: "sm", class: "w-full")}
-                  required
-                />
-                <.ui_button type="submit" variant="ghost" size="sm">
-                  <.icon name="hero-folder-open" class="size-4" /> Load
-                </.ui_button>
-              </.form>
+                <label for="plugin-repository-select" class="sr-only">Catalog repository</label>
+                <select
+                  id="plugin-repository-select"
+                  name="repository_id"
+                  class={ui_field_class(size: "sm", class: "w-full sm:w-72")}
+                >
+                  <option
+                    :for={repository <- @enabled_plugin_repositories}
+                    value={repository.id}
+                    selected={@selected_repository && repository.id == @selected_repository.id}
+                  >
+                    {repository.name}{if repository.builtin, do: " (built-in)", else: ""}
+                  </option>
+                  <%!--
+                    An action, not a value. `close_repository_modal` restores the
+                    prior selection so dismissing the modal cannot leave the
+                    dropdown claiming a catalog that is not loaded.
+                  --%>
+                  <option :if={@can_manage_repositories} value="__add_new__">… Add New</option>
+                </select>
+              </form>
+              <div
+                :if={@can_manage_repositories and @selected_repository}
+                class="flex items-center gap-1"
+              >
+                <.ui_icon_button
+                  :if={not @selected_repository.builtin}
+                  size="sm"
+                  title="Edit repository"
+                  aria-label="Edit repository"
+                  phx-click="open_repository_modal"
+                  phx-value-id={@selected_repository.id}
+                >
+                  <.icon name="hero-pencil-square" class="size-4" />
+                </.ui_icon_button>
+                <.ui_icon_button
+                  size="sm"
+                  title={
+                    if @selected_repository.enabled,
+                      do: "Disable repository",
+                      else: "Enable repository"
+                  }
+                  aria-label={
+                    if @selected_repository.enabled,
+                      do: "Disable repository",
+                      else: "Enable repository"
+                  }
+                  phx-click="toggle_repository"
+                  phx-value-id={@selected_repository.id}
+                >
+                  <.icon
+                    name={
+                      if @selected_repository.enabled,
+                        do: "hero-pause-circle",
+                        else: "hero-play-circle"
+                    }
+                    class="size-4"
+                  />
+                </.ui_icon_button>
+                <%!--
+                  The built-in source is seeded and cannot be edited or removed
+                  -- only disabled. Hiding the controls matches what the resource
+                  enforces, so the UI cannot offer an action that always fails.
+                --%>
+                <.ui_icon_button
+                  :if={not @selected_repository.builtin}
+                  size="sm"
+                  title="Remove repository"
+                  aria-label="Remove repository"
+                  phx-click="delete_repository"
+                  phx-value-id={@selected_repository.id}
+                  data-confirm={"Remove #{@selected_repository.name}? Packages already imported from it are kept."}
+                >
+                  <.icon name="hero-trash" class="size-4" />
+                </.ui_icon_button>
+              </div>
               <form
                 :if={@first_party_release_options != []}
                 id="select-plugin-release-form"
@@ -1563,8 +1773,168 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         download_expires_at={@download_expires_at}
         plugins_base_path={@plugins_base_path}
       />
+      <.repository_modal
+        show_repository_modal={@show_repository_modal}
+        repository_form={@repository_form}
+        repository_errors={@repository_errors}
+        editing_repository_id={@editing_repository_id}
+        plugin_repositories={@plugin_repositories}
+      />
     </Layouts.app>
     """
+  end
+
+  defp repository_modal(assigns) do
+    ~H"""
+    <.ui_modal
+      :if={@show_repository_modal}
+      id="plugin-repository-modal"
+      open={true}
+      size="lg"
+      on_cancel="close_repository_modal"
+    >
+      <:title>
+        {if @editing_repository_id, do: "Edit plugin repository", else: "Add plugin repository"}
+      </:title>
+
+      <form id="plugin-repository-form" phx-submit="save_repository" class="space-y-4">
+        <div
+          :if={@repository_errors != []}
+          class="rounded-xl border border-error/30 bg-error/5 p-3 text-xs text-error"
+        >
+          <ul class="list-disc space-y-1 pl-4">
+            <li :for={error <- @repository_errors}>{error}</li>
+          </ul>
+        </div>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="block">
+            <span class="text-xs font-medium text-sr-ink">Name</span>
+            <input
+              type="text"
+              name="repository[name]"
+              value={@repository_form["name"]}
+              class={ui_field_class(size: "sm", class: "w-full")}
+              placeholder="Acme Plugins"
+              required
+            />
+          </label>
+
+          <label class="block">
+            <span class="text-xs font-medium text-sr-ink">Repository URL</span>
+            <input
+              type="url"
+              name="repository[repo_url]"
+              value={@repository_form["repo_url"]}
+              class={ui_field_class(size: "sm", class: "w-full")}
+              placeholder="https://github.com/acme/sr-plugins"
+              required
+            />
+          </label>
+        </div>
+
+        <label class="block">
+          <span class="text-xs font-medium text-sr-ink">Index asset name</span>
+          <input
+            type="text"
+            name="repository[index_asset_name]"
+            value={@repository_form["index_asset_name"]}
+            class={ui_field_class(size: "sm", class: "w-full")}
+            required
+          />
+          <span class="mt-1 block text-xs text-sr-muted">
+            The release asset holding this repository's plugin index.
+          </span>
+        </label>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="block">
+            <span class="text-xs font-medium text-sr-ink">Signing key id</span>
+            <input
+              type="text"
+              name="repository[signing_key_id]"
+              value={@repository_form["signing_key_id"]}
+              class={ui_field_class(size: "sm", class: "w-full")}
+              placeholder="acme-v1"
+              required
+            />
+          </label>
+
+          <label class="block">
+            <span class="text-xs font-medium text-sr-ink">Signing public key</span>
+            <input
+              type="text"
+              name="repository[signing_public_key]"
+              value={@repository_form["signing_public_key"]}
+              class={ui_field_class(size: "sm", class: "w-full font-mono")}
+              placeholder="base64 ed25519 public key"
+              required
+            />
+          </label>
+        </div>
+
+        <p class="text-xs text-sr-muted">
+          Bundles from this repository are verified against this key. A repository
+          cannot be saved without one: without a trust anchor it could never
+          import anything.
+        </p>
+
+        <label class="block">
+          <span class="text-xs font-medium text-sr-ink">
+            Access token <span class="text-sr-muted">(private repositories only)</span>
+          </span>
+          <input
+            type="password"
+            name="repository[github_token]"
+            value=""
+            autocomplete="off"
+            class={ui_field_class(size: "sm", class: "w-full")}
+            placeholder={
+              if @editing_repository_id &&
+                   repository_credential_attached?(@plugin_repositories, @editing_repository_id),
+                 do: "•••••••• stored — type to replace",
+                 else: "ghp_… (stored encrypted)"
+            }
+          />
+          <span class="mt-1 block text-xs text-sr-muted">
+            A fine-grained token with read-only Contents access to this repository is enough.
+            Leave blank to keep the stored token.
+          </span>
+        </label>
+
+        <div class="flex items-center justify-between gap-2 pt-2">
+          <.ui_button
+            :if={
+              @editing_repository_id &&
+                repository_credential_attached?(@plugin_repositories, @editing_repository_id)
+            }
+            type="button"
+            variant="ghost"
+            size="sm"
+            phx-click="clear_repository_token"
+            phx-value-id={@editing_repository_id}
+          >
+            Remove stored token
+          </.ui_button>
+          <div class="ml-auto flex items-center gap-2">
+            <.ui_button type="button" variant="ghost" size="sm" phx-click="close_repository_modal">
+              Cancel
+            </.ui_button>
+            <.ui_button type="submit" variant="primary" size="sm">
+              {if @editing_repository_id, do: "Save", else: "Add repository"}
+            </.ui_button>
+          </div>
+        </div>
+      </form>
+    </.ui_modal>
+    """
+  end
+
+  defp repository_credential_attached?(repositories, id) do
+    case Enum.find(repositories, &(&1.id == id)) do
+      nil -> false
+      repository -> not is_nil(repository.credential_secret_id)
+    end
   end
 
   defp create_modal(assigns) do
@@ -2805,9 +3175,21 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp active_agent?(_agent), do: false
 
+  defp load_first_party_catalog(%{assigns: %{selected_repository: nil}} = socket) do
+    socket
+    |> assign(:first_party_catalog, [])
+    |> assign(:first_party_catalog_all, [])
+    |> assign(:first_party_catalog_page, 1)
+    |> assign(:first_party_catalog_error, nil)
+    |> assign(
+      :first_party_catalog_status,
+      "No enabled plugin repository. Add one, or enable an existing one, to browse a catalog."
+    )
+  end
+
   defp load_first_party_catalog(socket) do
     case FirstPartyImporter.list_recent_plugins_with_summary(
-           %{"repo_url" => socket.assigns.first_party_repo_url},
+           repository_import_attrs(socket.assigns.selected_repository, socket.assigns.current_scope),
            first_party_sync_limit()
          ) do
       {:ok, summary} ->
@@ -3065,26 +3447,145 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp safe_import_failure_reason(_reason), do: "import was rejected"
 
-  defp first_party_repo_url do
-    config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
-    Keyword.get(config, :repo_url, FirstPartyImporter.default_repo_url())
+  # Repository state for the catalog picker. `first_party_repo_url` stays as the
+  # assign name the template already uses, but it now comes from the selected
+  # repository record rather than config.
+  defp assign_plugin_repositories(socket, scope, selected_id \\ nil) do
+    repositories = Repositories.list(scope: scope)
+    enabled = Enum.filter(repositories, & &1.enabled)
+
+    selected =
+      Enum.find(enabled, &(&1.id == selected_id)) ||
+        Enum.find(enabled, & &1.is_default) ||
+        List.first(enabled)
+
+    socket
+    |> assign(:plugin_repositories, repositories)
+    |> assign(:enabled_plugin_repositories, enabled)
+    |> assign(:selected_repository, selected)
+    |> assign(:first_party_repo_url, selected && selected.repo_url)
   end
 
-  defp normalize_first_party_repo_url(repo_url) when is_binary(repo_url) do
-    case String.trim(repo_url) do
-      "" -> first_party_repo_url()
-      normalized -> normalized
+  defp repository_permission_message, do: "You don't have permission to manage plugin repositories."
+
+  defp scope_actor(%{user: user}) when not is_nil(user), do: user
+  defp scope_actor(_scope), do: nil
+
+  defp save_repository(nil, params, scope) do
+    attrs = repository_attrs(params)
+
+    with {:ok, repository} <-
+           PluginRepository
+           |> Ash.Changeset.for_create(:create, attrs, actor: scope_actor(scope))
+           |> Ash.create()
+           |> normalize_repository_result() do
+      apply_repository_token(repository, params, scope)
     end
   end
 
-  defp normalize_first_party_repo_url(_repo_url), do: first_party_repo_url()
+  defp save_repository(id, params, scope) do
+    attrs = repository_attrs(params)
+    actor = scope_actor(scope)
 
-  defp assign_first_party_repository_form(socket) do
-    assign(
-      socket,
-      :first_party_repository_form,
-      to_form(%{"repo_url" => socket.assigns.first_party_repo_url}, as: :catalog_repository)
-    )
+    with {:ok, repository} <- fetch_repository(id, actor),
+         {:ok, repository} <-
+           repository
+           |> Ash.Changeset.for_update(:update, attrs, actor: actor)
+           |> Ash.update()
+           |> normalize_repository_result() do
+      apply_repository_token(repository, params, scope)
+    end
+  end
+
+  # The token field is write-only: an empty value on an edit means "leave the
+  # existing token alone", not "clear it". Clearing is its own explicit action,
+  # so a save cannot silently drop a credential the operator did not re-type.
+  defp apply_repository_token(repository, params, scope) do
+    case String.trim(Map.get(params, "github_token") || "") do
+      "" ->
+        {:ok, repository}
+
+      token ->
+        case RepositoryCredentials.put_token(repository, token, actor: scope_actor(scope)) do
+          {:ok, repository} -> {:ok, repository}
+          {:error, reason} -> {:error, ["access token: #{format_error(reason)}"]}
+        end
+    end
+  end
+
+  defp repository_attrs(params) do
+    %{
+      name: String.trim(Map.get(params, "name") || ""),
+      repo_url: String.trim(Map.get(params, "repo_url") || ""),
+      index_asset_name: String.trim(Map.get(params, "index_asset_name") || ""),
+      signing_key_id: String.trim(Map.get(params, "signing_key_id") || ""),
+      signing_public_key: String.trim(Map.get(params, "signing_public_key") || "")
+    }
+  end
+
+  defp fetch_repository(id, actor) do
+    case PluginRepository.get_by_id(id, actor: actor) do
+      {:ok, repository} -> {:ok, repository}
+      {:error, reason} -> {:error, [format_error(reason)]}
+    end
+  end
+
+  defp update_repository_state(repository, action, scope) do
+    repository
+    |> Ash.Changeset.for_update(action, %{}, actor: scope_actor(scope))
+    |> Ash.update()
+  end
+
+  defp destroy_repository(repository, scope) do
+    case Ash.destroy(repository, actor: scope_actor(scope)) do
+      :ok -> :ok
+      {:ok, _record} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp normalize_repository_result({:ok, repository}), do: {:ok, repository}
+
+  defp normalize_repository_result({:error, %Invalid{errors: errors}}),
+    do: {:error, Enum.map(errors, &repository_error_message/1)}
+
+  defp normalize_repository_result({:error, reason}), do: {:error, [format_error(reason)]}
+
+  defp repository_error_message(%{field: field, message: message}) when not is_nil(field), do: "#{field}: #{message}"
+
+  defp repository_error_message(error), do: format_error(error)
+
+  defp default_repository_form do
+    %{
+      "name" => "",
+      "repo_url" => "",
+      "index_asset_name" => "serviceradar-wasm-plugin-index.json",
+      "signing_key_id" => "",
+      "signing_public_key" => "",
+      "github_token" => ""
+    }
+  end
+
+  defp repository_form_from(repository) do
+    %{
+      "name" => repository.name,
+      "repo_url" => repository.repo_url,
+      "index_asset_name" => repository.index_asset_name,
+      "signing_key_id" => repository.signing_key_id,
+      "signing_public_key" => repository.signing_public_key,
+      # Never round-trip the token into the form: it is write-only, and the
+      # form shows only whether one is attached.
+      "github_token" => ""
+    }
+  end
+
+  defp repository_import_attrs(nil, _scope), do: %{}
+
+  defp repository_import_attrs(repository, scope) do
+    case Repositories.import_attrs(repository, scope: scope) do
+      {:ok, attrs} -> attrs
+      {:error, _reason} -> %{"repo_url" => repository.repo_url}
+    end
   end
 
   defp first_party_sync_limit do
@@ -5088,6 +5589,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp format_error(:plugin_id_mismatch), do: "target package is for a different plugin"
   defp format_error(:already_on_target_version), do: "assignment is already on that version"
   defp format_error(error) when is_atom(error), do: Atom.to_string(error)
-  defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
+  defp format_error(%Invalid{} = error), do: Exception.message(error)
   defp format_error(error), do: inspect(error)
 end
