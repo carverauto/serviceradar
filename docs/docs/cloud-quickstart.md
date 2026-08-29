@@ -488,14 +488,24 @@ See [Device Configuration](./device-configuration.md) and
 
 ### 9.2 Credential rules
 
-**Where:** **Settings → Credential Rules** (`/settings/networks/credentials`)
+**Where:** **Settings -> Networks -> Credential Rules** (`/settings/networks/credentials`)
 
-Reusable **SSH, SNMP, WinRM** (and related) access profiles that scanners and jobs
-resolve by rule—not passwords pasted into every profile.
+Every integration credential lives here, encrypted, and reaches a plugin only as a
+short-lived scoped grant. Two objects: a **credential** holds the material, a
+**rule** binds it to a provider, a purpose, a set of targets, and one edge scope.
 
-1. Create a rule (name, protocol, secret material, selection criteria).
-2. Reference it from SNMP profiles, discovery, remote access, and similar jobs.
-3. Rotate secrets by updating the rule once.
+1. **New Credential** -> pick `<provider> - <auth method>` and fill in the fields
+   the provider declares.
+2. **New Rule** -> pick the provider, choose the credential, set purpose, scope,
+   target query, TLS policy, and allowed ports.
+3. **Preview** before enabling: In Scope, not Matched, is the number that matters.
+
+Some providers are credential-only and take no rule -- AWX binds on a controller,
+VulnCheck on a feed, SNMP on a profile.
+
+Full model, per-provider setup (Proxmox, UniFi Protect, Axis, AWX/AAP, NetBox,
+VulnCheck, SNMP), and symptom-to-cause troubleshooting:
+[Credential Management](./credentials.md).
 
 ### 9.3 Discovery jobs
 

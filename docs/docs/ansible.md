@@ -128,13 +128,21 @@ core:
 
 The Ansible integration never passes a plaintext AWX token to a playbook. Each AWX REST command carries a short-lived credential-broker grant referencing the one stored secret selected for that command's purpose, and the selected edge agent resolves it only at the AWX HTTP boundary.
 
-In the ServiceRadar web UI, go to **Settings → Credentials** and create:
+AWX is a **credential-only** provider: its descriptor sets `supports_rules: false`,
+so an AWX token is a credential bound to an Ansible Controller record, not a
+credential rule. AWX will not appear in the **New Rule** dropdown, and the AWX
+bridge does not read one. See
+[Credential Management](./credentials.md) for the general model.
+
+In the ServiceRadar web UI, go to **Settings -> Networks -> Credential Rules**
+(`/settings/networks/credentials`), click **New Credential**, pick
+`AWX / AAP - API token`, and create:
 
 1. A sync credential (for example `awx-prod-sync`) for an AWX principal with OAuth `read` and only the organization/inventory/project/template read roles needed for health, catalog, and inventory discovery.
 2. An execution credential (for example `awx-prod-exec`) for a non-superuser AWX principal with only the exact AWX resource reads needed by live launch preflight (the reviewed template, survey, **project `Read`**, inventory, selected hosts, credentials, and execution environment), plus OAuth `write`, exact inventory `Use`, template `Execute`, machine-credential `Use`, and job lifecycle read/cancel roles. Template `Execute` alone does **not** grant `GET /api/v2/projects/<id>/`; without explicit project `Read`, live preflight fails closed on project revision drift checks. It does not need Project Admin, Inventory Admin, Job Template Admin, Ad Hoc, or organization-wide Credential Admin.
 3. For callback-enabled playbooks, a callback credential. The currently supported least-privilege deployment deliberately reuses the execution credential and grants that principal Credential Admin only in a dedicated empty AWX organization such as `ServiceRadar Ephemeral`. Configure the reviewed callback credential organization ID to that empty organization. Never grant the principal Credential Admin in an organization that contains operator or machine credentials.
 
-Save each credential. You will select the references when registering the controller. ServiceRadar supports distinct execution and callback references, but a deployment using distinct AWX users must first prove that the execution principal has `Use` on each dynamically created callback credential; selecting a different secret does not add or bypass AWX permissions.
+Save each credential. You will select it by name when registering the controller. ServiceRadar supports distinct execution and callback references, but a deployment using distinct AWX users must first prove that the execution principal has `Use` on each dynamically created callback credential; selecting a different secret does not add or bypass AWX permissions.
 
 > The credential broker, not a playbook, handles AWX token plaintext. SSH keys, become passwords, and vault passwords stay in AWX's credential vault. Controller tokens are encrypted at rest and are never supplied as playbook inputs, inventory variables, or managed-host files.
 
@@ -361,9 +369,30 @@ Probable causes, in order of likelihood:
 3. **Agent can't reach AWX**. From inside the agent's network namespace, test the exact controller origin with its trusted CA: `curl --cacert /path/to/awx-ca.pem https://<base_url>/api/v2/ping/`. Do not put an AWX bearer on a shell command line or use `-k`; use a credential-safe diagnostic or the ServiceRadar controller health action for authenticated checks.
 4. **TLS verification**. The default is to verify. For an AWX certificate issued by a private CA, mount the public PEM bundle on the selected edge agent and add its absolute path to `plugin_http_trusted_ca_files` in `agent.json`. Helm deployments use `agent.pluginHTTPTrustedCAFiles` and trust the ServiceRadar runtime CA in addition to operating-system roots by default. The host-owned transport loads these roots before starting Wasm, never exposes them to the module, and disables outbound plug-in HTTP if a configured path is unreadable, oversized, or contains no certificate. Restart the agent after changing the trust bundle. Do not use `metadata.insecure_skip_verify` for credential-bearing production traffic.
 
+### `AWX configuration invalid: api_token is required (resolved from credential broker grant)`
+
+The AWX package is a command bridge: its token arrives per dispatch, inside that
+dispatch's grant. Its assignment params hold no token by design. An assignment
+without the `action-only:v1` capability also gets a 60-second periodic runner,
+and that scheduled run invokes `run_check` with the assignment's own params,
+which can never satisfy the check.
+
+This is not a missing credential, and the repeated failure is cosmetic: dispatched
+AWX commands carry their own grant and still work. Judge controller health from
+`awx.ping` and from an actual dispatch, not from this result.
+
+:::caution Not in 1.4.46
+The fix is `action-only:v1` on the AWX manifest, which stops a periodic runner
+being scheduled at all. It is merged but unreleased; once it ships, republish,
+register, and re-materialise the package -- an existing assignment points at the
+old package version and keeps its runner. First release containing it:
+`<first-release>`. See
+[Credential Management](./credentials.md#awx-configuration-invalid-api_token-is-required-resolved-from-credential-broker-grant).
+:::
+
 ### Status flips to `:unauthorized`
 
-The token is wrong, expired, or missing scope. Check `Controller.last_health_summary` — it'll surface the operator-safe 401 message from the plugin. Update the NetworkCredentialSecret's `secret_payload` and re-trigger health by editing any field on the controller (re-save trips the health check).
+The token is wrong, expired, or missing scope. Check `Controller.last_health_summary`; it surfaces the operator-safe 401 message from the plugin. Save a new value for that credential under **Settings -> Networks -> Credential Rules** and re-trigger health by editing any field on the controller (re-save trips the health check).
 
 ### No playbooks appear in `/ansible/catalog`
 
@@ -413,4 +442,4 @@ These are documented constraints, not bugs. Each is tracked for a future v2:
 - **Public HTTPS git repos.** The `GitCatalogSyncWorker` supports HTTPS deploy tokens via the credential broker but not SSH keys yet.
 - **Scheduled execution unavailable.** The current UI supports interactive launches only. A future delegated design will use canonical operations.
 - **Multi-device UI launches require a single controller.** AWX uses `limit:` to scope to specific hosts; mixed-controller selections are rejected at submit time. Multi-controller fan-out is a v2 design question.
-- **Manual UUID paste for credential secret references.** Both controller and repository forms expect operators to paste a UUID from `Settings → Credentials`. A picker UX is a planned v2 improvement.
+- **Manual UUID paste for credential secret references.** Both controller and repository forms expect operators to paste a credential UUID from **Settings -> Networks -> Credential Rules** (`/settings/networks/credentials`). A picker UX is a planned v2 improvement.

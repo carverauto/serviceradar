@@ -145,7 +145,7 @@ page resolves to a delivering adapter. See [Notifications](./notifications.md).
 | TLS | STARTTLS policy. `Always` on 587. `Never` when **Use SSL socket** is on (465). |
 | Use SSL socket | Implicit TLS from the first byte. Check this for 465. |
 | Retries | How many times Swoosh retries a failed SMTP handshake. Default `1`. |
-| Password secret / API key secret | Optional pointer at a **Settings -> Networks -> Credentials** secret. Empty means "use the Password / API key box on this form". |
+| Password secret / API key secret | Optional pointer at a credential from **Settings -> Networks -> Credential Rules** (`/settings/networks/credentials`). Empty means "use the Password / API key box on this form". |
 | Password / API key | Stored encrypted. The form will not show the saved value again; a `(saved)` label means one is present. |
 | Provider options JSON | Extra keys for HTTP adapters. Leave `{}` for SMTP. |
 

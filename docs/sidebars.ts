@@ -75,6 +75,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Integrations',
       items: [
+        {type: 'doc', id: 'credentials', label: 'Credential Management'},
         {type: 'doc', id: 'sync', label: 'Sync Runtime'},
         {type: 'doc', id: 'armis', label: 'Armis'},
         {type: 'doc', id: 'netbox', label: 'NetBox'},
