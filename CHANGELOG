@@ -1,12 +1,57 @@
-# ServiceRadar v1.4.47
+# ServiceRadar v1.4.48
 
-Unblocks running more than one flow collector. Templates now live in
-a shared NATS KV bucket, the events-to-flows cutover moves into a
-Helm hook Job so the pods hold no durable state, and the parser's
-10,000-exporter ceiling becomes a config knob. Also adds an MCP
-server so agents can query SRQL through existing SSO.
+Inventory keeps a canonical switch-port attachment instead of
+leaving Armis and OpenText to fight in metadata, SRQL can
+aggregate alerts and sum per-series rates, and a plugin can
+propose alert rules that stay disabled until an operator
+approves them. Also: `serviceradar-cli plugin publish`, SMTP
+relay TLS verification, and literal-IP plugin egress.
 
 ## Whats New
+
+**1.4.48**
+- Inventory: switch-port evidence becomes a canonical
+  `switch_port_attachment` on the device, plus per-source facts
+  and a durable disagreement when sources do not match.
+  Operator-set winners live on the integration source, not in
+  `plugin.yaml`. The first-party inventory plugin is renamed
+  `opentext-nom` and can walk NNMi attached-switch-port data
+  against endpoint MAC/IP. (PR #4145)
+- SRQL: `in:alerts stats:` is honoured. The previous ignore
+  returned a page of raw alert rows with a 200, so a dashboard
+  that asked `stats:count() as n by severity` counted a
+  truncated sample. Only `count()` is supported; group fields
+  are `severity`, `status`, `source_type`, `device_uid`,
+  `agent_uid`, `metric_name`, `escalation_level`. (PR #4142)
+- SRQL: `agg:rate_sum` sums per-series rates inside a display
+  bucket instead of averaging them. `agg:rate` still answers
+  "typical rate of one series"; a fleet RADIUS total needs the
+  sum across controllers, and AVG understated it by exactly the
+  controller count. LAG still partitions by the full series
+  identity; resets still yield NULL. (PR #4143)
+- Plugins: a package can ship `alert_rules` in its manifest.
+  On approval — not import — each becomes a disabled
+  `stateful_alert_rules` row namespaced
+  `plugin:<package>:<name>`. Re-sync cannot re-arm a rule or
+  overwrite a tuned threshold. Deny/revoke/restage disables
+  rather than deletes. (PR #4144)
+- CLI: `serviceradar-cli plugin {init,validate,publish,status}`
+  pushes a built `plugin.wasm` + `plugin.yaml` to an instance
+  as `staged`. OAuth token scopes are actually confined: a
+  `dashboard.publish` token can no longer reach plugin package
+  endpoints. `plugin.publish` is added to the CLI allow-list.
+  (PR #4147)
+- Plugins: a manifest may declare literal private-IP egress for
+  on-prem appliance collectors, including AWX controllers.
+  (PR #4137)
+- Web UI: SMTP relay TLS verifies the peer. OTP 26+ defaults
+  to `verify_peer` with no CA bundle configured, so SSL and
+  STARTTLS to the platform relay failed while a plain probe
+  still succeeded. (PR #4140)
+- Schema: `20260829120000` (canonical device facts),
+  `20260829140000` (`plugin.publish` CLI scope),
+  `20260829190000` (plugin alert rules).
+  `migrations.expectedVersion` is `20260829190000`.
 
 **1.4.47**
 - Flow collector: multiple replicas are supported. Three things
@@ -46,32 +91,33 @@ server so agents can query SRQL through existing SSO.
 - Event writer: `SFLOW_RAW` / `NETFLOW_RAW` bind to the `flows`
   stream rather than the shared bus. (PR #4096)
 - SRQL: `LIKE` and list filters work on device type. (PR #4097)
-
-**Unreleased**
-- SRQL: `in:composite_results stats:` is honoured. The previous ignore
-  dumped every matching row, so a dashboard that asked for
+- SRQL: `in:composite_results stats:` is honoured. The previous
+  ignore dumped every matching row, so a dashboard that asked for
   `stats:count() as n by check,verdict` still hit the 2,000-row
-  FrameRunner ceiling and folded the sample in the browser. Unsupported
-  aggregations and group fields now return `InvalidRequest` instead of
-  that silent dump. **BREAKING** for anyone who depended on the ignore;
-  no in-tree caller did. Group fields are `check` / `check_slug` /
-  `slug`, `check_name`, `verdict`, `status`, `input_key`, `input_value`,
-  `input_stale`. Vantage rollups unnest `inputs` with `jsonb_each`.
-  Stats default limit 100, hard cap 500.
-- Dashboards: `api.srql.page(frameId, cursor)` re-runs one frame at a
-  signed SRQL cursor without rewriting the query or remounting the
-  renderer. Cursors stay request metadata; do not put `cursor:` in the
-  query string. `@carverauto/serviceradar-dashboard-sdk` 0.2.0 wraps
-  this as `SrqlClient.page` / `useDashboardFramePagination`. Device
-  tables that also resolve hostnames via `in:devices uid:(…)` must stay
+  FrameRunner ceiling and folded the sample in the browser.
+  Unsupported aggregations and group fields now return
+  `InvalidRequest` instead of that silent dump. **BREAKING** for
+  anyone who depended on the ignore; no in-tree caller did. Group
+  fields are `check` / `check_slug` / `slug`, `check_name`,
+  `verdict`, `status`, `input_key`, `input_value`, `input_stale`.
+  Vantage rollups unnest `inputs` with `jsonb_each`. Stats default
+  limit 100, hard cap 500.
+- Dashboards: `api.srql.page(frameId, cursor)` re-runs one frame at
+  a signed SRQL cursor without rewriting the query or remounting
+  the renderer. Cursors stay request metadata; do not put
+  `cursor:` in the query string.
+  `@carverauto/serviceradar-dashboard-sdk` 0.2.0 wraps this as
+  `SrqlClient.page` / `useDashboardFramePagination`. Device tables
+  that also resolve hostnames via `in:devices uid:(…)` must stay
   at page size ≤ 200.
-- Dashboards: package dashboards now have the same visibility and grant
-  model as authored dashboards (`private` / `shared` / `public`, plus
-  user and group grants on the instance). Existing dashboards stay
-  public with a null owner, so this release changes no one's audience.
-  A later release will flip the shipped `dashboards.packages.default_visibility`
-  default; this one ships `public`. Policy Editor Dashboards tab is
-  rebuilt from catalog metadata, and `cli.dashboard.*` keys alias
+- Dashboards: package dashboards now have the same visibility and
+  grant model as authored dashboards (`private` / `shared` /
+  `public`, plus user and group grants on the instance). Existing
+  dashboards stay public with a null owner, so this release
+  changes no one's audience. A later release will flip the shipped
+  `dashboards.packages.default_visibility` default; this one ships
+  `public`. Policy Editor Dashboards tab is rebuilt from catalog
+  metadata, and `cli.dashboard.*` keys alias
   `dashboards.packages.*` rather than being renamed.
 
 **1.4.46**
