@@ -484,6 +484,52 @@ def normalized_cpu_diagnostic_action(action: str) -> str:
     return re.sub(r'^      cpu: "(?:2|12)"\n', "", action, count=1, flags=re.MULTILINE)
 
 
+def declared_test_output_modes(action: str) -> tuple[str, ...]:
+    """Every --test_output mode an action declares, in source order."""
+    return tuple(re.findall(r"--test_output=(\S+)", action))
+
+
+def with_test_output_mode(action: str, index: int, mode: str) -> str:
+    """Rewrite exactly one --test_output site, so a drift can be simulated."""
+    sites = list(re.finditer(r"--test_output=\S+", action))
+    if index >= len(sites):
+        raise AssertionError(f"action declares no --test_output site {index}")
+    site = sites[index]
+    return f"{action[: site.start()]}--test_output={mode}{action[site.end() :]}"
+
+
+def assert_test_output_mode(action: str, expected: str) -> None:
+    """Pin EVERY --test_output site in an action to one mode.
+
+    `all` prints the log of every test that RUNS, not just the ones that fail.
+    Measured on two green BazelCI runs either side of #4119, which restored the
+    INFO events these logs ride on: 592 console lines became 17318, of which
+    16726 were eight passing integration lanes narrating themselves. `errors`
+    keeps the failing test's full ExUnit block -- the output the console exists
+    for -- and drops the rest.
+
+    The two lanes that run on pull requests and staging therefore pin `errors`,
+    and the branch-only IntegrationBenchmark harness keeps `all`: it never runs
+    on a PR, so it contributes none of that noise, and its command block is
+    hashed verbatim by //:integration_benchmark_harness_hash. Editing it for
+    consistency alone would invalidate published benchmark evidence for a
+    console nobody reads. See the mode-drift test below.
+
+    Asserted over EVERY site rather than one, because each action carries the
+    mode in several blocks: a change that flips a single block still leaves an
+    `assertIn` anchored on another block passing.
+    """
+    modes = declared_test_output_modes(action)
+    if not modes:
+        raise AssertionError("action declares no --test_output mode")
+    unexpected = sorted(set(modes) - {expected})
+    if unexpected:
+        raise AssertionError(
+            f"expected every site to be --test_output={expected}, found "
+            + ", ".join(f"--test_output={mode}" for mode in unexpected)
+        )
+
+
 def cpu_diagnostic_input_hash() -> str:
     """Hash CPU-arm actions plus the complete checked-in measured workload."""
     digest = hashlib.sha256()
@@ -620,6 +666,10 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         ):
             self.assertIn(required, self.action)
 
+        # The measured harness keeps --test_output=all. It is branch-only, so it
+        # prints nothing on a PR, and its command block is hashed verbatim.
+        assert_test_output_mode(self.action, "all")
+
         # ExUnit's built-in slowest report implicitly enables trace, which forces
         # max_cases=1 and disables test timeouts. Authoritative benchmark runs must
         # exercise the checked-in integration concurrency cap instead.
@@ -736,6 +786,7 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
             with self.subTest(phase=phase):
                 self.assertEqual(1, block.count("--nocache_test_results"))
                 self.assertEqual(1, block.count("--noremote_upload_local_results"))
+                self.assertEqual(1, block.count("--test_output=all"))
 
     def test_clock_and_observer_markers_cannot_drift(self):
         self.assertIn("mktemp -d", self.action)
@@ -854,6 +905,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 for flag in (
                     "--nocache_test_results",
                     "--noremote_upload_local_results",
+                    "--test_output=errors",
                 )
                 if block.count(flag) != 1
             }
@@ -924,6 +976,30 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         for action_name in ("BazelCI", "LargeIngestionGate"):
             with self.subTest(action=action_name):
                 self.assert_cache_flags(action_name)
+
+    def test_test_output_mode_cannot_drift_in_either_direction(self):
+        """Every site is pinned, and flipping any single one is rejected.
+
+        Both directions matter. The lanes must not drift back to `all` and
+        restore the 17318-line console; the benchmark harness must not be
+        "made consistent" with them, because that rewrites a command block
+        hashed verbatim as published benchmark evidence.
+        """
+        for action_name, expected, drift in (
+            ("BazelCI", "errors", "all"),
+            ("LargeIngestionGate", "errors", "all"),
+            ("IntegrationBenchmark", "all", "errors"),
+        ):
+            action = named_action(action_name)
+            sites = len(declared_test_output_modes(action))
+            self.assertGreater(sites, 0)
+            assert_test_output_mode(action, expected)
+            for site in range(sites):
+                with self.subTest(action=action_name, site=site):
+                    drifted = with_test_output_mode(action, site, drift)
+                    self.assertNotEqual(action, drifted)
+                    with self.assertRaises(AssertionError):
+                        assert_test_output_mode(drifted, expected)
 
     def test_guarded_elixir_suites_cannot_bypass_the_typed_ci_fixture(self):
         preload = INTEGRATION_ENV.read_text(encoding="utf-8")
@@ -1029,7 +1105,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             "--//build:enable_integration_tests",
             "--//build:run_id=$RUN_ID",
             "--flaky_test_attempts=1",
-            "--test_output=all",
+            "--test_output=errors",
             "od -An -tx1 -N4 /dev/urandom",
             "export RUN_ID",
             "//:buildbuddy_setup_fixture_env",
@@ -1044,6 +1120,8 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             suite_command,
         ):
             self.assertIn(required, action)
+
+        assert_test_output_mode(action, "errors")
 
         environment_bindings = re.findall(
             r"\bSERVICERADAR_ENV=([A-Za-z0-9_-]+)", action
@@ -1064,7 +1142,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             "--//build:run_id=$RUN_ID",
             "--test_env=SERVICERADAR_ENV=ci",
             "--flaky_test_attempts=1",
-            "--test_output=all",
+            "--test_output=errors",
         ):
             self.assertIn(measured_flag, measured[flags:cleanup])
         for secret in (
