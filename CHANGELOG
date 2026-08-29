@@ -1,12 +1,51 @@
-# ServiceRadar v1.4.46
+# ServiceRadar v1.4.47
 
-Makes endpoint devices appear under the switches they attach to,
-after three stages of the God-View pipeline each threw that
-evidence away in turn. Stops the Armis API key rendering into the
-edit form, and stops the Helm chart minting a new CNPG password on
-every Argo sync.
+Unblocks running more than one flow collector. Templates now live in
+a shared NATS KV bucket, the events-to-flows cutover moves into a
+Helm hook Job so the pods hold no durable state, and the parser's
+10,000-exporter ceiling becomes a config knob. Also adds an MCP
+server so agents can query SRQL through existing SSO.
 
 ## Whats New
+
+**1.4.47**
+- Flow collector: multiple replicas are supported. Three things
+  blocked it. Templates were per-pod, so any pod change dropped
+  flows until each exporter re-announced (~60s, RFC 3954) - they
+  now write through to a NATS JetStream KV bucket that any pod can
+  read. The publisher performed a JetStream create/update from
+  durable markers on a ReadWriteOnce PVC with no leader election -
+  that cutover moves into a `pre-install,pre-upgrade` hook Job, so
+  pods derive their subject list from config alone and concurrent
+  ensures converge instead of racing. And `netflow_parser` caps
+  tracked exporters at 10,000 and evicts (LRU) past it, which is
+  now `listeners[].max_sources`. `strategy` becomes `RollingUpdate`
+  with soft pod anti-affinity. (PR #4103, #4109, #4126)
+- Flow collector: `/metrics` is real. `metrics_addr` existed in the
+  config struct but nothing read it, so the port the chart exposed
+  answered nothing. Readiness probes `/readyz`, which tracks the
+  publisher's ready marker rather than the metrics socket - a pod
+  that has bound its port but not yet connected to NATS reads 503.
+  (PR #4103, #4126)
+- MCP: an AshAi-backed read-only API facade lets agents query SRQL,
+  logging in through the existing SSO rather than a second
+  credential path. SRQL is taught through MCP resources instead of
+  a catalog dump. (PR #4100, #4123, #4129, #4127, #4130)
+- Web UI: NetFlow charts support range exploration, with coalesced
+  drags committed as one navigation. SRQL builder modes are
+  hardened and queries are gated on the RBAC view catalog, so a
+  user cannot query a view they cannot see. (PR #3595, #4105,
+  #4117, #4118, #4114)
+- Helm: the chart unit suite passes and is gated in Bazel. It had
+  been failing unobserved because no CI job ran it. (PR #4108)
+- Topology: evidence upsert and prune now agree on missing
+  timestamps, so evidence stops being discarded on one path and
+  kept on the other. (PR #4101)
+- Inventory: recon and CSV upsert no longer fight over tombstones.
+  (PR #4095)
+- Event writer: `SFLOW_RAW` / `NETFLOW_RAW` bind to the `flows`
+  stream rather than the shared bus. (PR #4096)
+- SRQL: `LIKE` and list filters work on device type. (PR #4097)
 
 **Unreleased**
 - SRQL: `in:composite_results stats:` is honoured. The previous ignore
