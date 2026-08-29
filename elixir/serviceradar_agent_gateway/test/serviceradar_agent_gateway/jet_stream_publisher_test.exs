@@ -16,10 +16,25 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
   # request and returns a canned reply.
   defmodule FakeConn do
     @moduledoc false
+    # The publisher resolves the lane connection to a PID before admitting, so the double has to
+    # answer get/1 too. Returning self() is enough: the test only cares WHICH connection was
+    # resolved, which the :resolved message records.
+    def get(name) do
+      send(self(), {:resolved, name})
+      {:ok, self()}
+    end
+
     def request(conn_name, subject, payload, opts) do
       send(self(), {:requested, conn_name, subject, payload, opts})
-      reply = Process.get(:fake_reply)
-      reply
+
+      # Simulates a lane restart landing between admit and settle: the pool the caller admitted
+      # through dies while its request is in flight.
+      case Process.get(:kill_pool_during_request) do
+        nil -> :ok
+        pid -> Process.exit(pid, :kill)
+      end
+
+      Process.get(:fake_reply)
     end
   end
 
@@ -305,9 +320,13 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
           with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":1})}})
 
           assert {:ok, _} = JetStreamPublisher.publish_record(pub, with_pools(connection: FakeConn))
+          # The connection is resolved by NAME once, before admission, and the request then uses
+          # the resolved PID -- so the lane is asserted on the resolution, not on the request.
+          assert_received {:resolved, name}
           assert_received {:requested, conn, _subject, _payload, _opts}
-          assert conn === PublisherLane.connection_name(lane)
-          conn
+          assert name === PublisherLane.connection_name(lane)
+          assert is_pid(conn)
+          name
         end
 
       # NOT VACUOUS: the four active pairs resolve to THREE distinct connections -- both recovery
@@ -378,6 +397,58 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert %{outstanding_frames: 1, available_frames: 0} = PublisherPool.capacity(pools[:bulk])
     end
 
+    test "a DIFFERENT record on the SAME slot is published, with a distinct Nats-Msg-Id" do
+      # NORMATIVE: "a frame reuses the same slot with a different record_sha256 ... JetStream SHALL
+      # NOT deduplicate it away and the frame SHALL reach EventWriter", which rejects it as a
+      # transport-integrity violation. Refusing it in the gateway -- as an earlier :slot_conflict
+      # did -- moves EventWriter's adjudication upstream and destroys the evidence.
+      pools = with_pools([])[:pools]
+      first = publication()
+      second = publication(%{record_bytes: "a-different-record"})
+
+      {:ok, planned} = JetStreamPublisher.plan(first)
+      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":1})}})
+      assert {:ok, _} = JetStreamPublisher.publish_record(first, connection: FakeConn, pools: pools)
+      assert_received {:requested, _c1, _s1, _p1, opts1}
+
+      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":2})}})
+
+      assert {:ok, _} =
+               JetStreamPublisher.publish_record(second, connection: FakeConn, pools: pools),
+             "the second record on that slot was refused; the spec requires it to be published"
+
+      assert_received {:requested, _c2, _s2, payload2, opts2}
+      assert payload2 === "a-different-record"
+
+      # Distinct Nats-Msg-Id is what stops JetStream deduplicating the second away.
+      msg_id = fn opts -> opts |> Keyword.fetch!(:headers) |> header("Nats-Msg-Id") end
+      refute msg_id.(opts1) === msg_id.(opts2)
+    end
+
+    test "a pool that dies mid-attempt does not exit the caller" do
+      # :one_for_all restarts a lane as a unit, so the pool a caller admitted through can be gone
+      # by the time it settles. The publish has already happened; the caller must get its result,
+      # not a :noproc exit from settlement.
+      # The pools are LINKED to this process, so trap exits: the point is that the PUBLISHER
+      # survives the pool dying, not that the pool can be killed without consequence here.
+      Process.flag(:trap_exit, true)
+
+      pools = with_pools([])[:pools]
+      {:ok, planned} = JetStreamPublisher.plan(publication())
+      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":4})}})
+      Process.put(:kill_pool_during_request, pools[:bulk])
+
+      assert {:ok, %{seq: 4}} =
+               JetStreamPublisher.publish_record(publication(),
+                 connection: FakeConn,
+                 pools: pools
+               ),
+             "settlement against a dead pool escaped as an exit instead of being reported"
+
+      Process.delete(:kill_pool_during_request)
+      refute Process.alive?(pools[:bulk])
+    end
+
     test "COUNTEREXAMPLE: a derivation failure after admission must not consume a credit" do
       pools = one_frame_pools()
 
@@ -416,9 +487,9 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
                  receive_timeout: 60_000
                )
 
-      now = System.monotonic_time(:millisecond)
-
-      assert PublisherPool.expired(pools[:bulk], now) === [],
+      # The pool owns the clock, so there is no `now` to pass -- and no malformed `now` that could
+      # crash it and take the lane with it.
+      assert PublisherPool.expired(pools[:bulk]) === [],
              "the retry kept the expired deadline instead of re-arming it"
     end
 
