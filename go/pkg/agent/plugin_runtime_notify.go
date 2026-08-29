@@ -117,12 +117,13 @@ const notificationDeliveryResultSchema = "serviceradar.notification_delivery_res
 //
 //nolint:gochecknoglobals // closed allowlist, read-only after init
 var notificationCredentialInjectionModes = map[string]struct{}{
-	"http_header":            {},
-	"bearer_token":           {},
-	"basic_auth":             {},
-	"query":                  {},
-	"form_urlencoded":        {},
-	"oauth2_password_bearer": {},
+	"http_header":               {},
+	"bearer_token":              {},
+	"basic_auth":                {},
+	"query":                     {},
+	"form_urlencoded":           {},
+	"oauth2_password_bearer":    {},
+	"oauth2_client_credentials": {},
 }
 
 // errPluginNotifyCapabilityDenied is returned when an assignment is asked to

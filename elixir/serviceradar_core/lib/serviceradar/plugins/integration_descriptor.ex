@@ -55,7 +55,7 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
   @allowed_http_methods ~w(GET POST PUT PATCH DELETE HEAD OPTIONS)
   @allowed_injection_types ~w(
     http_header header bearer_token basic_auth http_basic_auth query query_param http_query
-    form_urlencoded oauth2_password_bearer
+    form_urlencoded oauth2_password_bearer oauth2_client_credentials
   )
   @allowed_scope_types ~w(agent gateway partition)
   @allowed_field_formats ~w(text boolean number timestamp)

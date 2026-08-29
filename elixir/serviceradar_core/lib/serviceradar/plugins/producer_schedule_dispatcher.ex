@@ -652,11 +652,8 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
     end
   end
 
-  defp resolve_derived_token_endpoint(
-         key,
-         %{"type" => "oauth2_password_bearer"} = inject,
-         schedule
-       ) do
+  defp resolve_derived_token_endpoint(key, %{"type" => type} = inject, schedule)
+       when type in ~w(oauth2_password_bearer oauth2_client_credentials) do
     case normalize_optional_string(map_get(inject, "token_url_param")) do
       nil ->
         {:error, {:missing_schedule_credential_token_endpoint, key}}

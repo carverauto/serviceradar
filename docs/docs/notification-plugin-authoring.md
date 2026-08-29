@@ -332,6 +332,7 @@ agent.
 | `query` | `name` | Adds the resolved material as the named query parameter |
 | `form_urlencoded` | `method`, `host`, integer `port`, `path`, and at least one `field_<material-field>: <form-field>` mapping | Adds mapped credential material only when the plugin's HTTPS request exactly matches the method, host, port grant, and path |
 | `oauth2_password_bearer` | The upstream `method`, `host`, integer `port`, and `path`; `token_method: POST`, `token_host`, integer `token_port`, and `token_path`; mappings to both `username` and `password`; `fixed_grant_type: password` | Performs the exact HTTPS password-token exchange, then sets the upstream request's `Authorization: Bearer ...` header |
+| `oauth2_client_credentials` | The same target and token-endpoint keys as `oauth2_password_bearer`, but mappings to both `client_id` and `client_secret`, and `fixed_grant_type: client_credentials` | Performs the RFC 6749 section 4.4 client-credentials exchange, then sets the upstream request's `Authorization: Bearer ...` header |
 
 For example, `field_account_name: username` reads the `account_name` field from
 the resolved credential and writes it to the `username` form field. Mapping
@@ -340,6 +341,17 @@ with `/` and do not include a query or fragment. Target ports are integers in
 `plugin.yaml`; the platform emits only string-valued entries to the host grant,
 serializing `token_port` as a decimal string and keeping the upstream `port` in
 the grant's egress scope.
+
+The two OAuth2 modes run the identical host-side exchange and differ only in
+the grant they perform and the two credential fields that grant requires. A
+requirement naming one mode while mapping the other's fields is rejected: the
+required-field list is per-mode, so `oauth2_client_credentials` mapping
+`username`/`password` fails validation even though both mappings are otherwise
+well-formed and the grant type is self-consistent.
+
+Neither mode lets the plugin see the long-lived credential. The host performs
+the token exchange itself and puts only the derived short-lived bearer token on
+the upstream request, so the client secret never crosses the guest boundary.
 
 Shorthand spellings some other surfaces accept - `header`, `http_basic_auth`,
 `query_param`, `http_query` - are **not** accepted here, deliberately, so that a
