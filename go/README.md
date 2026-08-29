@@ -27,7 +27,7 @@ do not add anything to it.
 
 ```
 go/cmd/wasm-plugins/{alienvault-otx,awx,axis,dusk-checker,netbox,
-                     opentext-network-automation,proxmox,sample-northbound,unifi-protect}
+                     opentext-nom,proxmox,sample-northbound,unifi-protect}
 go/tools/wasm-plugin-harness
 ```
 

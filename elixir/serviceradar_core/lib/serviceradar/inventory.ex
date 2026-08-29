@@ -55,6 +55,9 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.DeviceInterfaceMac
     resource ServiceRadar.Inventory.DeviceSourceObservation
     resource ServiceRadar.Inventory.DeviceSourceSnapshot
+    resource ServiceRadar.Inventory.DeviceSourceFact
+    resource ServiceRadar.Inventory.SourceFactAuthority
+    resource ServiceRadar.Inventory.SourceFactDisagreement
     resource ServiceRadar.Inventory.SourceIdentityConflict
     resource ServiceRadar.Inventory.MergeAudit
     resource ServiceRadar.Inventory.DeviceCleanupSettings

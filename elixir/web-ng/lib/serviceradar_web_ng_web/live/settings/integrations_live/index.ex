@@ -412,6 +412,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
       params = Map.put(params, "network_blacklist", blacklist)
       params = put_composite_setting(params, %{})
+      params = put_fact_authority_setting(params)
 
       params =
         Map.put(
@@ -423,7 +424,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       form = AshPhoenix.Form.validate(socket.assigns.create_form.source, params)
 
       case AshPhoenix.Form.submit(form, params: params, actor: actor) do
-        {:ok, _source} ->
+        {:ok, source} ->
+          _ = sync_fact_authority(source, params, actor)
+
           {:noreply,
            socket
            |> assign(:show_create_modal, false)
@@ -463,6 +466,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
     params = Map.put(params, "network_blacklist", blacklist)
     params = put_composite_setting(params, Map.get(socket.assigns.selected_source || %{}, :settings))
+    params = put_fact_authority_setting(params)
 
     params =
       Map.put(
@@ -474,7 +478,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     form = AshPhoenix.Form.validate(socket.assigns.edit_form.source, params)
 
     case AshPhoenix.Form.submit(form, params: params, actor: actor) do
-      {:ok, _source} ->
+      {:ok, source} ->
+        _ = sync_fact_authority(source, params, actor)
+
         {:noreply,
          socket
          |> assign(:show_edit_modal, false)
@@ -1253,6 +1259,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             custom_fields_value={@form_custom_fields}
           />
 
+          <.fact_authority_fields selected={[]} />
+
           <div class="sr-ui-divider text-xs text-sr-muted">Queries</div>
 
           <div class="space-y-3">
@@ -1463,6 +1471,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             form={@form}
             custom_fields_value={@form_custom_fields}
           />
+
+          <.fact_authority_fields selected={fact_authority_selected(@source)} />
 
           <div class="sr-ui-divider text-xs text-sr-muted">Queries</div>
 
@@ -2166,6 +2176,28 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     params
     |> Map.put("settings", settings)
     |> Map.drop(["composite_check_slug", "composite_value_form", "composite_custom_field"])
+  end
+
+  defp put_fact_authority_setting(params) do
+    keys =
+      params
+      |> Map.get("fact_authority", [])
+      |> List.wrap()
+      |> Enum.map(&to_string/1)
+      |> Enum.filter(&(&1 in ["switch_port_attachment", "vlan_uid"]))
+
+    settings =
+      params
+      |> Map.get("settings", %{})
+      |> case do
+        map when is_map(map) -> Map.new(map, fn {k, v} -> {to_string(k), v} end)
+        _ -> %{}
+      end
+      |> Map.put("fact_authority", keys)
+
+    params
+    |> Map.put("settings", settings)
+    |> Map.delete("fact_authority")
   end
 
   defp refresh_selected_source(nil, _actor), do: nil
@@ -3030,6 +3062,66 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         </div>
     <% end %>
     """
+  end
+
+  attr :selected, :list, default: []
+
+  defp fact_authority_fields(assigns) do
+    ~H"""
+    <div class="sr-ui-divider text-xs text-sr-muted">Source fact authority</div>
+    <p class="text-xs text-sr-muted">
+      When Armis and another inventory source disagree, this source can win for the selected facts.
+      Plugin packages cannot set this.
+    </p>
+    <div class="space-y-2">
+      <label class="flex items-center gap-3 text-sm">
+        <input
+          type="checkbox"
+          name="form[fact_authority][]"
+          value="switch_port_attachment"
+          class={ui_toggle_class()}
+          checked={"switch_port_attachment" in @selected}
+        />
+        <span>This source wins for switch port</span>
+      </label>
+      <label class="flex items-center gap-3 text-sm">
+        <input
+          type="checkbox"
+          name="form[fact_authority][]"
+          value="vlan_uid"
+          class={ui_toggle_class()}
+          checked={"vlan_uid" in @selected}
+        />
+        <span>This source wins for VLAN</span>
+      </label>
+    </div>
+    """
+  end
+
+  defp fact_authority_selected(%{settings: settings}) when is_map(settings) do
+    settings
+    |> Map.get("fact_authority", Map.get(settings, :fact_authority, []))
+    |> List.wrap()
+    |> Enum.map(&to_string/1)
+  end
+
+  defp fact_authority_selected(_source), do: []
+
+  defp sync_fact_authority(source, params, actor) do
+    keys =
+      params
+      |> Map.get("fact_authority", Map.get(params, :fact_authority, []))
+      |> List.wrap()
+      |> Enum.map(&to_string/1)
+
+    ServiceRadar.Inventory.SourceFacts.Catalog.sync(
+      "integration_source",
+      to_string(source.id),
+      to_string(source.source_type),
+      to_string(source.id),
+      keys,
+      actor: actor
+    )
   end
 
   attr(:form, :any, required: true)

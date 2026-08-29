@@ -67,6 +67,8 @@ fn implicitly_promotes_supported_device_jsonb_wildcards_to_like() {
         "in:devices hw_info.serial_number:%ABC%",
         "in:devices hw_info.cpu_type:%arm%",
         "in:devices hw_info.cpu_architecture:%x86%",
+        "in:devices switch_port_attachment.switch_hostname:%asw%",
+        "in:devices vlan_uid:%56%",
     ] {
         let ast = parse(query).unwrap();
 
@@ -84,6 +86,20 @@ fn implicitly_promotes_dynamic_jsonb_wildcards_to_like() {
     assert!(matches!(ast.filters[0].op, FilterOp::Like));
     assert_eq!(ast.filters[1].field, "metadata.Zone");
     assert!(matches!(ast.filters[1].op, FilterOp::NotLike));
+}
+
+#[test]
+fn parses_source_fact_disagreement_entity() {
+    let ast = parse(
+        "in:source_fact_disagreements fact_key:switch_port_attachment status:open sort:last_detected_at:desc",
+    )
+    .unwrap();
+    assert!(matches!(
+        ast.entity,
+        crate::parser::Entity::SourceFactDisagreements
+    ));
+    assert_eq!(ast.filters[0].field, "fact_key");
+    assert_eq!(ast.filters[1].field, "status");
 }
 
 #[test]

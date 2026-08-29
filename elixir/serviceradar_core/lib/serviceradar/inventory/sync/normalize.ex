@@ -53,7 +53,10 @@ defmodule ServiceRadar.Inventory.Sync.Normalize do
       last_seen_time: parse_timestamp(get_value(update, ["last_seen_time", :last_seen_time])),
       timestamp: parse_timestamp(get_value(update, ["timestamp", :timestamp])),
       is_available: get_bool(update, ["is_available", :is_available]),
-      source: get_string(update, ["source", :source]) || "unknown"
+      is_managed: get_bool(update, ["is_managed", :is_managed]),
+      source: get_string(update, ["source", :source]) || "unknown",
+      source_instance: get_string(update, ["source_instance", :source_instance]),
+      facts: get_map(update, ["facts", :facts])
     }
   end
 
@@ -75,7 +78,10 @@ defmodule ServiceRadar.Inventory.Sync.Normalize do
       last_seen_time: nil,
       timestamp: nil,
       is_available: nil,
-      source: "unknown"
+      is_managed: nil,
+      source: "unknown",
+      source_instance: nil,
+      facts: %{}
     }
   end
 
@@ -411,14 +417,22 @@ defmodule ServiceRadar.Inventory.Sync.Normalize do
   def maybe_put(metadata, key, value), do: Map.put(metadata, key, value)
 
   def get_bool(map, keys) do
-    case get_value(map, keys) do
-      nil -> nil
-      "" -> nil
-      true -> true
-      false -> false
-      value when is_integer(value) -> value != 0
-      value when is_binary(value) -> parse_bool_string(value)
-      _ -> nil
+    # Map.get/find_value treat `false` as missing. Look up the key explicitly
+    # so unmanaged inventory (`is_managed: false`) is not coerced to nil.
+    case Enum.find(keys, &Map.has_key?(map, &1)) do
+      nil ->
+        nil
+
+      key ->
+        case Map.get(map, key) do
+          nil -> nil
+          "" -> nil
+          true -> true
+          false -> false
+          value when is_integer(value) -> value != 0
+          value when is_binary(value) -> parse_bool_string(value)
+          _ -> nil
+        end
     end
   end
 

@@ -14,6 +14,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Inventory.Identity.BatchResolver
   alias ServiceRadar.Inventory.Identity.Fence
+  alias ServiceRadar.Inventory.SourceFacts.Reconciler, as: SourceFactReconciler
   alias ServiceRadar.Inventory.Sync.Aliases
   alias ServiceRadar.Inventory.Sync.DeviceRecords
   alias ServiceRadar.Inventory.Sync.DeviceWrites
@@ -136,6 +137,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
         _ = maybe_process_alias_conflicts(:ok, resolved_updates, actor)
         alias_result = maybe_process_alias_updates(:ok, resolved_updates, actor)
+        _ = SourceFactReconciler.ingest_resolved(resolved_updates)
 
         pins |> drop_remapped_pins(remap) |> Fence.observe_many(:sync_ingestor)
 

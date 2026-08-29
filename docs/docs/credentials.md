@@ -133,7 +133,7 @@ declared per provider by the package, not chosen from a global list:
 | `proxmox` | `inventory_enrichment`, `console_access` |
 | `unifi-protect` | `camera_inventory`, `camera_stream` |
 | `axis` | `camera_inventory`, `camera_stream` |
-| `opentext-network-automation` | `device_inventory` |
+| `opentext-nom` | `device_inventory` |
 | `netbox` | `inventory_sync` (from `<first-release>`; see [NetBox](#netbox)) |
 | `awx` | `automation_execution` |
 | `vulncheck` | `vulnerability_feed_download` |
@@ -184,9 +184,8 @@ It shows one of five values:
 | `On demand` | A `producer_schedule` provider whose schedule exists but is not enabled. Use **Run Now**. |
 | `Pending` | A `producer_schedule` provider whose schedule has not been provisioned yet. Wait for credential reconciliation. |
 
-OpenText Network Automation is the only `producer_schedule` provider shipped
-today, so the last three badges only appear on an `opentext-network-automation`
-rule.
+OpenText NOM is the only `producer_schedule` provider shipped today, so the last
+three badges only appear on an `opentext-nom` rule.
 
 `Auto` is Proxmox-specific today and worth understanding before ticking it. An
 enabled Proxmox `inventory_enrichment` rule with auto-discovery on makes the

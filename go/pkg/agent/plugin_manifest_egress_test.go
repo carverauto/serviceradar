@@ -79,7 +79,7 @@ func TestOnPremApplianceManifestsDeclareAllowedNetworks(t *testing.T) {
 		wasmPluginManifestPath("unifi-protect", "plugin.stream.yaml"),
 		wasmPluginManifestPath("axis", "plugin.yaml"),
 		wasmPluginManifestPath("axis", "plugin.stream.yaml"),
-		wasmPluginManifestPath("opentext-network-automation", "plugin.yaml"),
+		wasmPluginManifestPath("opentext-nom", "plugin.yaml"),
 		wasmPluginManifestPath("awx", "plugin.yaml"),
 		wasmPluginManifestPath("awx", "plugin.inventory_sync.yaml"),
 	}

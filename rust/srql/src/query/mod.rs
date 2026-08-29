@@ -39,6 +39,7 @@ mod otel_metrics;
 mod process_metrics;
 mod public_endpoints;
 mod services;
+mod source_fact_disagreements;
 mod timeseries_metrics;
 mod trace_summaries;
 mod traces;

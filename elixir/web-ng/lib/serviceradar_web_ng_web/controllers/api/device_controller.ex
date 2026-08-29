@@ -208,6 +208,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
       "zone" => device.zone,
       "subnet_uid" => device.subnet_uid,
       "vlan_uid" => device.vlan_uid,
+      "switch_port_attachment" => device.switch_port_attachment,
       "region" => device.region,
       # OCSF Temporal
       "first_seen_time" => normalize_value(device.first_seen_time),
@@ -462,6 +463,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
         "zone" => device.zone,
         "subnet_uid" => device.subnet_uid,
         "vlan_uid" => device.vlan_uid,
+        "switch_port_attachment" => device.switch_port_attachment,
         "region" => device.region,
         "first_seen_time" => normalize_value(device.first_seen_time),
         "last_seen_time" => normalize_value(device.last_seen_time),

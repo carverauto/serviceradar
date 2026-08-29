@@ -89,7 +89,7 @@ names, and three of them document behaviour that is now wrong.
 - Affected specs: `wasm-plugin-system`, `credential-management`,
   `unifi-protect-camera-plugin`, `network-discovery`, `ansible-integration`,
   `netbox-inventory-plugin` (new).
-- Affected code: `go/cmd/wasm-plugins/{unifi-protect,axis,proxmox,opentext-network-automation,awx,netbox}/`,
+- Affected code: `go/cmd/wasm-plugins/{unifi-protect,axis,proxmox,opentext-nom,awx,netbox}/`,
   `go/pkg/agent/plugin_runtime_http.go`,
   `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/network_credential_rules_live.ex`,
   `elixir/serviceradar_core/lib/serviceradar/credentials/`,

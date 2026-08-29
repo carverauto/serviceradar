@@ -223,6 +223,41 @@ defmodule ServiceRadar.Plugins.ManifestTest do
              "https://plugins.example.test/example-inventory/v1.0.0/configuration"
   end
 
+  test "inventory sources may advertise emitted facts" do
+    manifest =
+      update_in(
+        integration_manifest(),
+        ["integrations", "inventory_sources", Access.at(0)],
+        &Map.put(&1, "emitted_facts", ["switch_port_attachment", "vlan_uid"])
+      )
+
+    assert {:ok, parsed} = Manifest.from_map(manifest)
+    assert [source] = parsed.integrations["inventory_sources"]
+    assert source["emitted_facts"] == ["switch_port_attachment", "vlan_uid"]
+  end
+
+  test "plugin manifests must not declare fact winners" do
+    manifest =
+      update_in(
+        integration_manifest(),
+        ["integrations", "inventory_sources", Access.at(0)],
+        &Map.put(&1, "winner", true)
+      )
+
+    assert {:error, errors} = Manifest.from_map(manifest)
+
+    assert Enum.any?(errors, fn error ->
+             String.contains?(error, "winner") and
+               String.contains?(error, "must not declare fact authority")
+           end)
+  end
+
+  test "plugin manifests must not declare precedence" do
+    manifest = put_in(integration_manifest(), ["integrations", "precedence"], ["armis"])
+    assert {:error, errors} = Manifest.from_map(manifest)
+    assert Enum.any?(errors, &String.contains?(&1, "precedence"))
+  end
+
   test "integration documentation rejects non-HTTPS URLs" do
     manifest =
       put_in(

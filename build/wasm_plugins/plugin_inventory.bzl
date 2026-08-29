@@ -57,9 +57,9 @@ WASM_BUILD_TARGETS = [
         "tags": [],
     },
     {
-        "name": "opentext_network_automation_inventory",
-        "srcs": ["//go/cmd/wasm-plugins/opentext-network-automation:srcs"],
-        "main_go": "//go/cmd/wasm-plugins/opentext-network-automation:main_tinygo.go",
+        "name": "opentext_nom_inventory",
+        "srcs": ["//go/cmd/wasm-plugins/opentext-nom:srcs"],
+        "main_go": "//go/cmd/wasm-plugins/opentext-nom:main_tinygo.go",
         "tags": ["tinygo"],
     },
 ]
@@ -215,15 +215,15 @@ WASM_PLUGIN_BUNDLES = [
         ],
     },
     {
-        "name": "opentext_network_automation_inventory_bundle",
-        "plugin_id": "opentext-network-automation-inventory",
-        "repository_name": "wasm-plugin-opentext-network-automation-inventory",
-        "wasm_target": ":opentext_network_automation_inventory_wasm",
+        "name": "opentext_nom_inventory_bundle",
+        "plugin_id": "opentext-nom-inventory",
+        "repository_name": "wasm-plugin-opentext-nom-inventory",
+        "wasm_target": ":opentext_nom_inventory_wasm",
         "entries": [
-            ("plugin.yaml", "//go/cmd/wasm-plugins/opentext-network-automation:plugin.yaml"),
-            ("plugin.wasm", ":opentext_network_automation_inventory_wasm"),
-            ("config.schema.json", "//go/cmd/wasm-plugins/opentext-network-automation:config.schema.json"),
-            ("docs/configuration.md", "//go/cmd/wasm-plugins/opentext-network-automation:docs/configuration.md"),
+            ("plugin.yaml", "//go/cmd/wasm-plugins/opentext-nom:plugin.yaml"),
+            ("plugin.wasm", ":opentext_nom_inventory_wasm"),
+            ("config.schema.json", "//go/cmd/wasm-plugins/opentext-nom:config.schema.json"),
+            ("docs/configuration.md", "//go/cmd/wasm-plugins/opentext-nom:docs/configuration.md"),
         ],
     },
 ]

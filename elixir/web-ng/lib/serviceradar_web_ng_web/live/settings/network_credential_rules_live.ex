@@ -439,6 +439,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           provider_options={@provider_options}
           integration_profiles={@integration_profiles}
           agent_options={@agent_options}
+          editing_rule={@editing_rule}
         />
 
         <.rule_preview_modal :if={@rule_preview} rule_preview={@rule_preview} />
@@ -1054,6 +1055,31 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 label="Enable recurring inventory refresh"
               />
             </div>
+            <div class="space-y-2">
+              <p class="text-sm font-medium text-sr-ink">
+                When sources disagree, this source wins for
+              </p>
+              <label class="flex items-center gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  name="credential_rule[fact_authority][]"
+                  value="switch_port_attachment"
+                  class={ui_toggle_class()}
+                  checked={"switch_port_attachment" in fact_authority_selected(@editing_rule)}
+                />
+                <span>Switch port</span>
+              </label>
+              <label class="flex items-center gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  name="credential_rule[fact_authority][]"
+                  value="vlan_uid"
+                  class={ui_toggle_class()}
+                  checked={"vlan_uid" in fact_authority_selected(@editing_rule)}
+                />
+                <span>VLAN</span>
+              </label>
+            </div>
           </fieldset>
           <.input
             :if={@show_auto_discovery?}
@@ -1134,7 +1160,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     case NetworkCredentialRule
          |> Ash.Changeset.for_create(:create, attrs, scope: socket.assigns.current_scope)
          |> Ash.create(scope: socket.assigns.current_scope) do
-      {:ok, _rule} ->
+      {:ok, rule} ->
+        _ = sync_fact_authority(rule, socket.assigns.current_scope)
+
         {:noreply,
          socket
          |> put_flash(:info, "Credential rule created")
@@ -1151,7 +1179,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     case rule
          |> Ash.Changeset.for_update(:update, attrs, scope: socket.assigns.current_scope)
          |> Ash.update(scope: socket.assigns.current_scope) do
-      {:ok, _rule} ->
+      {:ok, rule} ->
+        _ = sync_fact_authority(rule, socket.assigns.current_scope)
+
         {:noreply,
          socket
          |> put_flash(:info, "Credential rule saved")
@@ -1164,6 +1194,21 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp save_rule(socket, _attrs) do
     {:noreply, put_flash(socket, :error, "Credential rule form is not ready")}
+  end
+
+  defp sync_fact_authority(rule, scope) do
+    metadata = normalize_metadata(rule.metadata)
+    keys = fact_authority_selected(rule)
+    instance = get_in(metadata, ["plugin_config", "instance_id"])
+
+    ServiceRadar.Inventory.SourceFacts.Catalog.sync(
+      "plugin_assignment",
+      to_string(rule.id),
+      to_string(rule.provider),
+      instance,
+      keys,
+      actor: scope
+    )
   end
 
   defp save_secret(socket, attrs) do
@@ -1860,7 +1905,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             "plugin_config" => config,
             "purposes" => Enum.map(purposes, &to_string/1),
             "schedule_enabled" => boolean_param(params, "schedule_enabled"),
-            "cadence_seconds" => cadence_seconds
+            "cadence_seconds" => cadence_seconds,
+            "fact_authority" => fact_authority_param(params)
           },
           credential_use_policy
         )
@@ -2049,9 +2095,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "plugin_config",
       "schedule_enabled",
       "cadence_seconds",
-      "credential_use_policy"
+      "credential_use_policy",
+      "fact_authority"
     ]
   end
+
+  defp fact_authority_param(params) do
+    params
+    |> Map.get("fact_authority", [])
+    |> List.wrap()
+    |> Enum.map(&to_string/1)
+    |> Enum.filter(&(&1 in ["switch_port_attachment", "vlan_uid"]))
+  end
+
+  defp fact_authority_selected(%{metadata: metadata}) when is_map(metadata) do
+    metadata
+    |> Map.get("fact_authority", [])
+    |> List.wrap()
+    |> Enum.map(&to_string/1)
+  end
+
+  defp fact_authority_selected(_rule), do: []
 
   defp normalize_metadata(metadata) when is_map(metadata), do: metadata
   defp normalize_metadata(_metadata), do: %{}

@@ -577,6 +577,11 @@ defmodule ServiceRadar.Inventory.Device do
       description "VLAN identifier"
     end
 
+    attribute :switch_port_attachment, :map do
+      public? true
+      description "Canonical access-switch attachment promoted from source facts"
+    end
+
     attribute :region, :string do
       public? true
       description "Geographic region"

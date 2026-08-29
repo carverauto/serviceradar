@@ -63,7 +63,8 @@ CREATE TABLE public.ocsf_devices (
     deleted_at          TIMESTAMPTZ,
     deleted_by          TEXT,
     deleted_reason      TEXT,
-    partition           TEXT        NOT NULL DEFAULT 'default'
+    partition           TEXT        NOT NULL DEFAULT 'default',
+    switch_port_attachment JSONB
 );
 
 -- The SRQL engine schema-qualifies device-identity correlation lookups as
@@ -733,3 +734,29 @@ CREATE OR REPLACE VIEW platform.device_identifiers AS
 
 CREATE OR REPLACE VIEW platform.discovered_interfaces AS
     SELECT * FROM public.discovered_interfaces;
+
+-- Canonical source-fact disagreements. Diesel selects every column in
+-- rust/srql/src/schema.rs; without this table a device query is fine but
+-- `in:source_fact_disagreements` fails the same way ocsf_devices did
+-- before its platform view existed.
+DROP TABLE IF EXISTS source_fact_disagreements CASCADE;
+
+CREATE TABLE source_fact_disagreements (
+    id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_uid              TEXT        NOT NULL,
+    fact_key                TEXT        NOT NULL,
+    status                  TEXT        NOT NULL DEFAULT 'open',
+    compare_signature       TEXT        NOT NULL,
+    "values"                JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    configuration_conflict  BOOLEAN     NOT NULL DEFAULT FALSE,
+    first_detected_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_detected_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    cleared_at              TIMESTAMPTZ,
+    dismissed_at            TIMESTAMPTZ,
+    metadata                JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE OR REPLACE VIEW platform.source_fact_disagreements AS
+    SELECT * FROM public.source_fact_disagreements;

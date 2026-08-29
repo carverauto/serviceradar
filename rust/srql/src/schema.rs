@@ -205,6 +205,7 @@ diesel::table! {
         deleted_by -> Nullable<Text>,
         deleted_reason -> Nullable<Text>,
         partition -> Text,
+        switch_port_attachment -> Nullable<Jsonb>,
     }
 }
 
@@ -775,5 +776,26 @@ diesel::table! {
         ocsf_payload -> Jsonb,
         partition -> Nullable<Text>,
         created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    source_fact_disagreements (id) {
+        id -> Uuid,
+        device_uid -> Text,
+        fact_key -> Text,
+        status -> Text,
+        compare_signature -> Text,
+        values -> Jsonb,
+        configuration_conflict -> Bool,
+        first_detected_at -> Timestamptz,
+        last_detected_at -> Timestamptz,
+        cleared_at -> Nullable<Timestamptz>,
+        dismissed_at -> Nullable<Timestamptz>,
+        metadata -> Jsonb,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }

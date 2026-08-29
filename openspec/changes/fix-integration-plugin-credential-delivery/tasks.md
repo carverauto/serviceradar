@@ -1,7 +1,7 @@
 # Tasks
 
 ## 1. Wasm sandbox egress (PR: fix/plugin-egress-literal-ip)
-- [ ] 1.1 Add `allowed_networks` (RFC1918 + CGNAT, excluding link-local) to `unifi-protect`, `axis`, and `opentext-network-automation` manifests, including their `.stream` variants.
+- [ ] 1.1 Add `allowed_networks` (RFC1918 + CGNAT, excluding link-local) to `unifi-protect`, `axis`, and `opentext-nom` manifests, including their `.stream` variants.
 - [ ] 1.2 Confirm `proxmox` reaches its destination through the host-authority binding and add `allowed_networks` only if a gate actually denies it.
 - [ ] 1.3 Add `action-only:v1` to the `awx` manifest so no periodic runner is scheduled for the command bridge.
 - [ ] 1.4 Bump each edited plugin's manifest `version` and satisfy `scripts/check-native-addon-version-bumps.sh` where the plugin is a registered add-on.

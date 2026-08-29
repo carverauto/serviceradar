@@ -157,6 +157,7 @@ if db_tests_available? do
         {"zone", "text"},
         {"subnet_uid", "text"},
         {"vlan_uid", "text"},
+        {"switch_port_attachment", "jsonb"},
         {"region", "text"},
         # OCSF Temporal
         {"first_seen_time", "timestamptz"},

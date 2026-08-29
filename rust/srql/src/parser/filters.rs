@@ -154,5 +154,10 @@ fn supports_implicit_like(field: &str) -> bool {
             | "hw_info.serial_number"
             | "hw_info.cpu_type"
             | "hw_info.cpu_architecture"
+            | "vlan_uid"
+            | "fact_key"
+            | "switch_port_attachment.switch_hostname"
+            | "switch_port_attachment.port"
+            | "switch_port_attachment.source"
     )
 }

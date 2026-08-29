@@ -37,7 +37,7 @@ use crate::{
         deleted_at as col_deleted_at, gateway_id as col_gateway_id, hostname as col_hostname,
         is_available as col_is_available, model as col_model, partition as col_partition,
         risk_level as col_risk_level, type_id as col_type_id, uid as col_uid,
-        vendor_name as col_vendor_name,
+        vendor_name as col_vendor_name, vlan_uid as col_vlan_uid,
     },
 };
 use diesel::dsl::{not, sql};
@@ -54,8 +54,7 @@ use diesel::sql_types::{Array, Bool, Text};
 /// boolean, never NULL), so wrapping it in `NOT (...)` produces the exact
 /// complement. It binds no user input — every literal is hard-coded — so it
 /// contributes zero placeholders to the query.
-pub(in crate::query::devices) const AWX_MANAGED_PREDICATE: &str =
-    "(metadata -> 'awx' ->> 'host_id' IS NOT NULL \
+pub(in crate::query::devices) const AWX_MANAGED_PREDICATE: &str = "(metadata -> 'awx' ->> 'host_id' IS NOT NULL \
      OR metadata -> 'awx' ->> 'controller_id' IS NOT NULL \
      OR COALESCE(discovery_sources, ARRAY[]::text[]) && ARRAY['awx', 'ansible']::text[])";
 
@@ -174,7 +173,23 @@ pub(super) fn apply_filter<'a>(
                 "vendor_name filter only supports equality"
             )?;
         }
-        // OCSF model
+        "vlan_uid" => {
+            query = apply_text_filter!(query, filter, col_vlan_uid)?;
+        }
+        "switch_port_attachment.switch_hostname" => {
+            query = apply_jsonb_text_filter(
+                query,
+                filter,
+                "switch_port_attachment",
+                "switch_hostname",
+            )?;
+        }
+        "switch_port_attachment.port" => {
+            query = apply_jsonb_text_filter(query, filter, "switch_port_attachment", "port")?;
+        }
+        "switch_port_attachment.source" => {
+            query = apply_jsonb_text_filter(query, filter, "switch_port_attachment", "source")?;
+        }
         "model" => {
             query = apply_eq_filter!(
                 query,

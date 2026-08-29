@@ -141,6 +141,9 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         | "endpoint_software_package"
         | "package_catalog"
         | "package_catalogs" => Ok(Entity::EndpointPackageCatalog),
+        "source_fact_disagreements" | "source_fact_disagreement" | "fact_disagreements" => {
+            Ok(Entity::SourceFactDisagreements)
+        }
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),

@@ -73,6 +73,20 @@ fn translate_param_arity_matches_sql_placeholders() {
                 direction: QueryDirection::Next,
                 mode: None,
             },
+            QueryRequest {
+                query: "in:devices switch_port_attachment.switch_hostname:niadcs-bldd03-asw001 vlan_uid:561".to_string(),
+                limit: Some(10),
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query: "in:source_fact_disagreements fact_key:switch_port_attachment status:open sort:last_detected_at:desc".to_string(),
+                limit: Some(25),
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
         ];
 
     for request in cases {
@@ -1458,10 +1472,8 @@ fn translate_timeseries_series_split_by_tag() {
 #[test]
 fn translate_timeseries_series_rejects_unsafe_tag_key() {
     assert!(
-        translate_query(
-            "in:timeseries_metrics time:last_1h bucket:10m agg:avg series:tags.a'b"
-        )
-        .is_err(),
+        translate_query("in:timeseries_metrics time:last_1h bucket:10m agg:avg series:tags.a'b")
+            .is_err(),
         "an unsafe series tag key must be rejected"
     );
 }

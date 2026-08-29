@@ -5,8 +5,8 @@ use super::{
     disk_metrics, downsample, endpoint_inventory_scans, endpoint_package_catalog,
     endpoint_packages, events, field_survey, flows, gateways, graph_cypher, interfaces,
     is_full_profile_query, logs, memory_metrics, otel_metric_points, otel_metrics, process_metrics,
-    public_endpoints, services, timeseries_metrics, trace_summaries, traces, translate_request,
-    virtualization, wifi_map,
+    public_endpoints, services, source_fact_disagreements, timeseries_metrics, trace_summaries,
+    traces, translate_request, virtualization, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -134,6 +134,9 @@ impl QueryEngine {
                 | Entity::VirtualizationNetworkInterfaces
                 | Entity::VirtualizationStorageSystems => {
                     virtualization::execute(&mut conn, &plan).await?
+                }
+                Entity::SourceFactDisagreements => {
+                    source_fact_disagreements::execute(&mut conn, &plan).await?
                 }
             }
         };

@@ -297,6 +297,7 @@ pkg/cpufreq/hostfreq_darwin_embed.o
 .local-dev-certs/
 .playwright-cli/
 tmp/fieldsurvey-local/
+tmp/hpna-local/
 
 # Local review documents (not for upstream)
 pr-host-net-viz-*.md

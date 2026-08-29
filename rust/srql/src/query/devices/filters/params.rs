@@ -19,6 +19,7 @@ pub(in crate::query::devices) fn collect_filter_params(
     match filter.field.as_str() {
         "uid" => collect_text_params(params, filter, true),
         "hostname" => collect_text_params(params, filter, false),
+        "vlan_uid" => collect_text_params(params, filter, true),
         "partition" => collect_text_params(params, filter, true),
         "mac" => collect_mac_params(params, filter),
         "ip" => collect_ip_params(params, filter),
@@ -119,7 +120,10 @@ pub(in crate::query::devices) fn collect_filter_params(
         | "os.type"
         | "hw_info.serial_number"
         | "hw_info.cpu_type"
-        | "hw_info.cpu_architecture" => {
+        | "hw_info.cpu_architecture"
+        | "switch_port_attachment.switch_hostname"
+        | "switch_port_attachment.port"
+        | "switch_port_attachment.source" => {
             let (column, key) = filter
                 .field
                 .split_once('.')
