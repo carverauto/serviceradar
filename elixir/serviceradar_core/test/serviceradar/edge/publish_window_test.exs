@@ -10,11 +10,13 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
   # A reservation key is the COMPLETE authenticated slot; these tests vary only the sequence, so
   # the other three coordinates are fixed. `fp/1` is the publication fingerprint: same sequence =>
   # same record, which is what makes a re-admit a RETRY rather than a conflict.
-  defp k(seq), do: PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, seq)
+  defp k(seq), do: PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, seq, fp(seq))
   defp fp(seq), do: {:record, seq}
   # A DIFFERENT agent and spool at the same sequence number.
-  defp k2(seq), do: PublishWindow.key(<<0xA1>>, "agent-2", <<0xC3>>, seq)
-  defp other_fp(seq), do: {:other_record, seq}
+  defp k2(seq), do: PublishWindow.key(<<0xA1>>, "agent-2", <<0xC3>>, seq, fp(seq))
+  # A DIFFERENT record on the SAME slot -- a different publication, not a conflict.
+  defp k_other_record(seq),
+    do: PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, seq, {:other_record, seq})
 
   defp window(frames \\ 4, bytes \\ 1000) do
     {:ok, w} = PublishWindow.new(frames, bytes)
@@ -27,14 +29,36 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
   # The outstanding set, without reaching through the opaque struct in every test.
   defp outstanding_seqs(w) do
     1..60
-    |> Map.new(fn s -> {s, PublishWindow.outstanding?(w, s)} end)
+    |> Map.new(fn s -> {s, PublishWindow.outstanding?(w, k(s))} end)
     |> Enum.filter(fn {_s, out} -> out end)
     |> Map.new()
   end
 
   defp admit!(w, seq, bytes, deadline) do
-    {:ok, w} = PublishWindow.admit(w, k(seq), bytes, deadline, fp(seq))
+    {:ok, w, reservation} = PublishWindow.admit(w, k(seq), bytes, deadline)
+    Process.put({:reservation, seq}, reservation)
     w
+  end
+
+  # The reservation admit! issued for that sequence. Settling and re-arming need the epoch token,
+  # not just the key -- that is what stops a late ack from releasing a later reservation.
+  defp r(seq), do: Process.get({:reservation, seq})
+
+  # A well-formed reservation for a publication that is NOT outstanding.
+  defp absent(seq), do: {k(seq), 1}
+
+  # The conserved quantities. Deliberately NOT the whole struct: `next_token` advances with every
+  # admission and never rewinds, which is the property that stops a settled epoch's late ack from
+  # releasing a later reservation. Comparing structs would therefore fail on a window that
+  # conserved credits perfectly. Outstanding frames and bytes still catch a leak, and a settled
+  # entry left behind in the map still shows up as an outstanding frame.
+  defp accounting(w) do
+    %{
+      outstanding_frames: PublishWindow.outstanding_frames(w),
+      outstanding_bytes: PublishWindow.outstanding_bytes(w),
+      available_frames: PublishWindow.available_frames(w),
+      available_bytes: PublishWindow.available_bytes(w)
+    }
   end
 
   describe "the grant is the bound" do
@@ -45,7 +69,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
       assert PublishWindow.available_frames(none) === 0
       refute PublishWindow.admits?(none, 0)
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(none, k(1), 0, 100, fp(1))
+      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(none, k(1), 0, 100)
     end
 
     test "grant LEGALITY is not decided here; only type preconditions are" do
@@ -83,12 +107,12 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert PublishWindow.available_frames(w) === 0
       refute PublishWindow.admits?(w, 1)
 
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(5), 1, 500, fp(5))
+      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(5), 1, 500)
 
       # Settling one makes room for exactly one.
-      {:ok, w} = PublishWindow.settle(w, k(1), @primary)
-      assert {:ok, w} = PublishWindow.admit(w, k(5), 1, 500, fp(5))
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(6), 1, 500, fp(6))
+      {:ok, w} = PublishWindow.settle(w, r(1), @primary)
+      assert {:ok, w, _res} = PublishWindow.admit(w, k(5), 1, 500)
+      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(6), 1, 500)
     end
 
     # NAMED for what it does: `bytes` is SUPPLIED by the caller and accounted as given. Nothing
@@ -101,49 +125,57 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert PublishWindow.admits?(w, 400)
       refute PublishWindow.admits?(w, 401)
 
-      assert {:error, :byte_credits_exhausted} = PublishWindow.admit(w, k(2), 401, 500, fp(2))
-      assert {:ok, w} = PublishWindow.admit(w, k(2), 400, 500, fp(2))
+      assert {:error, :byte_credits_exhausted} = PublishWindow.admit(w, k(2), 401, 500)
+      assert {:ok, w, _res} = PublishWindow.admit(w, k(2), 400, 500)
       assert PublishWindow.available_bytes(w) === 0
     end
 
-    test "a frame is admitted once; a second admit of the same slot is refused" do
-      # A retry republishes the SAME slot, which is already outstanding and still charged.
-      # Admitting it again would double-charge and double-count.
+    test "re-admitting the SAME publication is the republish path, not a double charge" do
       w = admit!(window(), 1, 100, 500)
 
-      # Re-admitting the SAME publication on the SAME slot is the republish path, not a double
-      # charge: it consumes no new credits and moves the deadline. Byte credits are unchanged even
-      # when the caller passes a different size, because the reservation keeps the charged bytes.
-      assert {:ok, retried} = PublishWindow.admit(w, k(1), 100, 900, fp(1))
+      # No new credits -- the bytes are already committed -- and the deadline MOVES. Byte credits
+      # are unchanged even when the caller passes a different size, because the reservation keeps
+      # the bytes it was charged.
+      assert {:ok, retried, _res} = PublishWindow.admit(w, k(1), 100, 900)
       assert PublishWindow.outstanding_frames(retried) === 1
       assert PublishWindow.outstanding_bytes(retried) === 100
       assert PublishWindow.expired(retried, 500) === []
+    end
 
-      # A DIFFERENT publication claiming that slot is refused outright. Treating it as a retry is
-      # how one agent published on another's credits and settled another's reservation.
-      assert {:error, :slot_conflict} = PublishWindow.admit(w, k(1), 100, 500, other_fp(1))
+    test "a DIFFERENT record on the same slot is a separate publication, and IS admitted" do
+      # The spec requires this frame to be published: Nats-Msg-Id binds record_sha256, so JetStream
+      # does not deduplicate it away and it "SHALL reach EventWriter", which rejects it as a
+      # transport-integrity violation. Refusing it here would move EventWriter's adjudication into
+      # the gateway and destroy the evidence -- which an earlier :slot_conflict did.
+      w = admit!(window(), 1, 100, 500)
 
-      assert PublishWindow.outstanding_frames(w) === 1
-      assert PublishWindow.outstanding_bytes(w) === 100
+      assert {:ok, w2, _res} = PublishWindow.admit(w, k_other_record(1), 100, 500)
+
+      # Charged on its OWN credits, like any other frame: two publications, two reservations.
+      assert PublishWindow.outstanding_frames(w2) === 2
+      assert PublishWindow.outstanding_bytes(w2) === 200
+    end
+
+    test "the second record is refused when the lane is FULL -- on credits, not on identity" do
+      # NOT VACUOUS alongside the test above: the refusal must come from the grant being spent,
+      # not from the slot being occupied, so it reports a credit error.
+      w = admit!(window(1, 1_000), 1, 100, 500)
+
+      assert {:error, :frame_credits_exhausted} =
+               PublishWindow.admit(w, k_other_record(1), 100, 500)
     end
 
     test "malformed inputs are refused" do
       w = window()
 
-      assert {:error, :slot} = PublishWindow.admit(w, k(0), 1, 500, fp(0))
-      assert {:error, :slot} = PublishWindow.admit(w, k(-1), 1, 500, fp(-1))
+      assert {:error, :publication} = PublishWindow.admit(w, k(0), 1, 500)
+      assert {:error, :publication} = PublishWindow.admit(w, k(-1), 1, 500)
 
-      assert {:error, :slot} =
-               PublishWindow.admit(
-                 w,
-                 k(0xFFFFFFFFFFFFFFFF + 1),
-                 1,
-                 500,
-                 fp(0xFFFFFFFFFFFFFFFF + 1)
-               )
+      assert {:error, :publication} =
+               PublishWindow.admit(w, k(0xFFFFFFFFFFFFFFFF + 1), 1, 500)
 
-      assert {:error, :bytes} = PublishWindow.admit(w, k(1), -1, 500, fp(1))
-      assert {:error, :deadline} = PublishWindow.admit(w, k(1), 1, nil, fp(1))
+      assert {:error, :bytes} = PublishWindow.admit(w, k(1), -1, 500)
+      assert {:error, :deadline} = PublishWindow.admit(w, k(1), 1, nil)
     end
   end
 
@@ -154,14 +186,14 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       # flight. The bound would relax exactly when the broker is already struggling.
       w = 2 |> window(1000) |> admit!(1, 400, 100) |> admit!(2, 400, 900)
 
-      assert PublishWindow.expired(w, 500) === [k(1)]
+      assert PublishWindow.expired(w, 500) === [r(1)]
 
       assert PublishWindow.outstanding_frames(w) === 2
       assert PublishWindow.outstanding_bytes(w) === 800
       assert PublishWindow.available_frames(w) === 0
 
       # Still refused, because nothing was released.
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(3), 1, 900, fp(3))
+      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(3), 1, 900)
     end
 
     test "expired/2 CANNOT release: its return type carries no window" do
@@ -176,9 +208,11 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       result = PublishWindow.expired(w, 999)
 
       assert is_list(result)
-      # expired/2 reports reservation KEYS -- complete slots, not lane sequences.
-      assert Enum.all?(result, fn {scope, agent, spool, seq} ->
-               is_binary(scope) and is_binary(agent) and is_binary(spool) and is_integer(seq)
+      # expired/2 reports RESERVATIONS: {{slot, fingerprint}, token}. Not lane sequences, and not
+      # bare keys -- the token is what a settle or re-arm must carry.
+      assert Enum.all?(result, fn {{{scope, agent, spool, seq}, _fingerprint}, token} ->
+               is_binary(scope) and is_binary(agent) and is_binary(spool) and is_integer(seq) and
+                 is_integer(token)
              end)
 
       refute match?({_, %PublishWindow{}}, result)
@@ -197,12 +231,13 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
     @public_functions [
       {:__struct__, 0},
       {:__struct__, 1},
-      {:admit, 5},
+      {:admit, 4},
       {:admits?, 2},
       {:available_bytes, 1},
       {:available_frames, 1},
       {:expired, 2},
-      {:key, 4},
+      {:key, 5},
+      {:reservation, 2},
       {:new, 2},
       {:outstanding?, 2},
       {:outstanding_bytes, 1},
@@ -243,14 +278,14 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
       assert PublishWindow.expired(w, 99) === []
       # Inclusive: a deadline AT `now` has passed.
-      assert PublishWindow.expired(w, 100) === [k(1)]
-      assert PublishWindow.expired(w, 300) === [k(1), k(2), k(3)]
+      assert PublishWindow.expired(w, 100) === [r(1)]
+      assert PublishWindow.expired(w, 300) === [r(1), r(2), r(3)]
     end
 
     test "settling releases exactly that frame's bytes" do
       w = 4 |> window(1000) |> admit!(1, 250, 500) |> admit!(2, 125, 500)
 
-      {:ok, w} = PublishWindow.settle(w, k(1), @primary)
+      {:ok, w} = PublishWindow.settle(w, r(1), @primary)
 
       assert PublishWindow.outstanding_bytes(w) === 125
       assert PublishWindow.available_bytes(w) === 875
@@ -260,12 +295,12 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
     test "settling anything not outstanding is refused, not a silent no-op" do
       w = admit!(window(), 1, 100, 500)
-      {:ok, settled} = PublishWindow.settle(w, k(1), @primary)
+      {:ok, settled} = PublishWindow.settle(w, r(1), @primary)
 
       # Never admitted, and already settled, are BOTH :not_outstanding. Telling them apart would
       # require retaining every settled sequence forever, which is the growth this bounds.
-      assert {:error, :not_outstanding} = PublishWindow.settle(w, k(99), @primary)
-      assert {:error, :not_outstanding} = PublishWindow.settle(settled, k(1), @primary)
+      assert {:error, :not_outstanding} = PublishWindow.settle(w, absent(99), @primary)
+      assert {:error, :not_outstanding} = PublishWindow.settle(settled, r(1), @primary)
     end
   end
 
@@ -276,8 +311,8 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       w = admit!(window(), 1, 10, 100)
 
       assert PublishWindow.expired(w, 99) === []
-      assert PublishWindow.expired(w, 100) === [k(1)]
-      assert PublishWindow.expired(w, 101) === [k(1)]
+      assert PublishWindow.expired(w, 100) === [r(1)]
+      assert PublishWindow.expired(w, 101) === [r(1)]
     end
   end
 
@@ -289,7 +324,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
       assert PublishWindow.outstanding_bytes(w) === 400
 
-      {:ok, w} = PublishWindow.settle(w, k(2), @primary)
+      {:ok, w} = PublishWindow.settle(w, r(2), @primary)
 
       assert PublishWindow.outstanding_bytes(w) === 150,
              "settling frame 2 did not release exactly its 250 bytes"
@@ -302,12 +337,12 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
     test "a SECOND settlement releases nothing further" do
       w = 4 |> window(1000) |> admit!(1, 300, 500) |> admit!(2, 100, 500)
-      {:ok, once} = PublishWindow.settle(w, k(1), @primary)
+      {:ok, once} = PublishWindow.settle(w, r(1), @primary)
 
       assert PublishWindow.outstanding_bytes(once) === 100
       assert PublishWindow.available_bytes(once) === 900
 
-      assert {:error, :not_outstanding} = PublishWindow.settle(once, k(1), @primary)
+      assert {:error, :not_outstanding} = PublishWindow.settle(once, r(1), @primary)
 
       # The evidence that matters is the OBSERVABLE CAPACITY afterwards, not a comparison of an
       # immutable input to itself: a double-release would show up as 600 bytes outstanding or as
@@ -323,21 +358,21 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       w = 3 |> window(300) |> admit!(1, 100, 10) |> admit!(2, 100, 20) |> admit!(3, 100, 30)
 
       # Everything is past its deadline...
-      assert PublishWindow.expired(w, 1_000) === [k(1), k(2), k(3)]
+      assert PublishWindow.expired(w, 1_000) === [r(1), r(2), r(3)]
 
       # ...and the window is still completely full, because expiry released nothing.
       assert PublishWindow.available_frames(w) === 0
       assert PublishWindow.available_bytes(w) === 0
       refute PublishWindow.admits?(w, 1)
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(4), 100, 1_000, fp(4))
+      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(4), 100, 1_000)
 
       # Settling ONE frame admits exactly ONE replacement, not more.
-      {:ok, w} = PublishWindow.settle(w, k(2), @primary)
+      {:ok, w} = PublishWindow.settle(w, r(2), @primary)
 
       assert PublishWindow.available_frames(w) === 1
       assert PublishWindow.available_bytes(w) === 100
-      assert {:ok, w} = PublishWindow.admit(w, k(4), 100, 1_000, fp(4))
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(5), 1, 1_000, fp(5))
+      assert {:ok, w, _res} = PublishWindow.admit(w, k(4), 100, 1_000)
+      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(5), 1, 1_000)
     end
   end
 
@@ -348,12 +383,12 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       # reported forever and never re-armed.
       w = 2 |> window(1000) |> admit!(1, 400, 100) |> admit!(2, 400, 100)
 
-      assert PublishWindow.expired(w, 500) === [k(1), k(2)]
+      assert PublishWindow.expired(w, 500) === [r(1), r(2)]
 
-      {:ok, w} = PublishWindow.rearm(w, k(1), 900)
+      {:ok, w} = PublishWindow.rearm(w, r(1), 900)
 
       # No longer expired at 500, and nothing about the budget moved.
-      assert PublishWindow.expired(w, 500) === [k(2)]
+      assert PublishWindow.expired(w, 500) === [r(2)]
       assert PublishWindow.outstanding_frames(w) === 2
       assert PublishWindow.outstanding_bytes(w) === 800
       assert PublishWindow.available_bytes(w) === 200
@@ -363,28 +398,28 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
     test "re-arming does NOT create capacity, so the bound still holds" do
       w = 1 |> window(100) |> admit!(1, 100, 10)
 
-      {:ok, w} = PublishWindow.rearm(w, k(1), 999)
+      {:ok, w} = PublishWindow.rearm(w, r(1), 999)
 
       refute PublishWindow.admits?(w, 1)
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(2), 0, 999, fp(2))
+      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(2), 0, 999)
     end
 
     test "re-arming something not outstanding is refused" do
       w = admit!(window(), 1, 100, 500)
-      {:ok, settled} = PublishWindow.settle(w, k(1), @primary)
+      {:ok, settled} = PublishWindow.settle(w, r(1), @primary)
 
-      assert {:error, :not_outstanding} = PublishWindow.rearm(w, k(99), 900)
-      assert {:error, :not_outstanding} = PublishWindow.rearm(settled, k(1), 900)
-      assert {:error, :deadline} = PublishWindow.rearm(w, k(1), nil)
+      assert {:error, :not_outstanding} = PublishWindow.rearm(w, absent(99), 900)
+      assert {:error, :not_outstanding} = PublishWindow.rearm(settled, r(1), 900)
+      assert {:error, :deadline} = PublishWindow.rearm(w, r(1), nil)
     end
 
     test "a re-armed frame settles exactly once, releasing its original bytes" do
       w = 2 |> window(1000) |> admit!(1, 375, 100)
-      {:ok, w} = PublishWindow.rearm(w, k(1), 900)
-      {:ok, w} = PublishWindow.settle(w, k(1), @primary)
+      {:ok, w} = PublishWindow.rearm(w, r(1), 900)
+      {:ok, w} = PublishWindow.settle(w, r(1), @primary)
 
       assert PublishWindow.outstanding_bytes(w) === 0
-      assert {:error, :not_outstanding} = PublishWindow.settle(w, k(1), @primary)
+      assert {:error, :not_outstanding} = PublishWindow.settle(w, r(1), @primary)
     end
   end
 
@@ -417,8 +452,8 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
         # until the following iteration -- so a settlement that overcommitted was never seen at
         # the point it happened.
         w =
-          case PublishWindow.admit(w, k(i), size, 500, fp(i)) do
-            {:ok, w2} -> w2
+          case PublishWindow.admit(w, k(i), size, 500) do
+            {:ok, w2, _res} -> w2
             {:error, _} -> w
           end
 
@@ -431,8 +466,12 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
             # that models it teaches the anti-pattern while looking like coverage. settle/3 takes
             # no evidence at all now; the caller owns that verification.
             case Map.keys(outstanding_seqs(w)) do
-              [seq | _] -> elem(PublishWindow.settle(w, k(seq), @primary), 1)
-              [] -> w
+              [seq | _] ->
+                {:ok, res} = PublishWindow.reservation(w, k(seq))
+                elem(PublishWindow.settle(w, res, @primary), 1)
+
+              [] ->
+                w
             end
           else
             w
@@ -461,17 +500,17 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
     test "a RETRYABLE outcome does not settle at all" do
       w = admit!(window(), 1, 100, 500)
 
-      assert {:error, :not_settled} = PublishWindow.settle(w, k(1), @retryable)
+      assert {:error, :not_settled} = PublishWindow.settle(w, r(1), @retryable)
       assert PublishWindow.outstanding_bytes(w) === 100
 
-      assert {:ok, w} = PublishWindow.rearm(w, k(1), 900)
+      assert {:ok, w} = PublishWindow.rearm(w, r(1), 900)
       assert PublishWindow.outstanding_bytes(w) === 100
     end
 
     test "every settling outcome releases; the retryable one does not" do
       for outcome <- PublishWindow.internal_outcomes() do
         w = admit!(window(), 1, 100, 500)
-        result = PublishWindow.settle(w, k(1), outcome)
+        result = PublishWindow.settle(w, r(1), outcome)
 
         if outcome === @retryable do
           assert {:error, :not_settled} = result
@@ -486,7 +525,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       w = admit!(window(), 1, 100, 500)
 
       for bad <- [nil, :EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, :future, 99, "x"] do
-        assert {:error, :unknown_outcome} = PublishWindow.settle(w, k(1), bad),
+        assert {:error, :unknown_outcome} = PublishWindow.settle(w, r(1), bad),
                "#{inspect(bad)} was accepted"
       end
 
@@ -549,13 +588,11 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
       settled =
         Enum.reduce(1..8, w, fn seq, acc ->
-          {:ok, acc} = PublishWindow.settle(acc, k(seq), @primary)
+          {:ok, acc} = PublishWindow.settle(acc, r(seq), @primary)
           acc
         end)
 
-      # === on the whole struct: a leak of one byte or one frame shows here, and so would a
-      # settled sequence left behind in the map.
-      assert settled === start
+      assert accounting(settled) === accounting(start)
     end
 
     test "settling out of order conserves exactly as well" do
@@ -564,11 +601,11 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
       settled =
         Enum.reduce([3, 1, 4, 2], w, fn seq, acc ->
-          {:ok, acc} = PublishWindow.settle(acc, k(seq), @primary)
+          {:ok, acc} = PublishWindow.settle(acc, r(seq), @primary)
           acc
         end)
 
-      assert settled === start
+      assert accounting(settled) === accounting(start)
     end
 
     test "credits are conserved even when some admits are REFUSED" do
@@ -599,13 +636,19 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       {final, trace} =
         Enum.reduce(ops, {start, []}, fn
           {:admit, seq, bytes}, {w, acc} ->
-            case PublishWindow.admit(w, k(seq), bytes, 500, fp(seq)) do
-              {:ok, w2} -> {w2, [{:admit, seq, :ok} | acc]}
+            case PublishWindow.admit(w, k(seq), bytes, 500) do
+              {:ok, w2, _res} -> {w2, [{:admit, seq, :ok} | acc]}
               {:error, reason} -> {w, [{:admit, seq, reason} | acc]}
             end
 
           {:settle, seq}, {w, acc} ->
-            case PublishWindow.settle(w, k(seq), @primary) do
+            reservation =
+              case PublishWindow.reservation(w, k(seq)) do
+                {:ok, res} -> res
+                :error -> absent(seq)
+              end
+
+            case PublishWindow.settle(w, reservation, @primary) do
               {:ok, w2} -> {w2, [{:settle, seq, :ok} | acc]}
               {:error, reason} -> {w, [{:settle, seq, reason} | acc]}
             end
@@ -627,49 +670,50 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
                {:settle, 5, :ok}
              ]
 
-      assert final === start, "credits were not conserved across a run containing refusals"
+      assert accounting(final) === accounting(start),
+             "credits were not conserved across a run containing refusals"
     end
   end
 
-  describe "reservations are keyed on the COMPLETE slot" do
+  describe "reservations are keyed on the PUBLICATION" do
     test "two agents at the same sequence are INDEPENDENT reservations" do
       # The bug this closes: one lane pool serves every agent and spool in its class, so a bare
       # sequence aliased across them. Agent 2 at sequence 1 looked like agent 1's frame retrying --
       # it published on agent 1's credits, and its ack released agent 1's reservation.
       w = window(2, 1_000)
 
-      {:ok, w} = PublishWindow.admit(w, k(1), 100, 500, fp(1))
-      {:ok, w} = PublishWindow.admit(w, k2(1), 100, 500, {:record, :other})
+      {:ok, w, first} = PublishWindow.admit(w, k(1), 100, 500)
+      {:ok, w, second} = PublishWindow.admit(w, k2(1), 100, 500)
 
       # Two frames, not one: the second was charged rather than mistaken for a retry.
       assert PublishWindow.outstanding_frames(w) === 2
       assert PublishWindow.outstanding_bytes(w) === 200
 
       # Settling one leaves the other outstanding. Under sequence keying, one ack cleared both.
-      {:ok, w} = PublishWindow.settle(w, k2(1), @primary)
+      {:ok, w} = PublishWindow.settle(w, second, @primary)
       assert PublishWindow.outstanding_frames(w) === 1
-      assert PublishWindow.expired(w, 500) === [k(1)]
+      assert PublishWindow.expired(w, 500) === [first]
     end
 
     test "the second agent is REFUSED when the lane is full, never admitted on the first's credits" do
       w = window(1, 1_000)
-      {:ok, w} = PublishWindow.admit(w, k(1), 100, 500, fp(1))
+      {:ok, w, _res} = PublishWindow.admit(w, k(1), 100, 500)
 
-      # One frame of credit, already held by a different slot. This must be a capacity refusal.
-      assert {:error, :frame_credits_exhausted} =
-               PublishWindow.admit(w, k2(1), 100, 500, {:record, :other})
+      # One frame of credit, already held by another agent's publication: a capacity refusal.
+      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k2(1), 100, 500)
     end
 
     test "a slot differing ONLY in scope is still a different reservation" do
       w = window(2, 1_000)
-      a = PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, 1)
-      b = PublishWindow.key(<<0xFF>>, "agent-1", <<0xB2>>, 1)
+      a = PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, 1, fp(1))
+      b = PublishWindow.key(<<0xFF>>, "agent-1", <<0xB2>>, 1, fp(1))
 
-      {:ok, w} = PublishWindow.admit(w, a, 100, 500, fp(1))
-      {:ok, w} = PublishWindow.admit(w, b, 100, 500, fp(1))
+      {:ok, w, _res} = PublishWindow.admit(w, a, 100, 500)
+      {:ok, w, _res} = PublishWindow.admit(w, b, 100, 500)
 
-      # NOT VACUOUS: identical fingerprints. If scope were dropped from the key these would collide
-      # and the second would be treated as a retry, leaving one frame outstanding.
+      # NOT VACUOUS: IDENTICAL fingerprints, so only the scope separates them. If scope were
+      # dropped from the key these would collide and the second would be taken for a retry,
+      # leaving one frame outstanding instead of two.
       assert PublishWindow.outstanding_frames(w) === 2
     end
 
@@ -677,16 +721,79 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       w = window(2, 1_000)
 
       for bad <- [
-            PublishWindow.key(nil, "agent-1", <<0xB2>>, 1),
-            PublishWindow.key(<<0xA1>>, nil, <<0xB2>>, 1),
-            PublishWindow.key(<<0xA1>>, "agent-1", nil, 1),
-            PublishWindow.key(<<0xA1>>, "", <<0xB2>>, 1),
+            PublishWindow.key(nil, "agent-1", <<0xB2>>, 1, fp(1)),
+            PublishWindow.key(<<0xA1>>, nil, <<0xB2>>, 1, fp(1)),
+            PublishWindow.key(<<0xA1>>, "agent-1", nil, 1, fp(1)),
+            PublishWindow.key(<<0xA1>>, "", <<0xB2>>, 1, fp(1)),
+            {{<<0xA1>>, "agent-1", <<0xB2>>, 0}, fp(1)},
             1,
             {1, 2}
           ] do
-        assert {:error, :slot} = PublishWindow.admit(w, bad, 100, 500, fp(1)),
-               "admitted a malformed slot: #{inspect(bad)}"
+        assert {:error, :publication} = PublishWindow.admit(w, bad, 100, 500),
+               "admitted a malformed publication key: #{inspect(bad)}"
       end
+    end
+  end
+
+  describe "a reservation settles exactly once, even when the key is reused" do
+    test "a LATE ack from a settled epoch does not release the reservation holding the key now" do
+      # The ABA. Two concurrent retries of publication A share one reservation. A's first ack
+      # settles it; the key is now free; publication A is admitted again (the agent republishes);
+      # A's SECOND, late ack arrives. Carrying only the key, it released the new reservation --
+      # one attempt's acknowledgement cancelling another's, and credits handed out twice.
+      w = admit!(window(), 1, 100, 500)
+      first = r(1)
+
+      {:ok, w} = PublishWindow.settle(w, first, @primary)
+      assert PublishWindow.outstanding_frames(w) === 0
+
+      # The same publication is admitted again: same key, NEW epoch.
+      {:ok, w, second} = PublishWindow.admit(w, k(1), 100, 900)
+      assert PublishWindow.outstanding_frames(w) === 1
+      refute second === first
+
+      # The late ack names the OLD epoch and must not touch the new reservation.
+      assert {:error, :not_outstanding} = PublishWindow.settle(w, first, @primary)
+      assert PublishWindow.outstanding_frames(w) === 1
+
+      # NOT VACUOUS: the CURRENT reservation still settles.
+      assert {:ok, w} = PublishWindow.settle(w, second, @primary)
+      assert PublishWindow.outstanding_frames(w) === 0
+    end
+
+    test "a STALE expired-then-rearm cannot move a later reservation's deadline" do
+      # An observer reads an expired reservation, it settles, something else reserves the key, and
+      # the observer then re-arms what it read. With only the key that moved the NEW reservation's
+      # deadline, silently extending a frame nobody had re-armed.
+      w = admit!(window(), 1, 100, 100)
+
+      [stale] = PublishWindow.expired(w, 100)
+      {:ok, w} = PublishWindow.settle(w, stale, @primary)
+      {:ok, w, fresh} = PublishWindow.admit(w, k(1), 100, 100)
+
+      assert {:error, :not_outstanding} = PublishWindow.rearm(w, stale, 9_000)
+
+      # The new reservation is still on ITS deadline, not the stale re-arm's.
+      assert PublishWindow.expired(w, 100) === [fresh]
+
+      # NOT VACUOUS: re-arming the CURRENT reservation does move it.
+      {:ok, w} = PublishWindow.rearm(w, fresh, 9_000)
+      assert PublishWindow.expired(w, 100) === []
+    end
+
+    test "a retry shares its reservation, so both attempts settle ONE thing" do
+      w = admit!(window(), 1, 100, 500)
+      first = r(1)
+
+      # The republish path returns the SAME reservation: same epoch, one settlement between them.
+      {:ok, w, retry} = PublishWindow.admit(w, k(1), 100, 900)
+      assert retry === first
+
+      {:ok, w} = PublishWindow.settle(w, retry, @primary)
+      assert PublishWindow.outstanding_frames(w) === 0
+
+      # The other attempt's ack finds nothing left, rather than releasing someone else's credits.
+      assert {:error, :not_outstanding} = PublishWindow.settle(w, first, @primary)
     end
   end
 end
