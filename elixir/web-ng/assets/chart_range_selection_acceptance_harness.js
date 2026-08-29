@@ -24,7 +24,7 @@ function label(node) {
   return node.dataset.traceLabel || node.tagName.toLowerCase()
 }
 
-function rootFixture() {
+function rootFixture(renderer) {
   const root = document.createElement("div")
   root.setAttribute("role", "group")
   root.dataset.traceLabel = "chart-root"
@@ -40,6 +40,7 @@ function rootFixture() {
   ])
   root.dataset.keys = JSON.stringify(["traffic"])
   root.dataset.colors = JSON.stringify({traffic: "#22c55e"})
+  if (renderer === "d3") root.dataset.seriesField = "app"
   root.dataset.units = "Bps"
   root.dataset.chartWidth = "1000"
   root.dataset.chartHeight = "160"
@@ -77,6 +78,17 @@ function serverSvgFixture() {
   overlay.classList.add("hidden")
 
   svg.append(surface, overlay)
+
+  const bucket = svgElement("circle")
+  bucket.dataset.traceLabel = "server-bucket"
+  bucket.setAttribute("cx", "250")
+  bucket.setAttribute("cy", "80")
+  bucket.setAttribute("r", "12")
+  bucket.setAttribute("fill", "#22c55e")
+  bucket.setAttribute("phx-click", "netflow_bucket")
+  bucket.setAttribute("phx-value-start", INTERVALS[0].start)
+  bucket.setAttribute("phx-value-end", INTERVALS[0].end)
+  svg.append(bucket)
   return svg
 }
 
@@ -107,6 +119,17 @@ function installTrace(root, trace) {
   root.addEventListener("click", (event) => {
     trace.push({kind: "click", target: label(event.target), currentTarget: label(event.currentTarget)})
   })
+  for (const action of root.querySelectorAll("[phx-click]")) {
+    action.addEventListener("click", (event) => {
+      trace.push({
+        kind: "server-bucket-click",
+        event: action.getAttribute("phx-click"),
+        start: action.getAttribute("phx-value-start"),
+        end: action.getAttribute("phx-value-end"),
+        target: label(event.target),
+      })
+    })
+  }
 }
 
 function currentSvg() {
@@ -139,7 +162,7 @@ function snapshot() {
 window.chartRangeAcceptance = Object.freeze({
   mount(renderer) {
     if (state?.hook?.destroyed) state.hook.destroyed()
-    const root = rootFixture()
+    const root = rootFixture(renderer)
     root.append(renderer === "server-svg" ? serverSvgFixture() : d3SvgFixture())
     const status = document.createElement("p")
     status.dataset.rangeStatus = ""

@@ -114,13 +114,35 @@ for (const renderer of ["server-svg", "d3"]) {
 
   test(`${renderer} preserves a sub-threshold click without emitting a range`, async ({page}) => {
     await mountFixture(page, renderer)
-    const box = await page.locator('[role="group"]').boundingBox()
-    expect(box).not.toBeNull()
-
-    await page.mouse.click(box.x + box.width * 0.25, box.y + box.height * 0.5)
+    if (renderer === "d3") {
+      const path = page.locator('[data-netflow-stacked-render-root] > g:nth-of-type(3) path')
+      await expect(path).toHaveCount(1)
+      await path.click()
+    } else {
+      const bucket = page.locator('[phx-click="netflow_bucket"]')
+      await expect(bucket).toHaveAttribute("phx-value-start", "2026-08-29T01:00:00.000000Z")
+      await expect(bucket).toHaveAttribute("phx-value-end", "2026-08-29T01:00:59.999999Z")
+      await bucket.click()
+    }
 
     const result = await snapshot(page)
-    expect(await pushes(page), traceMessage(result.trace)).toEqual([])
-    expect(result.trace.filter((entry) => entry.kind === "click")).toHaveLength(1)
+    const rangePushes = (await pushes(page)).filter((entry) => entry.name === "netflow_range_selected")
+    expect(rangePushes, traceMessage(result.trace)).toEqual([])
+
+    if (renderer === "d3") {
+      expect(await pushes(page), traceMessage(result.trace)).toEqual([
+        {kind: "push", name: "netflow_stack_series", payload: {field: "app", value: "traffic"}},
+      ])
+    } else {
+      expect(result.trace.filter((entry) => entry.kind === "server-bucket-click")).toEqual([
+        {
+          kind: "server-bucket-click",
+          event: "netflow_bucket",
+          start: "2026-08-29T01:00:00.000000Z",
+          end: "2026-08-29T01:00:59.999999Z",
+          target: "server-bucket",
+        },
+      ])
+    }
   })
 }
