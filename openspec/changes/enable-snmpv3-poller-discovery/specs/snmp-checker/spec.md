@@ -81,21 +81,36 @@ SNMPv3 auth and privacy protocol identifiers MUST be accepted in compact, hyphen
 - **THEN** client construction returns an error
 - **AND** the session MUST NOT fall back to NoAuth or MD5
 
-### Requirement: SNMPv3 credential compilation from unified secrets
-A resolved SNMP credential that carries SNMPv3 user material MUST compile as version v3 even when the parent profile or record version is still v2c.
+### Requirement: SNMP credentials resolve from credential rules
+The SNMP poller MUST obtain community strings and SNMPv3 user material from `platform.network_credential_rules` (provider `snmp`, purpose `snmp_monitoring`) scoped to the compiling agent. The native SNMP descriptor MUST set `supports_rules` to true. A matching credential rule MUST win over an SNMP profile `credential_secret_id`. SNMP credentials MUST NOT be read from Kubernetes Secrets, Helm values, environment variables, or Vault/OpenBao.
 
-#### Scenario: v3 secret bound to a v2c profile still polls as v3
-- **GIVEN** a default SNMP profile whose `version` is `v2c`
-- **AND** a bound credential secret created with the native SNMP `v3` auth method (username + auth password)
-- **WHEN** the SNMP compiler emits agent config
-- **THEN** the target `version` is `v3`
-- **AND** `v3_auth` contains the username, security level, and secrets
-- **AND** the target is not skipped for a missing community string
+#### Scenario: v3 credential rule compiles poller targets
+- **GIVEN** an enabled credential rule for provider `snmp`, auth method `v3`, purpose `snmp_monitoring`, scoped to the agent's edge scope
+- **AND** the rule payload has username, SHA, AES, authPriv, and auth/privacy passwords
+- **WHEN** the SNMP compiler emits agent config for that agent
+- **THEN** matching device targets have `version` `v3` and a populated `v3_auth`
+- **AND** the native SNMP descriptor is selectable on the New Rule form
 
-#### Scenario: Missing security_level is inferred
-- **GIVEN** a v3 credential secret with username, auth password, and privacy password and no `security_level` field
+#### Scenario: Credential rule wins over a profile-bound secret
+- **GIVEN** the default SNMP profile has a `credential_secret_id`
+- **AND** an enabled SNMP credential rule matches the same device
+- **WHEN** the compiler resolves credentials
+- **THEN** the rule payload is used
+- **AND** the profile-bound secret is ignored
+
+#### Scenario: UniFi single-password v3
+- **GIVEN** a v3 credential rule with username, auth protocol SHA, privacy protocol AES, auth password set, and privacy password blank
 - **WHEN** the credential is resolved
 - **THEN** `security_level` is `auth_priv`
+- **AND** the privacy password equals the auth password
+- **AND** protocols are SHA and AES, not MD5 and DES
+
+#### Scenario: v3 rule on a v2c profile still polls as v3
+- **GIVEN** a default SNMP profile whose `version` is `v2c`
+- **AND** a matching v3 credential rule
+- **WHEN** the SNMP compiler emits agent config
+- **THEN** the target `version` is `v3`
+- **AND** the target is not skipped for a missing community string
 
 ### Requirement: SNMPv3 authentication failures are reported
 The embedded SNMP poller MUST report SNMPv3 authentication and privacy failures as target-unavailable with an error that identifies USM failure, not as a generic timeout with no cause.

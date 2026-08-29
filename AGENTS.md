@@ -84,6 +84,28 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   straight in a hypertable is invisible to every real-time consumer (anomaly
   detection, the causal engine) until it is queried back out. Keeping all metrics
   on JetStream first makes every stream subscribable.
+- **Integration and device credentials are credential rules in CNPG — never
+  Kubernetes/Vault/Helm/env secrets.** Community strings, SNMPv3 users, UniFi /
+  Proxmox / NetBox / Armis / plugin tokens, SSH-to-device keys, and anything else
+  used to talk to a monitored device or a third-party integration MUST live as
+  `platform.network_credential_rules` (Ash, encrypted payload in CNPG). Operators
+  create a **credential rule** (provider, auth method, purpose, target query,
+  edge scope). Compilers and agents resolve those rules. Do **not** add a new
+  `credential_secret_id` on an SNMP profile, mapper job, device row, Helm value,
+  or env var as the product path, and do **not** mark a device/integration
+  descriptor `supports_rules: false` so the UI hides it from the rule form.
+
+  Kubernetes Secrets, OpenBao/Vault, Helm values, process environment, Docker
+  secrets, and SPIFFE SVIDs are only for **ServiceRadar talking to itself**: CNPG,
+  NATS, SPIFFE/mTLS between core/gateway/agent, registry pull, image signing,
+  session/JWT keys. They are not a store for "the SNMP password for farm01".
+
+  The `network_credential_secrets` table is the ciphertext **behind a rule**
+  (`rule.secret_id`), created inline when the rule is saved. It is not an
+  operator-facing secret store and it is not a Kubernetes Secret. A standalone
+  secret with no rule is not how SNMP (or UniFi, or a plugin) gets its
+  credentials. Farm01's profile-bound `snmp-v3` secret was the wrong object;
+  the poller and mapper must read a credential rule.
 - **Never degrade production code to silence Dialyzer (or similar type checkers).**
   Idiomatic, readable APIs beat warning-count optimization. Do **not** introduce
   runtime shape hacks, opacity barriers, or non-idiomatic call patterns whose only
