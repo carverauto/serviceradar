@@ -248,4 +248,99 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       assert :ok = PublisherPool.settle(p, fresh, :primary_publication)
     end
   end
+
+  describe "a reservation does not outlive the caller that took it" do
+    test "a caller that gives up on the call does not strand its credits" do
+      # THE MOTIVATING CASE, and it is not a crash. GenServer.call/3 EXITS the caller when it times
+      # out, and OTP does not cancel the queued message -- so the pool can admit a frame for a
+      # caller that has already gone, charging the window for a request nobody will ever make.
+      p = pool(:bulk, 1, 100)
+      test_pid = self()
+
+      caller =
+        spawn(fn ->
+          send(test_pid, {:admitted, PublisherPool.admit(p, k(1), 50, 60_000)})
+          receive do: (:never -> :ok)
+        end)
+
+      assert_receive {:admitted, {:ok, _res}}
+      assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
+
+      ref = Process.monitor(caller)
+      Process.exit(caller, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^caller, _}
+
+      # The pool must notice and release. Polled, because the :DOWN reaches the pool asynchronously.
+      assert eventually(fn ->
+               match?(%{outstanding_frames: 0, outstanding_bytes: 0}, PublisherPool.capacity(p))
+             end),
+             "a dead caller's reservation stayed charged"
+
+      # NOT VACUOUS: the credit is genuinely usable again.
+      assert {:ok, _} = PublisherPool.admit(p, k(2), 50, 60_000)
+    end
+
+    test "one caller's death does not release ANOTHER caller's reservation" do
+      p = pool(:bulk, 2, 200)
+      test_pid = self()
+
+      {:ok, mine} = PublisherPool.admit(p, k(1), 50, 60_000)
+
+      doomed =
+        spawn(fn ->
+          send(test_pid, {:admitted, PublisherPool.admit(p, k(2), 50, 60_000)})
+          receive do: (:never -> :ok)
+        end)
+
+      assert_receive {:admitted, {:ok, _}}
+      ref = Process.monitor(doomed)
+      Process.exit(doomed, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^doomed, _}
+
+      assert eventually(fn ->
+               match?(%{outstanding_frames: 1}, PublisherPool.capacity(p))
+             end)
+
+      # Mine is untouched and still settles.
+      assert :ok = PublisherPool.settle(p, mine, :primary_publication)
+    end
+  end
+
+  describe "attempts, not just reservations" do
+    test "a concurrent retry is refused while the first attempt is live" do
+      p = pool(:bulk, 2, 200)
+      assert {:ok, _first} = PublisherPool.admit(p, k(1), 50, 60_000)
+
+      # Two requests under one charge is the bound violation this closes.
+      assert {:error, :attempt_in_flight} = PublisherPool.admit(p, k(1), 50, 60_000)
+    end
+
+    test "ending the attempt keeps the credits but allows the retry" do
+      p = pool(:bulk, 1, 100)
+      assert {:ok, first} = PublisherPool.admit(p, k(1), 50, 0)
+      assert :ok = PublisherPool.attempt_failed(p, first)
+
+      # Still charged: the record is owed a republish.
+      assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
+
+      assert {:ok, retry} = PublisherPool.admit(p, k(1), 50, 60_000)
+      refute retry === first
+      assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
+
+      assert {:error, :not_outstanding} = PublisherPool.attempt_failed(p, first)
+      assert :ok = PublisherPool.settle(p, retry, :primary_publication)
+    end
+  end
+
+  defp eventually(fun, tries \\ 200)
+  defp eventually(_fun, 0), do: false
+
+  defp eventually(fun, tries) do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, tries - 1)
+    end
+  end
 end

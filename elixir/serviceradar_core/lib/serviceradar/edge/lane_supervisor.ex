@@ -21,6 +21,23 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   them, and the agent republishes on the same slot; the alternative -- reconstructing reservations
   for requests whose replies may still arrive -- needs the PubAck correlation that tasks 3.4 and
   3.5 own.
+
+  ## What this does NOT cover: an ordinary reconnect
+
+  Stated because the first version of this text implied otherwise. The supervised child is
+  `Gnat.ConnectionSupervisor`, the RECONNECT MANAGER -- not the transport socket it owns. A normal
+  NATS reconnect replaces the inner connection and the wrapper never exits, so `:one_for_all` does
+  not fire and the pool is NOT restarted.
+
+  That is the behaviour we want, and it is deliberate rather than incidental. A reconnect does not
+  make the records go away: their reservations should stay charged, because each one is still owed
+  a republish on the same slot. What a reconnect does is fail the requests that were in flight,
+  and the publisher reports each of those with `PublishWindow.attempt_failed/2` -- keeping the
+  credits, ending the attempt, and letting the retry re-admit.
+
+  So the restart boundary covers PROCESS DEATH of either child, which is where accounting and
+  in-flight ownership could otherwise disagree. Transport generations within a living reconnect
+  manager are not tracked here, and reservations deliberately survive them.
   """
 
   use Supervisor
