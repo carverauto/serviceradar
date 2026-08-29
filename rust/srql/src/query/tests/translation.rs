@@ -1512,3 +1512,98 @@ fn translate_downsample_unknown_filter_still_errors() {
         "an inapplicable downsample filter must not be silently dropped"
     );
 }
+
+/// Before this, `stats:` on the alerts entity was **ignored entirely** — the
+/// generated SQL was byte-identical to a plain row query, so a caller asking
+/// for counts got a page of raw alert rows with a 200 and no indication that
+/// the aggregation had been dropped.
+#[test]
+fn translate_alerts_stats_actually_aggregates() {
+    let sql = translate_query("in:alerts stats:count() as n by severity")
+        .expect("alerts stats should translate");
+
+    assert!(sql.contains("COUNT(*)"), "no aggregate in: {sql}");
+    assert!(sql.contains("GROUP BY src.severity"), "no grouping in: {sql}");
+    assert!(
+        sql.contains("jsonb_build_object('severity'"),
+        "the group value must be projected: {sql}"
+    );
+}
+
+/// The stats SQL wraps the row query rather than rebuilding its WHERE clause,
+/// so a filter cannot be honoured when listing and ignored when counting.
+#[test]
+fn translate_alerts_stats_keeps_the_row_filters() {
+    let sql = translate_query("in:alerts severity:critical stats:count() as n by status")
+        .expect("filtered alerts stats should translate");
+
+    assert!(sql.contains("\"alerts\".\"severity\""), "filter dropped: {sql}");
+    assert!(sql.contains("GROUP BY src.status"));
+}
+
+#[test]
+fn translate_alerts_stats_groups_by_device_identity() {
+    let sql = translate_query("in:alerts stats:count() as n by device_uid")
+        .expect("device grouping should translate");
+
+    assert!(sql.contains("GROUP BY src.device_uid"), "{sql}");
+}
+
+#[test]
+fn translate_alerts_stats_supports_multiple_group_fields() {
+    let sql = translate_query("in:alerts stats:count() as n by severity,status")
+        .expect("multi-field grouping should translate");
+
+    assert!(sql.contains("GROUP BY src.severity, src.status"), "{sql}");
+}
+
+/// Grouping by a free-text column yields one group per alert — a row listing
+/// wearing an aggregate's clothes — so it is rejected rather than answered.
+#[test]
+fn translate_alerts_stats_rejects_ungroupable_fields() {
+    for field in ["title", "description", "metadata", "nonsense"] {
+        let query = format!("in:alerts stats:count() as n by {field}");
+        assert!(
+            translate_query(&query).is_err(),
+            "{field} must not be groupable"
+        );
+    }
+}
+
+/// metric_value is whatever tripped a threshold; its mean across unrelated
+/// rules is a number nobody should act on.
+#[test]
+fn translate_alerts_stats_rejects_non_count_aggregations() {
+    for agg in ["avg(metric_value)", "sum(metric_value)", "max(metric_value)"] {
+        let query = format!("in:alerts stats:{agg} as n by severity");
+        assert!(translate_query(&query).is_err(), "{agg} must be rejected");
+    }
+}
+
+#[test]
+fn translate_alerts_stats_requires_a_group() {
+    assert!(
+        translate_query("in:alerts stats:count() as n").is_err(),
+        "an ungrouped alerts stats request must be rejected, not silently listed"
+    );
+}
+
+/// The alias is interpolated into SQL as a JSON key.
+#[test]
+fn translate_alerts_stats_rejects_unsafe_aliases() {
+    for alias in ["n'; DROP TABLE alerts--", "a b", "a-b", ""] {
+        let query = format!("in:alerts stats:count() as {alias} by severity");
+        assert!(
+            translate_query(&query).is_err(),
+            "alias {alias:?} must be rejected"
+        );
+    }
+}
+
+#[test]
+fn translate_alerts_rows_are_unchanged_without_stats() {
+    let sql = translate_query("in:alerts severity:critical").expect("row query still translates");
+
+    assert!(!sql.contains("COUNT(*)"), "a row query must not aggregate: {sql}");
+    assert!(!sql.contains("jsonb_build_object"), "{sql}");
+}
