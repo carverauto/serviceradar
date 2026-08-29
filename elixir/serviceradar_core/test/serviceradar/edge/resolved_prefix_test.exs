@@ -108,9 +108,8 @@ defmodule ServiceRadar.Edge.ResolvedPrefixTest do
 
   describe "retryable is provisional, not a verdict" do
     test "EVERY resolving kind supersedes a retryable one and unwedges the lane" do
-      # Parameterised over all four. Proving it for AUTHORITATIVE alone left audit, quarantine and
-      # permanent free to stay wedged selectively -- the lane would unblock for one kind of
-      # outcome and hang forever on another.
+      # Proving this for AUTHORITATIVE alone leaves audit, quarantine, and permanent free to stay
+      # wedged selectively.
       for superseding <- Enum.filter(declared_kinds(), &ResolvedPrefix.resolving?/1) do
         t =
           1
@@ -121,8 +120,6 @@ defmodule ServiceRadar.Edge.ResolvedPrefixTest do
 
         assert ResolvedPrefix.resolved_through(t) === 0
 
-        # The agent retransmits 1 and the gateway resolves it with THIS kind. If retryable were
-        # immutable the retry could never be recorded and the prefix could never move again.
         t = record!(t, 1, superseding)
 
         assert ResolvedPrefix.resolved_through(t) === 3,
@@ -216,6 +213,31 @@ defmodule ServiceRadar.Edge.ResolvedPrefixTest do
       # Exactly one past the resolved watermark is the legal maximum: everything resolved.
       assert {:ok, done} = ResolvedPrefix.release_below(t, 4)
       assert ResolvedPrefix.retained_dispositions(done) === 0
+    end
+
+    test "release refuses a first-unresolved sequence outside protobuf uint64" do
+      max = 0xFFFFFFFFFFFFFFFF
+      t = max |> ResolvedPrefix.new() |> record!(max, @authoritative)
+
+      assert {:error, :above_lane_max} = ResolvedPrefix.release_below(t, max + 1)
+    end
+
+    test "release preserves pending out-of-order outcomes" do
+      t =
+        1
+        |> ResolvedPrefix.new()
+        |> record!(1, @authoritative)
+        |> record!(2, @audit)
+        |> record!(5, @quarantine)
+        |> record!(7, @retryable)
+
+      assert ResolvedPrefix.resolved_through(t) === 2
+      assert ResolvedPrefix.pending_out_of_order(t) === 2
+
+      assert {:ok, released} = ResolvedPrefix.release_below(t, 3)
+      assert ResolvedPrefix.pending_out_of_order(released) === 2
+      assert ResolvedPrefix.pending_disposition(released, 5) === {:ok, @quarantine}
+      assert ResolvedPrefix.pending_disposition(released, 7) === {:ok, @retryable}
     end
 
     test "the gateway never infers release from having sent an ack" do

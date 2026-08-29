@@ -753,7 +753,12 @@
   gateway-local durable state; bound asynchronous publication
   by frame count, encoded bytes, and measured retained gateway memory including
   the original record binary, bounded decode state, minimal headers, NATS
-  request state, mailboxes, and TLS buffers. Add a golden test proving the exact
+  request state, mailboxes, and TLS buffers. Evict volatile per-sequence
+  disposition evidence only after the ordered cumulative `EdgeDeliveryAckV1`
+  covering it is successfully written, and prove the retained-memory bound on a
+  long-lived lane even when that written ACK is lost and its slots replay or an
+  early retryable gap prevents the cumulative prefix from advancing. Add a golden
+  test proving the exact
   `EdgeRecordV1` bytes fsynced inside the agent spool equal the JetStream body.
 - [ ] 3.5 Compute the INTERNAL publication outcome, then MAP it to the generated
   wire disposition returned on the RPC. There are SIX internal outcomes and FIVE
@@ -776,7 +781,11 @@
   from an exhaustive list would let a compromise-revoked record reach its DLQ and then
   pin the resolved prefix forever. Never advance across a `retryable_rejection` or an
   unresolved sequence; withhold progress on NATS unavailability, stream refusal,
-  or publisher saturation.
+  or publisher saturation. After volatile evidence eviction, duplicate replay and
+  reconnect MUST deterministically reproduce the same disposition and contiguous
+  prefix through the same validated idempotent publication and PubAck path, without
+  subscribing to stored records or recovering private gateway state; evidence
+  eviction MUST NOT surface as an ambiguous disposition state to the agent.
 - [ ] 3.6 Ensure this lane never enters `StatusBuffer`, never acknowledges an
   ERTS/Core NATS handoff as durable, and remains stateless across restarts.
 - [ ] 3.7 Add byte-bounded fair queues and rate limits across network/site scope,
@@ -812,7 +821,9 @@
   remote disposition MUST NOT by itself reclaim agent spool, and an agent-local
   reclaim MUST NOT advance the remote resolved prefix; the
   `EdgeDeliveryAckV1.resolved_through_sequence` comment SHALL describe ONLY the
-  remote watermark. Add Go/Elixir cross-language golden vectors mapping fixed
+  remote watermark. Reporting or evicting gateway disposition evidence advances
+  NEITHER watermark and MUST NOT authorize agent reclaim. Add Go/Elixir
+  cross-language golden vectors mapping fixed
   disposition/reclaim event sequences to the expected remote and agent-local
   watermark values.
 
@@ -1320,7 +1331,10 @@
   queued frames, stale-gateway installation stream-map migration, concurrent
   zero-window bulk RPC/NATS publisher saturation while separately connected
   interactive and recovery traffic progress, maximum-record/minimal-header compression frames
-  with delayed PubAcks and measured retained gateway memory, concurrent
+  with delayed PubAcks and measured retained gateway memory, an ordered cumulative
+  ACK written and then lost followed by duplicate replay to the same gateway and
+  reconnect replay to a replacement gateway, bounded retained evidence across a
+  long-lived lane with an early retryable gap while later PubAcks arrive, concurrent
   same-key replicas, maximum admitted bulk catch-up while interactive ingest,
   reconcile, graph, and terminal latency remain bounded, two-stage credit lease
   crash/scale overlap and commit fencing, reverse-order concurrent result writers

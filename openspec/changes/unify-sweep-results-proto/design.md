@@ -240,6 +240,17 @@ IDs deduplicate accepted frames, and the gateway builds a new resolved prefix
 from the declared base. Concurrent stale sessions may duplicate publication but
 cannot reclaim the active spool or violate database correctness.
 
+Volatile gateway disposition evidence has its own lifecycle, separate from both
+watermarks. It may be evicted only after the ordered cumulative acknowledgement
+covering it is successfully written and only when the same validated idempotent
+publication path can reproduce the terminal disposition and authoritative PubAck
+after a lost ACK, duplicate replay, or reconnect, without subscribing to stored
+records or recovering private gateway state. Eviction itself advances neither
+watermark and cannot authorize spool deletion. The standalone prefix tracker does
+not own evidence eviction; tasks 3.4 and 3.5 must integrate that lifecycle with the
+real Stream/publisher owner and prove that retained memory stays bounded over a
+long-lived lane.
+
 Each disposition on the wire is one of the generated `EdgeRecordDispositionKind`
 members frozen by the ABI change. This change has SIX internal outcome names and
 they map onto FIVE generated members, so the mapping is MANY-TO-ONE, not one-for-one:
