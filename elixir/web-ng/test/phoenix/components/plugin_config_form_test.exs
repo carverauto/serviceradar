@@ -210,4 +210,36 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     assert html =~ "Capture interfaces"
     assert html =~ ~s(name="profile[params][capture_interfaces]")
   end
+
+  test "JSON Schema prefix patterns become HTML full-string prefix matches" do
+    schema = %{
+      "type" => "object",
+      "required" => ["api_url"],
+      "properties" => %{
+        "api_url" => %{
+          "type" => "string",
+          "format" => "uri",
+          "title" => "Automation wrapper URL",
+          "pattern" => "^https://"
+        },
+        "instance_id" => %{
+          "type" => "string",
+          "title" => "OpenText NOM instance ID",
+          "pattern" => "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"
+        }
+      }
+    }
+
+    html =
+      render_component(&PluginConfigForm.plugin_config_fields/1, %{
+        schema: schema,
+        params: %{"api_url" => "https://na.example.com/nom/api/automation/v1/wrapper"},
+        base_name: "assignment[params]"
+      })
+
+    assert html =~ ~s(type="url")
+    assert html =~ ~s(pattern="https://.*")
+    refute html =~ ~s(pattern="^https://")
+    assert html =~ ~s(pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+  end
 end
