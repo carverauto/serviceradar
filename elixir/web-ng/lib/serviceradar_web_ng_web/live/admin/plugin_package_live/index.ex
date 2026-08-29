@@ -3540,6 +3540,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp parse_assignment_params(params, package) do
     agent_uid = params["agent_uid"]
     timing = assignment_timing_defaults(package)
+
     interval_seconds =
       params["interval_seconds"]
       |> parse_int(timing.interval_seconds)
@@ -3788,11 +3789,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     }
   end
 
-  defp assignment_interval_min(package),
-    do: assignment_timing_defaults(package).min_interval_seconds
+  defp assignment_interval_min(package), do: assignment_timing_defaults(package).min_interval_seconds
 
-  defp assignment_timeout_min(package),
-    do: assignment_timing_defaults(package).min_timeout_seconds
+  defp assignment_timeout_min(package), do: assignment_timing_defaults(package).min_timeout_seconds
 
   defp assignment_timing_defaults(package) do
     schedule = first_producer_schedule(package)
@@ -3818,11 +3817,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     }
   end
 
-  defp first_producer_schedule(%{producer_schedules: [schedule | _]}) when is_map(schedule),
-    do: schedule
+  defp first_producer_schedule(%{producer_schedules: [schedule | _]}) when is_map(schedule), do: schedule
 
-  defp first_producer_schedule(%{"producer_schedules" => [schedule | _]}) when is_map(schedule),
-    do: schedule
+  defp first_producer_schedule(%{"producer_schedules" => [schedule | _]}) when is_map(schedule), do: schedule
 
   defp first_producer_schedule(_package), do: nil
 

@@ -1224,23 +1224,26 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     ensure_plugin!(actor, plugin_id)
 
     attrs =
-      %{
-        plugin_id: plugin_id,
-        name: "Live #{plugin_id}",
-        version: version,
-        entrypoint: "run_check",
-        runtime: "wasi-preview1",
-        outputs: "serviceradar.plugin_result.v1",
-        manifest: package_manifest(plugin_id, version),
-        config_schema: %{},
-        display_contract: %{},
-        signature: %{},
-        source_type: :github,
-        source_repo_url: @repo_url,
-        source_commit: "test-#{plugin_id}-#{version}",
-        content_hash: "sha256:#{plugin_id}-#{version}"
-      }
-      |> maybe_put_create_attr(:producer_schedules, Keyword.get(opts, :producer_schedules))
+      maybe_put_create_attr(
+        %{
+          plugin_id: plugin_id,
+          name: "Live #{plugin_id}",
+          version: version,
+          entrypoint: "run_check",
+          runtime: "wasi-preview1",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: package_manifest(plugin_id, version),
+          config_schema: %{},
+          display_contract: %{},
+          signature: %{},
+          source_type: :github,
+          source_repo_url: @repo_url,
+          source_commit: "test-#{plugin_id}-#{version}",
+          content_hash: "sha256:#{plugin_id}-#{version}"
+        },
+        :producer_schedules,
+        Keyword.get(opts, :producer_schedules)
+      )
 
     assert package =
              PluginPackage
