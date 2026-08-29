@@ -49,6 +49,7 @@ class FakeNode {
   dispatch(event) {
     event.target ??= this
     for (const listener of this.listeners.get(event.type) || []) listener(event)
+    if (!event.immediateStopped) this.parentElement?.dispatch(event)
   }
 
   getAttribute(name) {
@@ -118,6 +119,7 @@ function chart() {
   overlay.classList.add("hidden")
   const status = new FakeNode()
   const root = new FakeNode()
+  svg.parentElement = root
   root.dataset = {
     bucketSeconds: "300",
     chartHeight: "160",
@@ -162,7 +164,7 @@ describe("NetflowTrafficTooltip shared range integration", () => {
       expect(root.listenerCount("mouseleave")).toBe(1)
       expect(root.listenerCount("click")).toBe(1)
       expect(root.listenerCount("keydown")).toBe(1)
-      expect(svg.listenerCount("pointerdown")).toBe(1)
+      expect(root.listenerCount("pointerdown")).toBe(1)
 
       root.dispatch({clientX: 500, clientY: 70, type: "mousemove"})
       const tooltip = root.children[0].children[0]
@@ -238,7 +240,7 @@ describe("NetflowTrafficTooltip shared range integration", () => {
       svg.dispatch(pointer("pointermove", 10, 9))
       ctx.updated()
       expect(root.capturedPointers.has(9)).toBe(true)
-      expect(svg.listenerCount("pointerdown")).toBe(1)
+      expect(root.listenerCount("pointerdown")).toBe(1)
       svg.dispatch(pointer("pointerup", 1000, 9))
       expect(pushEvent).toHaveBeenLastCalledWith("netflow_range_selected", {
         start: "2026-08-27T10:00:00Z",
@@ -291,7 +293,7 @@ describe("NetflowTrafficTooltip shared range integration", () => {
         {x: 750, start: "2026-08-28T10:05:00Z", end: "2026-08-28T10:09:59.999999Z"},
       ])
       ctx.updated()
-      expect(svg.listenerCount("pointerdown")).toBe(1)
+      expect(root.listenerCount("pointerdown")).toBe(1)
       svg.dispatch(pointer("pointerdown", 250, 4))
       svg.dispatch(pointer("pointerup", 750, 4))
       expect(pushEvent).toHaveBeenLastCalledWith("netflow_range_selected", {

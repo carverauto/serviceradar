@@ -40,7 +40,9 @@ class FakeNode {
   }
 
   dispatch(event) {
+    event.target ??= this
     for (const {listener} of this.listeners.get(event.type) || []) listener(event)
+    if (!event.immediateStopped) this.parentNode?.dispatch(event)
   }
 
   getAttribute(name) {
@@ -105,7 +107,7 @@ class RecordingSelection {
     this.records = records
     this.tag = tag
     this.nodeValue.tagName = tag
-    this.nodeValue.parentNode = parentSelection?.nodeValue || null
+    if (parentSelection) this.nodeValue.parentNode = parentSelection.nodeValue
     records.selections.push(this)
   }
 
@@ -220,12 +222,13 @@ function root() {
   return el
 }
 
-function rangeNodes() {
+function rangeNodes(parentNode = null) {
   const svg = new FakeNode()
   const overlay = new FakeNode()
   const status = new FakeNode()
   svg.getBoundingClientRect = () => ({height: 224, left: 0, top: 0, width: 600})
   svg.setAttribute("viewBox", "0 0 600 224")
+  svg.parentNode = parentNode
   return {overlay, status, svg}
 }
 
@@ -234,6 +237,7 @@ function renderSeams(el) {
   const status = new FakeNode()
   const records = {calls: [], handlers: [], overlays: [], selections: []}
   const tooltipCleanups = []
+  svg.parentNode = el
   el.childrenBySelector.set("svg", svg)
   el.childrenBySelector.set("[data-range-status]", status)
   svg.getBoundingClientRect = () => ({height: 224, left: 0, top: 0, width: 600})
@@ -658,7 +662,7 @@ describe("NetflowStackedAreaChart lifecycle", () => {
       expect(seams.tooltipCleanups[0]).toHaveBeenCalledOnce()
       expect(ctx.rangeController?.options.overlay).toBe(seams.records.overlays[1])
       expect(ctx.rangeController?.options.overlay).not.toBe(seams.records.overlays[0])
-      expect(seams.svg.listenerCount("pointerdown")).toBe(1)
+      expect(el.listenerCount("pointerdown")).toBe(1)
       expect(el.listenerCount("click")).toBe(1)
 
       seams.records.legendToggle("web")
@@ -686,7 +690,7 @@ describe("NetflowStackedAreaChart lifecycle", () => {
     const el = root()
     const pushEvent = vi.fn()
     const ctx = {el, pushEvent, ...NetflowStackedAreaChart}
-    const nodes = rangeNodes()
+    const nodes = rangeNodes(el)
     const x = d3
       .scaleTime()
       .domain([new Date(intervals[0].start), new Date(intervals[2].start)])
@@ -712,7 +716,7 @@ describe("NetflowStackedAreaChart lifecycle", () => {
 
     ctx._updateRangeSelection({...nodes, height: 180, intervals, marginLeft: 44, plotWidth: 446, x})
     expect(ctx.rangeController).toBe(controller)
-    expect(nodes.svg.listenerCount("pointerdown")).toBe(1)
+    expect(el.listenerCount("pointerdown")).toBe(1)
 
     nodes.svg.dispatch(pointer("pointerdown", 490, 2))
     nodes.svg.dispatch(pointer("pointerup", 44, 2))
@@ -726,7 +730,7 @@ describe("NetflowStackedAreaChart lifecycle", () => {
     const el = root()
     const pushEvent = vi.fn()
     const ctx = {el, pushEvent, ...NetflowStackedAreaChart}
-    const nodes = rangeNodes()
+    const nodes = rangeNodes(el)
     const x = d3
       .scaleTime()
       .domain([new Date(intervals[0].start), new Date(intervals[2].start)])
@@ -755,7 +759,7 @@ describe("NetflowStackedAreaChart lifecycle", () => {
     const el = root()
     const pushEvent = vi.fn()
     const ctx = {el, pushEvent, ...NetflowStackedAreaChart}
-    const nodes = rangeNodes()
+    const nodes = rangeNodes(el)
     const x = d3
       .scaleTime()
       .domain([new Date(intervals[0].start), new Date(intervals[2].start)])
@@ -777,7 +781,7 @@ describe("NetflowStackedAreaChart lifecycle", () => {
   it("preserves capture on unchanged update, rebinds changed geometry, and destroys listeners", () => {
     const el = root()
     const ctx = {el, pushEvent: vi.fn(), ...NetflowStackedAreaChart}
-    const first = rangeNodes()
+    const first = rangeNodes(el)
     const x = d3
       .scaleTime()
       .domain([new Date(intervals[0].start), new Date(intervals[2].start)])
@@ -789,12 +793,12 @@ describe("NetflowStackedAreaChart lifecycle", () => {
     ctx._updateRangeSelection({...first, height: 180, intervals, marginLeft: 44, plotWidth: 446, x})
     expect(el.capturedPointers.has(8)).toBe(true)
 
-    const second = rangeNodes()
+    const second = rangeNodes(el)
     const resizedX = x.copy().range([0, 566])
     ctx._updateRangeSelection({...second, height: 180, intervals, marginLeft: 44, plotWidth: 566, x: resizedX})
     expect(el.capturedPointers.has(8)).toBe(true)
     expect(first.svg.totalListenerCount()).toBe(0)
-    expect(second.svg.listenerCount("pointerdown")).toBe(1)
+    expect(el.listenerCount("pointerdown")).toBe(1)
 
     ctx.destroyed()
     expect(el.capturedPointers.has(8)).toBe(false)

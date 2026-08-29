@@ -63,6 +63,29 @@ function pointer(type, clientX, pointerId = 1) {
   return {clientX, pointerId, type}
 }
 
+function replacementSvgThatBubblesTo(root) {
+  const svg = element()
+  const dispatch = svg.dispatch.bind(svg)
+
+  svg.dispatch = (event) => {
+    dispatch(event)
+    root.dispatch({...event, target: event.target || svg})
+  }
+
+  return svg
+}
+
+function bubbleToRoot(target, root) {
+  const dispatch = target.dispatch.bind(target)
+
+  target.dispatch = (event) => {
+    dispatch(event)
+    root.dispatch({...event, target: event.target || target})
+  }
+
+  return target
+}
+
 function options({bindingKey = "buckets-a", buckets: selectedBuckets = buckets, root = element(), svg = element()} = {}) {
   const overlay = element()
   const status = element()
@@ -74,12 +97,78 @@ function options({bindingKey = "buckets-a", buckets: selectedBuckets = buckets, 
     plotBounds: () => ({left: 0, right: 100}),
     root,
     status,
-    svg,
+    svg: bubbleToRoot(svg, root),
     viewXForEvent: (event) => event.clientX,
   }
 }
 
 describe("ChartRangeSelectionController", () => {
+  it("commits the first drag started on a replacement SVG before a compatible update", () => {
+    const documentTarget = element()
+    const root = element()
+    root.ownerDocument = documentTarget
+    const config = options({root})
+    const controller = new ChartRangeSelectionController(config)
+    const replacementSvg = replacementSvgThatBubblesTo(root)
+
+    replacementSvg.dispatch(pointer("pointerdown", 0, 9))
+    controller.update({...config, bindingKey: "replacement-svg", overlay: element(), svg: replacementSvg})
+    documentTarget.dispatch(pointer("pointerup", 100, 9))
+
+    expect(config.emit).toHaveBeenCalledOnce()
+    expect(config.emit).toHaveBeenCalledWith({
+      start: "2026-08-27T10:00:00Z",
+      end: "2026-08-27T12:59:59.999999Z",
+    })
+  })
+
+  it("commits a release whose first qualifying sample is pointerup", () => {
+    const config = options()
+    const controller = new ChartRangeSelectionController(config)
+
+    config.svg.dispatch(pointer("pointerdown", 0, 10))
+    config.svg.dispatch(pointer("pointerup", 100, 10))
+
+    expect(config.emit).toHaveBeenCalledOnce()
+    expect(controller.consumeChartClick()).toBe(true)
+  })
+
+  it("cancels a changed interval gesture and removes its document tracking", () => {
+    const documentTarget = element()
+    const root = element()
+    root.ownerDocument = documentTarget
+    const config = options({root})
+    const controller = new ChartRangeSelectionController(config)
+
+    config.svg.dispatch(pointer("pointerdown", 0, 11))
+    controller.update({
+      ...config,
+      bindingKey: "new-intervals",
+      buckets: [
+        {x: 0, start: "2026-08-28T10:00:00Z", end: "2026-08-28T10:59:59.999999Z"},
+        {x: 100, start: "2026-08-28T12:00:00Z", end: "2026-08-28T12:59:59.999999Z"},
+      ],
+    })
+    documentTarget.dispatch(pointer("pointerup", 100, 11))
+
+    expect(config.emit).not.toHaveBeenCalled()
+    expect(documentTarget.totalListenerCount()).toBe(0)
+  })
+
+  it("destroy removes root and document listeners for a pending gesture", () => {
+    const documentTarget = element()
+    const root = element()
+    root.ownerDocument = documentTarget
+    const config = options({root})
+    const controller = new ChartRangeSelectionController(config)
+
+    config.svg.dispatch(pointer("pointerdown", 0, 12))
+    controller.destroy()
+
+    expect(root.totalListenerCount()).toBe(0)
+    expect(documentTarget.totalListenerCount()).toBe(0)
+  })
+
   it("rebinds to renderer-supplied nodes and geometry when the binding changes", () => {
     const first = options()
     const controller = new ChartRangeSelectionController(first)
@@ -97,7 +186,8 @@ describe("ChartRangeSelectionController", () => {
     controller.update(second)
     expect(first.svg.totalListenerCount()).toBe(0)
     expect(first.root.capturedPointers.has(4)).toBe(false)
-    expect(secondSvg.listenerCount("pointerdown")).toBe(1)
+    expect(first.root.listenerCount("pointerdown")).toBe(1)
+    expect(secondSvg.listenerCount("pointerdown")).toBe(0)
 
     secondSvg.dispatch(pointer("pointerdown", 20))
     secondSvg.dispatch(pointer("pointerup", 80))
@@ -119,7 +209,7 @@ describe("ChartRangeSelectionController", () => {
     controller.update({...config})
     config.svg.dispatch(pointer("pointerup", 100, 7))
 
-    expect(config.svg.listenerCount("pointerdown")).toBe(1)
+    expect(config.root.listenerCount("pointerdown")).toBe(1)
     expect(config.root.listenerCount("keydown")).toBe(1)
     expect(config.emit).toHaveBeenCalledWith({
       start: "2026-08-27T10:00:00Z",
@@ -156,7 +246,7 @@ describe("ChartRangeSelectionController", () => {
   it("transfers an in-flight gesture when a redraw replaces the SVG for the same intervals", () => {
     const config = options()
     const controller = new ChartRangeSelectionController(config)
-    const replacementSvg = element()
+    const replacementSvg = replacementSvgThatBubblesTo(config.root)
 
     config.svg.dispatch(pointer("pointerdown", 0, 7))
     config.svg.dispatch(pointer("lostpointercapture", 0, 7))
@@ -311,7 +401,7 @@ describe("ChartRangeSelectionController", () => {
     }
     const controller = new ChartRangeSelectionController(config)
     const replacementOverlay = element()
-    const replacementSvg = element()
+    const replacementSvg = replacementSvgThatBubblesTo(config.root)
 
     config.svg.dispatch(pointer("pointerdown", 0, 13))
     config.svg.dispatch(pointer("pointermove", 100, 13))

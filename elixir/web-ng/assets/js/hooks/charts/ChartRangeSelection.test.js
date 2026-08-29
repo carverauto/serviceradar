@@ -114,6 +114,12 @@ function rangeElement({buckets = initialBuckets, eventName = "select_events_rang
     return null
   }
 
+  const dispatch = svg.dispatch.bind(svg)
+  svg.dispatch = (event) => {
+    dispatch(event)
+    root.dispatch({...event, target: event.target || svg})
+  }
+
   return {overlay, root, status, svg}
 }
 
@@ -323,10 +329,10 @@ describe("ChartRangeSelection hook", () => {
 
     expect(overlay.classList.contains("hidden")).toBe(true)
     expect(status.textContent).toBe("")
-    expect(svg.listenerCount("pointerdown")).toBe(1)
-    expect(svg.listenerCount("pointermove")).toBe(1)
-    expect(svg.listenerCount("pointerup")).toBe(1)
-    expect(svg.listenerCount("pointercancel")).toBe(1)
+    expect(root.listenerCount("pointerdown")).toBe(1)
+    expect(root.listenerCount("pointermove")).toBe(1)
+    expect(root.listenerCount("pointerup")).toBe(1)
+    expect(root.listenerCount("pointercancel")).toBe(1)
     expect(root.listenerCount("lostpointercapture")).toBe(1)
     expect(root.listenerCount("keydown")).toBe(1)
     drag(svg, 36, 616)
@@ -350,7 +356,7 @@ describe("ChartRangeSelection hook", () => {
     root.dataset = {...root.dataset, rangeEvent: "select_refreshed_events_range"}
     ctx.updated()
     expect(root.capturedPointers.has(8)).toBe(false)
-    expect(svg.listenerCount("pointerdown")).toBe(1)
+    expect(root.listenerCount("pointerdown")).toBe(1)
 
     svg.dispatch(pointer("pointerdown", 36, "mouse", 9))
     svg.dispatch(pointer("pointermove", 50, "mouse", 9))

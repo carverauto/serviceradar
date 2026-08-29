@@ -30,16 +30,8 @@ export default class ChartRangeSelectionController {
     }
 
     if (this.pointer && this.gestureBindingIsCompatible(normalized)) {
-      const svgChanged = this.options.svg !== normalized.svg
-
-      if (svgChanged) {
-        this.unbind()
-        this.options = normalized
-        this.bind()
-      } else {
-        this.options = normalized
-        normalized.status.setAttribute("aria-live", "polite")
-      }
+      this.options = normalized
+      normalized.status.setAttribute("aria-live", "polite")
 
       this.renderSelection()
       return
@@ -60,7 +52,7 @@ export default class ChartRangeSelectionController {
   }
 
   bind() {
-    const {root, status, svg} = this.options
+    const {root, status} = this.options
     root.setAttribute("tabindex", "0")
     root.removeAttribute("aria-disabled")
     status.setAttribute("aria-live", "polite")
@@ -72,10 +64,7 @@ export default class ChartRangeSelectionController {
     const onLostPointerCapture = (event) => this.lostPointerCapture(event)
     const onKeyDown = (event) => this.keyDown(event)
 
-    svg.addEventListener("pointerdown", onPointerDown)
-    svg.addEventListener("pointermove", onPointerMove)
-    svg.addEventListener("pointerup", onPointerUp)
-    svg.addEventListener("pointercancel", onPointerCancel)
+    root.addEventListener("pointerdown", onPointerDown)
     root.addEventListener("pointermove", onPointerMove)
     root.addEventListener("pointerup", onPointerUp)
     root.addEventListener("pointercancel", onPointerCancel)
@@ -83,10 +72,7 @@ export default class ChartRangeSelectionController {
     root.addEventListener("keydown", onKeyDown)
 
     this.cleanup = () => {
-      svg.removeEventListener("pointerdown", onPointerDown)
-      svg.removeEventListener("pointermove", onPointerMove)
-      svg.removeEventListener("pointerup", onPointerUp)
-      svg.removeEventListener("pointercancel", onPointerCancel)
+      root.removeEventListener("pointerdown", onPointerDown)
       root.removeEventListener("pointermove", onPointerMove)
       root.removeEventListener("pointerup", onPointerUp)
       root.removeEventListener("pointercancel", onPointerCancel)
