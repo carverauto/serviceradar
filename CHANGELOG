@@ -9,6 +9,23 @@ every Argo sync.
 ## Whats New
 
 **Unreleased**
+- SRQL: `in:composite_results stats:` is honoured. The previous ignore
+  dumped every matching row, so a dashboard that asked for
+  `stats:count() as n by check,verdict` still hit the 2,000-row
+  FrameRunner ceiling and folded the sample in the browser. Unsupported
+  aggregations and group fields now return `InvalidRequest` instead of
+  that silent dump. **BREAKING** for anyone who depended on the ignore;
+  no in-tree caller did. Group fields are `check` / `check_slug` /
+  `slug`, `check_name`, `verdict`, `status`, `input_key`, `input_value`,
+  `input_stale`. Vantage rollups unnest `inputs` with `jsonb_each`.
+  Stats default limit 100, hard cap 500.
+- Dashboards: `api.srql.page(frameId, cursor)` re-runs one frame at a
+  signed SRQL cursor without rewriting the query or remounting the
+  renderer. Cursors stay request metadata; do not put `cursor:` in the
+  query string. `@carverauto/serviceradar-dashboard-sdk` 0.2.0 wraps
+  this as `SrqlClient.page` / `useDashboardFramePagination`. Device
+  tables that also resolve hostnames via `in:devices uid:(…)` must stay
+  at page size ≤ 200.
 - Dashboards: package dashboards now have the same visibility and grant
   model as authored dashboards (`private` / `shared` / `public`, plus
   user and group grants on the instance). Existing dashboards stay

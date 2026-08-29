@@ -68,9 +68,9 @@
 
 ## 5. Docs and follow-up
 
-- [ ] 5.1 CHANGELOG: `in:composite_results` `stats:` is honoured; previously
+- [x] 5.1 CHANGELOG: `in:composite_results` `stats:` is honoured; previously
       ignored `stats:` on this entity is **BREAKING**.
-- [ ] 5.2 Developer portal / dashboard-sdk docs: paging ABI, stats examples
+- [x] 5.2 Developer portal / dashboard-sdk docs: paging ABI, stats examples
       (`by check, verdict`, vantage unnest).
 - [ ] 5.3 Do **not** rewrite `com.example.armis.composite` in this repository.
       File a follow-up in `serviceradar-armis-dashboards` once 4.5 is on npm:

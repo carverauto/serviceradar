@@ -98,6 +98,24 @@ in:devices stats:count() as total by vendor_name sort:total:desc
 
 The most common vendors in your fleet.
 
+### Count composite-check verdicts
+
+```srql
+in:composite_results stats:count() as n by check,verdict
+```
+
+A GROUP BY, not a truncated row dump. Unsupported aggregations or group
+fields return `InvalidRequest` instead of silently listing rows.
+
+### Roll up composite-check vantage inputs
+
+```srql
+in:composite_results check:pci-isolation stats:"count() as n by input_key, input_value, input_stale"
+```
+
+Unnests the `inputs` JSONB map. Empty or null `inputs` contribute no
+vantage rows.
+
 ---
 
 ## Inspecting events and logs
