@@ -102,7 +102,7 @@ actions:
             set -a; . "$PREFLIGHT_ENV_FILE"; set +a
             PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
                --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-               --test_output=errors
+               --test_output=all
                --nocache_test_results --noremote_upload_local_results
                --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
                --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
@@ -127,7 +127,7 @@ actions:
           export SERVICERADAR_FIXTURE_ENV_FILE
           FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
              --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-             --test_output=errors
+             --test_output=all
              --nocache_test_results --noremote_upload_local_results
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
              --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
@@ -289,7 +289,7 @@ actions:
       - run: >-
           bazel test -c opt --config=ci --//build:enable_integration_tests
           --test_tag_filters=benchmark
-          --test_output=errors
+          --test_output=all
           //...
 
   - name: "LargeIngestionGate"
@@ -343,7 +343,7 @@ actions:
             set -a; . "$PREFLIGHT_ENV_FILE"; set +a
             PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
                --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-               --test_output=errors
+               --test_output=all
                --nocache_test_results --noremote_upload_local_results
                --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
                --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
@@ -368,7 +368,7 @@ actions:
           export SERVICERADAR_FIXTURE_ENV_FILE
           FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
              --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-             --test_output=errors
+             --test_output=all
              --nocache_test_results --noremote_upload_local_results
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
              --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
@@ -557,7 +557,7 @@ actions:
             set -a; . "$PREFLIGHT_ENV_FILE"; set +a
             PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
                --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-               --test_output=errors
+               --test_output=all
                --nocache_test_results --noremote_upload_local_results
                --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
                --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
@@ -581,7 +581,7 @@ actions:
           export SERVICERADAR_FIXTURE_ENV_FILE
           FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
              --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-             --test_output=errors
+             --test_output=all
              --nocache_test_results --noremote_upload_local_results
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
              --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
