@@ -725,7 +725,7 @@ func TestCredentialBrokerOAuth2PasswordBearerKeepsTokenExchangeHostSide(t *testi
 	}}
 
 	if err := exec.applyCredentialBrokerOAuth2PasswordBearer(
-		t.Context(), upstreamReq, grant, material,
+		t.Context(), upstreamReq, grant, material, false,
 	); err != nil {
 		t.Fatalf("applyCredentialBrokerOAuth2PasswordBearer returned error: %v", err)
 	}
@@ -771,6 +771,7 @@ func TestCredentialBrokerOAuth2PasswordBearerDeniesBeforeTokenExchangeOnTargetMi
 			"username": "inventory-user",
 			"password": "long-lived-password",
 		}},
+		false,
 	)
 	if !errors.Is(err, errCredentialBrokerTokenExchangeInvalid) {
 		t.Fatalf("expected target mismatch rejection, got %v", err)
@@ -814,6 +815,7 @@ func TestCredentialBrokerOAuth2PasswordBearerDoesNotFollowTokenRedirects(t *test
 			"username": "inventory-user",
 			"password": "long-lived-password",
 		}},
+		false,
 	)
 	if !errors.Is(err, errCredentialBrokerTokenExchangeFailed) {
 		t.Fatalf("expected redirect rejection, got %v", err)
@@ -1183,6 +1185,47 @@ func TestLegacyNonAWXHTTPGrantKeepsOptionalMethodAndPathACLs(t *testing.T) {
 		nil,
 	); err != nil {
 		t.Fatalf("legacy non-AWX manifest-authorized redirect was rejected: %v", err)
+	}
+}
+
+func TestCredentialBrokerOAuth2PasswordBearerSkipsTLSWhenRequested(t *testing.T) {
+	t.Parallel()
+
+	tokenServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"insecure-token","token_type":"Bearer"}`)
+	}))
+	defer tokenServer.Close()
+
+	tokenURL := mustParseURL(t, tokenServer.URL+"/oauth/token")
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{})
+	defer manager.Stop()
+	exec := newPluginExecution(manager, &pluginAssignment{})
+	req, err := http.NewRequestWithContext(
+		t.Context(), http.MethodPost, "https://inventory.example.test/api/devices", strings.NewReader(`{}`),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant := credentialBrokerGrant{Inject: oauth2PasswordBearerTestInject(tokenURL)}
+	material := CredentialBrokerMaterial{Fields: map[string]string{
+		"username": "inventory-user",
+		"password": "long-lived-password",
+	}}
+
+	if err := exec.applyCredentialBrokerOAuth2PasswordBearer(
+		t.Context(), req, grant, material, false,
+	); err == nil {
+		t.Fatal("expected verified TLS against the untrusted test certificate to fail")
+	}
+
+	if err := exec.applyCredentialBrokerOAuth2PasswordBearer(
+		t.Context(), req, grant, material, true,
+	); err != nil {
+		t.Fatalf("insecure skip-verify token exchange failed: %v", err)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer insecure-token" {
+		t.Fatalf("Authorization = %q", got)
 	}
 }
 

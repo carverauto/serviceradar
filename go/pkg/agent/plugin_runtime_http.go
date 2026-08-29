@@ -432,7 +432,7 @@ func (e *pluginExecution) applyCredentialBrokerInjection(
 		return err
 	}
 	if strings.EqualFold(strings.TrimSpace(grant.Inject["type"]), "oauth2_password_bearer") {
-		return e.applyCredentialBrokerOAuth2PasswordBearer(ctx, req, *grant, material)
+		return e.applyCredentialBrokerOAuth2PasswordBearer(ctx, req, *grant, material, insecureSkipVerify)
 	}
 
 	return applyCredentialBrokerHTTPInjection(req, *grant, material)

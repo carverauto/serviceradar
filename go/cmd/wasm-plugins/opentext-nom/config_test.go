@@ -34,6 +34,21 @@ func TestConfigFixtures(t *testing.T) {
 	}
 }
 
+func TestParseConfigInsecureSkipVerify(t *testing.T) {
+	cfg, err := ParseConfig([]byte(`{
+		"instance_id":"network-automation-prod",
+		"nnm_url":"https://nnm.example.com:443",
+		"api_url":"https://na.example.com/nom/api/automation/v1/wrapper",
+		"insecure_skip_verify":true
+	}`))
+	if err != nil {
+		t.Fatalf("ParseConfig() error = %v", err)
+	}
+	if !cfg.InsecureSkipVerify {
+		t.Fatal("InsecureSkipVerify = false, want true")
+	}
+}
+
 func TestParseConfigAppliesSafeSwitchDefaults(t *testing.T) {
 	cfg, err := ParseConfig([]byte(`{
 		"instance_id":"network-automation-prod",

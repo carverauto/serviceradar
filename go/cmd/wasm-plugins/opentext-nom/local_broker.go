@@ -81,7 +81,8 @@ func (b *localOAuthBroker) Handle(
 		return nil, runError("opentext_nom_local_host_unavailable")
 	}
 	b.setSafeError("")
-	if request.InsecureSkipVerify || !strings.EqualFold(request.Method, http.MethodPost) ||
+	if (request.InsecureSkipVerify && !localTLSInsecure()) ||
+		!strings.EqualFold(request.Method, http.MethodPost) ||
 		request.URL != b.config.APIURL || hasAuthorizationHeader(request.Headers) {
 		return nil, b.fail("opentext_nom_local_target_denied")
 	}

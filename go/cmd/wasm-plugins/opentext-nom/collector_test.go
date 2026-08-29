@@ -447,6 +447,25 @@ func assertRunError(t *testing.T, err error, code string) {
 	}
 }
 
+func TestCollectorPropagatesInsecureSkipVerify(t *testing.T) {
+	fake := &fakeHTTPDoer{responses: []HTTPResponse{
+		jsonResponse(200, []any{deviceRow(1, "ORD-ASW001", "10.0.0.1", "SER-1")}),
+	}}
+	cfg := validTestConfig()
+	cfg.InsecureSkipVerify = true
+	if _, err := testCollector(fake).Collect(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.requests) == 0 {
+		t.Fatal("expected inventory request")
+	}
+	for _, request := range fake.requests {
+		if !request.InsecureSkipVerify {
+			t.Fatalf("request to %s did not skip TLS verify", request.URL)
+		}
+	}
+}
+
 func TestCollectorSkipsL2WithoutEndpoints(t *testing.T) {
 	fake := &fakeHTTPDoer{responses: []HTTPResponse{
 		jsonResponse(200, []any{deviceRow(1, "ORD-ASW001", "10.0.0.1", "SER-1")}),
