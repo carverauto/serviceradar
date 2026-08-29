@@ -125,7 +125,7 @@ func TestSNMPv3ConnectDoesNotRejectMissingSecurityModel(t *testing.T) {
 
 	udp, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer udp.Close()
+	t.Cleanup(func() { _ = udp.Close() })
 
 	client.Target = "127.0.0.1"
 	client.Port = uint16(udp.LocalAddr().(*net.UDPAddr).Port)
