@@ -24,6 +24,10 @@ Install/upgrade
 - Deploy from a repo checkout (development):
   - `helm upgrade --install serviceradar ./helm/serviceradar -n serviceradar -f my-values.yaml`
 - Quick overrides without a file: add `--set` flags (examples below).
+- MCP (`/mcp`) is off by default. Enable with `--set webNg.mcpEnabled="true"`
+  (the chart must template `SERVICERADAR_MCP_*` from that key; `extraEnv` cannot
+  shadow it). Demo overlay `values-demo.yaml` already turns it on. Client setup
+  (Codex, Claude Code, Grok) is in [MCP Integration](./mcp-integration.md).
 
 OCI chart quick start
 - Inspect chart metadata and defaults:
