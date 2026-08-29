@@ -431,8 +431,8 @@ func (e *pluginExecution) applyCredentialBrokerInjection(
 	if err != nil {
 		return err
 	}
-	if strings.EqualFold(strings.TrimSpace(grant.Inject["type"]), "oauth2_password_bearer") {
-		return e.applyCredentialBrokerOAuth2PasswordBearer(ctx, req, *grant, material)
+	if shape, ok := oauth2GrantShapeFor(grant.Inject["type"]); ok {
+		return e.applyCredentialBrokerOAuth2Bearer(ctx, req, *grant, material, shape)
 	}
 
 	return applyCredentialBrokerHTTPInjection(req, *grant, material)

@@ -724,10 +724,10 @@ func TestCredentialBrokerOAuth2PasswordBearerKeepsTokenExchangeHostSide(t *testi
 		"password": "long-lived-password",
 	}}
 
-	if err := exec.applyCredentialBrokerOAuth2PasswordBearer(
-		t.Context(), upstreamReq, grant, material,
+	if err := exec.applyCredentialBrokerOAuth2Bearer(
+		t.Context(), upstreamReq, grant, material, oauth2GrantShapes[injectTypeOAuth2PasswordBearer],
 	); err != nil {
-		t.Fatalf("applyCredentialBrokerOAuth2PasswordBearer returned error: %v", err)
+		t.Fatalf("applyCredentialBrokerOAuth2Bearer returned error: %v", err)
 	}
 	if got := upstreamReq.Header.Get("Authorization"); got != "Bearer derived-host-only-token" {
 		t.Fatalf("Authorization = %q", got)
@@ -763,7 +763,7 @@ func TestCredentialBrokerOAuth2PasswordBearerDeniesBeforeTokenExchangeOnTargetMi
 		t.Fatal(err)
 	}
 
-	err = exec.applyCredentialBrokerOAuth2PasswordBearer(
+	err = exec.applyCredentialBrokerOAuth2Bearer(
 		t.Context(),
 		req,
 		credentialBrokerGrant{Inject: oauth2PasswordBearerTestInject(tokenURL)},
@@ -771,6 +771,7 @@ func TestCredentialBrokerOAuth2PasswordBearerDeniesBeforeTokenExchangeOnTargetMi
 			"username": "inventory-user",
 			"password": "long-lived-password",
 		}},
+		oauth2GrantShapes[injectTypeOAuth2PasswordBearer],
 	)
 	if !errors.Is(err, errCredentialBrokerTokenExchangeInvalid) {
 		t.Fatalf("expected target mismatch rejection, got %v", err)
@@ -806,7 +807,7 @@ func TestCredentialBrokerOAuth2PasswordBearerDoesNotFollowTokenRedirects(t *test
 		t.Fatal(err)
 	}
 
-	err = exec.applyCredentialBrokerOAuth2PasswordBearer(
+	err = exec.applyCredentialBrokerOAuth2Bearer(
 		t.Context(),
 		req,
 		credentialBrokerGrant{Inject: oauth2PasswordBearerTestInject(tokenURL)},
@@ -814,6 +815,7 @@ func TestCredentialBrokerOAuth2PasswordBearerDoesNotFollowTokenRedirects(t *test
 			"username": "inventory-user",
 			"password": "long-lived-password",
 		}},
+		oauth2GrantShapes[injectTypeOAuth2PasswordBearer],
 	)
 	if !errors.Is(err, errCredentialBrokerTokenExchangeFailed) {
 		t.Fatalf("expected redirect rejection, got %v", err)
@@ -1576,4 +1578,200 @@ func findActionFixtureInManifest(t *testing.T, manifestPath, objectKey string) s
 	}
 
 	return ""
+}
+
+func oauth2ClientCredentialsTestInject(tokenURL *url.URL) map[string]string {
+	return map[string]string{
+		"type":                "oauth2_client_credentials",
+		"method":              http.MethodGet,
+		"host":                "clearpass.example.test",
+		"path":                "/api/session",
+		"token_method":        http.MethodPost,
+		"token_host":          tokenURL.Hostname(),
+		"token_port":          tokenURL.Port(),
+		"token_path":          tokenURL.Path,
+		"field_client_id":     "client_id",
+		"field_client_secret": "client_secret",
+		"fixed_grant_type":    "client_credentials",
+	}
+}
+
+// The client-credentials exchange is the whole point of the mode: the guest
+// never learns the client secret, only the upstream request carries a
+// short-lived derived bearer token.
+func TestCredentialBrokerOAuth2ClientCredentialsExchangesSecretForBearer(t *testing.T) {
+	t.Parallel()
+
+	var tokenForm url.Values
+	tokenServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(io.LimitReader(r.Body, 8192))
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		tokenForm, err = url.ParseQuery(string(body))
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"access_token":"derived-cc-token","token_type":"Bearer","expires_in":28800}`)
+	}))
+	defer tokenServer.Close()
+
+	tokenURL := mustParseURL(t, tokenServer.URL+"/api/oauth")
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{HTTPClient: tokenServer.Client()})
+	defer manager.Stop()
+	exec := newPluginExecution(manager, &pluginAssignment{})
+
+	upstreamReq, err := http.NewRequestWithContext(
+		t.Context(), http.MethodGet, "https://clearpass.example.test/api/session", nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := exec.applyCredentialBrokerOAuth2Bearer(
+		t.Context(),
+		upstreamReq,
+		credentialBrokerGrant{Inject: oauth2ClientCredentialsTestInject(tokenURL)},
+		CredentialBrokerMaterial{Fields: map[string]string{
+			"client_id":     "clearpass-monitor",
+			"client_secret": "long-lived-client-secret",
+		}},
+		oauth2GrantShapes[injectTypeOAuth2ClientCredentials],
+	); err != nil {
+		t.Fatalf("applyCredentialBrokerOAuth2Bearer returned error: %v", err)
+	}
+
+	if got := upstreamReq.Header.Get("Authorization"); got != "Bearer derived-cc-token" {
+		t.Fatalf("Authorization = %q", got)
+	}
+	if tokenForm.Get("client_id") != "clearpass-monitor" ||
+		tokenForm.Get("client_secret") != "long-lived-client-secret" ||
+		tokenForm.Get("grant_type") != "client_credentials" {
+		t.Fatalf("unexpected token form fields: %#v", tokenForm)
+	}
+	if strings.Contains(upstreamReq.Header.Get("Authorization"), "long-lived-client-secret") {
+		t.Fatal("upstream authorization exposed the source credential")
+	}
+	if tokenForm.Has("username") || tokenForm.Has("password") {
+		t.Fatalf("client-credentials exchange sent password-grant fields: %#v", tokenForm)
+	}
+}
+
+// A grant declaring one OAuth2 mode must not be satisfiable by the OTHER
+// mode's credential fields.
+//
+// The dangerous shape is a manifest that names `oauth2_client_credentials` and
+// sets `fixed_grant_type` to match, but maps the password grant's fields. The
+// per-field mapping loop cannot catch it - the material genuinely holds a
+// username and a password, so every mapping resolves - and the grant_type check
+// cannot catch it either, because the manifest set grant_type consistently.
+// Only the per-shape required-field check refuses it, which is why removing
+// that check must break this test.
+func TestCredentialBrokerOAuth2GrantShapesRequireTheirOwnCredentialFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		shape    oauth2GrantShape
+		base     func(*url.URL) map[string]string
+		mappings map[string]string
+		fields   map[string]string
+	}{
+		{
+			name:     "client credentials grant refuses to run on password fields",
+			shape:    oauth2GrantShapes[injectTypeOAuth2ClientCredentials],
+			base:     oauth2ClientCredentialsTestInject,
+			mappings: map[string]string{"field_username": "username", "field_password": "password"},
+			fields:   map[string]string{"username": "u", "password": "p"},
+		},
+		{
+			name:     "password grant refuses to run on client credential fields",
+			shape:    oauth2GrantShapes[injectTypeOAuth2PasswordBearer],
+			base:     oauth2PasswordBearerTestInject,
+			mappings: map[string]string{"field_client_id": "client_id", "field_client_secret": "client_secret"},
+			fields:   map[string]string{"client_id": "c", "client_secret": "s"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			requests := 0
+			tokenServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests++
+				_, _ = io.WriteString(w, `{"access_token":"must-not-be-issued"}`)
+			}))
+			defer tokenServer.Close()
+
+			tokenURL := mustParseURL(t, tokenServer.URL+"/api/oauth")
+			manager := NewPluginManager(t.Context(), PluginManagerConfig{HTTPClient: tokenServer.Client()})
+			defer manager.Stop()
+			exec := newPluginExecution(manager, &pluginAssignment{})
+
+			// Keep the declared grant_type, swap only which credential fields
+			// the manifest maps into the token form.
+			inject := test.base(tokenURL)
+			for key := range inject {
+				if strings.HasPrefix(key, "field_") {
+					delete(inject, key)
+				}
+			}
+			for key, value := range test.mappings {
+				inject[key] = value
+			}
+
+			req, err := http.NewRequestWithContext(
+				t.Context(), inject["method"], "https://"+inject["host"]+inject["path"], nil,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			err = exec.applyCredentialBrokerOAuth2Bearer(
+				t.Context(),
+				req,
+				credentialBrokerGrant{Inject: inject},
+				CredentialBrokerMaterial{Fields: test.fields},
+				test.shape,
+			)
+			if !errors.Is(err, errCredentialBrokerTokenExchangeInvalid) {
+				t.Fatalf("expected shape rejection, got %v", err)
+			}
+			if requests != 0 {
+				t.Fatalf("token endpoint received %d request(s) for a mismatched grant shape", requests)
+			}
+			if got := req.Header.Get("Authorization"); got != "" {
+				t.Fatalf("upstream request received authorization: %q", got)
+			}
+		})
+	}
+}
+
+// oauth2GrantShapeFor is the routing decision in plugin_runtime_http.go: it
+// alone decides whether a grant takes the token-exchange path or the direct
+// injection switch. A non-OAuth2 type reaching the exchange would perform a
+// token POST for a grant that never asked for one.
+func TestOAuth2GrantShapeForRoutesOnlyOAuth2Types(t *testing.T) {
+	t.Parallel()
+
+	for _, injectType := range []string{
+		"oauth2_password_bearer",
+		"  OAuth2_Client_Credentials  ",
+	} {
+		if _, ok := oauth2GrantShapeFor(injectType); !ok {
+			t.Errorf("oauth2GrantShapeFor(%q) did not route to the token exchange", injectType)
+		}
+	}
+
+	for _, injectType := range []string{
+		"", "http_header", "bearer_token", "basic_auth", "query", "form_urlencoded", "oauth2", "url_path",
+	} {
+		if _, ok := oauth2GrantShapeFor(injectType); ok {
+			t.Errorf("oauth2GrantShapeFor(%q) wrongly routed to the token exchange", injectType)
+		}
+	}
 }

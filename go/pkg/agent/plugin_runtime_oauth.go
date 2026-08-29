@@ -38,17 +38,56 @@ const (
 	credentialFormFieldGrantType = "grant_type"
 	// Same wire value as the password form field for RFC 6749 password grant.
 	oauth2GrantTypePassword = credentialFormFieldPassword
+
+	// RFC 6749 section 4.4 client-credentials grant.
+	credentialFormFieldClientID      = "client_id"
+	credentialFormFieldClientSecret  = "client_secret"
+	oauth2GrantTypeClientCredentials = "client_credentials"
+
+	injectTypeOAuth2PasswordBearer    = "oauth2_password_bearer"
+	injectTypeOAuth2ClientCredentials = "oauth2_client_credentials"
 )
+
+// oauth2GrantShape describes the one grant an inject type performs. Both shapes
+// run the identical exchange - same URL derivation, same transport, same
+// response handling - and differ only in which form fields the host requires the
+// grant to carry. Keeping that difference in data rather than in a second copy
+// of the exchange is what stops the two paths drifting apart, which for a
+// credential path means one of them silently losing a check the other has.
+type oauth2GrantShape struct {
+	grantType      string
+	requiredFields []string
+}
+
+//nolint:gochecknoglobals // closed lookup table, read-only after init
+var oauth2GrantShapes = map[string]oauth2GrantShape{
+	injectTypeOAuth2PasswordBearer: {
+		grantType:      oauth2GrantTypePassword,
+		requiredFields: []string{credentialFormFieldUsername, credentialFormFieldPassword},
+	},
+	injectTypeOAuth2ClientCredentials: {
+		grantType:      oauth2GrantTypeClientCredentials,
+		requiredFields: []string{credentialFormFieldClientID, credentialFormFieldClientSecret},
+	},
+}
+
+// oauth2GrantShapeFor reports the grant an inject type performs, and whether the
+// type is an OAuth2 token-exchange type at all.
+func oauth2GrantShapeFor(injectType string) (oauth2GrantShape, bool) {
+	shape, ok := oauth2GrantShapes[strings.ToLower(strings.TrimSpace(injectType))]
+	return shape, ok
+}
 
 type credentialBrokerOAuth2TokenResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
-func (e *pluginExecution) applyCredentialBrokerOAuth2PasswordBearer(
+func (e *pluginExecution) applyCredentialBrokerOAuth2Bearer(
 	ctx context.Context,
 	req *http.Request,
 	grant credentialBrokerGrant,
 	material CredentialBrokerMaterial,
+	shape oauth2GrantShape,
 ) error {
 	if e == nil || e.manager == nil || req == nil || req.URL == nil ||
 		!credentialBrokerInjectionTargetsRequest(req, grant.Inject) {
@@ -59,7 +98,7 @@ func (e *pluginExecution) applyCredentialBrokerOAuth2PasswordBearer(
 	if err != nil {
 		return err
 	}
-	form, err := credentialBrokerTokenForm(grant.Inject, material)
+	form, err := credentialBrokerTokenForm(grant.Inject, material, shape)
 	if err != nil {
 		return err
 	}
@@ -138,6 +177,7 @@ func credentialBrokerTokenURL(inject map[string]string) (*url.URL, error) {
 func credentialBrokerTokenForm(
 	inject map[string]string,
 	material CredentialBrokerMaterial,
+	shape oauth2GrantShape,
 ) (url.Values, error) {
 	form := make(url.Values)
 	for key, targetField := range inject {
@@ -162,10 +202,13 @@ func credentialBrokerTokenForm(
 		}
 		form.Set(field, value)
 	}
-	if form.Get(credentialFormFieldUsername) == "" ||
-		form.Get(credentialFormFieldPassword) == "" ||
-		form.Get(credentialFormFieldGrantType) != oauth2GrantTypePassword {
+	if form.Get(credentialFormFieldGrantType) != shape.grantType {
 		return nil, errCredentialBrokerTokenExchangeInvalid
+	}
+	for _, field := range shape.requiredFields {
+		if form.Get(field) == "" {
+			return nil, errCredentialBrokerTokenExchangeInvalid
+		}
 	}
 	return form, nil
 }
