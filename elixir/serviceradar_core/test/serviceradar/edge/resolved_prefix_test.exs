@@ -107,23 +107,30 @@ defmodule ServiceRadar.Edge.ResolvedPrefixTest do
   end
 
   describe "retryable is provisional, not a verdict" do
-    test "a resolving kind SUPERSEDES a retryable one and unwedges the lane" do
-      t =
-        1
-        |> ResolvedPrefix.new()
-        |> record!(1, @retryable)
-        |> record!(2, @authoritative)
-        |> record!(3, @authoritative)
+    test "EVERY resolving kind supersedes a retryable one and unwedges the lane" do
+      # Parameterised over all four. Proving it for AUTHORITATIVE alone left audit, quarantine and
+      # permanent free to stay wedged selectively -- the lane would unblock for one kind of
+      # outcome and hang forever on another.
+      for superseding <- Enum.filter(declared_kinds(), &ResolvedPrefix.resolving?/1) do
+        t =
+          1
+          |> ResolvedPrefix.new()
+          |> record!(1, @retryable)
+          |> record!(2, @audit)
+          |> record!(3, @quarantine)
 
-      assert ResolvedPrefix.resolved_through(t) == 0
+        assert ResolvedPrefix.resolved_through(t) === 0
 
-      # The agent retransmits 1 and the gateway resolves it. If retryable were immutable the
-      # retry could never be recorded and the prefix could never move again -- the lane would be
-      # wedged forever.
-      t = record!(t, 1, @authoritative)
+        # The agent retransmits 1 and the gateway resolves it with THIS kind. If retryable were
+        # immutable the retry could never be recorded and the prefix could never move again.
+        t = record!(t, 1, superseding)
 
-      assert ResolvedPrefix.resolved_through(t) == 3,
-             "the queued sequences behind the retry did not advance"
+        assert ResolvedPrefix.resolved_through(t) === 3,
+               "#{superseding} did not unwedge the queued sequences behind the retry"
+
+        assert ResolvedPrefix.disposition(t, 1) === {:ok, superseding}
+        assert ResolvedPrefix.pending_out_of_order(t) === 0
+      end
     end
   end
 
@@ -219,6 +226,93 @@ defmodule ServiceRadar.Edge.ResolvedPrefixTest do
       refute function_exported?(ResolvedPrefix, :record_terminal_outcome, 2)
       refute function_exported?(ResolvedPrefix, :reclaimable_through, 1)
       assert function_exported?(ResolvedPrefix, :release_below, 2)
+    end
+  end
+
+  describe "release and report do not disturb pending outcomes" do
+    test "release_below/2 PRESERVES pending out-of-order outcomes" do
+      # A mutant that cleared `pending` alongside `disposition` passed every earlier test: nothing
+      # asserted that queued work survives a lane resume. Losing it would silently drop outcomes
+      # the gateway has already recorded but not yet been able to order.
+      t =
+        1
+        |> ResolvedPrefix.new()
+        |> record!(1, @authoritative)
+        |> record!(2, @authoritative)
+        |> record!(5, @quarantine)
+        |> record!(7, @retryable)
+
+      assert ResolvedPrefix.resolved_through(t) === 2
+      assert ResolvedPrefix.pending_out_of_order(t) === 2
+
+      {:ok, t} = ResolvedPrefix.release_below(t, 3)
+
+      assert ResolvedPrefix.pending_out_of_order(t) === 2,
+             "release erased pending out-of-order outcomes"
+
+      assert ResolvedPrefix.pending_disposition(t, 5) === {:ok, @quarantine}
+      assert ResolvedPrefix.pending_disposition(t, 7) === {:ok, @retryable}
+    end
+
+    test "reported_through/2 preserves pending outcomes and the watermark" do
+      t = 1 |> ResolvedPrefix.new() |> record!(1, @authoritative) |> record!(4, @audit)
+
+      {:ok, t2} = ResolvedPrefix.reported_through(t, 1)
+
+      assert ResolvedPrefix.pending_disposition(t2, 4) === {:ok, @audit}
+      assert ResolvedPrefix.resolved_through(t2) === 1
+      assert ResolvedPrefix.base(t2) === 1
+    end
+  end
+
+  describe "gateway retention is bounded on a long-lived lane" do
+    test "a long run does NOT retain a disposition per frame" do
+      # EXACT REPRO of the blocker: 1000 resolved frames retained 1000 dispositions, because the
+      # only release signal arrives at lane open and a stream that never re-opens never sends one.
+      t = Enum.reduce(1..1000, ResolvedPrefix.new(1), &record!(&2, &1, @authoritative))
+
+      assert ResolvedPrefix.resolved_through(t) === 1000
+      assert ResolvedPrefix.retained_dispositions(t) === 1000
+
+      # The gateway reports them in an ack. Retention exists to populate that ack and nothing
+      # else, so reporting discharges it.
+      {:ok, t} = ResolvedPrefix.reported_through(t, 1000)
+
+      assert ResolvedPrefix.retained_dispositions(t) === 0
+      assert ResolvedPrefix.resolved_through(t) === 1000, "reporting moved the watermark"
+    end
+
+    test "reporting does NOT advance the lane, so a contradiction is still a conflict" do
+      # Forgetting the evidence must not turn a contradiction into silence. base is untouched, so
+      # the sequence is still inside the prefix and a different kind still conflicts.
+      t = 1 |> ResolvedPrefix.new() |> record!(1, @authoritative)
+      {:ok, t} = ResolvedPrefix.reported_through(t, 1)
+
+      assert ResolvedPrefix.base(t) === 1
+      assert ResolvedPrefix.disposition(t, 1) === :error
+
+      # The gateway cannot adjudicate what it no longer remembers, so it refuses BOTH ways rather
+      # than guessing -- {:ok, t} would make silence read as agreement, and :conflict would invent
+      # a contradiction it cannot see.
+      assert {:error, :evidence_released} = ResolvedPrefix.record(t, 1, @quarantine)
+      assert {:error, :evidence_released} = ResolvedPrefix.record(t, 1, @authoritative)
+    end
+
+    test "reporting is bounded by resolution and by the lane maximum" do
+      t = 1 |> ResolvedPrefix.new() |> record!(1, @authoritative)
+
+      assert {:error, :not_resolved} = ResolvedPrefix.reported_through(t, 2)
+
+      assert {:error, :above_lane_max} =
+               ResolvedPrefix.reported_through(t, 0xFFFFFFFFFFFFFFFF + 1)
+
+      assert {:ok, _} = ResolvedPrefix.reported_through(t, 0)
+    end
+
+    test "release_below/2 is bounded by the lane maximum too" do
+      t = 1 |> ResolvedPrefix.new() |> record!(1, @authoritative)
+
+      assert {:error, :above_lane_max} = ResolvedPrefix.release_below(t, 0xFFFFFFFFFFFFFFFF + 1)
     end
   end
 
