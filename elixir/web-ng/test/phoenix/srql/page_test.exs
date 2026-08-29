@@ -355,4 +355,98 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
 
     assert unroutable == []
   end
+
+  test "srql_reset patches the current path with the provided default query" do
+    filtered =
+      "in:flows time:[2026-08-28T17:38:00.000000Z,2026-08-28T17:41:59.999999Z] sort:time:desc"
+
+    default_query = "in:flows time:last_1h sort:time:desc"
+
+    socket =
+      %Socket{}
+      |> Page.init("flows", default_limit: 50)
+      |> Page.sync_from_params(
+        %{
+          "q" => filtered,
+          "cursor" => "c1",
+          "page" => "2",
+          "nf" => "encoded",
+          "view" => "explorer"
+        },
+        "https://example.test/observability/netflows?q=#{URI.encode_www_form(filtered)}",
+        default_limit: 50,
+        max_limit: 200
+      )
+
+    socket =
+      Page.handle_event(socket, "srql_reset", %{},
+        fallback_path: "/observability/netflows",
+        extra_params: %{
+          "view" => "explorer",
+          "nf" => "encoded",
+          "cursor" => "c1",
+          "page" => "2",
+          "q" => filtered
+        },
+        default_query: default_query
+      )
+
+    {path, params} = redirected_query(socket)
+    assert path == "/observability/netflows"
+    assert params["q"] == default_query
+    assert params["view"] == "explorer"
+    refute Map.has_key?(params, "cursor")
+    refute Map.has_key?(params, "page")
+    refute Map.has_key?(params, "nf")
+    refute socket.assigns.srql.builder_open
+  end
+
+  test "srql_reset without default_query uses the entity builder baseline" do
+    filtered = "in:devices hostname:edge-1 include_inactive:true sort:last_seen:desc limit:20"
+
+    socket =
+      %Socket{}
+      |> Page.init("devices", default_limit: 20)
+      |> Page.sync_from_params(
+        %{"q" => filtered},
+        "https://example.test/devices?q=#{URI.encode_www_form(filtered)}",
+        default_limit: 20,
+        max_limit: 100
+      )
+
+    socket =
+      Page.handle_event(socket, "srql_reset", %{}, fallback_path: "/devices")
+
+    {_path, params} = redirected_query(socket)
+    baseline = Builder.build(Builder.default_state("devices", 20))
+    assert params["q"] == baseline
+    assert params["q"] =~ "in:devices"
+    refute params["q"] =~ "hostname:edge-1"
+  end
+
+  test "empty srql_submit keeps the current query" do
+    filtered =
+      "in:flows time:[2026-08-28T17:38:00.000000Z,2026-08-28T17:41:59.999999Z] sort:time:desc"
+
+    socket =
+      %Socket{}
+      |> Page.init("flows", default_limit: 50)
+      |> Page.sync_from_params(
+        %{"q" => filtered},
+        "https://example.test/observability/netflows?q=#{URI.encode_www_form(filtered)}",
+        default_limit: 50,
+        max_limit: 200
+      )
+
+    socket =
+      Page.handle_event(socket, "srql_submit", %{"q" => ""}, fallback_path: "/observability/netflows")
+
+    {_path, params} = redirected_query(socket)
+    assert params["q"] == filtered
+  end
+
+  defp redirected_query(%Socket{redirected: {:live, :patch, %{to: to}}}) do
+    uri = URI.parse(to)
+    {uri.path, URI.decode_query(uri.query || "")}
+  end
 end

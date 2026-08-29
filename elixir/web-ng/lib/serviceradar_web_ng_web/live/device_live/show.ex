@@ -1315,6 +1315,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, socket}
   end
 
+  def handle_event("srql_reset", _params, socket) do
+    page_path = socket.assigns.srql[:page_path] || "/devices/#{socket.assigns.device_uid}"
+    query = QueryData.default_device_query(socket.assigns.device_uid, socket.assigns.limit)
+
+    {:noreply, push_patch(socket, to: page_path <> "?" <> URI.encode_query(%{"q" => query}))}
+  end
+
   def handle_event("srql_submit", %{"q" => q}, socket) do
     page_path = socket.assigns.srql[:page_path] || "/devices/#{socket.assigns.device_uid}"
 

@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents do
   @navigation_events ~w(
     srql_change
     srql_submit
+    srql_reset
     srql_paginate
     srql_builder_toggle
     srql_builder_change

@@ -70,6 +70,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
+  test "device list reset control restores the first-visit query and keeps Run working", %{
+    conn: conn
+  } do
+    {:ok, view, html} =
+      live(conn, ~p"/devices?#{%{q: "in:devices hostname:edge-1 include_inactive:true", limit: 20}}")
+
+    assert html =~ "hostname:edge-1"
+
+    view
+    |> element(~s(button[aria-label="Reset SRQL filters"]))
+    |> render_click()
+
+    path = assert_patch(view)
+    params = path |> URI.parse() |> Map.get(:query) |> Kernel.||("") |> URI.decode_query()
+
+    assert params["q"] =~ "in:devices"
+    refute params["q"] =~ "hostname:edge-1"
+    refute Map.has_key?(params, "cursor")
+    refute Map.has_key?(params, "page")
+
+    html = render(view)
+    refute html =~ "hostname:edge-1"
+
+    view
+    |> element(~s(button[aria-label="Toggle query builder"]))
+    |> render_click()
+
+    assert has_element?(view, ~s([phx-click="srql_builder_apply"]))
+
+    view
+    |> form("#srql-query-bar", %{q: "in:devices include_inactive:true"})
+    |> render_submit()
+
+    path = assert_patch(view)
+    params = path |> URI.parse() |> Map.get(:query) |> Kernel.||("") |> URI.decode_query()
+    assert params["q"] =~ "in:devices"
+    assert params["q"] =~ "include_inactive:true"
+  end
+
   test "device list SRQL submit routes catalog entity changes and drops stale filters", %{
     conn: conn
   } do

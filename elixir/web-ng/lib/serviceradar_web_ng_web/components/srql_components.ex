@@ -185,8 +185,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           aria-label="Reset SRQL filters"
           title="Reset SRQL filters"
           data-srql-reset
-          phx-click="srql_submit"
-          phx-value-q=""
+          phx-click="srql_reset"
         >
           <.icon name="hero-x-mark" class="size-4" />
         </.ui_icon_button>

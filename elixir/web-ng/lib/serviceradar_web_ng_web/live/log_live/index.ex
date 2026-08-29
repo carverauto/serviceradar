@@ -706,6 +706,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      )}
   end
 
+  def handle_event("srql_reset", params, socket) do
+    default_query =
+      Map.get(maybe_default_netflows_query(%{}, socket.assigns.active_tab), "q")
+
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_reset", params,
+       fallback_path: "/observability",
+       extra_params: srql_submit_extra_params(socket),
+       default_query: default_query
+     )}
+  end
+
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: current_entity(socket))}
   end

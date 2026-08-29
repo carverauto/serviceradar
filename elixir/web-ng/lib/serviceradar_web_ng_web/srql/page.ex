@@ -29,7 +29,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       builder_supported: builder_supported,
       builder_sync: builder_sync,
       builder: builder,
-      builder_mode_notice: nil
+      builder_mode_notice: nil,
+      default_limit: default_limit
     }
 
     Phoenix.Component.assign(socket, :srql, srql)
@@ -239,6 +240,26 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     socket
     |> Phoenix.Component.assign(:srql, Map.put(srql, :builder_open, false))
     |> navigate_to_path(target_path, current_path, nav_params)
+  end
+
+  def handle_event(socket, "srql_reset", _params, opts) do
+    srql = Map.get(socket.assigns, :srql, %{})
+    fallback_path = Keyword.get(opts, :fallback_path) || "/"
+
+    extra_params =
+      opts
+      |> Keyword.get(:extra_params, %{})
+      |> normalize_extra_params()
+      |> Map.drop(["q", "cursor", "page", "nf"])
+
+    query = reset_query(srql, opts)
+    current_path = srql[:page_path] || fallback_path
+
+    nav_params = navigation_params(extra_params, %{}, current_path, current_path, query)
+
+    socket
+    |> Phoenix.Component.assign(:srql, Map.put(srql, :builder_open, false))
+    |> navigate_to_path(current_path, current_path, nav_params)
   end
 
   def handle_event(socket, "srql_builder_toggle", _params, opts) do
@@ -761,6 +782,39 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   defp default_query_for(true, builder, _entity, _limit), do: Builder.build(builder)
   defp default_query_for(false, _builder, entity, limit), do: default_query(entity, limit)
+
+  defp reset_query(srql, opts) do
+    case Keyword.get(opts, :default_query) do
+      query when is_binary(query) ->
+        case String.trim(query) do
+          "" -> entity_baseline_query(srql, opts)
+          other -> other
+        end
+
+      _ ->
+        entity_baseline_query(srql, opts)
+    end
+  end
+
+  defp entity_baseline_query(srql, opts) do
+    entity = srql_entity(srql, opts)
+    limit = reset_limit(srql, opts)
+
+    if builder_available?(srql) do
+      Builder.build(Builder.default_state(entity, limit))
+    else
+      default_query(entity, limit)
+    end
+  end
+
+  defp reset_limit(srql, opts) do
+    load_opts = Map.get(srql, :load_opts, %{})
+
+    Keyword.get(opts, :default_limit) ||
+      Map.get(load_opts, :default_limit) ||
+      Map.get(srql, :default_limit) ||
+      100
+  end
 
   defp parse_builder_state(true, query, builder) do
     case Builder.parse(query) do

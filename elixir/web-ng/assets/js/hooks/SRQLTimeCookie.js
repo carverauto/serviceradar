@@ -29,6 +29,10 @@ export default {
       document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=${maxAge}; Path=/; SameSite=Lax`
     }
 
+    const cookieClear = (name) => {
+      document.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Lax`
+    }
+
     const extractTimeToken = (q) => {
       if (!q || typeof q !== "string") return null
       const m = q.match(/(?:^|\s)time:(?:"([^"]+)"|(\S+))/)
@@ -82,7 +86,7 @@ export default {
     this._onSubmit = () => persistFromInput()
     this._onResetClick = (event) => {
       if (!event.target.closest("[data-srql-reset]")) return
-      this._input.value = ""
+      cookieClear("srql_time")
     }
 
     this._input.addEventListener("input", this._onInput)

@@ -25,6 +25,31 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     %{conn: conn}
   end
 
+  test "reset control restores the first-visit netflows query", %{conn: conn} do
+    filtered =
+      "in:flows time:[2026-08-28T17:38:00.000000Z,2026-08-28T17:41:59.999999Z] sort:time:desc"
+
+    {:ok, lv, html} = live(conn, ~p"/observability/netflows?#{%{q: filtered}}")
+    assert html =~ "time:[2026-08-28T17:38:00.000000Z,2026-08-28T17:41:59.999999Z]"
+
+    lv
+    |> element(~s(button[aria-label="Reset SRQL filters"]))
+    |> render_click()
+
+    path = assert_patch(lv)
+    params = path |> URI.parse() |> Map.get(:query) |> Kernel.||("") |> URI.decode_query()
+
+    assert params["q"] == "in:flows time:last_1h sort:time:desc"
+    refute params["q"] =~ "time:["
+    refute Map.has_key?(params, "nf")
+    refute Map.has_key?(params, "cursor")
+    refute Map.has_key?(params, "page")
+
+    html = render(lv)
+    assert html =~ "time:last_1h"
+    refute html =~ "time:[2026-08-28T17:38:00.000000Z,2026-08-28T17:41:59.999999Z]"
+  end
+
   test "/flows renders netflow visualize page", %{conn: conn} do
     q = "in:flows time:last_24h"
 

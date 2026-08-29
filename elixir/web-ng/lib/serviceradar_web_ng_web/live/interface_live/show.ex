@@ -139,6 +139,18 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
     {:noreply, assign(socket, :srql, Map.put(socket.assigns.srql, :draft, to_string(q)))}
   end
 
+  def handle_event("srql_reset", _params, socket) do
+    page_path =
+      socket.assigns.srql[:page_path] ||
+        "/devices/#{socket.assigns.device_uid}/interfaces/#{socket.assigns.interface_uid}"
+
+    query =
+      "in:interfaces device_id:\"#{escape_value(socket.assigns.device_uid)}\" " <>
+        "interface_uid:\"#{escape_value(socket.assigns.interface_uid)}\" latest:true limit:1"
+
+    {:noreply, push_patch(socket, to: page_path <> "?" <> URI.encode_query(%{"q" => query}))}
+  end
+
   def handle_event("srql_submit", %{"q" => q}, socket) do
     page_path =
       socket.assigns.srql[:page_path] ||

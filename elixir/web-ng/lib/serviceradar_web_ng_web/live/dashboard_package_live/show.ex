@@ -101,6 +101,12 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     {:noreply, push_dashboard_search(socket, query)}
   end
 
+  def handle_event("srql_reset", _params, socket) do
+    query = dashboard_reference_query(socket.assigns.route_slug)
+    path = socket.assigns.current_path || "/dashboards/#{socket.assigns.route_slug}"
+    {:noreply, push_patch(socket, to: path <> "?" <> URI.encode_query(%{"q" => query}))}
+  end
+
   def handle_event("dashboard_srql_query", params, socket) do
     query = params |> Map.get("q", "") |> to_string() |> String.trim()
 

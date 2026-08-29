@@ -15,10 +15,22 @@ function eventTarget() {
     removeEventListener(name) {
       listeners.delete(name)
     },
+    dispatchEvent(event) {
+      const listener = listeners.get(event.type)
+      if (listener) listener(event)
+    },
   }
 }
 
-function mount(query, {search = ""} = {}) {
+function resetButton() {
+  return {
+    closest(selector) {
+      return selector === "[data-srql-reset]" ? this : null
+    },
+  }
+}
+
+function mount(query, {search = "", cookie = `srql_time=${encodeURIComponent(rememberedRange)}`} = {}) {
   const input = {...eventTarget(), value: query}
   const form = {
     ...eventTarget(),
@@ -29,13 +41,13 @@ function mount(query, {search = ""} = {}) {
   }
 
   globalThis.window.location.search = search
-  globalThis.document.cookie = `srql_time=${encodeURIComponent(rememberedRange)}`
+  globalThis.document.cookie = cookie
 
   const hook = Object.create(SRQLTimeCookie)
   hook.el = form
   hook.mounted()
 
-  return {hook, input}
+  return {hook, input, form}
 }
 
 describe("SRQLTimeCookie hook", () => {
@@ -82,5 +94,27 @@ describe("SRQLTimeCookie hook", () => {
     expect(globalThis.document.cookie).toContain("srql_time=last_7d;")
 
     hook.destroyed()
+  })
+
+  test("reset click expires remembered time and does not blank the input", () => {
+    const query = "in:flows time:last_1h sort:time:desc"
+    const {hook, input, form} = mount(query)
+
+    expect(input.value).toBe(`in:flows time:${rememberedRange} sort:time:desc`)
+
+    form.dispatchEvent({type: "click", target: resetButton()})
+
+    expect(input.value).toBe(`in:flows time:${rememberedRange} sort:time:desc`)
+    expect(globalThis.document.cookie).not.toContain(encodeURIComponent(rememberedRange))
+
+    hook.destroyed()
+
+    const {hook: remounted, input: restored} = mount(query, {
+      cookie: globalThis.document.cookie,
+    })
+
+    expect(restored.value).toBe(query)
+
+    remounted.destroyed()
   })
 })

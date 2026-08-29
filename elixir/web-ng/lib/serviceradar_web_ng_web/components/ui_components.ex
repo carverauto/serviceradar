@@ -62,6 +62,10 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       href navigate patch method download name value type disabled form
       target rel
       phx-click phx-target phx-value-idx phx-value-id phx-value-entity phx-value-group_id phx-value-metric
+      phx-value-q phx-value-type phx-value-favorite phx-value-field phx-value-value
+      phx-value-state phx-value-severity phx-value-mode phx-value-cursor phx-value-page
+      phx-value-addon_id phx-value-version phx-value-release_tag phx-value-replace
+      phx-value-reset
       phx-confirm data-confirm
       aria-label aria-controls aria-expanded title
     )
