@@ -2,7 +2,7 @@
  * Copyright (c) "2026" . Marvin Hansen All Rights Reserved.
  */
 
-//! Drops `sr_core_test_*` databases left behind by earlier runs.
+//! Drops leftover fixture databases left behind by earlier runs.
 //!
 //! Replaces `scripts/sweep-stale-core-test-dbs.sh`. Teardown only runs when a job reaches
 //! it; a cancelled run or a dead runner leaks its database, and the fixture is shared, so

@@ -1,0 +1,11 @@
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "scratch-reaper.sql",
+    srcs = ["scratch-reaper.sql"],
+)
+
+filegroup(
+    name = "scratch-reaper.yaml",
+    srcs = ["scratch-reaper.yaml"],
+)
