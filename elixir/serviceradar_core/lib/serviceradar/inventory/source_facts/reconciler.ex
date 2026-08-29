@@ -153,8 +153,9 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
   end
 
   defp upsert_fact(device_uid, source, instance, fact, present, now) do
+    # insert_all on a table name skips Ecto UUID dumping; Postgrex needs 16 bytes.
     row = %{
-      id: Ecto.UUID.generate(),
+      id: Ecto.UUID.bingenerate(),
       device_uid: device_uid,
       source: source,
       source_instance: instance,
@@ -233,8 +234,10 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
 
     cond do
       is_nil(open) ->
+        id = Ecto.UUID.generate()
+
         row = %{
-          id: Ecto.UUID.generate(),
+          id: Ecto.UUID.dump!(id),
           device_uid: device_uid,
           fact_key: fact_key,
           status: "open",
@@ -249,7 +252,7 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
         }
 
         Repo.insert_all(@disagreements_table, [row], prefix: @prefix)
-        Events.emit(:opened, Map.put(row, :id, row.id))
+        Events.emit(:opened, Map.put(row, :id, id))
 
       open.compare_signature == signature and open.configuration_conflict == config? ->
         Repo.update_all(from(d in SourceFactDisagreement, where: d.id == ^open.id),
