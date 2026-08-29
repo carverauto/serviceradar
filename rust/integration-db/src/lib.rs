@@ -102,6 +102,18 @@ const REQUIRED_EXTENSIONS: &[&str] = &[
 /// AGE graphs the application expects to exist.
 const REQUIRED_GRAPHS: &[&str] = &["serviceradar_topology", "serviceradar", "platform_graph"];
 
+/// Names the shared fixture itself plus Postgres templates. The sweep will
+/// drop any other database older than the cutoff: cancelled CI clones are
+/// `sr_core_test_*`, but workstation leftovers use other prefixes and used to
+/// accumulate until Timescale workers exhausted the instance.
+const PROTECTED_DATABASES: &[&str] = &[
+    "postgres",
+    "template0",
+    "template1",
+    "srql_fixture",
+    "sr_core_template",
+];
+
 /// Find disposable databases whose own data-directory marker is older than the cutoff.
 ///
 /// Every integration clone uses pg_default. Restricting the query to that tablespace is safer
@@ -110,6 +122,7 @@ const REQUIRED_GRAPHS: &[&str] = &["serviceradar_topology", "serviceradar", "pla
 /// creates that directory but is not touched by ordinary relation activity.
 /// `pg_relation_filepath('pg_database')` names one shared catalog file and therefore gives every
 /// database the same all-or-none age.
+#[allow(dead_code)] // retained so the prefix-specific age test still compiles
 const STALE_DATABASE_QUERY: &str = "SELECT d.datname \
      FROM pg_database AS d \
      JOIN pg_tablespace AS t ON t.oid = d.dattablespace \
@@ -117,6 +130,18 @@ const STALE_DATABASE_QUERY: &str = "SELECT d.datname \
        AND t.spcname = 'pg_default' \
        AND (pg_stat_file(format('base/%s/PG_VERSION', d.oid), true)).modification \
            < now() - make_interval(secs => $2::double precision)";
+
+/// Same age rule as [`STALE_DATABASE_QUERY`], but for every database that is
+/// not the shared fixture. Keep the NOT IN list identical to
+/// [`PROTECTED_DATABASES`] / `go/pkg/srqlfixture/reaper`.
+const UNPROTECTED_STALE_QUERY: &str = "SELECT d.datname \
+     FROM pg_database AS d \
+     JOIN pg_tablespace AS t ON t.oid = d.dattablespace \
+     WHERE NOT d.datistemplate \
+       AND d.datname NOT IN ('postgres', 'template0', 'template1', 'srql_fixture', 'sr_core_template') \
+       AND t.spcname = 'pg_default' \
+       AND (pg_stat_file(format('base/%s/PG_VERSION', d.oid), true)).modification \
+           < now() - make_interval(secs => $1::double precision)";
 
 /// The per-run database name, read from a declared build input.
 ///
@@ -669,11 +694,17 @@ pub async fn teardown(database: &str) -> Result<()> {
     Ok(())
 }
 
-/// Drop `sr_core_test_*` databases older than `max_age_secs`.
+/// Drop leftover fixture databases older than `max_age_secs`.
 ///
-/// Equivalent to `scripts/sweep-stale-core-test-dbs.sh`. Runs that are cancelled or whose
-/// runner dies never reach teardown, so without this the fixture accumulates databases.
-/// Returns the names dropped.
+/// Equivalent to `scripts/sweep-stale-core-test-dbs.sh`, plus workstation /
+/// bootstrap leftovers that job never named. Runs that are cancelled or whose
+/// runner dies never reach teardown, so without this the fixture accumulates
+/// databases. Returns the names dropped.
+///
+/// Does not FORCE the drop: a database another run is still connected to is
+/// left for that run. The in-cluster reaper (`k8s/srql-fixtures/scratch-reaper.yaml`)
+/// is what FORCE-drops leftovers whose only remaining backends are Timescale
+/// workers.
 pub async fn sweep_stale(max_age_secs: i64) -> Result<Vec<String>> {
     validate_stale_age(max_age_secs)?;
     let (admin, _task) = connect_admin(None).await?;
@@ -682,10 +713,7 @@ pub async fn sweep_stale(max_age_secs: i64) -> Result<Vec<String>> {
     // PG_VERSION marker. The OID-derived path is per database; using a pg_database relation path
     // here would age the shared catalog file and classify every disposable database identically.
     let rows = admin
-        .query(
-            STALE_DATABASE_QUERY,
-            &[&like_prefix(DISPOSABLE_PREFIX), &(max_age_secs as f64)],
-        )
+        .query(UNPROTECTED_STALE_QUERY, &[&(max_age_secs as f64)])
         .await
         .context("failed to list stale databases")?;
 
@@ -693,9 +721,9 @@ pub async fn sweep_stale(max_age_secs: i64) -> Result<Vec<String>> {
     for row in rows {
         let name: String = row.get(0);
 
-        // Belt and braces: the LIKE above already constrains this, but the guard is what
+        // Belt and braces: the SQL already excludes these, but the guard is what
         // makes a mistake in the query non-destructive.
-        if assert_disposable(&name).is_err() {
+        if is_protected_database(&name) {
             continue;
         }
 
@@ -707,6 +735,10 @@ pub async fn sweep_stale(max_age_secs: i64) -> Result<Vec<String>> {
     }
 
     Ok(dropped)
+}
+
+fn is_protected_database(name: &str) -> bool {
+    PROTECTED_DATABASES.contains(&name)
 }
 
 fn stale_drop_statement(database: &str) -> String {
@@ -777,6 +809,22 @@ mod tests {
         assert!(STALE_DATABASE_QUERY.contains("t.spcname = 'pg_default'"));
         assert!(!STALE_DATABASE_QUERY.contains("pg_relation_filepath('pg_database')"));
         assert!(!stale_drop_statement("sr_core_test_123_1").contains("WITH (FORCE)"));
+    }
+
+    #[test]
+    fn unprotected_stale_query_excludes_the_shared_fixture() {
+        for name in PROTECTED_DATABASES {
+            assert!(
+                UNPROTECTED_STALE_QUERY.contains(&format!("'{name}'")),
+                "unprotected sweep SQL must name {name}"
+            );
+        }
+        assert!(UNPROTECTED_STALE_QUERY.contains("format('base/%s/PG_VERSION', d.oid), true"));
+        assert!(is_protected_database("postgres"));
+        assert!(is_protected_database("srql_fixture"));
+        assert!(is_protected_database("sr_core_template"));
+        assert!(!is_protected_database("codex_mfreeman_1"));
+        assert!(!is_protected_database("sr_core_test_a1b2c3d4"));
     }
 
     #[test]
