@@ -68,7 +68,7 @@ defmodule ServiceRadar.Notifications.EdgeCommandContractTest do
 
   test "the agent serves exactly the injection modes the manifest allows" do
     # tasks 3.2.4. Two independent allowlists guard the same thing: the manifest
-    # validator refuses a plugin.yaml declaring a mode outside the canonical six,
+    # validator refuses a plugin.yaml declaring a mode outside the canonical set,
     # and the agent refuses a DISPATCH declaring one. If they drift, a plugin
     # author learns a spelling one surface accepts and the other rejects, and the
     # failure lands at delivery time on an alert nobody gets paged for.
