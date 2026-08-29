@@ -90,17 +90,33 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     with {:ok, route} <- wrap(StreamRoute.resolve(contract)),
          {:ok, lane} <- resolve_lane(contract),
          {:ok, bytes} <- record_bytes(publication),
-         {:ok, key} <- reservation_key(publication),
+         {:ok, key} <- reservation_key(publication, bytes),
          # EVERY fallible local derivation completes BEFORE a credit is taken. Headers were
          # derived after admission, so a publication with a routable contract, a binary body and a
          # positive sequence could still fail the UUID/digest/proof checks -- performing no I/O
          # and leaving a reservation charged against the lane forever.
          {:ok, headers} <- headers_for(route, publication),
          {:ok, pool} <- pool_for(lane, opts),
-         :ok <- admit(pool, key, bytes, publication, opts) do
+         # The connection is resolved to a PID here, and the request below uses that pid rather
+         # than re-resolving the lane's NAME. Re-resolving let an attempt straddle a lane restart:
+         # admit through the old pool, publish through the newly registered connection while the
+         # fresh pool holds no reservation, then settle against the dead pool -- an unaccounted
+         # publish, and usually a :noproc exit in the caller. A captured pid is dead after a
+         # restart, so the publish simply fails instead.
+         {:ok, conn_pid} <- connection_for(lane, opts),
+         {:ok, reservation} <- admit(pool, key, bytes, opts) do
       route
-      |> request(lane, bytes, headers, opts)
-      |> settle(pool, key)
+      |> request(conn_pid, bytes, headers, opts)
+      |> settle(pool, reservation)
+    end
+  end
+
+  defp connection_for(lane, opts) do
+    conn = Keyword.get(opts, :connection, Connection)
+
+    case conn.get(PublisherLane.connection_name(lane)) do
+      {:ok, pid} -> {:ok, pid}
+      {:error, reason} -> {:error, classify_transport(reason)}
     end
   end
 
@@ -108,7 +124,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # alone aliases: one pool serves every agent and spool in its class, so two agents at sequence 1
   # looked like one frame retrying -- the second published on the first's credits and its ack
   # released the first's reservation.
-  defp reservation_key(publication) do
+  defp reservation_key(publication, bytes) do
     slot = Map.get(publication, :slot, %{})
 
     key =
@@ -116,14 +132,22 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
         Map.get(slot, :network_scope_id),
         Map.get(slot, :authenticated_agent_id),
         Map.get(slot, :spool_id),
-        Map.get(slot, :sequence)
+        Map.get(slot, :sequence),
+        fingerprint_of(publication, bytes)
       )
 
     {:ok, key}
   end
 
-  # What makes a republish provably the SAME publication. Both halves matter: the digest identifies
-  # the record, and the size is what the byte credits were charged on.
+  # What makes a republish provably the SAME publication, and a second record on that slot a
+  # DIFFERENT one. Both halves matter: the digest identifies the record, and the size is what the
+  # byte credits were charged on.
+  #
+  # A different record on the same slot is therefore a SEPARATE reservation, admitted or refused on
+  # its own credits -- never rejected. The spec requires it to be published: `Nats-Msg-Id` binds
+  # `record_sha256`, so JetStream does not deduplicate it away and the frame must reach EventWriter,
+  # which adjudicates the transport-integrity violation. Refusing here would move that decision into
+  # the gateway and destroy the evidence.
   defp fingerprint_of(publication, bytes), do: {Map.get(publication, :record_sha256), byte_size(bytes)}
 
   # The lane's window, resolved BEFORE anything is published. Failing closed when no pool is
@@ -148,25 +172,20 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # outstanding on purpose -- the publisher republishes the same bytes on the same slot, so
   # re-admitting would hand the same budget out twice and let the in-flight total exceed the
   # grant. Republishing under the credits already held is the designed path.
-  defp admit(pool, key, bytes, publication, opts) do
-    deadline = System.monotonic_time(:millisecond) + timeout_of(opts)
-    fingerprint = fingerprint_of(publication, bytes)
-
-    case PublisherPool.admit(pool, key, byte_size(bytes), deadline, fingerprint) do
-      # Covers BOTH a new reservation and a republish of the same record on the same slot. The
-      # window recognises the retry by fingerprint, charges nothing further, AND RE-ARMS THE
-      # DEADLINE -- a retry that kept the expired one would be reported expired forever.
-      :ok ->
-        :ok
+  defp admit(pool, key, bytes, opts) do
+    # The TIMEOUT, not a deadline: the pool stamps the deadline when it actually admits, so time
+    # spent queued for the pool is not deducted from the PubAck interval.
+    case PublisherPool.admit(pool, key, byte_size(bytes), timeout_of(opts)) do
+      # Covers BOTH a new reservation and a republish of the same publication. The window
+      # recognises the retry by key, charges nothing further, AND RE-ARMS THE DEADLINE -- a retry
+      # that kept the expired one would be reported expired forever. The reservation carries the
+      # epoch token, so this attempt can only ever settle its own.
+      {:ok, reservation} ->
+        {:ok, reservation}
 
       {:error, exhausted} when exhausted in [:frame_credits_exhausted, :byte_credits_exhausted] ->
         # Withhold progress on publisher saturation rather than publishing past the grant.
         {:error, :capacity}
-
-      # A DIFFERENT record claiming a slot that is already reserved. Not retryable against the
-      # broker -- nothing it can do makes two records one slot -- so it is a derivation refusal.
-      {:error, :slot_conflict} ->
-        {:error, {:derivation, :slot_conflict}}
 
       {:error, reason} ->
         {:error, {:derivation, reason}}
@@ -181,17 +200,29 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # The outcome here is an ACCOUNTING outcome, not a disposition. This publisher writes one record
   # to its resolved route and does not yet compute audit/quarantine/security-quarantine routing;
   # that mapping is task 3.5 and supplies the outcome when it lands.
-  defp settle({:ok, _ack} = result, pool, key) do
-    _ = PublisherPool.settle(pool, key, :primary_publication)
+  defp settle({:ok, _ack} = result, pool, reservation) do
+    settle_quietly(pool, reservation, :primary_publication)
     result
   end
 
-  defp settle({:error, :poison} = result, pool, key) do
-    _ = PublisherPool.settle(pool, key, :permanent_rejection)
+  defp settle({:error, :poison} = result, pool, reservation) do
+    settle_quietly(pool, reservation, :permanent_rejection)
     result
   end
 
-  defp settle(result, _pool, _key), do: result
+  defp settle(result, _pool, _reservation), do: result
+
+  # The pool may be gone -- a lane restart between admit and settle kills it. That is not the
+  # caller's failure and must not become the caller's exit: the publish has already happened or
+  # already failed, and the restarted lane discarded the reservation regardless. Reported, not
+  # raised.
+  defp settle_quietly(pool, reservation, outcome) do
+    PublisherPool.settle(pool, reservation, outcome)
+  catch
+    :exit, reason ->
+      Logger.warning("publisher pool gone before settlement: #{inspect(reason)}")
+      {:error, :pool_gone}
+  end
 
   defp timeout_of(opts), do: Keyword.get(opts, :receive_timeout, @default_timeout)
 
@@ -292,16 +323,13 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     end
   end
 
-  defp request(route, lane, payload, headers, opts) do
+  defp request(route, conn_pid, payload, headers, opts) do
     conn = Keyword.get(opts, :connection, Connection)
     timeout = timeout_of(opts)
-    # The LANE's connection, not the shared one. Sharing `:serviceradar_nats` put every lane's
-    # outstanding requests behind the same socket and the same Gnat mailbox, so a bulk backlog
-    # could stall an interactive or recovery frame whose own credits were free -- separate
-    # accounting over one transport is not separate capacity.
-    connection_name = PublisherLane.connection_name(lane)
-
-    case conn.request(connection_name, route.subject, payload,
+    # The CAPTURED lane connection: not the shared one, and not a fresh name lookup. Sharing
+    # `:serviceradar_nats` put every lane's outstanding requests behind one socket and one Gnat
+    # mailbox; re-resolving the name here let an attempt straddle a lane restart.
+    case conn.request(conn_pid, route.subject, payload,
            headers: headers,
            receive_timeout: timeout
          ) do

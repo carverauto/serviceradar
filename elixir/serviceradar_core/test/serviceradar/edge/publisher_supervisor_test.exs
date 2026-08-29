@@ -33,7 +33,9 @@ defmodule ServiceRadar.Edge.PublisherSupervisorTest do
     end)
   end
 
-  defp k(seq), do: ServiceRadar.Edge.PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, seq)
+  defp k(seq),
+    do: ServiceRadar.Edge.PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, seq, fp(seq))
+
   defp fp(seq), do: {:record, seq}
 
   describe "the declared pool inventory" do
@@ -150,7 +152,7 @@ defmodule ServiceRadar.Edge.PublisherSupervisorTest do
       bulk_before = PublisherPool.capacity(bulk)
       recovery_before = PublisherPool.capacity(recovery)
 
-      assert :ok = PublisherPool.admit(bulk, k(1), 10, 1_000, fp(1))
+      assert {:ok, _res} = PublisherPool.admit(bulk, k(1), 10, 1_000)
 
       assert PublisherPool.capacity(recovery) === recovery_before
       refute PublisherPool.capacity(bulk) === bulk_before

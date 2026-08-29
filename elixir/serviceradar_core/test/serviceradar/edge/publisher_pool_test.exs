@@ -10,8 +10,13 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
   # Reservations key on the COMPLETE authenticated slot, never the bare sequence: one pool serves
   # every agent and spool in its class. `fp/1` fingerprints the publication, so the same sequence
   # is the same record retrying.
-  defp k(seq), do: ServiceRadar.Edge.PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, seq)
+  defp k(seq),
+    do: ServiceRadar.Edge.PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, seq, fp(seq))
+
   defp fp(seq), do: {:record, seq}
+
+  # A well-formed reservation for a publication that is NOT outstanding.
+  defp absent(seq), do: {k(seq), 1}
 
   defp pool(class, frames \\ 2, bytes \\ 600) do
     {:ok, pid} =
@@ -32,15 +37,15 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       interactive = pool(:interactive, 1, 300)
       recovery = pool(:recovery, 1, 300)
 
-      assert :ok = PublisherPool.admit(bulk, k(1), 300, 500, fp(1))
-      assert {:error, :frame_credits_exhausted} = PublisherPool.admit(bulk, k(2), 1, 500, fp(2))
+      assert {:ok, _res} = PublisherPool.admit(bulk, k(1), 300, 500)
+      assert {:error, :frame_credits_exhausted} = PublisherPool.admit(bulk, k(2), 1, 500)
 
       # THE POINT: a bulk backlog must not consume the reserve of another class.
       assert %{available_frames: 1, available_bytes: 300} = PublisherPool.capacity(interactive)
       assert %{available_frames: 1, available_bytes: 300} = PublisherPool.capacity(recovery)
 
-      assert :ok = PublisherPool.admit(interactive, k(1), 300, 500, fp(1))
-      assert :ok = PublisherPool.admit(recovery, k(1), 300, 500, fp(1))
+      assert {:ok, _res} = PublisherPool.admit(interactive, k(1), 300, 500)
+      assert {:ok, _res} = PublisherPool.admit(recovery, k(1), 300, 500)
     end
 
     test "exhausting RECOVERY does not consume the interactive reserve either" do
@@ -51,10 +56,10 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       recovery = pool(:recovery, 2, 300)
       interactive = pool(:interactive, 1, 300)
 
-      assert :ok = PublisherPool.admit(recovery, k(1), 300, 500, fp(1))
+      assert {:ok, _res} = PublisherPool.admit(recovery, k(1), 300, 500)
 
       assert {:error, :byte_credits_exhausted} =
-               PublisherPool.admit(recovery, k(2), 300, 500, fp(2))
+               PublisherPool.admit(recovery, k(2), 300, 500)
 
       assert %{outstanding_frames: 0, available_bytes: 300} = PublisherPool.capacity(interactive)
     end
@@ -95,7 +100,7 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       end
 
       # Every entry point takes ONE pool. None accepts a second pool to draw from.
-      assert PublisherPool.__info__(:functions)[:admit] === 5
+      assert PublisherPool.__info__(:functions)[:admit] === 4
       assert PublisherPool.__info__(:functions)[:settle] === 3
     end
   end
@@ -161,24 +166,23 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       # rejection that corrupted it would be visible.
       p = pool(:bulk, 2, 500)
 
-      assert :ok = PublisherPool.admit(p, k(1), 200, 500, fp(1))
+      assert {:ok, res} = PublisherPool.admit(p, k(1), 200, 500)
       before = PublisherPool.capacity(p)
 
-      assert {:error, :byte_credits_exhausted} = PublisherPool.admit(p, k(2), 400, 500, fp(2))
-      # A DIFFERENT record on a reserved slot is refused. (Re-admitting the SAME record is a retry
-      # and DOES change state -- it re-arms the deadline -- so it belongs with the accepted calls,
-      # not here.)
-      assert {:error, :slot_conflict} = PublisherPool.admit(p, k(1), 10, 500, {:different, 1})
-      assert {:error, :not_outstanding} = PublisherPool.settle(p, k(99), :primary_publication)
-      assert {:error, :unknown_outcome} = PublisherPool.settle(p, k(1), :nonsense)
-      assert {:error, :not_settled} = PublisherPool.settle(p, k(1), :retryable_rejection)
-      assert {:error, :not_outstanding} = PublisherPool.rearm(p, k(99), 900)
+      assert {:error, :byte_credits_exhausted} = PublisherPool.admit(p, k(2), 400, 500)
+
+      assert {:error, :not_outstanding} =
+               PublisherPool.settle(p, absent(99), :primary_publication)
+
+      assert {:error, :unknown_outcome} = PublisherPool.settle(p, res, :nonsense)
+      assert {:error, :not_settled} = PublisherPool.settle(p, res, :retryable_rejection)
+      assert {:error, :not_outstanding} = PublisherPool.rearm(p, absent(99), 900)
 
       assert PublisherPool.capacity(p) === before,
              "a rejected call changed the pool's state"
 
       # NOT VACUOUS: an accepted call DOES change it, so the comparison can fail.
-      assert :ok = PublisherPool.settle(p, k(1), :primary_publication)
+      assert :ok = PublisherPool.settle(p, res, :primary_publication)
       refute PublisherPool.capacity(p) === before
     end
 
@@ -186,18 +190,21 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       p = pool(:bulk, 1, 100)
 
       for call <- [
-            fn -> PublisherPool.admit(p, k(0), 1, 500, fp(0)) end,
-            fn -> PublisherPool.admit(p, k(1), -1, 500, fp(1)) end,
-            fn -> PublisherPool.admit(p, k(1), 1, nil, fp(1)) end,
-            fn -> PublisherPool.settle(p, k(1), nil) end,
-            fn -> PublisherPool.rearm(p, k(1), nil) end
+            fn -> PublisherPool.admit(p, k(0), 1, 500) end,
+            fn -> PublisherPool.admit(p, k(1), -1, 500) end,
+            fn -> PublisherPool.admit(p, k(1), 1, nil) end,
+            fn -> PublisherPool.settle(p, absent(1), nil) end,
+            fn -> PublisherPool.rearm(p, absent(1), nil) end,
+            # A caller-supplied clock is gone, so a malformed one is a refusal rather than a crash
+            # that would take the whole lane down with the pool under :one_for_all.
+            fn -> PublisherPool.rearm(p, absent(1), :not_a_timeout) end
           ] do
         assert {:error, _} = call.()
         assert Process.alive?(p)
       end
 
       # ...and it still works afterwards.
-      assert :ok = PublisherPool.admit(p, k(1), 100, 500, fp(1))
+      assert {:ok, _res} = PublisherPool.admit(p, k(1), 100, 500)
     end
   end
 
@@ -205,19 +212,40 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
     test "expiry reports without releasing, and rearm moves the deadline only" do
       p = pool(:bulk, 1, 300)
 
-      assert :ok = PublisherPool.admit(p, k(1), 300, 100, fp(1))
-      assert PublisherPool.expired(p, 500) === [k(1)]
+      # A ZERO timeout, so the reservation is already past its deadline when we ask. The POOL owns
+      # the clock now -- the same one that stamped the deadline -- so there is no `now` to pass and
+      # no malformed `now` that could crash it.
+      assert {:ok, res} = PublisherPool.admit(p, k(1), 300, 0)
+      assert PublisherPool.expired(p) === [res]
 
       # Still full: expiry released nothing.
       assert %{available_frames: 0, available_bytes: 0} = PublisherPool.capacity(p)
-      assert {:error, :frame_credits_exhausted} = PublisherPool.admit(p, k(2), 1, 500, fp(2))
+      assert {:error, :frame_credits_exhausted} = PublisherPool.admit(p, k(2), 1, 500)
 
-      assert :ok = PublisherPool.rearm(p, k(1), 900)
-      assert PublisherPool.expired(p, 500) === []
+      assert :ok = PublisherPool.rearm(p, res, 60_000)
+      assert PublisherPool.expired(p) === []
       assert %{available_frames: 0, available_bytes: 0} = PublisherPool.capacity(p)
 
-      assert :ok = PublisherPool.settle(p, k(1), :primary_publication)
+      assert :ok = PublisherPool.settle(p, res, :primary_publication)
       assert %{available_frames: 1, available_bytes: 300} = PublisherPool.capacity(p)
+    end
+
+    test "a stale reservation cannot settle or re-arm what reused its key" do
+      p = pool(:bulk, 1, 300)
+
+      assert {:ok, stale} = PublisherPool.admit(p, k(1), 300, 0)
+      assert :ok = PublisherPool.settle(p, stale, :primary_publication)
+
+      # The same publication is admitted again: same key, new epoch.
+      assert {:ok, fresh} = PublisherPool.admit(p, k(1), 300, 60_000)
+      refute fresh === stale
+
+      assert {:error, :not_outstanding} = PublisherPool.settle(p, stale, :primary_publication)
+      assert {:error, :not_outstanding} = PublisherPool.rearm(p, stale, 1)
+
+      # NOT VACUOUS: the current reservation is untouched and still settles.
+      assert %{outstanding_frames: 1} = PublisherPool.capacity(p)
+      assert :ok = PublisherPool.settle(p, fresh, :primary_publication)
     end
   end
 end

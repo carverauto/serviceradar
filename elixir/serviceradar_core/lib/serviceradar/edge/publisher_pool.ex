@@ -104,18 +104,20 @@ defmodule ServiceRadar.Edge.PublisherPool do
   A refusal is final for THIS call: it never borrows from another class, and the pool's state is
   untouched.
   """
-  def admit(pool, key, bytes, deadline_at, fingerprint) do
-    GenServer.call(pool, {:admit, key, bytes, deadline_at, fingerprint})
+  def admit(pool, key, bytes, ack_timeout_ms) do
+    GenServer.call(pool, {:admit, key, bytes, ack_timeout_ms})
   end
 
   @doc "Releases a frame's credits. See `PublishWindow.settle/3` -- accounting only."
-  def settle(pool, key, outcome), do: GenServer.call(pool, {:settle, key, outcome})
+  def settle(pool, reservation, outcome),
+    do: GenServer.call(pool, {:settle, reservation, outcome})
 
   @doc "Moves a frame's PubAck deadline without releasing its credits."
-  def rearm(pool, key, deadline_at), do: GenServer.call(pool, {:rearm, key, deadline_at})
+  def rearm(pool, reservation, ack_timeout_ms),
+    do: GenServer.call(pool, {:rearm, reservation, ack_timeout_ms})
 
   @doc "The frames whose PubAck deadline has passed. Reports only."
-  def expired(pool, now), do: GenServer.call(pool, {:expired, now})
+  def expired(pool), do: GenServer.call(pool, :expired)
 
   @doc "This class's current capacity, for tests and observability."
   def capacity(pool), do: GenServer.call(pool, :capacity)
@@ -132,31 +134,38 @@ defmodule ServiceRadar.Edge.PublisherPool do
   end
 
   @impl true
-  def handle_call({:admit, key, bytes, deadline_at, fingerprint}, _from, state) do
-    case PublishWindow.admit(state.window, key, bytes, deadline_at, fingerprint) do
-      {:ok, window} -> {:reply, :ok, %{state | window: window}}
-      # The rejected call returns the ORIGINAL state. This is the case immutability made
-      # untestable in parts 1 and 2, and it is asserted at the process boundary now.
-      {:error, reason} -> {:reply, {:error, reason}, state}
+  def handle_call({:admit, key, bytes, ack_timeout_ms}, _from, state) do
+    # The deadline is stamped HERE, not by the caller before the call. Stamped earlier, the time a
+    # caller spent queued for this GenServer was silently deducted from the PubAck interval that
+    # the deadline is supposed to measure -- so a contended pool shortened every ack window.
+    case deadline(ack_timeout_ms) do
+      {:ok, deadline_at} -> admit_reply(state, key, bytes, deadline_at)
+      :error -> {:reply, {:error, :deadline}, state}
     end
   end
 
-  def handle_call({:settle, key, outcome}, _from, state) do
-    case PublishWindow.settle(state.window, key, outcome) do
-      {:ok, window} -> {:reply, :ok, %{state | window: window}}
-      {:error, reason} -> {:reply, {:error, reason}, state}
-    end
-  end
-
-  def handle_call({:rearm, key, deadline_at}, _from, state) do
-    case PublishWindow.rearm(state.window, key, deadline_at) do
+  def handle_call({:settle, reservation, outcome}, _from, state) do
+    case PublishWindow.settle(state.window, reservation, outcome) do
       {:ok, window} -> {:reply, :ok, %{state | window: window}}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
-  def handle_call({:expired, now}, _from, state) do
-    {:reply, PublishWindow.expired(state.window, now), state}
+  def handle_call({:rearm, reservation, ack_timeout_ms}, _from, state) do
+    with {:ok, deadline_at} <- deadline(ack_timeout_ms),
+         {:ok, window} <- PublishWindow.rearm(state.window, reservation, deadline_at) do
+      {:reply, :ok, %{state | window: window}}
+    else
+      :error -> {:reply, {:error, :deadline}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  def handle_call(:expired, _from, state) do
+    # The pool reads its OWN clock: the same one that stamped the deadlines. Taking `now` from a
+    # caller let `expired(pool, nil)` raise inside the GenServer, killing the pool and, under
+    # :one_for_all, restarting the whole lane -- a refusable input crashing the transport.
+    {:reply, PublishWindow.expired(state.window, System.monotonic_time(:millisecond)), state}
   end
 
   def handle_call(:capacity, _from, state) do
@@ -173,4 +182,21 @@ defmodule ServiceRadar.Edge.PublisherPool do
        outstanding_bytes: PublishWindow.outstanding_bytes(state.window)
      }, state}
   end
+
+  defp admit_reply(state, key, bytes, deadline_at) do
+    case PublishWindow.admit(state.window, key, bytes, deadline_at) do
+      {:ok, window, reservation} ->
+        {:reply, {:ok, reservation}, %{state | window: window}}
+
+      # The rejected call returns the ORIGINAL state. This is the case immutability made
+      # untestable in parts 1 and 2, and it is asserted at the process boundary now.
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp deadline(ms) when is_integer(ms) and ms >= 0,
+    do: {:ok, System.monotonic_time(:millisecond) + ms}
+
+  defp deadline(_), do: :error
 end
