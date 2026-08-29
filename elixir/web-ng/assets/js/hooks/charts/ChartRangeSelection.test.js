@@ -175,6 +175,19 @@ describe("ChartRangeSelection hook", () => {
     expect(overlay.getAttribute("width")).toBe("580")
   })
 
+  it("commits when pointerup is the first event beyond the drag threshold", () => {
+    const {pushEvent, svg} = mount()
+
+    svg.dispatch(pointer("pointerdown", 36))
+    svg.dispatch(pointer("pointerup", 616))
+
+    expect(pushEvent).toHaveBeenCalledOnce()
+    expect(pushEvent).toHaveBeenCalledWith("select_events_range", {
+      start: "2026-08-27T10:00:00Z",
+      end: "2026-08-27T13:59:59.999999Z",
+    })
+  })
+
   it.each([
     {
       buckets: [initialBuckets[0]],
@@ -220,7 +233,7 @@ describe("ChartRangeSelection hook", () => {
   })
 
   it("implements the approved keyboard selection state machine", () => {
-    const {ctx, overlay, pushEvent, root, status} = mount()
+    const {overlay, pushEvent, root, status} = mount()
     const left = key("ArrowLeft")
     root.dispatch(left)
 
@@ -315,12 +328,50 @@ describe("ChartRangeSelection hook", () => {
     expect(root.totalListenerCount()).toBe(0)
   })
 
-  it("releases capture on LiveView update and destroy", () => {
-    const {ctx, svg} = mount()
+  it("finishes an in-flight drag across an unrelated LiveView update", () => {
+    const {ctx, overlay, pushEvent, svg} = mount()
+
+    svg.dispatch(pointer("pointerdown", 36, "mouse", 8))
+    svg.dispatch(pointer("pointermove", 616, "mouse", 8))
+    expect(overlay.classList.contains("hidden")).toBe(false)
+
+    ctx.updated()
+
+    expect(svg.capturedPointers.has(8)).toBe(true)
+    svg.dispatch(pointer("pointerup", 616, "mouse", 8))
+    expect(pushEvent).toHaveBeenCalledOnce()
+    expect(pushEvent).toHaveBeenCalledWith("select_events_range", {
+      start: "2026-08-27T10:00:00Z",
+      end: "2026-08-27T13:59:59.999999Z",
+    })
+  })
+
+  it("redraws an in-flight selection after an unrelated LiveView patch", () => {
+    const {ctx, overlay, svg} = mount()
+
+    svg.dispatch(pointer("pointerdown", 36))
+    svg.dispatch(pointer("pointermove", 616))
+    overlay.classList.add("hidden")
+    overlay.setAttribute("x", "36")
+    overlay.setAttribute("width", "0")
+
+    ctx.updated()
+
+    expect(overlay.classList.contains("hidden")).toBe(false)
+    expect(overlay.getAttribute("x")).toBe("36")
+    expect(overlay.getAttribute("width")).toBe("580")
+  })
+
+  it("releases capture on metadata update and destroy", () => {
+    const {ctx, root, svg} = mount()
 
     svg.dispatch(pointer("pointerdown", 36, "mouse", 8))
     expect(svg.capturedPointers.has(8)).toBe(true)
 
+    root.dataset = {
+      ...root.dataset,
+      rangeBuckets: JSON.stringify([initialBuckets[0]]),
+    }
     ctx.updated()
     expect(svg.capturedPointers.has(8)).toBe(false)
     expect(svg.listenerCount("pointerdown")).toBe(1)

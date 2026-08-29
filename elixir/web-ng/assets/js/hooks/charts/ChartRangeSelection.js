@@ -14,6 +14,11 @@ export default {
   },
 
   updated() {
+    if (this.rangeBindingCurrent()) {
+      if (this.rangeAnchorIndex !== null) this.renderRangeSelection()
+      return
+    }
+
     this.bindRangeSelection()
   },
 
@@ -33,11 +38,13 @@ export default {
     this.rangeOverlay = null
     this.rangeStatus = null
     this.rangeEventName = null
+    this.rangeBucketsJSON = null
 
     const svg = this.el.querySelector("[data-range-svg]")
     const overlay = this.el.querySelector("[data-range-overlay]")
     const status = this.el.querySelector("[data-range-status]")
-    const buckets = parseRangeBuckets(this.el.dataset.rangeBuckets)
+    const bucketsJSON = this.el.dataset.rangeBuckets
+    const buckets = parseRangeBuckets(bucketsJSON)
     const eventName = this.el.dataset.rangeEvent
 
     if (!svg || !overlay || !status || !buckets || typeof eventName !== "string" || eventName.length === 0) {
@@ -51,6 +58,7 @@ export default {
     this.rangeOverlay = overlay
     this.rangeStatus = status
     this.rangeEventName = eventName
+    this.rangeBucketsJSON = bucketsJSON
     this.rangeActiveIndex = buckets.length - 1
     this.el.setAttribute("tabindex", "0")
     this.el.removeAttribute("aria-disabled")
@@ -78,6 +86,16 @@ export default {
       svg.removeEventListener("lostpointercapture", onLostPointerCapture)
       this.el.removeEventListener("keydown", onKeyDown)
     }
+  },
+
+  rangeBindingCurrent() {
+    return (
+      this.rangeSvg === this.el.querySelector("[data-range-svg]") &&
+      this.rangeOverlay === this.el.querySelector("[data-range-overlay]") &&
+      this.rangeStatus === this.el.querySelector("[data-range-status]") &&
+      this.rangeBucketsJSON === this.el.dataset.rangeBuckets &&
+      this.rangeEventName === this.el.dataset.rangeEvent
+    )
   },
 
   rangePointerDown(event) {
@@ -116,7 +134,8 @@ export default {
     if (!pointer || pointer.pointerId !== event.pointerId) return
 
     const activeIndex = this.rangeBucketIndexForEvent(event)
-    const moved = pointer.moved && activeIndex !== null
+    const moved =
+      (pointer.moved || Math.abs(event.clientX - pointer.clientX) > DRAG_THRESHOLD_PX) && activeIndex !== null
     this.releaseRangePointerCapture()
     this.rangePointer = null
 
