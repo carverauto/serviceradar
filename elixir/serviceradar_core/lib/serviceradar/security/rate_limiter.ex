@@ -52,6 +52,8 @@ defmodule ServiceRadar.Security.RateLimiter do
     plugin_upload: [limit: 10, window_seconds: 60],
     oauth_password_grant: [limit: 10, window_seconds: 60],
     oauth_client_credentials: [limit: 20, window_seconds: 60],
+    oauth_authorize: [limit: 30, window_seconds: 60],
+    oauth_authorization_code: [limit: 30, window_seconds: 60],
     mcp: [limit: 60, window_seconds: 60],
     remote_access_ssh_certificate_issue: [limit: 10, window_seconds: 60],
     automation_callback_grant: [limit: 30, window_seconds: 60],

@@ -40,6 +40,10 @@ defmodule ServiceRadarWebNGWeb.McpTest do
   test "unauthenticated /mcp is 401" do
     conn = post(mcp_conn(), "/mcp", initialize_body())
     assert conn.status == 401
+    header = List.keyfind(conn.resp_headers, "www-authenticate", 0)
+    assert header
+    assert elem(header, 1) =~ "resource_metadata="
+    assert elem(header, 1) =~ "/.well-known/oauth-protected-resource"
   end
 
   test "disabled flag returns 404", %{client: client, secret: secret} do

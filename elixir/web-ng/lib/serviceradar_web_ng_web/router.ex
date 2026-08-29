@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   alias ServiceRadarWebNGWeb.Plugs.McpEnabled
   alias ServiceRadarWebNGWeb.Plugs.McpRequireUser
   alias ServiceRadarWebNGWeb.Plugs.McpSessionAudit
+  alias ServiceRadarWebNGWeb.Plugs.McpWwwAuthenticate
   alias ServiceRadarWebNGWeb.Plugs.RateLimit
   alias ServiceRadarWebNGWeb.Plugs.RateLimit.Bodies
   alias ServiceRadarWebNGWeb.Plugs.RequireOauthScope
@@ -151,6 +152,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:accepts, ["json"])
     plug(SecurityHeaders)
     plug(McpEnabled)
+    plug(McpWwwAuthenticate)
     # Register before_send before auth plugs so 401/403 still emit mcp_auth_failed.
     plug(McpSessionAudit)
     plug(ApiAuth)
@@ -473,6 +475,14 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/camera-relay-sessions/:id/stream", CameraRelayStreamController, :connect)
     get("/proxmox/console-sessions/:id/stream", ProxmoxConsoleStreamController, :connect)
     get("/remote-access/sessions/:id/stream", RemoteAccessStreamController, :connect)
+  end
+
+  scope "/.well-known", ServiceRadarWebNGWeb do
+    pipe_through(:api)
+
+    get("/oauth-protected-resource", OAuthMetadataController, :protected_resource)
+    get("/oauth-protected-resource/mcp", OAuthMetadataController, :protected_resource)
+    get("/oauth-authorization-server", OAuthMetadataController, :authorization_server)
   end
 
   scope "/mcp" do
@@ -836,6 +846,13 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through(:api)
 
     post("/token", OAuthController, :token)
+    post("/backchannel-logout", OAuthBackchannelLogoutController, :create)
+  end
+
+  scope "/oauth", ServiceRadarWebNGWeb do
+    pipe_through(:browser)
+
+    get("/authorize", OAuthAuthorizeController, :new)
   end
 
   ## CLI device-code auth (RFC 8628)
@@ -1026,7 +1043,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/diagnostics/mtr/:trace_id", DiagnosticsLive.MtrTrace, :show)
       live("/settings/profile", UserLive.Settings, :edit)
       live("/settings/api-credentials", UserLive.ApiCredentials, :index)
+      live("/settings/mcp-sessions", Settings.McpSessionsLive, :index)
       live("/settings/cli-sessions", Settings.CliSessionsLive, :index)
+      live("/oauth/consent", OAuthConsentLive)
       live("/settings/cli-auth", Settings.CliAuthPolicyLive, :index)
       live("/settings/user-groups", Settings.UserGroupsLive, :index)
 

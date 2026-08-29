@@ -141,14 +141,15 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
   defp handle_code_exchange(conn, code, nonce) do
     case exchange_and_verify(code, nonce) do
-      {:ok, claims} -> complete_oidc_login(conn, claims)
+      {:ok, claims, tokens} -> complete_oidc_login(conn, claims, tokens)
       {:error, reason} -> reject_oidc_pre_verify(conn, reason)
     end
   end
 
   defp exchange_and_verify(code, nonce) do
-    with {:ok, tokens} <- OIDCClient.exchange_code(code) do
-      OIDCClient.verify_id_token(tokens["id_token"], nonce: nonce)
+    with {:ok, tokens} <- OIDCClient.exchange_code(code),
+         {:ok, claims} <- OIDCClient.verify_id_token(tokens["id_token"], nonce: nonce) do
+      {:ok, claims, tokens}
     end
   end
 
@@ -164,7 +165,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
     |> redirect(to: ~p"/users/log-in")
   end
 
-  defp complete_oidc_login(conn, claims) do
+  defp complete_oidc_login(conn, claims, tokens) do
     # We have verified claims; any failure from here is a
     # validated-identity failure that should feed lockouts.
     email = claims["email"]
@@ -182,7 +183,10 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
       conn
       |> put_flash(:info, "Signed in successfully via SSO.")
-      |> UserAuth.log_in_user(user, %{"identity_claims" => session_claims})
+      |> UserAuth.log_in_user(user, %{
+        "identity_claims" => session_claims,
+        "mcp_idp_refresh" => tokens["refresh_token"] || tokens[:refresh_token]
+      })
     else
       {:error, :unsafe_account_linking} ->
         Logger.warning("OIDC authentication rejected implicit email-based account linking")

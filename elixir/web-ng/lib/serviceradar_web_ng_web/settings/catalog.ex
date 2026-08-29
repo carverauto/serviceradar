@@ -501,6 +501,26 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       hidden_from_nav: false
     },
     %{
+      id: :mcp_sessions,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Credentials",
+      title: "MCP Sessions",
+      description: "Review and revoke MCP OAuth grants issued to native clients.",
+      icon: "hero-cpu-chip",
+      route: "/settings/mcp-sessions",
+      live_view: ServiceRadarWebNGWeb.Settings.McpSessionsLive,
+      permission: nil,
+      order: 235,
+      has_own_stats: false,
+      feature_flag: :mcp,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["mcp", "oauth", "claude", "codex", "grok", "sessions"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
       id: :host_keys,
       category: :system,
       parent_group: :sys_security,
@@ -1585,6 +1605,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   defp feature_enabled?(:remote_access_app), do: FeatureFlags.remote_access_app_enabled?()
   defp feature_enabled?(:remote_access_tcp), do: FeatureFlags.remote_access_tcp_enabled?()
   defp feature_enabled?(:god_view), do: FeatureFlags.god_view_enabled?()
+  defp feature_enabled?(:mcp), do: FeatureFlags.mcp_enabled?()
   # Unknown flag atoms default to disabled so a mis-typed flag hides the view
   # rather than silently exposing it.
   defp feature_enabled?(_), do: false

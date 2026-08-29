@@ -258,7 +258,9 @@ config :serviceradar_web_ng, :first_party_plugin_import,
   cosign_public_key_file: nil
 
 config :serviceradar_web_ng, :god_view_enabled, false
+config :serviceradar_web_ng, :mcp_client_credentials_enabled, true
 config :serviceradar_web_ng, :mcp_enabled, false
+config :serviceradar_web_ng, :mcp_refresh_ttl_seconds, 8 * 3600
 
 config :serviceradar_web_ng, :native_addon_import,
   repo_url: "https://github.com/carverauto/serviceradar",

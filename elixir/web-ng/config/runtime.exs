@@ -746,6 +746,14 @@ mcp_enabled =
   |> String.downcase()
   |> Kernel.in(["1", "true", "yes", "on"])
 
+mcp_client_credentials_enabled =
+  "SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED"
+  |> System.get_env("true")
+  |> to_bool.()
+  |> Kernel.!=(false)
+
+mcp_refresh_ttl_seconds = parse_int_env.("SERVICERADAR_MCP_REFRESH_TTL_SECONDS", 8 * 3600)
+
 config :serviceradar_core, ServiceRadar.NATS.Connection,
   host: nats_uri.host || "localhost",
   port: nats_uri.port || 4222,
@@ -771,7 +779,9 @@ config :serviceradar_web_ng,
        :managed_device_limit,
        to_int.(System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT") || System.get_env("SERVICERADAR_MAX_DEVICES"))
 
+config :serviceradar_web_ng, :mcp_client_credentials_enabled, mcp_client_credentials_enabled
 config :serviceradar_web_ng, :mcp_enabled, mcp_enabled
+config :serviceradar_web_ng, :mcp_refresh_ttl_seconds, mcp_refresh_ttl_seconds
 
 # "Send your telemetry" onboarding surface (/settings/agents/telemetry-onboarding):
 # the deployment's externally reachable OTLP endpoints. gRPC is host:port

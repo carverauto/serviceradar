@@ -34,6 +34,73 @@ Until that flag is true, `https://<host>/mcp` returns HTTP 404.
 
 ## Authenticate
 
+`/mcp` accepts a Guardian API JWT with the `mcp` scope. Browser session
+cookies are rejected. Legacy static `SERVICERADAR_API_KEY` values (no user)
+are rejected. The actor on every tool call is the user who authorized the
+token; RBAC is the same as HTTP.
+
+There are two ways to get that JWT.
+
+### SSO (authorization code + PKCE)
+
+This is the path SSO-mandated deployments should use. ServiceRadar is the
+OAuth authorization server. The browser sign-in is the existing LoginPolicy
+(Authentik OIDC on demo, OIDC/SAML in production). MCP clients do **not**
+talk to the IdP token endpoint.
+
+1. Enable MCP (`webNg.mcpEnabled: "true"`).
+2. Point the client at `https://<host>/mcp`. Native clients (Codex, Claude
+   Code, Grok HTTP OAuth) discover:
+
+   - `/.well-known/oauth-protected-resource`
+   - `/.well-known/oauth-authorization-server`
+
+3. The client opens `/oauth/authorize` with `client_id=serviceradar-mcp`,
+   PKCE S256, and an RFC 8252 loopback `redirect_uri`
+   (`http://127.0.0.1:<port>/...` or `http://localhost:<port>/...`).
+4. If you are not signed in, the UI sends you through the normal SSO
+   (or local-password) login, then a consent page.
+5. Approve. The client exchanges the code at `/oauth/token` and sends
+   `Authorization: Bearer` on every MCP request.
+
+Access tokens last **one hour**. A refresh token is issued only when
+ServiceRadar can keep the grant bound to the IdP session:
+
+- Local-password logins: refresh is TTL + rotation (default 8 hours).
+- OIDC/SAML: the grant stores the IdP `sid` / SessionIndex and, when the
+  IdP issued one, an encrypted IdP refresh token. Each MCP refresh confirms
+  that IdP session is still alive. If you signed out of Authentik, or the
+  IdP sent back-channel logout, refresh returns `invalid_grant` and you
+  run `mcp login` again.
+- If SSO produced no session id and no IdP refresh token, ServiceRadar
+  issues the 1 hour access token only (fail closed). Add `offline_access`
+  to the web OIDC scopes (Settings → Authentication) so Authentik issues a
+  refresh token, and include the `sid` claim on the id_token.
+
+Revoke a grant under **Settings → MCP Sessions**.
+
+Example Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.serviceradar]
+url = "https://<host>/mcp"
+```
+
+Then `codex mcp login serviceradar`. Use `client_id=serviceradar-mcp` if
+the client asks. Do not point the MCP client at Authentik's authorize or
+token URLs.
+
+Claude Code / Grok HTTP OAuth: set the MCP server URL to
+`https://<host>/mcp` and complete the browser login the client opens.
+
+Hosted Claude.ai connectors that require Dynamic Client Registration
+(RFC 7591) are not supported yet.
+
+### Client credentials (automation)
+
+Farm01 and scripts that cannot open a browser still use
+`grant_type=client_credentials`.
+
 1. In the UI, open **Settings → API Credentials**.
 2. Create a client with scopes **Read** and **MCP**.
 3. Exchange the client id/secret for a JWT:
@@ -51,14 +118,21 @@ curl -X POST https://<host>/oauth/token \
 Authorization: Bearer <access_token>
 ```
 
-The `mcp` scope is required. Browser session cookies are not accepted. Legacy
-static `SERVICERADAR_API_KEY` values (no user) are rejected.
-
 Tokens last one hour. Request a new one when the current token expires.
 
-## Configure a client
+SSO-mandated orgs should disable this for MCP:
 
-Example Cursor / Claude Desktop / Grok config (streamable HTTP):
+```yaml
+webNg:
+  mcpClientCredentialsEnabled: "false"
+```
+
+That returns `unauthorized_client` when the granted scopes include `mcp`.
+Clients that only request `read` / `write` are unchanged. The password
+grant is not used for MCP.
+
+Example Cursor / Claude Desktop / Grok config with a static bearer
+(streamable HTTP):
 
 ```json
 {
@@ -111,7 +185,9 @@ There is no SystemActor path and no `authorize?: false`.
 
 Every initialize, tool call, denial, and auth failure is recorded on
 **Settings → Audit → Events** as `mcp_session_initialized`, `mcp_tool_called`,
-`mcp_tool_denied`, or `mcp_auth_failed`. Result payloads are not stored.
+`mcp_tool_denied`, or `mcp_auth_failed`. OAuth consent, token issue, refresh,
+grant revoke, IdP-session denial, and SLO revoke add `mcp_oauth_*` events.
+Result payloads and IdP tokens are not stored.
 
 ## Related
 

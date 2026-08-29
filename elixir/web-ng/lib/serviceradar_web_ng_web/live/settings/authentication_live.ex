@@ -511,10 +511,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             name="settings[oidc_scopes]"
             value={@form[:oidc_scopes].value}
             class={ui_field_class(class: "w-full")}
-            placeholder="openid profile email"
+            placeholder="openid profile email offline_access"
           />
           <label class="flex items-center justify-between gap-2">
-            <span class="text-xs text-sr-muted">Space-separated list of OAuth scopes</span>
+            <span class="text-xs text-sr-muted">
+              Space-separated list of OAuth scopes. Include
+              <code class="font-mono">offline_access</code>
+              so MCP refresh can confirm the IdP session is still alive.
+            </span>
           </label>
         </div>
 
@@ -920,7 +924,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
   defp idp_preset_overrides("authentik") do
     %{
-      "oidc_scopes" => "openid email profile",
+      "oidc_scopes" => "openid email profile offline_access",
       "claim_mappings" => %{"email" => "email", "name" => "name", "sub" => "sub"}
     }
   end

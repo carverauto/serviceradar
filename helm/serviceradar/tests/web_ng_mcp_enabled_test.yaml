@@ -63,3 +63,29 @@ tests:
         documentSelector:
           path: kind
           value: Deployment
+
+  - it: renders MCP client-credentials and refresh TTL flags
+    set:
+      webNg.mcpClientCredentialsEnabled: "false"
+      webNg.mcpRefreshTtlSeconds: "3600"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED
+            value: "false"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_MCP_REFRESH_TTL_SECONDS
+            value: "3600"
+          count: 1
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment

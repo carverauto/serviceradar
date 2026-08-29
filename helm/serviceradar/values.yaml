@@ -611,7 +611,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20260827120000"
+    expectedVersion: "20260828180000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1196,9 +1196,13 @@ webNg:
   # do not use an in-cluster Service name.
   publicUrl: ""
   godViewEnabled: "true"
-  # MCP server at /mcp. Off by default; requires an API credential with the mcp scope.
-  # This is the Helm lever. extraEnv.SERVICERADAR_MCP_ENABLED is ignored.
+  # MCP server at /mcp. Off by default. extraEnv.SERVICERADAR_MCP_ENABLED is ignored.
   mcpEnabled: "false"
+  # When false, grant_type=client_credentials cannot mint mcp-scoped tokens.
+  # SSO-mandated deployments should set this to "false" and use /oauth/authorize.
+  mcpClientCredentialsEnabled: "true"
+  # Refresh-token backstop TTL in seconds. SSO grants also require a live IdP session.
+  mcpRefreshTtlSeconds: "28800"
   # Keep Phoenix/LiveView WebSocket origin checks enabled by default.
   # Set to "false" only for local/lab reverse-proxy debugging.
   checkOrigin: "true"

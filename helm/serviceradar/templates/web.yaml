@@ -370,9 +370,13 @@ spec:
           value: {{ default "true" $webNg.checkOrigin | quote }}
         - name: SERVICERADAR_GOD_VIEW_ENABLED
           value: {{ default "true" $webNg.godViewEnabled | quote }}
-        {{/* First-class flag. extraEnv cannot shadow SERVICERADAR_MCP_ENABLED. */}}
+        {{/* First-class flags. extraEnv cannot shadow SERVICERADAR_MCP_*. */}}
         - name: SERVICERADAR_MCP_ENABLED
           value: {{ default "false" $webNg.mcpEnabled | quote }}
+        - name: SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED
+          value: {{ default "true" $webNg.mcpClientCredentialsEnabled | quote }}
+        - name: SERVICERADAR_MCP_REFRESH_TTL_SECONDS
+          value: {{ default "28800" $webNg.mcpRefreshTtlSeconds | quote }}
         - name: SERVICERADAR_DEV_ROUTES
           value: {{ default "false" $webNg.devRoutes | quote }}
         {{- if not (hasKey (default (dict) $webNg.extraEnv) "SERVICERADAR_LOCAL_MAILER") }}
@@ -703,7 +707,7 @@ spec:
         {{- end }}
         {{- with .Values.webNg.extraEnv }}
         {{- range $name, $value := . }}
-        {{- if ne $name "SERVICERADAR_MCP_ENABLED" }}
+        {{- if and (ne $name "SERVICERADAR_MCP_ENABLED") (ne $name "SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED") (ne $name "SERVICERADAR_MCP_REFRESH_TTL_SECONDS") }}
         - name: {{ $name | quote }}
           value: {{ $value | quote }}
         {{- end }}
@@ -711,7 +715,7 @@ spec:
         {{- end }}
         {{- with .Values.webNg.extraEnvValueFrom }}
         {{- range $name, $valueFrom := . }}
-        {{- if ne $name "SERVICERADAR_MCP_ENABLED" }}
+        {{- if and (ne $name "SERVICERADAR_MCP_ENABLED") (ne $name "SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED") (ne $name "SERVICERADAR_MCP_REFRESH_TTL_SECONDS") }}
         - name: {{ $name | quote }}
           valueFrom:
 {{- toYaml $valueFrom | nindent 12 }}

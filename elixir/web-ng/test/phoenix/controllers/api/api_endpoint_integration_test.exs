@@ -207,7 +207,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
     end
 
     test "unsupported grant_type returns 400" do
-      conn = post(build_conn(), ~p"/oauth/token", %{"grant_type" => "authorization_code"})
+      conn = post(build_conn(), ~p"/oauth/token", %{"grant_type" => "implicit"})
 
       assert json_response(conn, 400)["error"] == "unsupported_grant_type"
     end
