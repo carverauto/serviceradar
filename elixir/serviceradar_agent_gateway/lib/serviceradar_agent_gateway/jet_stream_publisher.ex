@@ -175,7 +175,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   defp admit(pool, key, bytes, opts) do
     # The TIMEOUT, not a deadline: the pool stamps the deadline when it actually admits, so time
     # spent queued for the pool is not deducted from the PubAck interval.
-    case PublisherPool.admit(pool, key, byte_size(bytes), timeout_of(opts)) do
+    case pool_call(fn -> PublisherPool.admit(pool, key, byte_size(bytes), timeout_of(opts)) end) do
       # Covers BOTH a new reservation and a republish of the same publication. The window
       # recognises the retry by key, charges nothing further, AND RE-ARMS THE DEADLINE -- a retry
       # that kept the expired one would be reported expired forever. The reservation carries the
@@ -186,6 +186,17 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
       {:error, exhausted} when exhausted in [:frame_credits_exhausted, :byte_credits_exhausted] ->
         # Withhold progress on publisher saturation rather than publishing past the grant.
         {:error, :capacity}
+
+      # A retry offered while the previous attempt is STILL on the wire. Refused rather than run
+      # concurrently: two requests under one charge means the first acknowledgement frees a credit
+      # while the second is still live, and the next admission takes the window past its grant.
+      {:error, :attempt_in_flight} ->
+        {:error, :capacity}
+
+      # The pool died between the lookup and this call -- a lane restart landing mid-attempt. The
+      # contract is a tuple, not an exit, and nothing was published.
+      {:error, :pool_gone} ->
+        {:error, :systemic}
 
       {:error, reason} ->
         {:error, {:derivation, reason}}
@@ -201,26 +212,32 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # to its resolved route and does not yet compute audit/quarantine/security-quarantine routing;
   # that mapping is task 3.5 and supplies the outcome when it lands.
   defp settle({:ok, _ack} = result, pool, reservation) do
-    settle_quietly(pool, reservation, :primary_publication)
+    pool_call(fn -> PublisherPool.settle(pool, reservation, :primary_publication) end)
     result
   end
 
   defp settle({:error, :poison} = result, pool, reservation) do
-    settle_quietly(pool, reservation, :permanent_rejection)
+    pool_call(fn -> PublisherPool.settle(pool, reservation, :permanent_rejection) end)
     result
   end
 
-  defp settle(result, _pool, _reservation), do: result
+  defp settle(result, pool, reservation) do
+    # NON-terminal: the record is still owed a republish, so the credits stay charged -- but the
+    # ATTEMPT is over. Saying so is what makes the next retry a legal re-admission instead of
+    # `:attempt_in_flight` forever.
+    pool_call(fn -> PublisherPool.attempt_failed(pool, reservation) end)
+    result
+  end
 
-  # The pool may be gone -- a lane restart between admit and settle kills it. That is not the
-  # caller's failure and must not become the caller's exit: the publish has already happened or
-  # already failed, and the restarted lane discarded the reservation regardless. Reported, not
-  # raised.
-  defp settle_quietly(pool, reservation, outcome) do
-    PublisherPool.settle(pool, reservation, outcome)
+  # EVERY pool call is guarded, not just settlement. A lane restart can land between resolving the
+  # pool and admitting through it, and an unguarded GenServer.call would then exit the caller --
+  # breaking the documented tuple-return contract at the one moment the system is already
+  # degraded. The restarted lane has discarded its reservations either way.
+  defp pool_call(fun) do
+    fun.()
   catch
     :exit, reason ->
-      Logger.warning("publisher pool gone before settlement: #{inspect(reason)}")
+      Logger.warning("publisher pool unavailable: #{inspect(reason)}")
       {:error, :pool_gone}
   end
 

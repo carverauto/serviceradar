@@ -106,9 +106,11 @@ defmodule ServiceRadar.Edge.LaneSupervisorTest do
       refute connection_pid(sup) === conn_before
     end
 
-    test "killing the CONNECTION also restarts the pool", %{sup: sup} do
-      # The other direction matters too: reservations for requests that died with the socket must
-      # not stay charged until their deadlines.
+    test "killing the RECONNECT MANAGER also restarts the pool", %{sup: sup} do
+      # NAMED for what it actually kills. The supervised child is Gnat.ConnectionSupervisor -- the
+      # reconnect manager -- not the transport socket it owns, and an ordinary NATS reconnect does
+      # NOT exit it. So this binds process death of that child, not reconnect behaviour;
+      # reservations deliberately survive reconnects (see LaneSupervisor's moduledoc).
       conn_before = connection_pid(sup)
       pool_before = Process.whereis(PublisherPool.via(:bulk))
 
