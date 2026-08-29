@@ -249,11 +249,67 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
     end
   end
 
-  describe "a reservation does not outlive the caller that took it" do
-    test "a caller that gives up on the call does not strand its credits" do
-      # THE MOTIVATING CASE, and it is not a crash. GenServer.call/3 EXITS the caller when it times
-      # out, and OTP does not cancel the queued message -- so the pool can admit a frame for a
-      # caller that has already gone, charging the window for a request nobody will ever make.
+  describe "an admission the caller never received is revoked" do
+    setup do
+      previous = Application.get_env(:serviceradar_core, :publisher_pool_call_timeout_ms)
+      Application.put_env(:serviceradar_core, :publisher_pool_call_timeout_ms, 50)
+
+      on_exit(fn ->
+        case previous do
+          nil -> Application.delete_env(:serviceradar_core, :publisher_pool_call_timeout_ms)
+          v -> Application.put_env(:serviceradar_core, :publisher_pool_call_timeout_ms, v)
+        end
+      end)
+
+      :ok
+    end
+
+    test "a queued admission processed AFTER the caller gave up does not stay charged" do
+      # THE EXACT CASE. GenServer.call/3 gives up, but OTP does not cancel the queued message: the
+      # pool goes on to admit, charging a frame for a request that was never made. The caller does
+      # NOT die -- the publisher catches that exit -- so nothing about caller liveness can recover
+      # it. Only the caller's own revocation can, because only the caller knows it never published.
+      p = pool(:bulk, 1, 100)
+
+      :sys.suspend(p)
+      task = Task.async(fn -> PublisherPool.admit(p, k(1), 50, 60_000) end)
+      assert {:error, :pool_timeout} = Task.await(task, 5_000)
+
+      # The pool now processes the queued admission, then the revocation behind it.
+      :sys.resume(p)
+
+      assert eventually(fn ->
+               match?(%{outstanding_frames: 0, outstanding_bytes: 0}, PublisherPool.capacity(p))
+             end),
+             "the admission the caller never received stayed charged"
+
+      # NOT VACUOUS: the credit is genuinely usable again.
+      assert {:ok, _} = PublisherPool.admit(p, k(2), 50, 60_000)
+    end
+
+    test "revocation does not touch a reservation the caller DID receive" do
+      p = pool(:bulk, 2, 200)
+      assert {:ok, held} = PublisherPool.admit(p, k(1), 50, 60_000)
+
+      :sys.suspend(p)
+      task = Task.async(fn -> PublisherPool.admit(p, k(2), 50, 60_000) end)
+      assert {:error, :pool_timeout} = Task.await(task, 5_000)
+      :sys.resume(p)
+
+      assert eventually(fn ->
+               match?(%{outstanding_frames: 1}, PublisherPool.capacity(p))
+             end)
+
+      # The reservation the caller actually holds is untouched and still settles.
+      assert :ok = PublisherPool.settle(p, held, :primary_publication)
+    end
+
+    test "caller death alone releases NOTHING" do
+      # Deliberate. A caller can die after Gnat has written the request to the socket, or exit
+      # normally after attempt_failed/2 kept the credit on purpose. Releasing on death would permit
+      # another publish while the first is still broker-ambiguous, which is the bound this exists
+      # to hold. The conservative direction is to keep the credits charged; a lane restart is what
+      # clears them.
       p = pool(:bulk, 1, 100)
       test_pid = self()
 
@@ -264,45 +320,25 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
         end)
 
       assert_receive {:admitted, {:ok, _res}}
-      assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
-
       ref = Process.monitor(caller)
       Process.exit(caller, :kill)
       assert_receive {:DOWN, ^ref, :process, ^caller, _}
 
-      # The pool must notice and release. Polled, because the :DOWN reaches the pool asynchronously.
-      assert eventually(fn ->
-               match?(%{outstanding_frames: 0, outstanding_bytes: 0}, PublisherPool.capacity(p))
-             end),
-             "a dead caller's reservation stayed charged"
-
-      # NOT VACUOUS: the credit is genuinely usable again.
-      assert {:ok, _} = PublisherPool.admit(p, k(2), 50, 60_000)
+      # Still charged, on purpose.
+      Process.sleep(50)
+      assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
     end
 
-    test "one caller's death does not release ANOTHER caller's reservation" do
-      p = pool(:bulk, 2, 200)
-      test_pid = self()
+    test "an unrecognised :DOWN cannot release anything" do
+      # The pool no longer monitors callers at all, so a stray :DOWN is inert. It used to release
+      # the named pid's reservations without ever checking the monitor reference.
+      p = pool(:bulk, 1, 100)
+      assert {:ok, _} = PublisherPool.admit(p, k(1), 50, 60_000)
 
-      {:ok, mine} = PublisherPool.admit(p, k(1), 50, 60_000)
+      send(p, {:DOWN, make_ref(), :process, self(), :normal})
+      Process.sleep(50)
 
-      doomed =
-        spawn(fn ->
-          send(test_pid, {:admitted, PublisherPool.admit(p, k(2), 50, 60_000)})
-          receive do: (:never -> :ok)
-        end)
-
-      assert_receive {:admitted, {:ok, _}}
-      ref = Process.monitor(doomed)
-      Process.exit(doomed, :kill)
-      assert_receive {:DOWN, ^ref, :process, ^doomed, _}
-
-      assert eventually(fn ->
-               match?(%{outstanding_frames: 1}, PublisherPool.capacity(p))
-             end)
-
-      # Mine is untouched and still settles.
-      assert :ok = PublisherPool.settle(p, mine, :primary_publication)
+      assert %{outstanding_frames: 1} = PublisherPool.capacity(p)
     end
   end
 

@@ -278,7 +278,9 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert functions === Enum.sort(@public_functions),
              "exported FUNCTIONS drifted: added #{inspect(functions -- @public_functions)}, " <>
                "removed #{inspect(@public_functions -- functions)}. " <>
-               "settle/3 is the ONLY one that may release credits."
+               "credits are released by settle/3 and by abandon/2 -- and by nothing else. " <>
+               "abandon/2 exists ONLY for an admission its caller never received, which is why " <>
+               "it takes a key rather than a reservation: no live attempt holds a token for it."
 
       assert macros === Enum.sort(@public_macros),
              "exported MACROS drifted: added #{inspect(macros -- @public_macros)}, " <>

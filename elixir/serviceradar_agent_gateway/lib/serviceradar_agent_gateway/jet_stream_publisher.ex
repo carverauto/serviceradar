@@ -198,6 +198,11 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
       {:error, :pool_gone} ->
         {:error, :systemic}
 
+      # The pool did not answer in time. `PublisherPool.admit/4` has already revoked the admission,
+      # so no credit is stranded; nothing was published, so progress is withheld and retried.
+      {:error, :pool_timeout} ->
+        {:error, :systemic}
+
       {:error, reason} ->
         {:error, {:derivation, reason}}
     end
