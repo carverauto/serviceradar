@@ -87,10 +87,42 @@ defmodule ServiceRadarWebNGWeb.McpTest do
     conn = post(authed(client, secret), "/mcp", initialize_body())
     body = json_response(conn, 200)
     assert body["result"]["serverInfo"]["name"] == "serviceradar"
+    assert body["result"]["instructions"] =~ "serviceradar://srql/grammar"
+    assert body["result"]["capabilities"]["resources"]
 
     conn = post(authed(client, secret), "/mcp", rpc("tools/list"))
     names = json_response(conn, 200)["result"]["tools"] |> Enum.map(& &1["name"]) |> Enum.sort()
     assert names == Mcp.v1_tools() |> Enum.map(&Atom.to_string/1) |> Enum.sort()
+  end
+
+  test "resources/list and resources/read serve SRQL teaching documents", %{
+    client: client,
+    secret: secret
+  } do
+    conn = post(authed(client, secret), "/mcp", initialize_body())
+    assert json_response(conn, 200)["result"]["serverInfo"]
+
+    conn = post(authed(client, secret), "/mcp", rpc("resources/list"))
+    resources = json_response(conn, 200)["result"]["resources"]
+    uris = resources |> Enum.map(& &1["uri"]) |> Enum.sort()
+
+    assert uris == [
+             "serviceradar://srql/cookbook",
+             "serviceradar://srql/entities",
+             "serviceradar://srql/grammar"
+           ]
+
+    conn =
+      post(
+        authed(client, secret),
+        "/mcp",
+        rpc("resources/read", %{"uri" => "serviceradar://srql/grammar"})
+      )
+
+    contents = json_response(conn, 200)["result"]["contents"]
+    text = contents |> List.wrap() |> Enum.map_join(& &1["text"])
+    assert text =~ "in:<entity>"
+    assert text =~ "not SQL"
   end
 
   test "exposed tools equal the v1 allowlist" do
@@ -165,7 +197,11 @@ defmodule ServiceRadarWebNGWeb.McpTest do
         actor: viewer
       )
 
-    device = device_fixture(%{uid: "mcp-viewer-#{System.unique_integer([:positive])}", hostname: "mcp-host.local"})
+    device =
+      device_fixture(%{
+        uid: "mcp-viewer-#{System.unique_integer([:positive])}",
+        hostname: "mcp-host.local"
+      })
 
     conn =
       post(authed(client, secret), "/mcp", tool_call("get_device", %{"uid" => device.uid}))

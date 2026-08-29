@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.Mcp.Runner do
   alias Ash.Error.Forbidden
   alias ServiceRadarWebNG.Api.Access
   alias ServiceRadarWebNG.Mcp.Audit
+  alias ServiceRadarWebNG.Mcp.Docs
 
   @spec execute_srql(Ash.ActionInput.t(), map()) :: {:ok, map()} | {:error, term()}
   def execute_srql(input, context) do
@@ -21,11 +22,38 @@ defmodule ServiceRadarWebNG.Mcp.Runner do
 
   @spec get_srql_catalog(Ash.ActionInput.t(), map()) :: {:ok, map()} | {:error, term()}
   def get_srql_catalog(input, context) do
+    entity = input.arguments[:entity]
+
     run_tool(context, :get_srql_catalog, input.arguments, [], fn ->
       catalog = Access.srql_catalog(scope!(context))
-      {:ok, catalog, map_size(catalog)}
+
+      case Access.slice_srql_catalog(catalog, entity) do
+        {:ok, sliced} -> {:ok, sliced, map_size(sliced["entities"] || %{})}
+        {:error, reason} -> {:error, reason}
+      end
     end)
   end
+
+  @spec lookup_srql_docs(Ash.ActionInput.t(), map()) :: {:ok, map()} | {:error, term()}
+  def lookup_srql_docs(input, context) do
+    query = input.arguments.query
+
+    run_tool(context, :lookup_srql_docs, input.arguments, [query: query], fn ->
+      case Docs.lookup(query, scope!(context)) do
+        {:ok, payload} -> {:ok, payload, payload["hit_count"] || 0}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
+  end
+
+  @spec srql_grammar(Ash.ActionInput.t(), map()) :: {:ok, String.t()} | {:error, term()}
+  def srql_grammar(_input, _context), do: {:ok, Docs.grammar()}
+
+  @spec srql_cookbook(Ash.ActionInput.t(), map()) :: {:ok, String.t()} | {:error, term()}
+  def srql_cookbook(_input, _context), do: {:ok, Docs.cookbook()}
+
+  @spec srql_entities(Ash.ActionInput.t(), map()) :: {:ok, String.t()} | {:error, term()}
+  def srql_entities(_input, context), do: {:ok, Docs.entity_index(scope!(context))}
 
   @spec list_devices(Ash.ActionInput.t(), map()) :: {:ok, map()} | {:error, term()}
   def list_devices(input, context) do
@@ -42,7 +70,12 @@ defmodule ServiceRadarWebNG.Mcp.Runner do
 
     run_tool(context, :list_devices, args, [], fn ->
       devices = Access.list_devices(scope!(context), opts)
-      payload = %{"data" => Enum.map(devices, &Access.device_to_map/1), "count" => length(devices)}
+
+      payload = %{
+        "data" => Enum.map(devices, &Access.device_to_map/1),
+        "count" => length(devices)
+      }
+
       {:ok, payload, length(devices)}
     end)
   end

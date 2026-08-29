@@ -40,6 +40,35 @@ defmodule ServiceRadarWebNG.Api.Access do
     end
   end
 
+  @doc """
+  Restrict a catalog payload to one entity. MCP agents should pass `entity`
+  so they do not ingest the full ~50-entity map.
+  """
+  @spec slice_srql_catalog(map(), String.t() | nil) :: {:ok, map()} | {:error, String.t()}
+  def slice_srql_catalog(catalog, entity) when entity in [nil, ""], do: {:ok, catalog}
+
+  def slice_srql_catalog(catalog, entity) when is_binary(entity) do
+    wanted = entity |> String.trim() |> String.downcase()
+    entities = Map.get(catalog, "entities") || %{}
+
+    case Enum.find(entities, fn {id, _meta} -> String.downcase(to_string(id)) == wanted end) do
+      {id, meta} ->
+        {:ok, Map.put(catalog, "entities", %{id => meta})}
+
+      nil ->
+        known =
+          entities
+          |> Map.keys()
+          |> Enum.map(&to_string/1)
+          |> Enum.sort()
+          |> Enum.join(", ")
+
+        {:error, "unknown SRQL entity #{inspect(entity)}. Known ids: #{known}"}
+    end
+  end
+
+  def slice_srql_catalog(_catalog, _entity), do: {:error, "entity must be a string"}
+
   @spec list_devices(term(), map()) :: [struct()]
   def list_devices(scope, opts) when is_map(opts) do
     Device
@@ -48,7 +77,10 @@ defmodule ServiceRadarWebNG.Api.Access do
     |> maybe_filter_status(opts[:status])
     |> maybe_filter_gateway_id(opts[:gateway_id])
     |> maybe_filter_device_type(opts[:device_type])
-    |> Ash.read!(scope: scope, page: [limit: opts[:limit] || @default_limit, offset: opts[:offset] || 0])
+    |> Ash.read!(
+      scope: scope,
+      page: [limit: opts[:limit] || @default_limit, offset: opts[:offset] || 0]
+    )
     |> Map.fetch!(:results)
   end
 

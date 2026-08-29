@@ -160,7 +160,8 @@ Use protocol revision `2025-03-26` if the client has not been updated for
 | Tool | Same as |
 | --- | --- |
 | `execute_srql` | `POST /api/query` (raw SRQL; the `query` argument is passed through) |
-| `get_srql_catalog` | `GET /api/srql/catalog` |
+| `lookup_srql_docs` | Search grammar, cookbook, and catalog by short query (entity, operator, or task). Prefer this over dumping the catalog. |
+| `get_srql_catalog` | `GET /api/srql/catalog`. Pass `entity` (for example `devices`) to load one entity; the full catalog is large. |
 | `list_devices` | `GET /api/devices` |
 | `get_device` | `GET /api/devices/:uid` (`uid` is a bound identifier, not SRQL) |
 
@@ -182,6 +183,29 @@ A flat `arguments` map is also accepted and wrapped the same way.
 
 Logs, events, and sweeps are queried with `execute_srql`, for example
 `in:logs time:last_1h limit:50`.
+
+MCP `initialize` instructions tell the agent to call `lookup_srql_docs`
+(like looking up crate docs) then `execute_srql`. Full grammar/cookbook
+resources remain available for clients that read MCP resources. Do not
+expect the model to know SRQL from tool names alone.
+
+Example `lookup_srql_docs` queries: `devices`, `time:`, `ssh`, `stats`,
+`cpu`. The tool returns the matching sections only, not the whole catalog.
+
+## Resources (SRQL teaching documents)
+
+These are MCP resources (`resources/list` / `resources/read`), not tools.
+They are compact agent-facing distillates, not the human Docusaurus pages.
+
+| URI | What it is |
+| --- | --- |
+| `serviceradar://srql/grammar` | Token shape, operators, time, stats, bucket, common mistakes |
+| `serviceradar://srql/entities` | Live entity-id table generated from the catalog |
+| `serviceradar://srql/cookbook` | Copy-paste recipes (devices, logs, flows, metrics) |
+
+The human [SRQL Tutorial](./srql-tutorial.md), [SRQL Reference](./srql-language-reference.md),
+and [SRQL Cookbook](./srql-cookbook.md) stay in the docs site. Do not dump those
+pages into `get_srql_catalog`; the catalog is a field inventory.
 
 RBAC is the same as HTTP: a viewer sees what `GET /api/devices` would see.
 There is no SystemActor path and no `authorize?: false`.

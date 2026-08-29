@@ -491,11 +491,11 @@ defmodule ServiceRadarWebNGWeb.Router do
     forward("/", AshAi.Mcp.Router,
       otp_app: :serviceradar_web_ng,
       tools: Mcp.v1_tools(),
+      mcp_resources: Mcp.v1_resources(),
       protocol_version_statement: "2025-03-26",
       mcp_name: "serviceradar",
       tool_argument_transformer: &Mcp.wrap_tool_arguments/3,
-      instructions:
-        "ServiceRadar MCP is read-only. execute_srql runs raw SRQL through POST /api/query. Structured device tools bind identifiers and do not parse SRQL fragments."
+      instructions: Mcp.instructions()
     )
   end
 
