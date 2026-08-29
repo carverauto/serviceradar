@@ -19,7 +19,12 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
   make the watermark move would have been to equate sending an ack with the agent having durably
   acted on it, which is exactly the false equivalence the two-watermark split existed to prevent.
 
-  So reclaim lives with the agent (Go), and this module keeps only what the gateway can see.
+  Reclaim belongs to the agent, and this module keeps only what the gateway can see.
+
+  OWED, NOT DONE: no production agent integration currently advances a reclaim watermark. The
+  retained Go tracker is a comparison oracle, not a live reclaim path. Removing unreachable
+  reclaim state from the gateway was necessary, but it left agent-owned reclaim outstanding
+  rather than relocating it.
 
   ## Release is driven by what the agent REPORTS
 
@@ -183,9 +188,9 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
   `base` advances with it, so a released sequence is out of range and recording one afterwards
   fails with `:below_base` instead of succeeding as a silent no-op.
 
-  Refuses a value that would move the lane BACKWARDS (`:below_base`), or one past what the gateway
-  has resolved (`:not_resolved`) -- the agent cannot have durably acted on an outcome it was never
-  told.
+  Refuses a value that would move the lane BACKWARDS (`:below_base`), exceed the protobuf uint64
+  lane range (`:above_lane_max`), or move past what the gateway has resolved (`:not_resolved`) --
+  the agent cannot have durably acted on an outcome it was never told.
   """
   @spec release_below(t(), pos_integer()) :: {:ok, t()} | {:error, atom()}
   def release_below(%__MODULE__{} = t, first_unresolved_sequence) do
@@ -195,6 +200,9 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
 
       first_unresolved_sequence < t.base ->
         {:error, :below_base}
+
+      first_unresolved_sequence > @u64_max ->
+        {:error, :above_lane_max}
 
       first_unresolved_sequence > t.resolved + 1 ->
         {:error, :not_resolved}

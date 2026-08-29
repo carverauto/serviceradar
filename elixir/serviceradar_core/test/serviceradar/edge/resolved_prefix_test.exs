@@ -107,23 +107,27 @@ defmodule ServiceRadar.Edge.ResolvedPrefixTest do
   end
 
   describe "retryable is provisional, not a verdict" do
-    test "a resolving kind SUPERSEDES a retryable one and unwedges the lane" do
-      t =
-        1
-        |> ResolvedPrefix.new()
-        |> record!(1, @retryable)
-        |> record!(2, @authoritative)
-        |> record!(3, @authoritative)
+    test "EVERY resolving kind supersedes a retryable one and unwedges the lane" do
+      # Proving this for AUTHORITATIVE alone leaves audit, quarantine, and permanent free to stay
+      # wedged selectively.
+      for superseding <- Enum.filter(declared_kinds(), &ResolvedPrefix.resolving?/1) do
+        t =
+          1
+          |> ResolvedPrefix.new()
+          |> record!(1, @retryable)
+          |> record!(2, @audit)
+          |> record!(3, @quarantine)
 
-      assert ResolvedPrefix.resolved_through(t) == 0
+        assert ResolvedPrefix.resolved_through(t) === 0
 
-      # The agent retransmits 1 and the gateway resolves it. If retryable were immutable the
-      # retry could never be recorded and the prefix could never move again -- the lane would be
-      # wedged forever.
-      t = record!(t, 1, @authoritative)
+        t = record!(t, 1, superseding)
 
-      assert ResolvedPrefix.resolved_through(t) == 3,
-             "the queued sequences behind the retry did not advance"
+        assert ResolvedPrefix.resolved_through(t) === 3,
+               "#{superseding} did not unwedge the queued sequences behind the retry"
+
+        assert ResolvedPrefix.disposition(t, 1) === {:ok, superseding}
+        assert ResolvedPrefix.pending_out_of_order(t) === 0
+      end
     end
   end
 
@@ -209,6 +213,31 @@ defmodule ServiceRadar.Edge.ResolvedPrefixTest do
       # Exactly one past the resolved watermark is the legal maximum: everything resolved.
       assert {:ok, done} = ResolvedPrefix.release_below(t, 4)
       assert ResolvedPrefix.retained_dispositions(done) === 0
+    end
+
+    test "release refuses a first-unresolved sequence outside protobuf uint64" do
+      max = 0xFFFFFFFFFFFFFFFF
+      t = max |> ResolvedPrefix.new() |> record!(max, @authoritative)
+
+      assert {:error, :above_lane_max} = ResolvedPrefix.release_below(t, max + 1)
+    end
+
+    test "release preserves pending out-of-order outcomes" do
+      t =
+        1
+        |> ResolvedPrefix.new()
+        |> record!(1, @authoritative)
+        |> record!(2, @audit)
+        |> record!(5, @quarantine)
+        |> record!(7, @retryable)
+
+      assert ResolvedPrefix.resolved_through(t) === 2
+      assert ResolvedPrefix.pending_out_of_order(t) === 2
+
+      assert {:ok, released} = ResolvedPrefix.release_below(t, 3)
+      assert ResolvedPrefix.pending_out_of_order(released) === 2
+      assert ResolvedPrefix.pending_disposition(released, 5) === {:ok, @quarantine}
+      assert ResolvedPrefix.pending_disposition(released, 7) === {:ok, @retryable}
     end
 
     test "the gateway never infers release from having sent an ack" do
