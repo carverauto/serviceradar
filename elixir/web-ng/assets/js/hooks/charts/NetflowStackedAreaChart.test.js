@@ -478,6 +478,13 @@ describe("NetflowStackedAreaChart lifecycle", () => {
       expect(el.getAttribute("aria-disabled")).toBeNull()
       expect(el.getAttribute("tabindex")).toBe("0")
       expect(ctx.rangeController.options.enabled).toBe(true)
+
+      el.setAttribute("aria-disabled", "true")
+      el.removeAttribute("tabindex")
+      ctx.updated()
+
+      expect(el.getAttribute("aria-disabled")).toBeNull()
+      expect(el.getAttribute("tabindex")).toBe("0")
     } finally {
       globalThis.ResizeObserver = oldResizeObserver
     }

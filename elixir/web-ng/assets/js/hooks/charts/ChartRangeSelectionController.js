@@ -28,6 +28,7 @@ export default class ChartRangeSelectionController {
 
     if (unchanged) {
       this.options = normalized
+      this.restoreEnabledReadiness()
       return
     }
 
@@ -61,10 +62,8 @@ export default class ChartRangeSelectionController {
   }
 
   bind() {
-    const {root, status} = this.options
-    root.setAttribute("tabindex", "0")
-    root.removeAttribute("aria-disabled")
-    status.setAttribute("aria-live", "polite")
+    const {root} = this.options
+    this.restoreEnabledReadiness()
 
     const onPointerDown = (event) => this.pointerDown(event)
     const onPointerMove = (event) => this.pointerMove(event)
@@ -88,6 +87,15 @@ export default class ChartRangeSelectionController {
       root.removeEventListener("lostpointercapture", onLostPointerCapture)
       root.removeEventListener("keydown", onKeyDown)
     }
+  }
+
+  restoreEnabledReadiness() {
+    const {enabled, root, status} = this.options || {}
+    if (!enabled) return
+
+    root.setAttribute("tabindex", "0")
+    root.removeAttribute("aria-disabled")
+    status.setAttribute("aria-live", "polite")
   }
 
   destroy() {

@@ -192,6 +192,13 @@ describe("NetflowTrafficTooltip shared range integration", () => {
       expect(root.getAttribute("aria-disabled")).toBeNull()
       expect(root.getAttribute("tabindex")).toBe("0")
       expect(ctx.rangeController.options.enabled).toBe(true)
+
+      root.setAttribute("aria-disabled", "true")
+      root.removeAttribute("tabindex")
+      ctx.updated()
+
+      expect(root.getAttribute("aria-disabled")).toBeNull()
+      expect(root.getAttribute("tabindex")).toBe("0")
     } finally {
       globalThis.document = oldDocument
       globalThis.window = oldWindow

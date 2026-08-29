@@ -102,6 +102,7 @@ export default {
     })
     const fingerprint = stackedChartFingerprint(this.el, dimensions)
     if (!force && fingerprint === this._lastRenderFingerprint && stackedRenderTreeIntact(this.el, fingerprint)) {
+      this.rangeController?.update(this.rangeController.options)
       return
     }
 
