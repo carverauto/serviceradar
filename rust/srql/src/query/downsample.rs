@@ -155,6 +155,84 @@ mod tests {
         assert!(to_sql_and_params(&plan).is_err());
     }
 
+
+    fn rate_plan(agg: DownsampleAgg, series: &str) -> QueryPlan {
+        let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+        let end = start + ChronoDuration::hours(6);
+
+        QueryPlan {
+            entity: Entity::TimeseriesMetrics,
+            filters: Vec::new(),
+            order: Vec::new(),
+            limit: 100,
+            offset: 0,
+            time_range: Some(TimeRange { start, end }),
+            stats: None,
+            downsample: Some(DownsampleSpec {
+                bucket_seconds: 1800,
+                agg,
+                series: Some(series.to_string()),
+                value_field: None,
+            }),
+            rollup_stats: None,
+            other: false,
+            include_deleted: false,
+        }
+    }
+
+    /// agg:rate averages the per-series rates inside a bucket, which answers
+    /// "the typical rate of one of these". A fleet total needs the sum: several
+    /// controllers each keep their own counters for the same RADIUS server, so
+    /// the average understates the real load by the controller count.
+    #[test]
+    fn rate_sum_combines_series_rates_with_sum() {
+        let (sql, _params) =
+            to_sql_and_params(&rate_plan(DownsampleAgg::RateSum, "tags.radius_server")).unwrap();
+
+        assert!(
+            sql.contains("SUM(rate_value) AS value"),
+            "rate_sum must sum the per-series rates: {sql}"
+        );
+        assert!(!sql.contains("AVG(rate_value)"), "{sql}");
+    }
+
+    #[test]
+    fn rate_still_averages() {
+        let (sql, _params) =
+            to_sql_and_params(&rate_plan(DownsampleAgg::Rate, "tags.radius_server")).unwrap();
+
+        assert!(
+            sql.contains("AVG(rate_value) AS value"),
+            "agg:rate must be unchanged: {sql}"
+        );
+        assert!(!sql.contains("SUM(rate_value)"), "{sql}");
+    }
+
+    /// Both must keep the LAG window partitioned by the full series identity.
+    /// Summing rates computed across a coarser partition would be summing
+    /// nonsense: the deltas themselves have to be per underlying counter.
+    #[test]
+    fn rate_sum_keeps_the_per_counter_lag_partition() {
+        let (sql, _params) =
+            to_sql_and_params(&rate_plan(DownsampleAgg::RateSum, "tags.radius_server")).unwrap();
+
+        assert!(
+            sql.contains("PARTITION BY gateway_id, COALESCE(agent_id, ''), metric_type, metric_name, series_key"),
+            "the delta partition must stay per underlying counter: {sql}"
+        );
+    }
+
+    /// The counter-reset guard is what makes a rate trustworthy; summing must
+    /// not quietly drop it and turn a wrap into a spike.
+    #[test]
+    fn rate_sum_still_skips_counter_resets() {
+        let (sql, _params) =
+            to_sql_and_params(&rate_plan(DownsampleAgg::RateSum, "tags.radius_server")).unwrap();
+
+        assert!(sql.contains("WHERE rate_value IS NOT NULL"), "{sql}");
+        assert!(sql.contains("WHERE prev_value IS NOT NULL"), "{sql}");
+    }
+
     #[test]
     fn flow_downsample_coalesces_nullable_directional_volume_fields() {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();

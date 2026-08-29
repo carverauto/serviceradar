@@ -1607,3 +1607,30 @@ fn translate_alerts_rows_are_unchanged_without_stats() {
     assert!(!sql.contains("COUNT(*)"), "a row query must not aggregate: {sql}");
     assert!(!sql.contains("jsonb_build_object"), "{sql}");
 }
+
+/// The fleet-total shape for cumulative counters kept per (controller, server)
+/// pair. `agg:rate` averages them, which understates the total by the number of
+/// controllers reporting each server.
+#[test]
+fn translate_rate_sum_end_to_end() {
+    let sql = translate_query(
+        "in:timeseries_metrics metric_name:aruba.radius.requests_total time:last_6h bucket:30m agg:rate_sum series:tags.radius_server",
+    )
+    .expect("rate_sum should translate");
+
+    assert!(sql.contains("SUM(rate_value)"), "{sql}");
+    assert!(sql.contains("tags->>'radius_server'"), "{sql}");
+}
+
+#[test]
+fn translate_rejects_unknown_agg_and_names_rate_sum() {
+    let err = translate_query(
+        "in:timeseries_metrics time:last_6h bucket:30m agg:nonsense series:metric_name",
+    )
+    .expect_err("an unknown agg must be rejected");
+
+    assert!(
+        err.to_string().contains("rate_sum"),
+        "the error should advertise the new agg: {err}"
+    );
+}
