@@ -203,7 +203,10 @@ defmodule ServiceRadar.TestSupport do
   end
 
   defp await_empty_dependency_dispatcher(supervisor, deadline) do
-    case Task.Supervisor.children(supervisor) do
+    case supervisor_children(supervisor) do
+      :supervisor_gone ->
+        :ok
+
       [] ->
         :ok
 
@@ -233,8 +236,32 @@ defmodule ServiceRadar.TestSupport do
     end
   end
 
+  # Both drains above check `Process.whereis/1` ONCE, then poll for up to a
+  # minute with a sleep between iterations. `Task.Supervisor.children/1` is a
+  # `GenServer.call`, so a supervisor that goes away inside that window exits the
+  # caller with `:noproc` -- and these run from `on_exit`, so the exit lands on
+  # the test rather than on the drain. That is what made
+  # ServiceRadar.Edge.AgentCommandBusTest fail intermittently in the serial_5
+  # integration lane:
+  #
+  #     ** (exit) exited in: GenServer.call(...ResultCoordinationTaskSupervisor,
+  #                                         :which_children, :infinity)
+  #         ** (EXIT) no process
+  #
+  # A supervisor that no longer exists has nothing left to drain, which is the
+  # success condition -- so report it as one. Matching the `{GenServer, :call, _}`
+  # shape keeps this to a failed call and lets any other exit through.
+  defp supervisor_children(supervisor) do
+    Task.Supervisor.children(supervisor)
+  catch
+    :exit, {_reason, {GenServer, :call, _args}} -> :supervisor_gone
+  end
+
   defp await_empty_result_coordination(supervisor, deadline) do
-    case Task.Supervisor.children(supervisor) do
+    case supervisor_children(supervisor) do
+      :supervisor_gone ->
+        :ok
+
       [] ->
         :ok
 
