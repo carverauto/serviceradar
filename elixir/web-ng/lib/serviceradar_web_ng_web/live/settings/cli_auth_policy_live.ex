@@ -147,7 +147,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
                 name="settings[cli_allowed_scopes]"
                 rows="3"
                 class={ui_field_class(mono: true, class: "min-h-24 py-2.5 text-sm")}
-                placeholder="dashboard.publish&#10;dashboard.import"
+                placeholder="dashboard.publish&#10;plugin.publish"
               ><%= @form_values.cli_allowed_scopes %></textarea>
               <p class="text-xs text-sr-muted mt-1">
                 One scope per line (or whitespace/comma separated). Requests for
@@ -180,7 +180,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
         fallback = %{
           cli_auth_enabled: true,
           cli_session_ttl_days: 30,
-          cli_allowed_scopes: ["dashboard.publish"]
+          cli_allowed_scopes: ["dashboard.publish", "plugin.publish"]
         }
 
         socket
@@ -193,7 +193,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
     %{
       cli_auth_enabled: !!settings.cli_auth_enabled,
       cli_session_ttl_days: settings.cli_session_ttl_days || 30,
-      cli_allowed_scopes: Enum.join(settings.cli_allowed_scopes || ["dashboard.publish"], "\n")
+      cli_allowed_scopes: Enum.join(settings.cli_allowed_scopes || ["dashboard.publish", "plugin.publish"], "\n")
     }
   end
 
@@ -226,5 +226,5 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
     |> Enum.uniq()
   end
 
-  defp parse_scopes(_), do: ["dashboard.publish"]
+  defp parse_scopes(_), do: ["dashboard.publish", "plugin.publish"]
 end

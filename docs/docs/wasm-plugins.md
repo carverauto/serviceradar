@@ -222,6 +222,45 @@ The plugin lifecycle is operator-facing and gated by an approval step:
 
 Plugin blob upload and download tokens are transported only in explicit headers or POST bodies. Query-string bearer tokens are not supported.
 
+### Publishing from the CLI
+
+A developer can push a build straight to an instance with
+`@carverauto/serviceradar-cli`, instead of uploading through the admin UI. The
+package still lands staged and still needs an administrator's approval -- the CLI
+replaces the upload step, not the review.
+
+```
+npx @carverauto/serviceradar-cli plugin init my-probe --template go
+cd my-probe
+tinygo build -target=wasi -no-debug -o plugin.wasm ./
+npx @carverauto/serviceradar-cli plugin validate
+npx @carverauto/serviceradar-cli auth login --instance https://serviceradar.example.com --scope plugin.publish
+npx @carverauto/serviceradar-cli plugin publish --instance https://serviceradar.example.com
+```
+
+`plugin init` scaffolds against the language SDKs: `--template go` builds with
+TinyGo against `serviceradar-sdk-go`, `--template rust` targets `wasm32-wasip1`
+against `serviceradar-sdk-rust`. `plugin validate` checks `plugin.yaml` against
+the same manifest contract the server enforces and makes no network calls.
+
+Publishing does three calls: it stages the package, requests a short-lived
+storage token, then uploads the `plugin.wasm` bytes with that token. Track the
+result with `plugin status --id <package-id>`, which reports the approval state
+and, once approved, the capabilities that were actually granted -- an
+administrator can approve a narrower set than the manifest requested.
+
+A direct upload needs no signing key. `allow_unsigned_uploads` is on by default,
+and the control on an uploaded package is the staged review with its
+requested-versus-approved capability diff.
+
+**Token scope.** `auth login --scope plugin.publish` mints a token that can reach
+the plugin publish endpoints and nothing else; a token minted for
+`dashboard.publish` is refused there, and vice versa. Request both with
+`--scope "dashboard.publish plugin.publish"` if you publish both kinds of
+package. The scope only makes an operation *requestable* -- the account still
+needs the `plugins.stage` permission, and an operator controls which scopes the
+CLI may request at all in Settings -> CLI auth policy.
+
 Assigned health-result plugins, including first-party plugins such as UniFi and AlienVault OTX, appear in `/services` with a stable `plugin` service identity. When an assignment is created, the control plane seeds a pending service row; the next agent-reported plugin result updates that row with the plugin status and summary.
 
 ### Authenticated partition binding and legacy recovery

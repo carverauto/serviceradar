@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Mcp
   alias ServiceRadarWebNGWeb.Plugs.ApiAuth
+  alias ServiceRadarWebNGWeb.Plugs.ConfineNarrowScope
   alias ServiceRadarWebNGWeb.Plugs.GatewayAuth
   alias ServiceRadarWebNGWeb.Plugs.LockoutCheck
   alias ServiceRadarWebNGWeb.Plugs.McpAshContext
@@ -144,6 +145,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:accepts, ["json"])
     plug(SecurityHeaders)
     plug(ApiAuth)
+    # Confines CLI device-flow tokens to the routes their narrow scope was
+    # granted for. Coarse client-credential scopes, API keys and sessions pass
+    # through untouched. See `Auth.NarrowScopes`.
+    plug(ConfineNarrowScope)
   end
 
   # MCP streamable HTTP. Default-off (`McpEnabled`), user-bound API
@@ -213,6 +218,13 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(RequireOauthScope,
       scope: "dashboard.publish",
       fallback_permission: "cli.dashboard.publish"
+    )
+  end
+
+  pipeline :require_plugin_publish_scope do
+    plug(RequireOauthScope,
+      scope: "plugin.publish",
+      fallback_permission: "plugins.stage"
     )
   end
 
@@ -679,9 +691,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     # Plugin packages
     get("/plugin-packages", PluginPackageController, :index)
-    post("/plugin-packages", PluginPackageController, :create)
     get("/plugin-packages/:id", PluginPackageController, :show)
-    post("/plugin-packages/:id/upload-url", PluginPackageController, :upload_url)
     post("/plugin-packages/:id/download-url", PluginPackageController, :download_url)
     post("/plugin-packages/:id/approve", PluginPackageController, :approve)
     post("/plugin-packages/:id/deny", PluginPackageController, :deny)
@@ -703,6 +713,19 @@ defmodule ServiceRadarWebNGWeb.Router do
     # NATS account & credentials
     get("/nats/account", CollectorController, :account_status)
     get("/nats/credentials", CollectorController, :credentials)
+  end
+
+  ## CLI plugin publish (stage + bundle upload token).
+  # A sibling of the /api/admin block above so the publish-scope pipeline gates
+  # only these two write calls. `GET /plugin-packages/:id` deliberately stays in
+  # the general block: it is read-only, a session viewer holds `plugins.view`
+  # rather than `plugins.stage`, and RequireOauthScope's fallback would 403
+  # them. Narrow-scoped CLI tokens still reach it only via `Auth.NarrowScopes`.
+  scope "/api/admin", ServiceRadarWebNGWeb.Api do
+    pipe_through([:api_key_auth, :require_plugin_publish_scope])
+
+    post("/plugin-packages", PluginPackageController, :create)
+    post("/plugin-packages/:id/upload-url", PluginPackageController, :upload_url)
   end
 
   # Edge package download - token-gated (no session auth required)
