@@ -74,7 +74,50 @@ Two independent gates, because the failure mode being guarded against - a
 package silently starting to probe production inventory on approval - is not
 one a single boolean should stand alone against.
 
-## D5. Deferred, with reasons
+## D5. Why results need a device-linked table, not just the time series
+
+`timeseries_metrics.value` is a **non-nullable float**
+(`timeseries_metric.ex:98-102`). `DataPoint.Value` is an `interface{}` and
+`string` is a legal `data_type` (`go/pkg/agent/snmp/types.go:75`). So an OID a
+plugin is entitled to declare - and that the checker will happily collect - has
+no representable form in the metrics store.
+
+That is not a corner case for this workload. Of the nine ClearPass node-health
+OIDs, four are strings (hostname, version, role) and the service table's useful
+column is a name. These are *facts about a device*, not a series to graph: a
+node's role changes rarely and matters as current state, and "which services
+exist and are they up" is a set, not a scalar.
+
+`ocsf_devices` already has the convention for this. `DeviceRiskContribution`,
+`BumblebeeDevicePosture`, and `EndpointInventoryPackage` are all side tables
+keyed `device_uid` against `ocsf_devices.uid` and exposed as `has_many`
+(`inventory/device.ex:786-852`). `device_snmp_facts` is the same shape, so it
+inherits the existing device lifecycle: facts are deleted with their device
+rather than becoming orphans keyed to a uid nothing resolves.
+
+The split is by data shape, not by source: numeric OIDs keep going to
+`timeseries_metrics` exactly as today, and the facts table is the current-state
+surface beside it. Nothing about existing SNMP collection changes.
+
+## D6. Scheduling: the fork, and why the first slice takes the cheaper side
+
+See proposal.md for the decision itself. The design constraint driving it is
+that **core cannot poll SNMP**. UDP/161 reachability to device subnets exists
+only from an agent, so the agent performs the request under either option and
+the only question is what decides when.
+
+Option A rides the agent's embedded checker, which is already a continuously
+running poller driven by pushed config - so cadence is a profile field and
+delivery is free. Option B reuses `ProducerSchedule`'s AshOban trigger
+(`producer_schedule.ex:51-63`) to dispatch individual polls, which buys real
+run history and retries but means two schedulers for one job.
+
+The reason A is safe to start with is that the fork is **downstream of the
+manifest contract**. What a plugin declares, and where results land, are
+identical either way; only the thing that fires the poll differs. Slice 1 can
+therefore ship collection on the path that already works without foreclosing B.
+
+## D7. Deferred, with reasons
 
 - **Table/index correlation.** Two walked columns of one MIB table are declared
   independently; nothing states they join on index suffix. That is fjb's open

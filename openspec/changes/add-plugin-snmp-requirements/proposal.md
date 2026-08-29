@@ -34,6 +34,24 @@ Equally, this must not become backend-only generated state. If approving a
 package silently creates polling configuration that an operator cannot see,
 inspect, or edit, the feature has failed even if it technically works.
 
+### Where the collected data has to land
+
+A large share of what a plugin needs from SNMP is **state about a device, not a
+number to graph**: ClearPass node version, node role, publisher/subscriber
+status, the list of services and whether each is running. `DataPoint.Value` is
+an `interface{}` and `string` is a legal `data_type`
+(`go/pkg/agent/snmp/types.go:75`), but `timeseries_metrics.value` is a
+**non-nullable float** (`timeseries_metric.ex:98-102`). String-valued OIDs
+therefore have nowhere to land in the metrics store at all.
+
+So this change needs a device-linked home for SNMP-derived facts, following the
+convention `ocsf_devices` already uses for exactly this - a side table keyed
+`device_uid` against `ocsf_devices.uid`, exposed as a `has_many`, as
+`DeviceRiskContribution`, `BumblebeeDevicePosture`, and
+`EndpointInventoryPackage` all do (`inventory/device.ex:786-852`). Numeric OIDs
+continue to `timeseries_metrics`; string and enum OIDs become current-state
+facts attached to the device that reported them.
+
 ## What Changes
 
 - `plugin.yaml` gains an optional top-level `snmp_requirements:` block.
@@ -42,6 +60,13 @@ inspect, or edit, the feature has failed even if it technically works.
   row that is **created disabled, with no credentials and no agents bound**.
 - Both appear in the existing `/settings/snmp` UI with a provenance badge.
   There is no new page, no new route, and no new RBAC permission.
+- A new `device_snmp_facts` table stores each declared OID's latest value per
+  device, keyed `device_uid` -> `ocsf_devices.uid`, so string-valued results
+  have a home and every result is attributable to the device it came from.
+- Declared OIDs may be `get` or `walk`. Walk mode is already wired end to end -
+  `compile_oid/1` emits `mode`/`max_rows`/`walk_timeout_seconds` and
+  `build_snmp_oid_config/1` maps them into `Monitoring.SNMPOIDConfig` - so a
+  plugin can declare a walked MIB table without any new plumbing.
 - Re-approving an upgraded package updates the **OID list only**. Every field
   an operator can tune - enabled, targeting, cadence, credentials, agents,
   priority - is written once at create and never again.
@@ -82,3 +107,42 @@ and independent of this change, but this change is what makes them bite.
 Together these mean a broad `target_query` can silently disable all SNMP
 collection on an agent. That is a hard blocker for shipping a feature whose
 purpose is to propose broad target queries.
+
+
+## Open decision: what schedules the poll
+
+Core cannot poll SNMP itself. UDP/161 reachability to device subnets exists only
+from an agent, so in every option below the agent performs the request; the
+question is only what decides when.
+
+**Option A - the SNMP profile's own cadence (what the specs below assume).**
+The materialized profile carries `poll_interval`, the agent's embedded SNMP
+checker polls continuously on it, and config reaches the agent through the
+existing `:snmp_oid_template_config` dependency-catalog path. Zero new delivery
+code, and it is how every SNMP profile already works.
+
+Its weakness is observability. The plugin's declared cadence is only a seed for
+a profile field, and there is no per-requirement job an operator can see
+running, failing, or retrying - only agent logs.
+
+**Option B - an AshOban trigger per requirement, dispatching to an agent.**
+`ProducerSchedule` already establishes this exact pattern: an `oban` block with
+a `dispatch_due_producer_schedules` trigger on `scheduler_cron "* * * * *"`,
+plus `next_due_at` and a `@schedule_shape_fields` list that forces a recompute
+when cadence changes (`producer_schedule.ex:37-63`). Reusing it would give
+per-requirement run history, retries, and failure surfacing for free, and would
+make the plugin's declared cadence a real schedule rather than a seeded number.
+
+Its cost is a second scheduler for the same work: the agent's SNMP checker is a
+continuously-running poller driven by pushed config, so dispatching individual
+polls means either bypassing it or replacing how it is driven.
+
+**Recommendation: A for the first slice, with the requirement stored as a
+first-class row so B remains reachable.** A ships collection using a path that
+already works, and the device-linked facts table is where per-requirement
+freshness and last-error become visible - which is most of what B was wanted
+for. Moving to B later changes what fires the poll, not what a plugin declares
+or where results land, so nothing in the manifest contract has to change.
+
+This is called out rather than silently decided because it is an architectural
+fork, not an implementation detail.

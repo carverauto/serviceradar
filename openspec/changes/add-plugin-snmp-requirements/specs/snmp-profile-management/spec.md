@@ -111,3 +111,67 @@ it collects nothing.
 
 - **WHEN** an operator views a profile in `/settings/snmp`
 - **THEN** the number of devices it currently compiles to SHALL be shown
+
+### Requirement: SNMP Results Are Stored Against The Device They Came From
+
+Every value collected for a plugin-declared OID SHALL be attributable to the
+`ocsf_devices` row it was polled from.
+
+A `device_snmp_facts` table SHALL hold the latest value of each declared OID per
+device, keyed on `device_uid` referencing `ocsf_devices.uid`, following the
+convention already used by `DeviceRiskContribution`,
+`BumblebeeDevicePosture`, and `EndpointInventoryPackage`. It SHALL be exposed as
+a `has_many` on the `Device` resource.
+
+Each row SHALL record the OID, its declared name, the collected value, the
+declared `data_type`, the OID index when the value came from a walk, the
+contributing plugin package, the profile that collected it, and the collection
+timestamp.
+
+Numeric OIDs SHALL continue to be written to `timeseries_metrics` as they are
+today. This table is the current-state surface, not a replacement for the
+time series.
+
+#### Scenario: A string-valued OID is retained
+
+- **WHEN** a declared OID with `data_type: string` is collected - a software
+  version, a node role, a service name
+- **THEN** its value SHALL be stored against the polled device
+- **AND** it SHALL be readable without parsing it into a float
+
+The metrics store cannot hold it: `timeseries_metrics.value` is a non-nullable
+float, while `string` is a legal SNMP `data_type` that a plugin may declare.
+Without this table such an OID could be polled successfully and then discarded.
+
+#### Scenario: Walked rows keep their index
+
+- **WHEN** a declared OID with `mode: walk` returns multiple rows
+- **THEN** each row SHALL be stored with the OID index it was returned under
+- **AND** rows from one walk SHALL be distinguishable from one another
+
+#### Scenario: Facts are attributable to their source
+
+- **WHEN** an operator inspects a device's SNMP facts
+- **THEN** each SHALL name the plugin package that declared the OID and the
+  profile that collected it
+
+#### Scenario: Facts do not outlive their device
+
+- **WHEN** a device is removed from inventory
+- **THEN** its SNMP facts SHALL be removed with it
+
+### Requirement: Declared OIDs May Be Gets Or Walks
+
+An `snmp_requirements` OID entry SHALL support `mode: get` and `mode: walk`,
+with `max_rows` and `walk_timeout_seconds` bounding a walk.
+
+Walk mode requires no new plumbing: `compile_oid/1` already emits `mode`,
+`max_rows`, and `walk_timeout_seconds`, and `build_snmp_oid_config/1` already
+maps them into `Monitoring.SNMPOIDConfig`. A plugin declaring a walked MIB table
+is therefore in scope for the first slice.
+
+#### Scenario: A plugin declares a walked MIB table
+
+- **WHEN** a package declares an OID with `mode: walk` and a `max_rows` bound
+- **THEN** the materialized template SHALL carry the walk mode and its bounds
+- **AND** the compiled agent config SHALL instruct the checker to walk it

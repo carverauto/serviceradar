@@ -62,6 +62,22 @@ table, ASCII-only docs.
   re-enable; upgrade updates OIDs and preserves all four operator-tunable
   fields; a package with no block is a no-op on every transition.
 
+## 3b. Device-linked fact storage
+
+- [ ] 3b.1 Migration creating `device_snmp_facts` with `device_uid`
+  referencing `ocsf_devices(uid)` on delete cascade, plus `oid`, `oid_name`,
+  `oid_index`, `value` (text), `data_type`, `plugin_package_id`,
+  `snmp_profile_id`, and `collected_at`. Unique on
+  `(device_uid, oid, oid_index)`.
+- [ ] 3b.2 `ServiceRadar.Inventory.DeviceSNMPFact` resource; add the
+  `has_many :snmp_facts` relationship to `Device`.
+- [ ] 3b.3 Write facts on ingestion for declared OIDs whose `data_type` is
+  `string`, and for every OID regardless of type as current state. Numeric OIDs
+  continue to `timeseries_metrics` unchanged.
+- [ ] 3b.4 Tests: a string OID round-trips; walked rows keep distinct
+  `oid_index`; facts are deleted with their device; a fact names its package and
+  profile.
+
 ## 4. Lifecycle wiring
 
 - [ ] 4.1 `packages.ex`: `sync_snmp_requirements(:approved)` on approve,
@@ -82,6 +98,9 @@ table, ASCII-only docs.
 - [ ] 6.1 Add `snmp_requirements:` to `plugins/clearpass-policy-manager/
   plugin.yaml`, sourced from the verified OID map in
   `config/snmp-clearpass.example.json`.
-- [ ] 6.2 Reconcile against live data once approved: confirm the template
+- [ ] 6.2 Confirm the ClearPass string OIDs (node version, node role, service
+  names) land in `device_snmp_facts` against the right device, since these are
+  the values that have nowhere to go today.
+- [ ] 6.3 Reconcile against live data once approved: confirm the template
   materializes, the profile is disabled, and enabling it with a bound
   credential produces rows.
