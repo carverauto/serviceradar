@@ -174,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:selected_package, package)
         |> assign(:show_details_modal, true)
         |> assign(:review_form, build_review_form(package))
-        |> assign(:assignment_form, default_assignment_form())
+        |> assign(:assignment_form, default_assignment_form(package))
         |> assign(:assignments, list_plugin_assignments(package.plugin_id, scope))
         |> assign(:authenticated_partition_preview, nil)
         |> assign(:recovery_confirmation, nil)
@@ -769,9 +769,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   def handle_event("create_assignment", %{"assignment" => params}, socket) do
     scope = socket.assigns.current_scope
-    config_schema = socket.assigns.selected_package.config_schema
 
-    case parse_assignment_params(params, socket.assigns.selected_package.id, config_schema) do
+    case parse_assignment_params(params, socket.assigns.selected_package) do
       {:ok, attrs} ->
         handle_assignment_upsert(socket, scope, attrs)
 
@@ -1011,7 +1010,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            :assignments,
            list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope)
          )
-         |> assign(:assignment_form, default_assignment_form())
+         |> assign(:assignment_form, default_assignment_form(socket.assigns.selected_package))
          |> assign(:show_details_modal, false)
          |> assignment_saved_flash("Assignment created", attrs.agent_uid)}
 
@@ -1035,7 +1034,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            :assignments,
            list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope)
          )
-         |> assign(:assignment_form, default_assignment_form())
+         |> assign(:assignment_form, default_assignment_form(socket.assigns.selected_package))
          |> assign(:show_details_modal, false)
          |> assignment_saved_flash("Assignment updated", assignment.agent_uid)}
 
@@ -1055,7 +1054,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            :assignments,
            list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope)
          )
-         |> assign(:assignment_form, default_assignment_form())
+         |> assign(:assignment_form, default_assignment_form(socket.assigns.selected_package))
          |> assign(:show_details_modal, false)
          |> assignment_saved_flash("Assignment upgraded", attrs.agent_uid)}
 
@@ -2358,7 +2357,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   </label>
                   <input
                     type="number"
-                    min="5"
+                    min={assignment_interval_min(@package)}
                     name="assignment[interval_seconds]"
                     value={@assignment_form["interval_seconds"]}
                     class={ui_field_class(class: "w-full")}
@@ -2370,7 +2369,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   </label>
                   <input
                     type="number"
-                    min="1"
+                    min={assignment_timeout_min(@package)}
                     name="assignment[timeout_seconds]"
                     value={@assignment_form["timeout_seconds"]}
                     class={ui_field_class(class: "w-full")}
@@ -3538,14 +3537,23 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
   defp stringify_keys(value), do: value
 
-  defp parse_assignment_params(params, package_id, config_schema) do
+  defp parse_assignment_params(params, package) do
     agent_uid = params["agent_uid"]
-    interval_seconds = parse_int(params["interval_seconds"], 60)
-    timeout_seconds = parse_int(params["timeout_seconds"], 10)
+    timing = assignment_timing_defaults(package)
+    interval_seconds =
+      params["interval_seconds"]
+      |> parse_int(timing.interval_seconds)
+      |> clamp_int(timing.min_interval_seconds, timing.max_interval_seconds)
+
+    timeout_seconds =
+      params["timeout_seconds"]
+      |> parse_int(timing.timeout_seconds)
+      |> max(timing.min_timeout_seconds)
 
     # Prefer structured params (from config fields) over raw JSON
     # Only use params_raw if params["params"] is empty/nil
     params_source = resolve_params_source(params)
+    config_schema = package.config_schema
 
     with true <-
            (is_binary(agent_uid) and String.trim(agent_uid) != "") ||
@@ -3562,7 +3570,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:ok,
        %{
          agent_uid: String.trim(agent_uid),
-         plugin_package_id: package_id,
+         plugin_package_id: package.id,
          interval_seconds: interval_seconds,
          timeout_seconds: timeout_seconds,
          params: normalized_params,
@@ -3761,17 +3769,92 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp action_atom_key("scopes"), do: :scopes
   defp action_atom_key(_key), do: nil
 
-  defp default_assignment_form do
+  @fallback_assignment_interval_seconds 60
+  @fallback_assignment_timeout_seconds 10
+  @fallback_assignment_interval_min 5
+  @fallback_assignment_timeout_min 1
+
+  defp default_assignment_form(package \\ nil) do
+    timing = assignment_timing_defaults(package)
+
     %{
       "agent_uid" => "",
-      "interval_seconds" => "60",
-      "timeout_seconds" => "10",
+      "interval_seconds" => Integer.to_string(timing.interval_seconds),
+      "timeout_seconds" => Integer.to_string(timing.timeout_seconds),
       "params" => "",
       "params_raw" => "",
       "permissions_override" => "",
       "resources_override" => ""
     }
   end
+
+  defp assignment_interval_min(package),
+    do: assignment_timing_defaults(package).min_interval_seconds
+
+  defp assignment_timeout_min(package),
+    do: assignment_timing_defaults(package).min_timeout_seconds
+
+  defp assignment_timing_defaults(package) do
+    schedule = first_producer_schedule(package)
+
+    %{
+      interval_seconds:
+        positive_int(
+          schedule_get(schedule, "default_cadence_seconds"),
+          @fallback_assignment_interval_seconds
+        ),
+      timeout_seconds:
+        positive_int(
+          schedule_get(schedule, "timeout_seconds"),
+          @fallback_assignment_timeout_seconds
+        ),
+      min_interval_seconds:
+        positive_int(
+          schedule_get(schedule, "min_cadence_seconds"),
+          @fallback_assignment_interval_min
+        ),
+      max_interval_seconds: positive_int(schedule_get(schedule, "max_cadence_seconds"), nil),
+      min_timeout_seconds: @fallback_assignment_timeout_min
+    }
+  end
+
+  defp first_producer_schedule(%{producer_schedules: [schedule | _]}) when is_map(schedule),
+    do: schedule
+
+  defp first_producer_schedule(%{"producer_schedules" => [schedule | _]}) when is_map(schedule),
+    do: schedule
+
+  defp first_producer_schedule(_package), do: nil
+
+  defp schedule_get(nil, _key), do: nil
+
+  defp schedule_get(schedule, key) when is_map(schedule) do
+    Map.get(schedule, key) || Map.get(schedule, schedule_atom_key(key))
+  end
+
+  defp schedule_atom_key("default_cadence_seconds"), do: :default_cadence_seconds
+  defp schedule_atom_key("timeout_seconds"), do: :timeout_seconds
+  defp schedule_atom_key("min_cadence_seconds"), do: :min_cadence_seconds
+  defp schedule_atom_key("max_cadence_seconds"), do: :max_cadence_seconds
+  defp schedule_atom_key(_key), do: nil
+
+  defp positive_int(value, _fallback) when is_integer(value) and value > 0, do: value
+
+  defp positive_int(value, fallback) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} when int > 0 -> int
+      _ -> fallback
+    end
+  end
+
+  defp positive_int(_value, fallback), do: fallback
+
+  defp clamp_int(value, low, high) when is_integer(low) and is_integer(high) and high >= low do
+    value |> Kernel.max(low) |> Kernel.min(high)
+  end
+
+  defp clamp_int(value, low, _high) when is_integer(low), do: Kernel.max(value, low)
+  defp clamp_int(value, _low, _high), do: value
 
   defp agent_label(agent) do
     name = agent.name || agent.host || agent.uid

@@ -992,6 +992,32 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert html =~ "upgrade or version selector"
   end
 
+  test "prefills assignment interval and timeout from producer schedule defaults", %{
+    conn: conn,
+    actor: actor
+  } do
+    package =
+      create_approved_package_version!(actor, "live-schedule-defaults-plugin", "1.0.0",
+        producer_schedules: [
+          %{
+            "schedule_id" => "opentext-nom.inventory.refresh",
+            "default_cadence_seconds" => 86_400,
+            "min_cadence_seconds" => 3_600,
+            "max_cadence_seconds" => 2_592_000,
+            "timeout_seconds" => 900
+          }
+        ]
+      )
+
+    {:ok, _lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
+
+    assert html =~ ~s(name="assignment[interval_seconds]")
+    assert html =~ ~s(value="86400")
+    assert html =~ ~s(min="3600")
+    assert html =~ ~s(name="assignment[timeout_seconds]")
+    assert html =~ ~s(value="900")
+  end
+
   test "shows first-party package provenance", %{conn: conn, actor: actor} do
     assert {:ok, %{failed: []}} =
              Packages.sync_first_party_plugins(
@@ -1194,36 +1220,39 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     end
   end
 
-  defp create_approved_package_version!(actor, plugin_id, version) do
+  defp create_approved_package_version!(actor, plugin_id, version, opts \\ []) do
     ensure_plugin!(actor, plugin_id)
+
+    attrs =
+      %{
+        plugin_id: plugin_id,
+        name: "Live #{plugin_id}",
+        version: version,
+        entrypoint: "run_check",
+        runtime: "wasi-preview1",
+        outputs: "serviceradar.plugin_result.v1",
+        manifest: package_manifest(plugin_id, version),
+        config_schema: %{},
+        display_contract: %{},
+        signature: %{},
+        source_type: :github,
+        source_repo_url: @repo_url,
+        source_commit: "test-#{plugin_id}-#{version}",
+        content_hash: "sha256:#{plugin_id}-#{version}"
+      }
+      |> maybe_put_create_attr(:producer_schedules, Keyword.get(opts, :producer_schedules))
 
     assert package =
              PluginPackage
-             |> Ash.Changeset.for_create(
-               :create,
-               %{
-                 plugin_id: plugin_id,
-                 name: "Live #{plugin_id}",
-                 version: version,
-                 entrypoint: "run_check",
-                 runtime: "wasi-preview1",
-                 outputs: "serviceradar.plugin_result.v1",
-                 manifest: package_manifest(plugin_id, version),
-                 config_schema: %{},
-                 display_contract: %{},
-                 signature: %{},
-                 source_type: :github,
-                 source_repo_url: @repo_url,
-                 source_commit: "test-#{plugin_id}-#{version}",
-                 content_hash: "sha256:#{plugin_id}-#{version}"
-               },
-               actor: actor
-             )
+             |> Ash.Changeset.for_create(:create, attrs, actor: actor)
              |> Ash.create!()
 
     assert {:ok, approved} = Packages.approve(package.id, %{}, actor: actor)
     approved
   end
+
+  defp maybe_put_create_attr(attrs, _key, nil), do: attrs
+  defp maybe_put_create_attr(attrs, key, value), do: Map.put(attrs, key, value)
 
   defp ensure_plugin!(actor, plugin_id) do
     existing =
