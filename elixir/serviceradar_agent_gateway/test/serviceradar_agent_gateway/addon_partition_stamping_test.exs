@@ -18,22 +18,17 @@ defmodule ServiceRadarAgentGateway.AddonPartitionStampingTest do
   import ExUnit.CaptureLog
 
   alias ServiceRadarAgentGateway.AgentGatewayServer
+  alias ServiceRadarAgentGateway.StatusHandlerTestHelpers
 
   setup do
     existing = Process.whereis(ServiceRadar.StatusHandler)
 
     if is_pid(existing) do
-      Process.unregister(ServiceRadar.StatusHandler)
+      StatusHandlerTestHelpers.unregister_quietly(ServiceRadar.StatusHandler)
     end
 
     on_exit(fn ->
-      if Process.whereis(ServiceRadar.StatusHandler) do
-        Process.unregister(ServiceRadar.StatusHandler)
-      end
-
-      if is_pid(existing) do
-        Process.register(existing, ServiceRadar.StatusHandler)
-      end
+      StatusHandlerTestHelpers.restore(ServiceRadar.StatusHandler, existing)
     end)
 
     :ok
@@ -75,9 +70,7 @@ defmodule ServiceRadarAgentGateway.AddonPartitionStampingTest do
     Process.register(handler_pid, ServiceRadar.StatusHandler)
 
     on_exit(fn ->
-      if Process.alive?(handler_pid) do
-        Process.exit(handler_pid, :kill)
-      end
+      StatusHandlerTestHelpers.kill_and_await(handler_pid)
     end)
 
     handler_pid

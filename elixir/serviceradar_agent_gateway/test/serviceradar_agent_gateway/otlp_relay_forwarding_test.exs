@@ -2,6 +2,7 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadarAgentGateway.AgentGatewayServer
+  alias ServiceRadarAgentGateway.StatusHandlerTestHelpers
 
   @plugin_result_retained_delivery_capability_v1 "plugin-result-retained:v1"
 
@@ -15,17 +16,11 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
       Application.get_env(:serviceradar_agent_gateway, :otlp_relay_publisher_test_pid)
 
     if is_pid(existing) do
-      Process.unregister(ServiceRadar.StatusHandler)
+      StatusHandlerTestHelpers.unregister_quietly(ServiceRadar.StatusHandler)
     end
 
     on_exit(fn ->
-      if Process.whereis(ServiceRadar.StatusHandler) do
-        Process.unregister(ServiceRadar.StatusHandler)
-      end
-
-      if is_pid(existing) do
-        Process.register(existing, ServiceRadar.StatusHandler)
-      end
+      StatusHandlerTestHelpers.restore(ServiceRadar.StatusHandler, existing)
 
       restore_env(:otlp_relay_publisher_module, previous_publisher)
       restore_env(:otlp_relay_publisher_test_pid, previous_test_pid)

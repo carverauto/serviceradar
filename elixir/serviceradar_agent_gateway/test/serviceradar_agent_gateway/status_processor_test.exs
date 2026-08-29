@@ -1,6 +1,7 @@
 defmodule ServiceRadarAgentGateway.StatusProcessorTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadarAgentGateway.StatusHandlerTestHelpers
   alias ServiceRadarAgentGateway.StatusProcessor
 
   @plugin_result_retained_delivery_capability_v1 "plugin-result-retained:v1"
@@ -57,7 +58,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
       Application.get_env(:serviceradar_agent_gateway, :otlp_relay_publisher_test_pid)
 
     if is_pid(existing) do
-      Process.unregister(ServiceRadar.StatusHandler)
+      StatusHandlerTestHelpers.unregister_quietly(ServiceRadar.StatusHandler)
     end
 
     Application.put_env(
@@ -67,13 +68,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     )
 
     on_exit(fn ->
-      if Process.whereis(ServiceRadar.StatusHandler) do
-        Process.unregister(ServiceRadar.StatusHandler)
-      end
-
-      if is_pid(existing) do
-        Process.register(existing, ServiceRadar.StatusHandler)
-      end
+      StatusHandlerTestHelpers.restore(ServiceRadar.StatusHandler, existing)
 
       restore_env(:sysmon_metrics_publisher_module, previous_publisher)
       restore_env(:snmp_metrics_publisher_module, previous_snmp_publisher)
