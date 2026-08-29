@@ -17,6 +17,7 @@ export default class ChartRangeSelectionController {
     this.suppressChartClick = false
     this.cleanup = null
     this.gestureCleanup = null
+    this.pendingGestureCleanup = null
     this.clickCleanup = null
     this.update(options)
   }
@@ -149,7 +150,10 @@ export default class ChartRangeSelectionController {
     if (this.pointer || this.pendingPointer) return
     const index = this.bucketIndexForEvent(event)
     if (index === null) {
-      if (this.options?.svg?.isConnected === false) this.pendingPointer = pointerEvent(event)
+      if (this.options?.svg?.isConnected === false) {
+        this.pendingPointer = pointerEvent(event)
+        this.trackPendingPointerOutsideChart()
+      }
       return
     }
 
@@ -162,11 +166,11 @@ export default class ChartRangeSelectionController {
 
     const index = this.bucketIndexForEvent(pendingPointer)
     if (index === null) {
-      this.pendingPointer = null
+      this.clearPendingPointer()
       return
     }
 
-    this.pendingPointer = null
+    this.clearPendingPointer()
     this.startPointer(index, pendingPointer)
   }
 
@@ -197,7 +201,7 @@ export default class ChartRangeSelectionController {
 
   pointerUp(event) {
     if (this.pendingPointer?.pointerId === event.pointerId) {
-      this.pendingPointer = null
+      this.clearPendingPointer()
       return
     }
 
@@ -224,13 +228,13 @@ export default class ChartRangeSelectionController {
   }
 
   pointerCancel(event) {
-    if (this.pendingPointer?.pointerId === event.pointerId) this.pendingPointer = null
+    if (this.pendingPointer?.pointerId === event.pointerId) this.clearPendingPointer()
     if (this.pointer?.pointerId === event.pointerId) this.resetSelection()
   }
 
   lostPointerCapture(event) {
     if (event.target && event.target !== this.options.root) return
-    if (this.pendingPointer?.pointerId === event.pointerId) this.pendingPointer = null
+    if (this.pendingPointer?.pointerId === event.pointerId) this.clearPendingPointer()
     if (this.pointer?.pointerId === event.pointerId) this.resetSelection()
   }
 
@@ -310,7 +314,7 @@ export default class ChartRangeSelectionController {
     this.releasePointerCapture()
     this.stopTrackingGesture()
     this.pointer = null
-    this.pendingPointer = null
+    this.clearPendingPointer()
     this.anchorIndex = null
     this.options?.overlay?.classList.add("hidden")
     this.options?.overlay?.removeAttribute("x")
@@ -359,6 +363,33 @@ export default class ChartRangeSelectionController {
   stopTrackingGesture() {
     this.gestureCleanup?.()
     this.gestureCleanup = null
+  }
+
+  trackPendingPointerOutsideChart() {
+    this.clearPendingPointerTracking()
+    const root = this.options?.root
+    const target = root?.ownerDocument
+    if (!target || target === root || typeof target.addEventListener !== "function") return
+
+    const onPointerUp = (event) => this.pointerUp(event)
+    const onPointerCancel = (event) => this.pointerCancel(event)
+    target.addEventListener("pointerup", onPointerUp)
+    target.addEventListener("pointercancel", onPointerCancel)
+
+    this.pendingGestureCleanup = () => {
+      target.removeEventListener("pointerup", onPointerUp)
+      target.removeEventListener("pointercancel", onPointerCancel)
+    }
+  }
+
+  clearPendingPointer() {
+    this.clearPendingPointerTracking()
+    this.pendingPointer = null
+  }
+
+  clearPendingPointerTracking() {
+    this.pendingGestureCleanup?.()
+    this.pendingGestureCleanup = null
   }
 
   armChartClickSuppression() {

@@ -151,6 +151,37 @@ describe("ChartRangeSelectionController", () => {
     })
   })
 
+  it.each(["pointerup", "pointercancel"])(
+    "cancels a detached binding press released outside before a compatible update (%s)",
+    (releaseType) => {
+      const documentTarget = element()
+      const root = element()
+      root.ownerDocument = documentTarget
+      const staleSvg = element()
+      staleSvg.isConnected = false
+      const config = {
+        ...options({root, svg: staleSvg}),
+        viewXForEvent: () => null,
+      }
+      const controller = new ChartRangeSelectionController(config)
+
+      root.dispatch(pointer("pointerdown", 0, 24))
+      documentTarget.dispatch(pointer(releaseType, 100, 24))
+      controller.update({
+        ...config,
+        bindingKey: "replacement-after-release",
+        overlay: element(),
+        svg: element(),
+        viewXForEvent: (event) => event.clientX,
+      })
+      documentTarget.dispatch(pointer("pointerup", 100, 24))
+
+      expect(config.emit).not.toHaveBeenCalled()
+      expect(documentTarget.totalListenerCount()).toBe(0)
+      expect(controller.consumeChartClick()).toBe(false)
+    },
+  )
+
   it("cancels a detached binding press that remains outside current geometry", () => {
     const documentTarget = element()
     const root = element()
