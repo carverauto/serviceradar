@@ -500,6 +500,11 @@ webNg:
     forceLocalLogin: false
     disableSso: false
   publicUrl: "https://demo.serviceradar.cloud"
+  # MCP OAuth AS for Authentik SSO testing. Chart default is off. Keep this
+  # on the demo overlay so /mcp survives Image Updater rewrite of
+  # .argocd-source-serviceradar-demo-prod.yaml (those parameters are not
+  # durable). extraEnv.SERVICERADAR_MCP_ENABLED is ignored.
+  mcpEnabled: "true"
   pluginStorage:
     enabled: true
     backend: "jetstream"

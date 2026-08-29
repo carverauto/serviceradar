@@ -149,6 +149,7 @@ py_test(
     data = [
         "Chart.yaml",
         "values.yaml",
+        "values-demo.yaml",
         ":helm_unittest_binary",
     ] + glob([
         "crds/**",

@@ -30,6 +30,11 @@ webNg:
 
 `webNg.mcpEnabled` is the Helm lever. `extraEnv.SERVICERADAR_MCP_ENABLED` is ignored so a stored extraEnv workaround cannot shadow the flag. The chart must template `SERVICERADAR_MCP_ENABLED` from `mcpEnabled`; a published chart that predates that key will store `mcpEnabled` as an unused value and leave `/mcp` 404.
 
+Demo (`values-demo.yaml`) sets `webNg.mcpEnabled: "true"` so Authentik SSO
+against `https://demo.serviceradar.cloud/mcp` stays on across Image Updater
+rolls. Do not put that flag only in `.argocd-source-serviceradar-demo-prod.yaml`;
+write-back replaces the parameter list.
+
 Until that flag is true, `https://<host>/mcp` returns HTTP 404.
 
 ## Authenticate
