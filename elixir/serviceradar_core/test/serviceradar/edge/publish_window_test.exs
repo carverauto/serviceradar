@@ -130,16 +130,31 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert PublishWindow.available_bytes(w) === 0
     end
 
-    test "re-admitting the SAME publication is the republish path, not a double charge" do
+    test "a second admit WHILE an attempt is in flight is refused" do
+      # Two requests on the wire under ONE charge is the bound violation: the first acknowledgement
+      # frees the credit while the second is still live, and the next admission goes past the
+      # grant. A retry has to wait for the current attempt to end.
       w = admit!(window(), 1, 100, 500)
 
-      # No new credits -- the bytes are already committed -- and the deadline MOVES. Byte credits
-      # are unchanged even when the caller passes a different size, because the reservation keeps
-      # the bytes it was charged.
-      assert {:ok, retried, _res} = PublishWindow.admit(w, k(1), 100, 900)
+      assert {:error, :attempt_in_flight} = PublishWindow.admit(w, k(1), 100, 900)
+    end
+
+    test "after the attempt ENDS, re-admitting is the republish path, not a double charge" do
+      w = admit!(window(), 1, 100, 500)
+      {:ok, w} = PublishWindow.attempt_failed(w, r(1))
+
+      # Credits are STILL charged -- the record is owed a republish -- so the retry adds none.
+      assert PublishWindow.outstanding_frames(w) === 1
+      assert PublishWindow.outstanding_bytes(w) === 100
+
+      assert {:ok, retried, retry} = PublishWindow.admit(w, k(1), 100, 900)
       assert PublishWindow.outstanding_frames(retried) === 1
       assert PublishWindow.outstanding_bytes(retried) === 100
       assert PublishWindow.expired(retried, 500) === []
+
+      # A NEW attempt token: the previous attempt's late acknowledgement cannot settle this one.
+      refute retry === r(1)
+      assert {:error, :not_outstanding} = PublishWindow.settle(retried, r(1), @primary)
     end
 
     test "a DIFFERENT record on the same slot is a separate publication, and IS admitted" do
@@ -231,7 +246,9 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
     @public_functions [
       {:__struct__, 0},
       {:__struct__, 1},
+      {:abandon, 2},
       {:admit, 4},
+      {:attempt_failed, 2},
       {:admits?, 2},
       {:available_bytes, 1},
       {:available_frames, 1},
@@ -781,19 +798,51 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert PublishWindow.expired(w, 100) === []
     end
 
-    test "a retry shares its reservation, so both attempts settle ONE thing" do
+    test "only the CURRENT attempt can settle the reservation" do
       w = admit!(window(), 1, 100, 500)
       first = r(1)
 
-      # The republish path returns the SAME reservation: same epoch, one settlement between them.
+      {:ok, w} = PublishWindow.attempt_failed(w, first)
       {:ok, w, retry} = PublishWindow.admit(w, k(1), 100, 900)
-      assert retry === first
 
-      {:ok, w} = PublishWindow.settle(w, retry, @primary)
-      assert PublishWindow.outstanding_frames(w) === 0
-
-      # The other attempt's ack finds nothing left, rather than releasing someone else's credits.
+      # The superseded attempt cannot settle, and cannot end the live one either.
       assert {:error, :not_outstanding} = PublishWindow.settle(w, first, @primary)
+      assert {:error, :not_outstanding} = PublishWindow.attempt_failed(w, first)
+
+      # NOT VACUOUS: the current attempt still settles, exactly once.
+      assert {:ok, w} = PublishWindow.settle(w, retry, @primary)
+      assert PublishWindow.outstanding_frames(w) === 0
+    end
+
+    test "attempt tokens do NOT repeat across a fresh window" do
+      # A per-window counter restarted at 1, so after a lane restart a stale reservation compared
+      # EQUAL to a fresh one -- and settling the stale one released the fresh one's credits.
+      w1 = admit!(window(), 1, 100, 500)
+      stale = r(1)
+
+      # A brand-new window, as a restarted pool builds.
+      _w2 = admit!(window(), 1, 100, 500)
+      fresh = r(1)
+
+      refute stale === fresh, "attempt tokens repeated across window incarnations"
+
+      # And the stale handle cannot settle in the window it did not come from.
+      assert {:error, :not_outstanding} = PublishWindow.settle(w1, fresh, @primary)
+    end
+
+    test "abandon releases a reservation whose owner is gone, whatever its attempt state" do
+      w = admit!(window(), 1, 100, 500)
+
+      assert {:ok, released} = PublishWindow.abandon(w, k(1))
+      assert PublishWindow.outstanding_frames(released) === 0
+      assert PublishWindow.outstanding_bytes(released) === 0
+
+      # Also works once the attempt has ended, which is the state a timed-out caller leaves.
+      {:ok, ended} = PublishWindow.attempt_failed(w, r(1))
+      assert {:ok, released2} = PublishWindow.abandon(ended, k(1))
+      assert PublishWindow.outstanding_frames(released2) === 0
+
+      assert {:error, :not_outstanding} = PublishWindow.abandon(released, k(1))
     end
   end
 end

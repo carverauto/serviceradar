@@ -397,20 +397,33 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert %{outstanding_frames: 1, available_frames: 0} = PublisherPool.capacity(pools[:bulk])
     end
 
-    test "a DIFFERENT record on the SAME slot is published, with a distinct Nats-Msg-Id" do
+    test "a DIFFERENT record on the SAME slot is published, on its OWN credits" do
       # NORMATIVE: "a frame reuses the same slot with a different record_sha256 ... JetStream SHALL
       # NOT deduplicate it away and the frame SHALL reach EventWriter", which rejects it as a
       # transport-integrity violation. Refusing it in the gateway -- as an earlier :slot_conflict
       # did -- moves EventWriter's adjudication upstream and destroys the evidence.
-      pools = with_pools([])[:pools]
+      #
+      # A holds its reservation THROUGHOUT: an earlier version settled A first, which passed just
+      # as well with record identity dropped from the key, so it bound nothing. Two credits, two
+      # charges, both outstanding at once is what proves the keys are distinct.
+      pools =
+        Map.new(PublisherLane.lanes(), fn lane ->
+          {:ok, pid} =
+            PublisherPool.start_link(class: lane, frame_credits: 2, byte_credits: 10_000, name: nil)
+
+          {lane, pid}
+        end)
+
       first = publication()
       second = publication(%{record_bytes: "a-different-record"})
 
-      {:ok, planned} = JetStreamPublisher.plan(first)
-      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":1})}})
-      assert {:ok, _} = JetStreamPublisher.publish_record(first, connection: FakeConn, pools: pools)
+      # A times out, so its attempt ends but its reservation stays charged.
+      with_reply({:error, :timeout})
+      assert {:error, :timeout} = JetStreamPublisher.publish_record(first, connection: FakeConn, pools: pools)
       assert_received {:requested, _c1, _s1, _p1, opts1}
+      assert %{outstanding_frames: 1} = PublisherPool.capacity(pools[:bulk])
 
+      {:ok, planned} = JetStreamPublisher.plan(second)
       with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":2})}})
 
       assert {:ok, _} =
@@ -420,9 +433,32 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert_received {:requested, _c2, _s2, payload2, opts2}
       assert payload2 === "a-different-record"
 
+      # TWO independent charges. With the record dropped from the key, B would have been taken for
+      # A's retry -- refused as :attempt_in_flight, or riding A's single charge.
+      assert %{outstanding_frames: 1} = PublisherPool.capacity(pools[:bulk]),
+             "B settled, so only A's charge should remain -- two distinct reservations existed"
+
       # Distinct Nats-Msg-Id is what stops JetStream deduplicating the second away.
       msg_id = fn opts -> opts |> Keyword.fetch!(:headers) |> header("Nats-Msg-Id") end
       refute msg_id.(opts1) === msg_id.(opts2)
+    end
+
+    test "admission against a DEAD pool returns a tuple, never an exit" do
+      # The pool pid is captured before admission, so a lane restart can land between the lookup
+      # and the call. An unguarded GenServer.call would exit the caller and break the documented
+      # tuple contract at exactly the moment the system is already degraded.
+      pools = with_pools([])[:pools]
+      Process.flag(:trap_exit, true)
+      dead = pools[:bulk]
+      Process.exit(dead, :kill)
+      assert_receive {:EXIT, ^dead, _}
+
+      with_reply({:ok, %{body: ~s({"stream":"S","seq":1})}})
+
+      assert {:error, :systemic} =
+               JetStreamPublisher.publish_record(publication(), connection: FakeConn, pools: pools)
+
+      refute_received {:requested, _, _, _, _}
     end
 
     test "a pool that dies mid-attempt does not exit the caller" do

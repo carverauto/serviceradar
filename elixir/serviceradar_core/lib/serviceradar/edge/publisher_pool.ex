@@ -96,10 +96,17 @@ defmodule ServiceRadar.Edge.PublisherPool do
   @doc """
   Admits a frame into this lane's window, or refuses.
 
-  `key` is the COMPLETE authenticated delivery slot (`PublishWindow.key/4`), never the lane
-  sequence: one pool serves every agent and spool in its class, so a bare sequence aliases across
-  them. `fingerprint` identifies the publication, so a republish of the SAME record re-arms
-  without new credits while a DIFFERENT record on that slot is refused `:slot_conflict`.
+  `key` is the PUBLICATION (`PublishWindow.key/5`) -- the authenticated slot AND the record
+  identity -- never the lane sequence: one pool serves every agent and spool in its class, so a
+  bare sequence aliases across them.
+
+  A republish of the SAME record re-arms without new credits, but only once its previous attempt
+  has ended; a retry offered while that attempt is still on the wire is refused
+  `:attempt_in_flight`. A DIFFERENT record on that slot is a different publication and is admitted
+  on its own credits -- the spec requires it to be published so EventWriter can adjudicate it.
+
+  `ack_timeout_ms` is a TIMEOUT, not a deadline: this pool stamps the deadline when it admits, so
+  time a caller spent queued here is not deducted from the PubAck interval it measures.
 
   A refusal is final for THIS call: it never borrows from another class, and the pool's state is
   untouched.
@@ -111,6 +118,14 @@ defmodule ServiceRadar.Edge.PublisherPool do
   @doc "Releases a frame's credits. See `PublishWindow.settle/3` -- accounting only."
   def settle(pool, reservation, outcome),
     do: GenServer.call(pool, {:settle, reservation, outcome})
+
+  @doc """
+  Ends the in-flight attempt, keeping the reservation and its credits.
+
+  Called for a NON-terminal transport outcome. Without it the reservation stays marked in flight
+  and the next retry is refused `:attempt_in_flight` forever.
+  """
+  def attempt_failed(pool, reservation), do: GenServer.call(pool, {:attempt_failed, reservation})
 
   @doc "Moves a frame's PubAck deadline without releasing its credits."
   def rearm(pool, reservation, ack_timeout_ms),
@@ -130,23 +145,41 @@ defmodule ServiceRadar.Edge.PublisherPool do
         Keyword.fetch!(opts, :byte_credits)
       )
 
-    {:ok, %{class: Keyword.fetch!(opts, :class), window: window}}
+    {:ok,
+     %{
+       class: Keyword.fetch!(opts, :class),
+       window: window,
+       # Who holds each reservation, so a caller that dies does not strand its credits. The case
+       # that motivates this is a TIMEOUT rather than a crash: GenServer.call/3 exits the caller
+       # when it gives up, and OTP does not cancel the queued message -- so this pool can admit a
+       # frame for a caller that is already gone, charging the window for a request nobody will
+       # ever make.
+       owner_of: %{},
+       monitors: %{}
+     }}
   end
 
   @impl true
-  def handle_call({:admit, key, bytes, ack_timeout_ms}, _from, state) do
+  def handle_call({:admit, key, bytes, ack_timeout_ms}, {caller, _tag}, state) do
     # The deadline is stamped HERE, not by the caller before the call. Stamped earlier, the time a
     # caller spent queued for this GenServer was silently deducted from the PubAck interval that
     # the deadline is supposed to measure -- so a contended pool shortened every ack window.
     case deadline(ack_timeout_ms) do
-      {:ok, deadline_at} -> admit_reply(state, key, bytes, deadline_at)
+      {:ok, deadline_at} -> admit_reply(state, caller, key, bytes, deadline_at)
       :error -> {:reply, {:error, :deadline}, state}
     end
   end
 
-  def handle_call({:settle, reservation, outcome}, _from, state) do
-    case PublishWindow.settle(state.window, reservation, outcome) do
+  def handle_call({:attempt_failed, reservation}, _from, state) do
+    case PublishWindow.attempt_failed(state.window, reservation) do
       {:ok, window} -> {:reply, :ok, %{state | window: window}}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  def handle_call({:settle, {key, _token} = reservation, outcome}, _from, state) do
+    case PublishWindow.settle(state.window, reservation, outcome) do
+      {:ok, window} -> {:reply, :ok, forget_owner(%{state | window: window}, key)}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
@@ -183,10 +216,37 @@ defmodule ServiceRadar.Edge.PublisherPool do
      }, state}
   end
 
-  defp admit_reply(state, key, bytes, deadline_at) do
+  @impl true
+  def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
+    # Everything that caller held is released. Nobody else can settle or retry it: the reservation
+    # handle lived in that process, and a new caller for the same publication will admit afresh.
+    # This is the path that recovers a frame charged for a caller that had already given up --
+    # GenServer.call/3's timeout exits the caller, but OTP still delivers the queued admission.
+    {mine, theirs} = Enum.split_with(state.owner_of, fn {_key, owner} -> owner === pid end)
+
+    window =
+      Enum.reduce(mine, state.window, fn {key, _owner}, w ->
+        case PublishWindow.abandon(w, key) do
+          {:ok, w2} -> w2
+          {:error, _} -> w
+        end
+      end)
+
+    {:noreply,
+     %{
+       state
+       | window: window,
+         owner_of: Map.new(theirs),
+         monitors: Map.delete(state.monitors, pid)
+     }}
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
+
+  defp admit_reply(state, caller, key, bytes, deadline_at) do
     case PublishWindow.admit(state.window, key, bytes, deadline_at) do
       {:ok, window, reservation} ->
-        {:reply, {:ok, reservation}, %{state | window: window}}
+        {:reply, {:ok, reservation}, remember_owner(%{state | window: window}, caller, key)}
 
       # The rejected call returns the ORIGINAL state. This is the case immutability made
       # untestable in parts 1 and 2, and it is asserted at the process boundary now.
@@ -199,4 +259,33 @@ defmodule ServiceRadar.Edge.PublisherPool do
     do: {:ok, System.monotonic_time(:millisecond) + ms}
 
   defp deadline(_), do: :error
+
+  defp remember_owner(state, caller, key) do
+    monitors =
+      if Map.has_key?(state.monitors, caller) do
+        state.monitors
+      else
+        Map.put(state.monitors, caller, Process.monitor(caller))
+      end
+
+    %{state | owner_of: Map.put(state.owner_of, key, caller), monitors: monitors}
+  end
+
+  defp forget_owner(state, key) do
+    owner_of = Map.delete(state.owner_of, key)
+    owner = Map.get(state.owner_of, key)
+
+    # Stop monitoring a caller once it holds nothing.
+    monitors =
+      if owner && not Enum.any?(owner_of, fn {_k, pid} -> pid === owner end) do
+        case Map.pop(state.monitors, owner) do
+          {nil, m} -> m
+          {ref, m} -> Process.demonitor(ref, [:flush]) && m
+        end
+      else
+        state.monitors
+      end
+
+    %{state | owner_of: owner_of, monitors: monitors}
+  end
 end
