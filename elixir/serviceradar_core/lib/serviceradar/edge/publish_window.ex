@@ -103,10 +103,12 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @type key :: {{binary(), binary(), binary(), pos_integer()}, term()}
 
   @typedoc """
-  A handle to ONE reservation epoch: the publication key plus the token issued when it was
-  admitted. Settling and re-arming require it, so an acknowledgement that arrives after its
-  reservation was already settled cannot release a LATER reservation that happens to reuse the
-  key -- the ABA the bare key allowed.
+  A handle to ONE ATTEMPT: the publication key plus the token minted when that attempt was
+  admitted. Settling and re-arming require it, so an acknowledgement arriving after its attempt was
+  superseded or settled cannot act on whatever holds the key now.
+
+  A reservation between attempts stores `nil` in place of a token -- it holds credits but has no
+  live attempt, so no handle to it exists. That is why `reservation/2` returns `:error` for one.
   """
   @type reservation :: {key(), pos_integer()}
 
@@ -114,7 +116,9 @@ defmodule ServiceRadar.Edge.PublishWindow do
             frame_credits: non_neg_integer(),
             byte_credits: non_neg_integer(),
             # publication key => {bytes, deadline, attempt_token | nil}
-            outstanding: %{optional(key()) => {non_neg_integer(), integer(), pos_integer()}},
+            outstanding: %{
+              optional(key()) => {non_neg_integer(), integer(), pos_integer() | nil}
+            },
             bytes_outstanding: non_neg_integer()
           }
 
@@ -435,7 +439,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
   Charges nothing and releases nothing -- the bytes were already committed and the publication is
   the same publication on the same slot. Only the deadline moves.
 
-  `admit/5` also re-arms when it recognises a retry by fingerprint, which is the path the publisher
+  `admit/4` also re-arms when it admits the next attempt for a reservation, which is the path the publisher
   takes. This remains for a caller that has verified sameness by other means and wants to move a
   deadline without re-presenting the record.
 
@@ -461,7 +465,9 @@ defmodule ServiceRadar.Edge.PublishWindow do
   end
 
   @doc """
-  The outstanding sequences whose PubAck deadline has passed, oldest first.
+  The RESERVATIONS whose in-flight attempt has passed its PubAck deadline, oldest first.
+
+  A reservation between attempts is not reported: it is owed a republish, not an acknowledgement.
 
   REPORTS ONLY. The frames stay outstanding and stay charged, because the publisher republishes
   the same bytes on the same slot and the publication is still in flight.
