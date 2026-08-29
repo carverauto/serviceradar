@@ -11,6 +11,7 @@ export default class ChartRangeSelectionController {
   constructor(options) {
     this.options = null
     this.pointer = null
+    this.pendingPointer = null
     this.anchorIndex = null
     this.activeIndex = null
     this.suppressChartClick = false
@@ -26,6 +27,13 @@ export default class ChartRangeSelectionController {
 
     if (unchanged) {
       this.options = normalized
+      return
+    }
+
+    if (this.pendingPointer && this.gestureBindingIsCompatible(normalized)) {
+      this.options = normalized
+      normalized.status.setAttribute("aria-live", "polite")
+      this.resolvePendingPointerStart()
       return
     }
 
@@ -138,10 +146,31 @@ export default class ChartRangeSelectionController {
   }
 
   pointerDown(event) {
-    if (this.pointer) return
+    if (this.pointer || this.pendingPointer) return
     const index = this.bucketIndexForEvent(event)
-    if (index === null) return
+    if (index === null) {
+      if (this.options?.svg?.isConnected === false) this.pendingPointer = pointerEvent(event)
+      return
+    }
 
+    this.startPointer(index, event)
+  }
+
+  resolvePendingPointerStart() {
+    const pendingPointer = this.pendingPointer
+    if (!pendingPointer) return
+
+    const index = this.bucketIndexForEvent(pendingPointer)
+    if (index === null) {
+      this.pendingPointer = null
+      return
+    }
+
+    this.pendingPointer = null
+    this.startPointer(index, pendingPointer)
+  }
+
+  startPointer(index, event) {
     this.resetSelection()
     this.pointer = {
       anchorIndex: index,
@@ -167,6 +196,11 @@ export default class ChartRangeSelectionController {
   }
 
   pointerUp(event) {
+    if (this.pendingPointer?.pointerId === event.pointerId) {
+      this.pendingPointer = null
+      return
+    }
+
     const pointer = this.pointer
     if (!pointer || pointer.pointerId !== event.pointerId) return
 
@@ -190,11 +224,13 @@ export default class ChartRangeSelectionController {
   }
 
   pointerCancel(event) {
+    if (this.pendingPointer?.pointerId === event.pointerId) this.pendingPointer = null
     if (this.pointer?.pointerId === event.pointerId) this.resetSelection()
   }
 
   lostPointerCapture(event) {
     if (event.target && event.target !== this.options.root) return
+    if (this.pendingPointer?.pointerId === event.pointerId) this.pendingPointer = null
     if (this.pointer?.pointerId === event.pointerId) this.resetSelection()
   }
 
@@ -274,6 +310,7 @@ export default class ChartRangeSelectionController {
     this.releasePointerCapture()
     this.stopTrackingGesture()
     this.pointer = null
+    this.pendingPointer = null
     this.anchorIndex = null
     this.options?.overlay?.classList.add("hidden")
     this.options?.overlay?.removeAttribute("x")
@@ -376,4 +413,13 @@ function sameBucketIntervals(left, right) {
   return left.every(
     (bucket, index) => bucket?.start === right[index]?.start && bucket?.end === right[index]?.end,
   )
+}
+
+function pointerEvent(event) {
+  return {
+    clientX: event.clientX,
+    clientY: event.clientY,
+    pointerId: event.pointerId,
+    pointerType: event.pointerType,
+  }
 }

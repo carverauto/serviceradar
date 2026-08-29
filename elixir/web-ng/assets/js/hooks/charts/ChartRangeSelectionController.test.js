@@ -122,6 +122,105 @@ describe("ChartRangeSelectionController", () => {
     })
   })
 
+  it("resolves a detached binding press with compatible current geometry before release", () => {
+    const documentTarget = element()
+    const root = element()
+    root.ownerDocument = documentTarget
+    const staleSvg = element()
+    staleSvg.isConnected = false
+    const config = {
+      ...options({root, svg: staleSvg}),
+      viewXForEvent: () => null,
+    }
+    const controller = new ChartRangeSelectionController(config)
+
+    root.dispatch(pointer("pointerdown", 0, 19))
+    controller.update({
+      ...config,
+      bindingKey: "replacement-geometry",
+      overlay: element(),
+      svg: element(),
+      viewXForEvent: (event) => event.clientX,
+    })
+    documentTarget.dispatch(pointer("pointerup", 100, 19))
+
+    expect(config.emit).toHaveBeenCalledOnce()
+    expect(config.emit).toHaveBeenCalledWith({
+      start: "2026-08-27T10:00:00Z",
+      end: "2026-08-27T12:59:59.999999Z",
+    })
+  })
+
+  it("cancels a detached binding press that remains outside current geometry", () => {
+    const documentTarget = element()
+    const root = element()
+    root.ownerDocument = documentTarget
+    const staleSvg = element()
+    staleSvg.isConnected = false
+    const config = {
+      ...options({root, svg: staleSvg}),
+      viewXForEvent: () => null,
+    }
+    const controller = new ChartRangeSelectionController(config)
+
+    root.dispatch(pointer("pointerdown", -10, 20))
+    controller.update({
+      ...config,
+      bindingKey: "replacement-geometry",
+      overlay: element(),
+      svg: element(),
+      viewXForEvent: (event) => (event.clientX < 0 ? null : event.clientX),
+    })
+    documentTarget.dispatch(pointer("pointerup", 100, 20))
+
+    expect(config.emit).not.toHaveBeenCalled()
+    expect(documentTarget.totalListenerCount()).toBe(0)
+    expect(controller.consumeChartClick()).toBe(false)
+  })
+
+  it("leaves a detached binding click unsuppressed without a compatible update", () => {
+    const root = element()
+    const staleSvg = element()
+    staleSvg.isConnected = false
+    const config = {
+      ...options({root, svg: staleSvg}),
+      viewXForEvent: () => null,
+    }
+    const controller = new ChartRangeSelectionController(config)
+
+    root.dispatch(pointer("pointerdown", 0, 21))
+    root.dispatch(pointer("pointerup", 4, 21))
+
+    expect(config.emit).not.toHaveBeenCalled()
+    expect(controller.consumeChartClick()).toBe(false)
+  })
+
+  it("clears a detached binding press when semantic identity changes or the controller is destroyed", () => {
+    const root = element()
+    const staleSvg = element()
+    staleSvg.isConnected = false
+    const config = {
+      ...options({root, svg: staleSvg, bindingKey: "initial"}),
+      eventKey: "netflow_range_selected",
+      viewXForEvent: () => null,
+    }
+    const controller = new ChartRangeSelectionController(config)
+
+    root.dispatch(pointer("pointerdown", 0, 22))
+    controller.update({...config, bindingKey: "different-event", eventKey: "other_range_selected"})
+    root.dispatch(pointer("pointerup", 100, 22))
+
+    expect(config.emit).not.toHaveBeenCalled()
+    expect(controller.consumeChartClick()).toBe(false)
+
+    root.dispatch(pointer("pointerdown", 0, 23))
+    controller.destroy()
+    root.dispatch(pointer("pointerup", 100, 23))
+
+    expect(root.totalListenerCount()).toBe(0)
+    expect(config.emit).not.toHaveBeenCalled()
+  })
+
   it("commits a release whose first qualifying sample is pointerup", () => {
     const config = options()
     const controller = new ChartRangeSelectionController(config)
