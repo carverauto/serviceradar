@@ -51,9 +51,25 @@ def extract_section(lines: list[str], version: str) -> list[str]:
     if start_idx is None:
         return []
 
+    version_heading = re.compile(
+        r"^\*\*(?:Unreleased|v?\d+\.\d+(?:\.\d+)?(?:-[\w.]+)?)\*\*\s*$",
+        re.IGNORECASE,
+    )
+    target_heading = re.compile(
+        r"^\*\*v?{}\*\*\s*$".format(re.escape(version)),
+        re.IGNORECASE,
+    )
+
     end_idx = len(lines)
     for idx in range(start_idx + 1, len(lines)):
-        if lines[idx].startswith("# ") and not heading_pattern.search(lines[idx]):
+        line = lines[idx]
+        if line.startswith("# ") and not heading_pattern.search(line):
+            end_idx = idx
+            break
+        # Bold version/Unreleased markers separate Whats New sections.
+        # Stop before the next one so a release's GitHub notes do not
+        # swallow older versions or leftover Unreleased copy.
+        if version_heading.match(line) and not target_heading.match(line):
             end_idx = idx
             break
 
