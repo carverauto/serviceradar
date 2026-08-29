@@ -151,6 +151,42 @@ describe("ChartRangeSelectionController", () => {
     })
   })
 
+  it("restores readiness during a compatible detached-geometry handoff", () => {
+    const documentTarget = element()
+    const root = element()
+    root.ownerDocument = documentTarget
+    const staleSvg = element()
+    staleSvg.isConnected = false
+    const config = {
+      ...options({root, svg: staleSvg}),
+      viewXForEvent: () => null,
+    }
+    const controller = new ChartRangeSelectionController(config)
+
+    root.dispatch(pointer("pointerdown", 0, 25))
+    root.setAttribute("aria-disabled", "true")
+    root.removeAttribute("tabindex")
+    controller.update({
+      ...config,
+      bindingKey: "replacement-geometry",
+      overlay: element(),
+      svg: element(),
+      viewXForEvent: (event) => event.clientX,
+    })
+
+    expect(root.getAttribute("aria-disabled")).toBeNull()
+    expect(root.getAttribute("tabindex")).toBe("0")
+    expect(root.listenerCount("pointerdown")).toBe(1)
+
+    documentTarget.dispatch(pointer("pointerup", 100, 25))
+
+    expect(config.emit).toHaveBeenCalledOnce()
+    expect(config.emit).toHaveBeenCalledWith({
+      start: "2026-08-27T10:00:00Z",
+      end: "2026-08-27T12:59:59.999999Z",
+    })
+  })
+
   it.each(["pointerup", "pointercancel"])(
     "cancels a detached binding press released outside before a compatible update (%s)",
     (releaseType) => {
@@ -371,6 +407,40 @@ describe("ChartRangeSelectionController", () => {
     })
     expect(replacementOverlay.getAttribute("x")).toBe("10")
     expect(replacementOverlay.getAttribute("width")).toBe("80")
+  })
+
+  it("restores readiness during an active compatible replacement", () => {
+    const documentTarget = element()
+    const root = element()
+    root.ownerDocument = documentTarget
+    const config = options({root})
+    const controller = new ChartRangeSelectionController(config)
+    const replacementOverlay = element()
+
+    config.svg.dispatch(pointer("pointerdown", 0, 26))
+    config.svg.dispatch(pointer("pointermove", 100, 26))
+    root.setAttribute("aria-disabled", "true")
+    root.removeAttribute("tabindex")
+    controller.update({
+      ...config,
+      bindingKey: "replacement-svg",
+      overlay: replacementOverlay,
+      svg: element(),
+    })
+
+    expect(root.getAttribute("aria-disabled")).toBeNull()
+    expect(root.getAttribute("tabindex")).toBe("0")
+    expect(root.listenerCount("pointerdown")).toBe(1)
+    expect(root.capturedPointers.has(26)).toBe(true)
+
+    documentTarget.dispatch(pointer("pointerup", 100, 26))
+
+    expect(config.emit).toHaveBeenCalledOnce()
+    expect(config.emit).toHaveBeenCalledWith({
+      start: "2026-08-27T10:00:00Z",
+      end: "2026-08-27T12:59:59.999999Z",
+    })
+    expect(root.capturedPointers.has(26)).toBe(false)
   })
 
   it("transfers an in-flight gesture when a redraw replaces the SVG for the same intervals", () => {

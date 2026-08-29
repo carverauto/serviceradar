@@ -119,17 +119,19 @@ function installTrace(root, trace) {
   root.addEventListener("click", (event) => {
     trace.push({kind: "click", target: label(event.target), currentTarget: label(event.currentTarget)})
   })
-  for (const action of root.querySelectorAll("[phx-click]")) {
-    action.addEventListener("click", (event) => {
-      trace.push({
-        kind: "server-bucket-click",
-        event: action.getAttribute("phx-click"),
-        start: action.getAttribute("phx-value-start"),
-        end: action.getAttribute("phx-value-end"),
-        target: label(event.target),
-      })
+  document.addEventListener("click", (event) => {
+    const action = event.target?.closest?.("[phx-click]")
+    if (!action || !root.contains(action)) return
+
+    trace.push({
+      kind: "server-bucket-click",
+      event: action.getAttribute("phx-click"),
+      start: action.getAttribute("phx-value-start"),
+      end: action.getAttribute("phx-value-end"),
+      target: label(event.target),
+      currentTarget: label(event.currentTarget),
     })
-  }
+  })
 }
 
 function currentSvg() {

@@ -141,8 +141,22 @@ for (const renderer of ["server-svg", "d3"]) {
           start: "2026-08-29T01:00:00.000000Z",
           end: "2026-08-29T01:00:59.999999Z",
           target: "server-bucket",
+          currentTarget: "#document",
         },
       ])
     }
   })
 }
+
+test("server action trace requires native bubbling to reach document", async ({page}) => {
+  await mountFixture(page, "server-svg")
+  await page.evaluate(() => {
+    document.querySelector('[role="group"]').addEventListener("click", (event) => event.stopPropagation())
+  })
+
+  const bucket = page.locator('[phx-click="netflow_bucket"]')
+  await bucket.click()
+
+  const result = await snapshot(page)
+  expect(result.trace.filter((entry) => entry.kind === "server-bucket-click"), traceMessage(result.trace)).toEqual([])
+})

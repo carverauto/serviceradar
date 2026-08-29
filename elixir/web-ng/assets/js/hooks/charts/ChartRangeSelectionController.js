@@ -34,14 +34,14 @@ export default class ChartRangeSelectionController {
 
     if (this.pendingPointer && this.gestureBindingIsCompatible(normalized)) {
       this.options = normalized
-      normalized.status.setAttribute("aria-live", "polite")
+      this.restoreEnabledReadiness()
       this.resolvePendingPointerStart()
       return
     }
 
     if (this.pointer && this.gestureBindingIsCompatible(normalized)) {
       this.options = normalized
-      normalized.status.setAttribute("aria-live", "polite")
+      this.restoreEnabledReadiness()
 
       this.renderSelection()
       return
