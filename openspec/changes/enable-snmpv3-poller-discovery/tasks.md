@@ -1,44 +1,44 @@
 ## 1. Credential rules
 
-- [ ] 1.1 Set `NativeDescriptors.snmp()["supports_rules"]` to `true` so SNMP appears on New Rule
-- [ ] 1.2 Add `security_level` to the native SNMP v3 descriptor (plus keep username / auth / priv fields). Do not default blank protocols to MD5/DES
-- [ ] 1.3 Resolve poller and mapper SNMP credentials from `NetworkCredentialRule` (provider `snmp`, purpose `snmp_monitoring`) for the compiling agent; a matching rule MUST win over profile `credential_secret_id`
-- [ ] 1.4 Infer `version: v3` from a v3 rule payload even when the parent profile row is still v2c
-- [ ] 1.5 If `priv_protocol` is set and `priv_password` is blank, reuse `auth_password` (UniFi single-password authPriv)
-- [ ] 1.6 Include `security_level` in `CredentialResolver.to_mapper_credentials/1`
-- [ ] 1.7 Reject incomplete v3 material at compile time (`authPriv` missing priv after inference, `authNoPriv` missing auth)
-- [ ] 1.8 Tests: rule resolution, rule-beats-profile-secret, UniFi password copy, SHA/AES authPriv compile, no MD5/DES default
+- [x] 1.1 Set `NativeDescriptors.snmp()["supports_rules"]` to `true` so SNMP appears on New Rule
+- [x] 1.2 Add `security_level` to the native SNMP v3 descriptor (plus keep username / auth / priv fields). Do not default blank protocols to MD5/DES
+- [x] 1.3 Resolve poller and mapper SNMP credentials from `NetworkCredentialRule` (provider `snmp`, purpose `snmp_monitoring`) for the compiling agent; a matching rule MUST win over profile `credential_secret_id`
+- [x] 1.4 Infer `version: v3` from a v3 rule payload even when the parent profile row is still v2c
+- [x] 1.5 If `priv_protocol` is set and `priv_password` is blank, reuse `auth_password` (UniFi single-password authPriv)
+- [x] 1.6 Include `security_level` in `CredentialResolver.to_mapper_credentials/1`
+- [x] 1.7 Reject incomplete v3 material at compile time (`authPriv` missing priv after inference, `authNoPriv` missing auth)
+- [x] 1.8 Tests: rule resolution, rule-beats-profile-secret, UniFi password copy, SHA/AES authPriv compile, no MD5/DES default
 
 ## 2. Mapper USM client
 
-- [ ] 2.1 Add `SecurityLevel` to mapper `SNMPCredentials` / `SNMPCredentialConfig` / `mapperCredSpec` and parse it from scheduled-job JSON
-- [ ] 2.2 Set `gosnmp.UserSecurityModel` on v3 sessions
-- [ ] 2.3 Set `MsgFlags` from security level (`noAuthNoPriv` / `authNoPriv` / `authPriv`); stop hard-coding `AuthPriv`
-- [ ] 2.4 Normalize auth/privacy protocol identifiers (compact, hyphenated, case-insensitive) and return an error on unknown values
-- [ ] 2.5 Add `security_level` to `proto/discovery/discovery.proto` `SNMPCredentials`, regenerate stubs, and map it in `protoToSNMPCredentials`
-- [ ] 2.6 Leave VLAN community indexing disabled for v3 credentials (existing gate)
+- [x] 2.1 Add `SecurityLevel` to mapper `SNMPCredentials` / `SNMPCredentialConfig` / `mapperCredSpec` and parse it from scheduled-job JSON
+- [x] 2.2 Set `gosnmp.UserSecurityModel` on v3 sessions
+- [x] 2.3 Set `MsgFlags` from security level (`noAuthNoPriv` / `authNoPriv` / `authPriv`); stop hard-coding `AuthPriv`
+- [x] 2.4 Normalize auth/privacy protocol identifiers (compact, hyphenated, case-insensitive) and return an error on unknown values
+- [x] 2.5 Add `security_level` to `proto/discovery/discovery.proto` `SNMPCredentials`, regenerate stubs, and map it in `protoToSNMPCredentials`
+- [x] 2.6 Leave VLAN community indexing disabled for v3 credentials (existing gate)
 
 ## 3. Poller USM client
 
-- [ ] 3.1 Normalize hyphenated and compact protocol identifiers when applying proto *and* when unmarshalling cached/local JSON
-- [ ] 3.2 Treat unspecified auth/priv protocol as an error for the matching security level rather than defaulting to MD5/DES
-- [ ] 3.3 Keep proto enum mapping (`SNMPProtoMapper` + `protoToSNMPAuthProtocol`) as the primary GetConfig path; JSON is the cache/local fallback
+- [x] 3.1 Normalize hyphenated and compact protocol identifiers when applying proto *and* when unmarshalling cached/local JSON
+- [x] 3.2 Treat unspecified auth/priv protocol as an error for the matching security level rather than defaulting to MD5/DES
+- [x] 3.3 Keep proto enum mapping (`SNMPProtoMapper` + `protoToSNMPAuthProtocol`) as the primary GetConfig path; JSON is the cache/local fallback
 
 ## 4. Failure reporting
 
-- [ ] 4.1 Surface SNMPv3 authentication/privacy failures on mapper targets as explicit errors (not a silent empty walk)
-- [ ] 4.2 Surface the same class of failure on poller target status (`available: false` + auth error text)
-- [ ] 4.3 Do not skip a compiled v3 target because the parent profile version field is still v2c
-- [ ] 4.4 Do not compile poller targets from stale v2c `snmp_targets` rows when a v3 credential rule matches the device
+- [x] 4.1 Surface SNMPv3 authentication/privacy failures on mapper targets as explicit errors (not a silent empty walk)
+- [x] 4.2 Surface the same class of failure on poller target status (`available: false` + auth error text)
+- [x] 4.3 Do not skip a compiled v3 target because the parent profile version field is still v2c
+- [x] 4.4 Do not compile poller targets from stale v2c `snmp_targets` rows when a v3 credential rule matches the device
 
 ## 5. Tests
 
-- [ ] 5.1 Hermetic in-process SNMPv3 USM GET for `authPriv` (SHA + AES) against a local test agent, covering mapper client setup
-- [ ] 5.2 Same for `authNoPriv` and `noAuthNoPriv`
-- [ ] 5.3 Hermetic poller GET for `authPriv` with hyphenated (`SHA-256` / `AES-256`) identifiers
-- [ ] 5.4 Compiler tests: v3 credential rule + v2c profile record still emits `version=v3` and `v3_auth` / mapper credentials
-- [ ] 5.5 Mapper JSON decode test: snake_case credentials including `security_level` round-trip into `SNMPCredentials`
-- [ ] 5.6 Proto mapping test for discovery `security_level`
+- [x] 5.1 Hermetic in-process SNMPv3 USM GET for `authPriv` (SHA + AES) against a local test agent, covering mapper client setup
+- [x] 5.2 Same for `authNoPriv` and `noAuthNoPriv`
+- [x] 5.3 Hermetic poller GET for `authPriv` with hyphenated (`SHA-256` / `AES-256`) identifiers
+- [x] 5.4 Compiler tests: v3 credential rule + v2c profile record still emits `version=v3` and `v3_auth` / mapper credentials
+- [x] 5.5 Mapper JSON decode test: snake_case credentials including `security_level` round-trip into `SNMPCredentials`
+- [x] 5.6 Proto mapping test for discovery `security_level`
 
 ## 6. Farm01 verification
 

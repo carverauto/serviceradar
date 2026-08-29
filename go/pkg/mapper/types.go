@@ -91,14 +91,15 @@ type DiscoveryParams struct {
 
 // SNMPCredentials contains information needed to authenticate with SNMP devices.
 type SNMPCredentials struct {
-	Version         SNMPVersion                 // SNMP protocol version
-	Community       string                      `sensitive:"true"` // Community string for v1/v2c
-	Username        string                      // Username for v3
-	AuthProtocol    string                      // Auth protocol for v3 (MD5/SHA)
-	AuthPassword    string                      `sensitive:"true"` // Auth password for v3
-	PrivacyProtocol string                      // Privacy protocol for v3 (DES/AES)
-	PrivacyPassword string                      `sensitive:"true"` // Privacy password for v3
-	TargetSpecific  map[string]*SNMPCredentials // Credentials for specific targets
+	Version         SNMPVersion                 `json:"version"`
+	Community       string                      `json:"community" sensitive:"true"`
+	Username        string                      `json:"username"`
+	SecurityLevel   string                      `json:"security_level"`
+	AuthProtocol    string                      `json:"auth_protocol"`
+	AuthPassword    string                      `json:"auth_password" sensitive:"true"`
+	PrivacyProtocol string                      `json:"privacy_protocol"`
+	PrivacyPassword string                      `json:"privacy_password" sensitive:"true"`
+	TargetSpecific  map[string]*SNMPCredentials `json:"target_specific,omitempty"`
 	// VLANCommunityIndexing opts a v1/v2c credential into per-VLAN indexed
 	// community bridge walks (community@vlan). The gRPC SNMPCredentials proto
 	// has no equivalent field, so gRPC-initiated jobs always default to false.
@@ -398,14 +399,15 @@ type TopologyNeighborIdentity struct {
 
 // SNMPCredentialConfig represents SNMP credentials for specific target IP ranges.
 type SNMPCredentialConfig struct {
-	Targets         []string    `json:"targets"`                           // IP addresses or CIDR ranges
-	Version         SNMPVersion `json:"version"`                           // SNMP version (v1, v2c, v3)
-	Community       string      `json:"community" sensitive:"true"`        // Community string for v1/v2c
-	Username        string      `json:"username"`                          // Username for v3
-	AuthProtocol    string      `json:"auth_protocol"`                     // Auth protocol for v3 (MD5/SHA)
-	AuthPassword    string      `json:"auth_password" sensitive:"true"`    // Auth password for v3
-	PrivacyProtocol string      `json:"privacy_protocol"`                  // Privacy protocol for v3 (DES/AES)
-	PrivacyPassword string      `json:"privacy_password" sensitive:"true"` // Privacy password for v3
+	Targets         []string    `json:"targets"`                    // IP addresses or CIDR ranges
+	Version         SNMPVersion `json:"version"`                    // SNMP version (v1, v2c, v3)
+	Community       string      `json:"community" sensitive:"true"` // Community string for v1/v2c
+	Username        string      `json:"username"`                   // Username for v3
+	SecurityLevel   string      `json:"security_level"`
+	AuthProtocol    string      `json:"auth_protocol"`
+	AuthPassword    string      `json:"auth_password" sensitive:"true"`
+	PrivacyProtocol string      `json:"privacy_protocol"`
+	PrivacyPassword string      `json:"privacy_password" sensitive:"true"`
 	// VLANCommunityIndexing opts a v1/v2c credential into per-VLAN indexed
 	// community bridge walks (community@vlan). Defaults to false.
 	VLANCommunityIndexing bool `json:"vlan_community_indexing"`

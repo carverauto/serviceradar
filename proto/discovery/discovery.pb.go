@@ -500,6 +500,7 @@ type SNMPCredentials struct {
 	PrivacyProtocol string                      `protobuf:"bytes,6,opt,name=privacy_protocol,json=privacyProtocol,proto3" json:"privacy_protocol,omitempty"`                                                                        // Privacy protocol for v3 (DES/AES)
 	PrivacyPassword string                      `protobuf:"bytes,7,opt,name=privacy_password,json=privacyPassword,proto3" json:"privacy_password,omitempty"`                                                                        // Privacy password for v3
 	TargetSpecific  map[string]*SNMPCredentials `protobuf:"bytes,8,rep,name=target_specific,json=targetSpecific,proto3" json:"target_specific,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Credentials for specific targets
+	SecurityLevel   string                      `protobuf:"bytes,9,opt,name=security_level,json=securityLevel,proto3" json:"security_level,omitempty"`                                                                              // noAuthNoPriv, authNoPriv, or authPriv
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -588,6 +589,13 @@ func (x *SNMPCredentials) GetTargetSpecific() map[string]*SNMPCredentials {
 		return x.TargetSpecific
 	}
 	return nil
+}
+
+func (x *SNMPCredentials) GetSecurityLevel() string {
+	if x != nil {
+		return x.SecurityLevel
+	}
+	return ""
 }
 
 // DiscoveryResponse is returned when a discovery operation is initiated
@@ -1849,7 +1857,7 @@ const file_discovery_discovery_proto_rawDesc = "" +
 	"\x05BASIC\x10\x01\x12\x0e\n" +
 	"\n" +
 	"INTERFACES\x10\x02\x12\f\n" +
-	"\bTOPOLOGY\x10\x03\"\x8d\x04\n" +
+	"\bTOPOLOGY\x10\x03\"\xb4\x04\n" +
 	"\x0fSNMPCredentials\x12@\n" +
 	"\aversion\x18\x01 \x01(\x0e2&.discovery.SNMPCredentials.SNMPVersionR\aversion\x12\x1c\n" +
 	"\tcommunity\x18\x02 \x01(\tR\tcommunity\x12\x1a\n" +
@@ -1858,7 +1866,8 @@ const file_discovery_discovery_proto_rawDesc = "" +
 	"\rauth_password\x18\x05 \x01(\tR\fauthPassword\x12)\n" +
 	"\x10privacy_protocol\x18\x06 \x01(\tR\x0fprivacyProtocol\x12)\n" +
 	"\x10privacy_password\x18\a \x01(\tR\x0fprivacyPassword\x12W\n" +
-	"\x0ftarget_specific\x18\b \x03(\v2..discovery.SNMPCredentials.TargetSpecificEntryR\x0etargetSpecific\x1a]\n" +
+	"\x0ftarget_specific\x18\b \x03(\v2..discovery.SNMPCredentials.TargetSpecificEntryR\x0etargetSpecific\x12%\n" +
+	"\x0esecurity_level\x18\t \x01(\tR\rsecurityLevel\x1a]\n" +
 	"\x13TargetSpecificEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x120\n" +
 	"\x05value\x18\x02 \x01(\v2\x1a.discovery.SNMPCredentialsR\x05value:\x028\x01\"&\n" +

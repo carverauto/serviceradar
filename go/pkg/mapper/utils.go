@@ -114,66 +114,12 @@ func (e *DiscoveryEngine) configureClientVersion(client *gosnmp.GoSNMP, credenti
 		client.Version = gosnmp.Version2c
 		client.Community = credentials.Community
 	case SNMPVersion3:
-		client.Version = gosnmp.Version3
-
-		// Set SNMPv3 security parameters
-		usm := &gosnmp.UsmSecurityParameters{
-			UserName: credentials.Username,
-		}
-
-		// Configure authentication and privacy
-		e.configureV3Authentication(usm, credentials)
-		e.configureV3Privacy(usm, credentials)
-
-		client.SecurityParameters = usm
-		client.MsgFlags = gosnmp.AuthPriv
+		return applySNMPv3(client, credentials)
 	default:
 		return fmt.Errorf("%w for version: %s", ErrUnsupportedSNMPVersion, credentials.Version)
 	}
 
 	return nil
-}
-
-// configureV3Authentication sets up the authentication protocol for SNMPv3
-func (*DiscoveryEngine) configureV3Authentication(usm *gosnmp.UsmSecurityParameters, credentials *SNMPCredentials) {
-	switch strings.ToUpper(credentials.AuthProtocol) {
-	case "MD5":
-		usm.AuthenticationProtocol = gosnmp.MD5
-		usm.AuthenticationPassphrase = credentials.AuthPassword
-	case "SHA":
-		usm.AuthenticationProtocol = gosnmp.SHA
-		usm.AuthenticationPassphrase = credentials.AuthPassword
-	case "SHA224":
-		usm.AuthenticationProtocol = gosnmp.SHA224
-		usm.AuthenticationPassphrase = credentials.AuthPassword
-	case "SHA256":
-		usm.AuthenticationProtocol = gosnmp.SHA256
-		usm.AuthenticationPassphrase = credentials.AuthPassword
-	case "SHA384":
-		usm.AuthenticationProtocol = gosnmp.SHA384
-		usm.AuthenticationPassphrase = credentials.AuthPassword
-	case "SHA512":
-		usm.AuthenticationProtocol = gosnmp.SHA512
-		usm.AuthenticationPassphrase = credentials.AuthPassword
-	}
-}
-
-// configureV3Privacy sets up the privacy protocol for SNMPv3
-func (*DiscoveryEngine) configureV3Privacy(usm *gosnmp.UsmSecurityParameters, credentials *SNMPCredentials) {
-	switch strings.ToUpper(credentials.PrivacyProtocol) {
-	case "DES":
-		usm.PrivacyProtocol = gosnmp.DES
-		usm.PrivacyPassphrase = credentials.PrivacyPassword
-	case "AES":
-		usm.PrivacyProtocol = gosnmp.AES
-		usm.PrivacyPassphrase = credentials.PrivacyPassword
-	case "AES192":
-		usm.PrivacyProtocol = gosnmp.AES192
-		usm.PrivacyPassphrase = credentials.PrivacyPassword
-	case "AES256":
-		usm.PrivacyProtocol = gosnmp.AES256
-		usm.PrivacyPassphrase = credentials.PrivacyPassword
-	}
 }
 
 // processSingleIP processes a single IP address

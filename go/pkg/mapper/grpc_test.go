@@ -636,6 +636,7 @@ func TestProtoToSNMPCredentials(t *testing.T) {
 	creds = &proto.SNMPCredentials{
 		Version:         proto.SNMPCredentials_V3,
 		Username:        "user",
+		SecurityLevel:   "authPriv",
 		AuthProtocol:    "SHA",
 		AuthPassword:    "authpass",
 		PrivacyProtocol: "AES",
@@ -644,6 +645,7 @@ func TestProtoToSNMPCredentials(t *testing.T) {
 	result = protoToSNMPCredentials(creds)
 	assert.Equal(t, SNMPVersion3, result.Version)
 	assert.Equal(t, "user", result.Username)
+	assert.Equal(t, "authPriv", result.SecurityLevel)
 	assert.Equal(t, "SHA", result.AuthProtocol)
 	assert.Equal(t, "authpass", result.AuthPassword)
 	assert.Equal(t, "AES", result.PrivacyProtocol)
