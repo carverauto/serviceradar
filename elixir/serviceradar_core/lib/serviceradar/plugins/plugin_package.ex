@@ -37,6 +37,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     :display_contracts,
     :signal_schemas,
     :producer_schedules,
+    :alert_rules,
     :wasm_object_key,
     :content_hash,
     :signature,
@@ -241,6 +242,14 @@ defmodule ServiceRadar.Plugins.PluginPackage do
       default []
 
       description "Package-owned recurring producer schedule contracts"
+    end
+
+    attribute :alert_rules, {:array, :map} do
+      allow_nil? false
+      public? true
+      default []
+
+      description "Package-proposed alert rules, materialized disabled on approval"
     end
 
     attribute :wasm_object_key, :string do

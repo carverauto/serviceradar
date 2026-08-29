@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Automation.Northbound.PluginActionSync
   alias ServiceRadar.DataService.Client, as: DataServiceClient
   alias ServiceRadar.Observability.ServiceStateRegistry
+  alias ServiceRadar.Plugins.AlertRuleCatalog
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.PackageAssignmentLifecycle
   alias ServiceRadar.Plugins.Plugin
@@ -110,6 +111,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Ash.Changeset.for_update(:approve, attrs)
       |> update_resource_with_opts(ash_opts)
       |> sync_northbound_actions(:approved)
+      |> sync_alert_rules(:approved)
       |> refresh_contract_index()
     end
   end
@@ -129,6 +131,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Ash.Changeset.for_update(:deny, attrs)
       |> update_resource_with_opts(ash_opts)
       |> sync_northbound_actions(:disabled)
+      |> sync_alert_rules(:disabled)
     end
   end
 
@@ -199,6 +202,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Ash.Changeset.for_update(:restage, %{})
       |> update_resource_with_opts(ash_opts)
       |> sync_northbound_actions(:disabled)
+      |> sync_alert_rules(:disabled)
     end
   end
 
@@ -433,6 +437,12 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
           manifest_struct.producer_schedules ||
           []
 
+      alert_rules =
+        Map.get(attrs, :alert_rules) ||
+          Map.get(attrs, "alert_rules") ||
+          manifest_struct.alert_rules ||
+          []
+
       display_contracts =
         Map.get(attrs, :display_contracts) ||
           Map.get(attrs, "display_contracts") ||
@@ -451,6 +461,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         |> Map.put(:display_contracts, display_contracts)
         |> Map.put_new(:signal_schemas, signal_schemas)
         |> Map.put_new(:producer_schedules, producer_schedules)
+        |> Map.put_new(:alert_rules, alert_rules)
 
       PluginPackage
       |> Ash.Changeset.for_create(:create, attrs)
@@ -770,6 +781,29 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   end
 
   defp sync_northbound_actions(other, _mode), do: other
+
+  # Runs on the SAME transitions as the northbound action sync, and for the same
+  # reason: a staged package's manifest has not been read by anyone, so nothing
+  # it declares may reach the database until a human approves it.
+  #
+  # Rules are disabled rather than deleted on deny/revoke/restage. An operator
+  # may have tuned thresholds on them, and re-approving should not silently lose
+  # that work -- nor should a revoked plugin's rules keep firing.
+  defp sync_alert_rules({:ok, %PluginPackage{} = package}, :approved) do
+    case AlertRuleCatalog.sync_package(package) do
+      :ok -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp sync_alert_rules({:ok, %PluginPackage{} = package}, :disabled) do
+    case AlertRuleCatalog.disable_package_rules(package, []) do
+      :ok -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp sync_alert_rules(other, _mode), do: other
 
   defp disable_assignments_for_package(%PluginPackage{} = package, ash_opts) do
     PackageAssignmentLifecycle.disable_for_package(package, actor_opts(ash_opts))

@@ -71,6 +71,7 @@ defmodule ServiceRadar.Plugins.Manifest do
     :display_contract,
     :signal_schemas,
     :producer_schedules,
+    :alert_rules,
     :notifications,
     :integrations
   ]
@@ -92,6 +93,7 @@ defmodule ServiceRadar.Plugins.Manifest do
           display_contract: map(),
           signal_schemas: [map()],
           producer_schedules: [map()],
+          alert_rules: [map()],
           notifications: [map()],
           integrations: IntegrationDescriptor.descriptor()
         }
@@ -137,6 +139,26 @@ defmodule ServiceRadar.Plugins.Manifest do
   @allowed_producer_dispatch_scopes ["assignment", "package", "target_query"]
   @allowed_producer_command_types ["plugin.run_action", "addon.run_command"]
   @allowed_producer_schedule_types ["interval", "cron", "manual"]
+  # A plugin proposes rules; it never activates them. `enabled` is deliberately
+  # NOT accepted -- see AlertRuleCatalog for why a manifest must not be able to
+  # turn on something that pages people.
+  @allowed_alert_rule_signals ~w(metric log event)
+
+  @allowed_alert_rule_keys ~w(
+    name
+    description
+    signal
+    match
+    group_by
+    threshold
+    window_seconds
+    bucket_seconds
+    cooldown_seconds
+    renotify_seconds
+    event
+    alert
+  )
+
   @allowed_producer_schedule_keys ~w(
     id
     schedule_id
@@ -327,6 +349,8 @@ defmodule ServiceRadar.Plugins.Manifest do
     {producer_schedules, errors} =
       validate_producer_schedules(fetch(map, :producer_schedules), errors)
 
+    {alert_rules, errors} = validate_alert_rules(fetch(map, :alert_rules), errors)
+
     raw_notifications = fetch(map, :notifications)
     {notifications, errors} = validate_notifications(raw_notifications, errors)
     errors = validate_notify_capability_coherence(capabilities, raw_notifications, errors)
@@ -361,6 +385,7 @@ defmodule ServiceRadar.Plugins.Manifest do
          display_contract: display_contract,
          signal_schemas: signal_schemas,
          producer_schedules: producer_schedules,
+         alert_rules: alert_rules,
          notifications: notifications,
          integrations: integrations
        }}
@@ -1020,6 +1045,87 @@ defmodule ServiceRadar.Plugins.Manifest do
 
   defp validate_signal_schemas(_signal_schemas, errors),
     do: {[], ["signal_schemas must be a list" | errors]}
+
+  defp validate_alert_rules(nil, errors), do: {[], errors}
+
+  defp validate_alert_rules(rules, errors) when is_list(rules) do
+    rules
+    |> Enum.with_index(1)
+    |> Enum.reduce({[], errors}, fn {rule, index}, {acc, errors} ->
+      case validate_alert_rule(rule, index) do
+        {:ok, normalized} -> {[normalized | acc], errors}
+        {:error, rule_errors} -> {acc, rule_errors ++ errors}
+      end
+    end)
+    |> then(fn {rules, errors} -> {Enum.reverse(rules), errors} end)
+  end
+
+  defp validate_alert_rules(_rules, errors), do: {[], ["alert_rules must be a list" | errors]}
+
+  defp validate_alert_rule(rule, index) when is_map(rule) do
+    rule = normalize_map(rule) || %{}
+    errors = unknown_alert_rule_key_errors(rule, index)
+
+    {name, errors} =
+      case normalize_string(fetch(rule, :name)) do
+        value when is_binary(value) and value != "" -> {value, errors}
+        _ -> {nil, ["alert_rules[#{index}].name must be a non-empty string" | errors]}
+      end
+
+    signal = normalize_string(fetch(rule, :signal)) || "metric"
+
+    errors =
+      if signal in @allowed_alert_rule_signals do
+        errors
+      else
+        [
+          "alert_rules[#{index}].signal must be one of: #{Enum.join(@allowed_alert_rule_signals, ", ")}"
+          | errors
+        ]
+      end
+
+    # A rule whose match is empty matches EVERY record on its signal. That is
+    # not a plausible thing to ship deliberately, and it would fire on the first
+    # metric that arrived, so it is rejected rather than accepted and disabled.
+    match = fetch(rule, :match)
+
+    errors =
+      if is_map(match) and map_size(match) > 0 do
+        errors
+      else
+        ["alert_rules[#{index}].match must be a non-empty map" | errors]
+      end
+
+    group_by = fetch(rule, :group_by)
+
+    errors =
+      cond do
+        is_nil(group_by) ->
+          errors
+
+        is_list(group_by) and group_by != [] and Enum.all?(group_by, &is_binary/1) ->
+          errors
+
+        true ->
+          ["alert_rules[#{index}].group_by must be a non-empty list of strings" | errors]
+      end
+
+    if errors == [] do
+      {:ok, Map.put(rule, "name", name)}
+    else
+      {:error, errors}
+    end
+  end
+
+  defp validate_alert_rule(_rule, index), do: {:error, ["alert_rules[#{index}] must be a map"]}
+
+  defp unknown_alert_rule_key_errors(rule, index) do
+    rule
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 in @allowed_alert_rule_keys))
+    |> Enum.map(&"alert_rules[#{index}].#{&1} is not allowed")
+  end
 
   defp validate_producer_schedules(nil, errors), do: {[], errors}
 
