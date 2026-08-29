@@ -1,6 +1,6 @@
 id: opentext-network-automation-inventory
 name: OpenText Network Automation Inventory
-version: 0.1.0
+version: 0.1.1
 description: Collects bounded OpenText Network Automation device inventory for DIRE reconciliation
 entrypoint: run_check
 runtime: wasi-preview1
@@ -16,6 +16,15 @@ capabilities:
 permissions:
   allowed_domains:
     - "*"
+  # Domain wildcards never match literal-IP destinations; these ranges cover
+  # on-prem Network Automation instances addressed by private or carrier-grade
+  # NAT IP. Link-local (169.254.0.0/16) is excluded: no instance is
+  # deliberately addressed there.
+  allowed_networks:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "100.64.0.0/10"
   allowed_ports:
     - 443
 resources:

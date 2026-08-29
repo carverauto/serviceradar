@@ -1,6 +1,6 @@
 id: axis-camera-stream
 name: AXIS Camera Stream
-version: 0.1.0
+version: 0.1.1
 description: Reference AXIS camera streaming plugin path using the ServiceRadar media host bridge
 entrypoint: stream_camera
 runtime: wasi-preview1
@@ -17,6 +17,15 @@ capabilities:
 permissions:
   allowed_domains:
     - "*"
+  # Domain wildcards never match literal-IP destinations; these ranges cover
+  # cameras addressed by private or carrier-grade NAT IP. Link-local
+  # (169.254.0.0/16) is excluded: a camera that fell back to an APIPA address
+  # is not a deliberate destination.
+  allowed_networks:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "100.64.0.0/10"
   allowed_ports:
     - 80
     - 443

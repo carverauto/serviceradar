@@ -70,6 +70,13 @@ const (
 	httpsScheme = "https"
 )
 
+const (
+	pluginHTTPDeniedReasonCredentialPolicy = "credential_broker_grant_policy"
+	pluginHTTPDeniedReasonEgress           = "manifest_egress_policy"
+	pluginHTTPDeniedReasonEgressHost       = "manifest_egress_policy_host"
+	pluginHTTPDeniedReasonEgressPort       = "manifest_egress_policy_port"
+)
+
 var errPluginHTTPTooManyRedirects = errors.New("stopped after 10 redirects")
 
 // The insecure transport cache preserves connection reuse for the explicit
@@ -122,23 +129,29 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		payload.InsecureSkipVerify,
 	)
 	if err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method)
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
 		return pluginErrDenied
 	}
 	if !pluginHTTPRequestDestinationAllowed(&e.assignment.Permissions, reqURL) &&
 		!pluginHostAuthorityDestinationAllowed(&e.assignment.Permissions, reqURL, proxmoxBinding) {
+		e.logPluginHostHTTPDenied(
+			nil,
+			reqURL,
+			method,
+			pluginHTTPEgressDeniedReason(&e.assignment.Permissions, reqURL),
+		)
 		return pluginErrDenied
 	}
 
 	grant, err := e.credentialBrokerGrantForHTTP(method, reqURL, payload.CredentialInjection)
 	if err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method)
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
 		return pluginErrDenied
 	}
 
 	rewrittenBody, err := e.rewriteAWXCallbackCredentialBody(method, reqURL, pluginBody)
 	if err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method)
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
 		return pluginErrDenied
 	}
 	defer clear(rewrittenBody)
@@ -149,12 +162,12 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		rewrittenBody,
 	)
 	if err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method)
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
 		return pluginErrDenied
 	}
 	defer clear(authorizedBody)
 	if err := e.reserveCredentialBrokerMutation(grant, method); err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method)
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
 		return pluginErrDenied
 	}
 
@@ -183,17 +196,17 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		payload.InsecureSkipVerify,
 	)
 	if err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method)
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
 		return pluginErrDenied
 	}
 	if err := e.applyProxmoxHostAuthorityCredential(ctx, httpReq, proxmoxBinding); err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method)
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
 		return pluginErrDenied
 	}
 	hostCredentialBound = hostCredentialBound || proxmoxBinding != nil
 
 	if err := e.applyCredentialBrokerInjection(ctx, httpReq, grant, payload.InsecureSkipVerify); err != nil {
-		e.logPluginHostHTTPDenied(err, reqURL, method)
+		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
 		return pluginErrDenied
 	}
 
@@ -592,12 +605,14 @@ func (e *pluginExecution) logPluginHostHTTPFailure(err error, reqURL *url.URL, m
 		Msg("Plugin host HTTP request failed")
 }
 
-func (e *pluginExecution) logPluginHostHTTPDenied(err error, reqURL *url.URL, method string) {
-	if e == nil || e.manager == nil || err == nil || reqURL == nil {
+// A manifest egress denial carries no error, so reason is what tells the two
+// denial families apart and, for the egress policy, which half of it refused.
+func (e *pluginExecution) logPluginHostHTTPDenied(err error, reqURL *url.URL, method, reason string) {
+	if e == nil || e.manager == nil || reqURL == nil {
 		return
 	}
 
-	e.manager.logger.Warn().
+	event := e.manager.logger.Warn().
 		Err(err).
 		Str("assignment_id", e.assignment.AssignmentID).
 		Str("plugin_id", e.assignment.PluginID).
@@ -605,7 +620,32 @@ func (e *pluginExecution) logPluginHostHTTPDenied(err error, reqURL *url.URL, me
 		Str("scheme", reqURL.Scheme).
 		Str("host", reqURL.Hostname()).
 		Str("path", reqURL.EscapedPath()).
-		Msg("Plugin host HTTP request denied by credential broker grant policy")
+		Str("reason", reason)
+	if port, ok := pluginHTTPRequestPort(reqURL); ok {
+		event = event.Int("port", port)
+	}
+	event.Msg("Plugin host HTTP request denied")
+}
+
+// pluginHTTPEgressDeniedReason names which half of the manifest egress policy
+// refused the destination. A literal IP fails the host gate unless the manifest
+// declares allowed_networks; an allowed_domains wildcard never covers one.
+func pluginHTTPEgressDeniedReason(permissions *pluginPermissions, reqURL *url.URL) string {
+	if permissions == nil || reqURL == nil {
+		return pluginHTTPDeniedReasonEgress
+	}
+
+	port, ok := pluginHTTPRequestPort(reqURL)
+	if !ok {
+		// pluginHTTPRequestPort also reports !ok for a scheme it does not
+		// support, which is not a port-gate failure.
+		return pluginHTTPDeniedReasonEgress
+	}
+	if !permissions.allowsHTTPPort(port) {
+		return pluginHTTPDeniedReasonEgressPort
+	}
+
+	return pluginHTTPDeniedReasonEgressHost
 }
 
 func decodeBody(payload httpRequestPayload) ([]byte, error) {
