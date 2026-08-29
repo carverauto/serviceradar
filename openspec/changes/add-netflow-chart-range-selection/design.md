@@ -8,6 +8,8 @@ The current `netflow_bucket` event accepts any two parseable timestamps and patc
 
 All three requested cards are derived from the canonical Traffic Over Time buckets. That gives the server one authoritative interval sequence for client metadata and payload validation even though the renderers compute x coordinates differently. The implementation must also account for LiveView allowing only one hook per element and for the D3 renderer clearing and rebuilding SVG children during redraws.
 
+The initial implementation and two follow-up pointer fixes passed their fake-DOM suites but operators can still produce a first drag that highlights no usable range or requires an immediate retry. The symptom occurs on Lines/Grid and on the D3 charts, so renderer-specific brush behavior is not the common boundary. All six supported surfaces compose `ChartRangeSelectionController`; the remaining design work therefore belongs to the controller's browser lifecycle and to the adapters' readiness handoff.
+
 ## Goals / Non-Goals
 
 ### Goals
@@ -29,13 +31,15 @@ All three requested cards are derived from the canonical Traffic Over Time bucke
 
 ## Decisions
 
-### Decision 1: Factor the shared interaction into a composable controller
+### Decision 1: The stable chart root owns one controller lifecycle
 
-The existing `ChartRangeSelection` LiveView hook will remain the adapter used by server-owned charts, but its pointer, keyboard, overlay, click-suppression, and lifecycle state will be factored into a project-owned controller that can also be instantiated by an existing chart hook. The controller accepts resolved root, SVG, overlay, status, event callback, geometry callback, and ordered `{x, start, end}` buckets. It exposes update and destroy operations and a narrow way for a chart click handler to recognize the click immediately following a committed drag.
+`ChartRangeSelection`, `NetflowTrafficTooltip`, and `NetflowStackedAreaChart` will continue to compose one project-owned `ChartRangeSelectionController`. The stable hook root, rather than a renderer-owned SVG node, owns pointer-down, keyboard, and click-arbitration listeners for the controller's lifetime. SVG, overlay, status, plot geometry, and ordered `{x, start, end}` buckets are a replaceable binding supplied by the current renderer.
 
-`NetflowTrafficTooltip` and `NetflowStackedAreaChart` will compose this controller inside their existing hooks. This avoids illegal dual hooks on one element and keeps tooltip and D3 renderer ownership intact. The standalone `ChartRangeSelection` adapter and existing Events consumer will retain their current public data attributes and behavior.
+A binding becomes ready atomically only after all required nodes, valid buckets, geometry callbacks, and the event callback exist. Until then the root remains non-selectable and exposes `aria-disabled="true"`. The server SVG adapter refreshes the binding after each LiveView update; the D3 adapter refreshes it only after a complete draw. Neither adapter owns gesture state or adds a second range-selection hook.
 
-The controller will preserve an active gesture across a renderer redraw when the range root identity, event name, and canonical serialized interval identity are unchanged, even when the renderer replaces the SVG, overlay, or geometry nodes. A change to the root, event, or canonical intervals cancels transient ownership before rebinding. The final pointer-up displacement also participates in the six-pixel drag threshold so a coalesced fast drag can commit even if no qualifying pointer-move event arrived first. Those generic lifecycle corrections are a prerequisite bugfix under `add-chart-region-selection`; this proposal owns only the NetFlow consumer's lifecycle and click-arbitration outcomes.
+On an accepted in-plot pointer-down, the controller records the pointer identity, original client sample, anchor bucket, and semantic binding identity, and immediately installs stable document-level move/up/cancel tracking. Explicit pointer capture may remain threshold-gated so a sub-threshold protocol/application tap retains its native series target. Pointer-up displacement still participates in the six-pixel threshold, allowing a coalesced fast drag to commit when no qualifying pointer-move was delivered.
+
+Semantic identity is the stable root, event name, enabled state, and ordered canonical interval sequence. A compatible update may replace SVG, overlay, status, dimensions, x geometry, or other renderer-owned nodes while preserving the active pointer transaction; continuations use the latest geometry. A semantic identity change cancels the stale transaction, releases capture and document tracking, and emits nothing. Every accepted transaction has exactly one terminal outcome: commit once or cancel cleanly.
 
 ### Decision 2: The server supplies intervals and each renderer supplies x geometry
 
@@ -78,11 +82,13 @@ Pointer cancellation, capture loss, and Escape clear only transient range state.
 
 Each populated requested chart will expose a focusable range-selection surface, shared instructions, visible focus and selection feedback, and polite status text. Left/Right Arrow moves the active bucket, Shift plus Arrow extends or contracts from an anchor, Enter commits, and Escape clears the transient range. Pointer, touch, and keyboard paths emit the same validated event payload. Empty or invalid metadata leaves the surface non-selectable.
 
-### Decision 6: Test the interaction at controller, renderer, and LiveView boundaries
+### Decision 6: Test native browser routing as a required boundary
 
-Pure JavaScript tests will cover interval parsing, renderer-supplied geometry, pointer threshold behavior including coalesced pointer-up movement inside and outside the plot, click suppression, keyboard selection, redraw updates, and cleanup. The first-drag regression will prove that a redraw with unchanged range-root, event, and canonical-interval identities retains gesture ownership through pointer-up, while a real root, event, or interval identity change cancels it. Hook tests will cover both NetFlow renderers while protecting tooltips, legends, series clicks, and the existing device-detail brush mode.
+Pure JavaScript tests will continue to cover interval parsing, renderer-supplied geometry, pointer threshold behavior, click suppression, keyboard selection, semantic-binding cancellation, and cleanup. Adapter tests will protect tooltips, legends, series clicks, and the existing device-detail brush mode.
 
-Elixir tests will cover exact inclusive interval metadata, all four Traffic modes, both activity cards, valid and invalid payloads, current-bucket validation, non-time SRQL/URL state preservation while setting `view=explorer`, and the corrected single-bucket boundary. A browser pass will verify each requested card reaches Flow Explorer and that a first-attempt drag survives a qualifying renderer redraw before the Bazel and rollout gates run.
+Those tests are not sufficient for this regression: their manual fake nodes do not implement native bubbling, Pointer Event retargeting, SVG hit testing, layout, or capture loss when a node is removed. A Bazel Playwright acceptance target will load the production server-SVG and D3 hooks in real Chromium. Each table-driven case starts from a fresh page, presses inside the first bucket, forces a compatible SVG/overlay redraw before release, and releases through raw Chromium input without relying on an intervening in-plot move. The first attempt must emit exactly one range action. A second case establishes capture before redraw and verifies the same exactly-once outcome.
+
+Elixir tests will continue to cover exact inclusive interval metadata, all four Traffic modes, both activity cards, valid and invalid payloads, current-bucket validation, and URL state preservation. Deployed verification must exercise the first gesture immediately after mount and immediately after a renderer redraw on both renderer families, with an explicit failure branch and the exact running image digest.
 
 ## Alternatives Considered
 
@@ -101,19 +107,20 @@ Rejected because hook ordering would create an implicit data handoff between par
 ## Risks / Trade-offs
 
 - **D3 redraws can invalidate overlay nodes.** Skip redraws whose render fingerprint is unchanged; after a necessary redraw, supply the current overlay and bucket geometry to the long-lived controller.
+- **A chart can be visible before its current interaction binding is ready.** Keep the stable root disabled until the adapter publishes one complete binding, then enable it atomically.
 - **A drag can trigger an existing chart click.** Suppress only the immediate post-commit click; do not suppress sub-threshold gestures or later clicks.
 - **Different renderers use different x scales.** Require each renderer to provide its actual x positions while the server remains authoritative for time bounds.
 - **Inclusive SRQL can cross the next bucket boundary.** Subtract one microsecond from the exclusive bucket end for both ranges and one-bucket clicks.
 - **Client metadata and payloads can be tampered with or become stale.** Match both bounds against the current canonical server bucket sequence before patching.
-- **Shared-controller refactoring could regress Events.** Keep the standalone hook contract stable and run its complete existing test suite alongside the new consumers.
+- **Shared-controller refactoring could regress Events.** Keep the standalone hook contract stable and run its complete existing test suite alongside both renderer adapters and the real-browser gate.
 
 ## Migration Plan
 
-1. Land the shared first-drag lifecycle and final-pointer threshold correction, then archive the completed `add-chart-region-selection` prerequisite.
-2. Extract the composable controller without changing the archived generic contract, with existing Events behavior protected by tests.
-3. Add the NetFlow interval/validation helper and failing LiveView/component tests.
-4. Integrate Lines/Grid, then the D3 temporal/activity charts with focused JavaScript tests.
-5. Run browser, Bazel, and repository gates before producing one immutable build for farm01 and CarverAuto demo.
+1. Capture the failing browser lifecycle at the shared controller boundary and add the real-Chromium regression before changing production behavior.
+2. Move pointer-start ownership to the stable root and make renderer bindings atomic, preserving the standalone Events adapter contract.
+3. Protect server-SVG, D3, ordinary click, keyboard, touch-scroll, redraw, and teardown behavior with focused tests.
+4. Run the Chromium, asset, Elixir, Bazel, and repository gates.
+5. Produce one immutable Bazel build, roll it to farm01 and CarverAuto demo, and verify first-attempt behavior against the exact digest before completing the remaining tasks.
 
 Rollback removes the NetFlow opt-in/controller composition and restores the previous one-bucket and series-click surfaces. It requires no data or schema rollback.
 

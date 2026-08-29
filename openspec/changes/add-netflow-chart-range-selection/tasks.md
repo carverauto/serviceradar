@@ -38,4 +38,15 @@
 - [x] 5.6 Sign the required CarverAuto digest(s), advance the guarded Argo demo source, and verify `Synced|Healthy|Succeeded`, exact running digests, and all three cards navigate to Flow Explorer for committed ranges without fresh web errors.
 - [x] 5.7 Add regression coverage for a visible first-drag selection whose pointer release lands just outside the plot, commit the last successfully rendered endpoint, and rerun the focused chart suite, complete asset suite, targeted lint, and repository Bazel test gate.
 - [x] 5.8 Roll the follow-up immutable digest to farm01 and CarverAuto demo, verify both clusters are healthy on that exact digest with clean steady-state logs, and confirm a first-attempt drag released below the plot opens Flow Explorer on all three NetFlow cards.
-- [ ] 5.9 Reproduce the remaining coalesced first-drag failure where no in-plot move is sampled, keep range starts strict while projecting active-gesture endpoints onto the plot, run focused/full JavaScript and Bazel gates, and roll plus verify the corrected immutable digest on farm01 and CarverAuto demo.
+- [ ] 5.9 Complete the renderer-agnostic first-drag lifecycle work in section 6, then reconcile the browser and rollout evidence before archiving this change.
+
+## 6. Renderer-Agnostic First-Drag Lifecycle
+
+- [ ] 6.1 Capture a failing first-attempt trace at the shared boundary for the server-rendered SVG adapter and the D3 adapter, including pointer target/current target, pointer ID, capture owner, adapter update/redraw, emitted action, and follow-up click.
+- [ ] 6.2 Add a Bazel Playwright acceptance harness that uses the production hooks in real Chromium and fails when a compatible SVG/overlay redraw between pointer-down and pointer-up prevents the first attempt from emitting exactly once.
+- [ ] 6.3 Add failing controller and adapter tests for stable-root pointer ownership, atomic readiness, coalesced pointer-up, compatible node replacement, outside-node completion, semantic-binding cancellation, bounded click suppression, and listener cleanup.
+- [ ] 6.4 Implement the confirmed fix in `ChartRangeSelectionController`; keep `ChartRangeSelection`, `NetflowTrafficTooltip`, and `NetflowStackedAreaChart` limited to supplying current nodes, geometry, semantic identity, and event emission.
+- [ ] 6.5 Protect sub-threshold one-bucket and series clicks, tooltips, legends, keyboard input, touch scrolling, the Events consumer, and the device-detail D3 brush path with focused regressions.
+- [ ] 6.6 Run focused and complete asset tests, targeted lint and format checks, the real-Chromium target, `bazel test -c opt --config=remote //elixir/web-ng:unit_tests`, `make lint`, and `make test`.
+- [ ] 6.7 Build and push immutable images with Bazel only, roll the exact tag to farm01 and CarverAuto demo, and verify the first gesture immediately after mount and after redraw on SVG and D3 charts with explicit failure branches and exact running digests.
+- [ ] 6.8 Complete tasks 5.3 and 5.9 only after deployed-artifact verification, then archive the OpenSpec change separately.
