@@ -1876,6 +1876,36 @@ if config_env() == :prod do
       |> maybe_put_mailer_credential.(:password, smtp_relay_password)
     end
 
+  # OTP 26+ client TLS defaults to verify_peer. Without cacerts, SSL/STARTTLS
+  # SMTP to the platform relay fails while plain network probes still succeed.
+  mailer_config =
+    if mailer_adapter != Local and not is_nil(smtp_relay_host) and
+         (smtp_relay_ssl or smtp_relay_tls != :never) do
+      smtp_tls_server_name =
+        System.get_env("SMTP_RELAY_TLS_SERVER_NAME") || smtp_relay_host || host
+
+      smtp_cacerts =
+        CAStore.file_path()
+        |> File.read!()
+        |> :public_key.pem_decode()
+        |> Enum.map(fn {_type, der, _encryption} -> der end)
+
+      security_opts = [
+        verify: :verify_peer,
+        depth: 5,
+        cacerts: smtp_cacerts,
+        server_name_indication: String.to_charlist(smtp_tls_server_name),
+        customize_hostname_check: [
+          match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
+        ]
+      ]
+
+      security_key = if smtp_relay_ssl, do: :sockopts, else: :tls_options
+      Keyword.put(mailer_config, security_key, security_opts)
+    else
+      mailer_config
+    end
+
   config :serviceradar_core, ServiceRadar.Mailer, mailer_config
 
   config :serviceradar_web_ng, ServiceRadarWebNG.Mailer, mailer_config
