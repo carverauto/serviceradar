@@ -20,7 +20,7 @@ use metrics::{
     run_prometheus_server,
 };
 use netflow_parser::TemplateStore;
-use publisher::{OutboundFlow, Publisher};
+use publisher::{OutboundFlow, Publisher, ready_marker_path};
 use std::sync::Arc;
 use std::sync::Once;
 use std::time::{Duration, Instant};
@@ -35,6 +35,12 @@ struct Args {
     /// Path to configuration file
     #[arg(short, long, default_value = "flow-collector.json")]
     config: String,
+
+    /// Ensure the JetStream stream (including any pending events->flows
+    /// cutover) and exit. Used by the Helm bootstrap Job; no listeners are
+    /// started and no UDP ports are bound.
+    #[arg(long, default_value_t = false)]
+    bootstrap_stream: bool,
 }
 
 #[tokio::main]
@@ -66,6 +72,13 @@ async fn main() -> Result<()> {
             listener_cfg.subject(),
             listener_cfg.channel_size(config.channel_size)
         );
+    }
+
+    if args.bootstrap_stream {
+        log::info!("Running in bootstrap-stream mode (no listeners will start)");
+        Publisher::bootstrap_stream(Arc::clone(&config)).await?;
+        log::info!("Bootstrap finished; exiting");
+        return Ok(());
     }
 
     let host_slice_router = Arc::new(HostSliceRouter::from_config(&config));
@@ -192,11 +205,15 @@ async fn main() -> Result<()> {
 
     // Spawn the Prometheus exposition server if metrics_addr is set.
     // Lives independently of the publisher so a scrape failure can never
-    // backpressure flow ingestion.
+    // backpressure flow ingestion. Its /readyz handler reads the same
+    // marker path the publisher's mark_publisher_ready/clear_publisher_ready
+    // write, so the Helm readinessProbe reflects true publisher readiness
+    // rather than just "the metrics HTTP server has bound its socket".
     if let Some(addr) = config.metrics_addr.clone() {
         let prom_metrics = all_metrics.clone();
+        let ready_path = ready_marker_path(&config);
         tokio::spawn(async move {
-            if let Err(e) = run_prometheus_server(addr, prom_metrics).await {
+            if let Err(e) = run_prometheus_server(addr, prom_metrics, ready_path).await {
                 log::error!("Prometheus metrics server error: {}", e);
             }
         });
@@ -331,4 +348,34 @@ async fn bootstrap_template_store(
         config.clone(),
         cfg.clone(),
     )?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Helm bootstrap Job reaches `Publisher::bootstrap_stream` (and
+    /// skips every listener/UDP-socket setup below it in `main()`) only
+    /// through this flag. `bootstrap_stream` itself needs a live NATS server
+    /// to exercise end to end, but clap's parsing of the flag that gates it
+    /// is a real, unit-testable property: if `--bootstrap-stream` were
+    /// renamed, its destination field renamed out of step, or its default
+    /// flipped, the Job would silently fall through to starting listeners
+    /// instead of ensuring the stream and exiting.
+    #[test]
+    fn bootstrap_stream_flag_parses_to_true() {
+        let args = Args::parse_from([
+            "flow-collector",
+            "--config",
+            "/etc/serviceradar/flow-collector.json",
+            "--bootstrap-stream",
+        ]);
+        assert!(args.bootstrap_stream);
+    }
+
+    #[test]
+    fn bootstrap_stream_defaults_to_false_without_the_flag() {
+        let args = Args::parse_from(["flow-collector", "--config", "flow-collector.json"]);
+        assert!(!args.bootstrap_stream);
+    }
 }

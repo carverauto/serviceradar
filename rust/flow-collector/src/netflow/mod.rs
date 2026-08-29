@@ -108,6 +108,7 @@ impl NetflowHandler {
         pending_flows: Option<&PendingFlowsCacheConfig>,
         default_sampling_rate: Option<u64>,
         sampling_rate_overrides: HashMap<IpAddr, u64>,
+        max_sources: Option<usize>,
         template_store: Option<Arc<dyn TemplateStore>>,
         metrics: Arc<ListenerMetrics>,
     ) -> Self {
@@ -135,6 +136,13 @@ impl NetflowHandler {
 
         let parser =
             AutoScopedParser::try_with_builder(builder).expect("failed to build netflow parser");
+        let parser = if let Some(max) = max_sources {
+            parser
+                .with_max_sources(max)
+                .expect("max_sources must be non-zero")
+        } else {
+            parser
+        };
         let parser = Arc::new(Mutex::new(parser));
 
         // Spawn a background ticker that aggregates per-source CacheMetrics
@@ -407,6 +415,55 @@ fn apply_snapshot(
 mod tests {
     use super::*;
     use crate::metrics::ListenerMetrics;
+
+    /// Proves the configured `max_sources` value actually reaches
+    /// `AutoScopedParser::with_max_sources` through `NetflowHandler::new`,
+    /// not just that `ListenerConfig::Netflow.max_sources` deserializes
+    /// (config.rs already covers that half). `AutoScopedParser`'s default
+    /// cap is 10_000 (`netflow_parser::scoped_parser::DEFAULT_MAX_SOURCES`),
+    /// so if the constructor ever stopped threading `max_sources` through,
+    /// a second exporter would grow `source_count()` to 2 instead of
+    /// tripping LRU eviction back down to 1 -- this test would then fail.
+    #[test]
+    fn max_sources_config_reaches_the_parser_and_evicts_lru() {
+        let metrics = Arc::new(ListenerMetrics::new("netflow", "0.0.0.0:2055".into()));
+        let handler = NetflowHandler::new(
+            /* max_templates */ 128,
+            /* pending_flows */ None,
+            /* default_sampling_rate */ None,
+            /* sampling_rate_overrides */ HashMap::new(),
+            /* max_sources */ Some(1),
+            /* template_store */ None,
+            Arc::clone(&metrics),
+        );
+
+        // Minimal NetFlow v5 header: version=5, everything else zero. Enough
+        // for AutoScopedParser::extract_scoping_info to register a Legacy
+        // (v5/v7) source -- registration happens before the payload is
+        // actually decoded, so this doesn't need a fully valid v5 body.
+        let mut v5 = vec![0u8; 24];
+        v5[0] = 0x00;
+        v5[1] = 0x05;
+
+        let source_a: SocketAddr = "10.0.0.1:2055".parse().unwrap();
+        let source_b: SocketAddr = "10.0.0.2:2055".parse().unwrap();
+
+        handler.parse_datagram(&v5, v5.len(), source_a);
+        assert_eq!(
+            handler.parser.lock().unwrap().source_count(),
+            1,
+            "first exporter should register"
+        );
+
+        // A distinct second exporter must evict the first rather than being
+        // allowed to grow the table past the configured cap.
+        handler.parse_datagram(&v5, v5.len(), source_b);
+        assert_eq!(
+            handler.parser.lock().unwrap().source_count(),
+            1,
+            "max_sources=1 did not reach AutoScopedParser: source table grew instead of evicting"
+        );
+    }
 
     #[test]
     fn detects_sflow_v5_datagram_header() {

@@ -173,6 +173,14 @@ pub enum ListenerConfig {
         /// These override `default_sampling_rate`.
         #[serde(default)]
         sampling_rate_overrides: HashMap<IpAddr, u64>,
+        /// Maximum distinct exporters tracked by the parser for this listener.
+        ///
+        /// `netflow_parser` defaults to 10,000 and *evicts* past that (LRU),
+        /// which silently degrades a fleet larger than the cap into constant
+        /// eviction churn. Leaving this unset keeps the library default.
+        /// Raising it costs memory proportional to the number of exporters.
+        #[serde(default)]
+        max_sources: Option<usize>,
     },
 }
 
@@ -1074,5 +1082,45 @@ mod tests {
         }"#;
         let cfg: Config = serde_json::from_str(json).expect("deserialize");
         assert!(cfg.template_store.is_none());
+    }
+
+    #[test]
+    fn netflow_listener_accepts_max_sources() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "flows",
+            "listeners": [{
+                "protocol": "netflow",
+                "listen_addr": "0.0.0.0:2055",
+                "subject": "flows.raw.netflow",
+                "max_sources": 25000
+            }]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).expect("config should parse");
+        match &cfg.listeners[0] {
+            ListenerConfig::Netflow { max_sources, .. } => {
+                assert_eq!(*max_sources, Some(25_000));
+            }
+            other => panic!("expected netflow listener, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn netflow_max_sources_defaults_to_none() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "flows",
+            "listeners": [{
+                "protocol": "netflow",
+                "listen_addr": "0.0.0.0:2055",
+                "subject": "flows.raw.netflow"
+            }]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).expect("config should parse");
+        match &cfg.listeners[0] {
+            // None means "leave the library default of 10_000 alone".
+            ListenerConfig::Netflow { max_sources, .. } => assert_eq!(*max_sources, None),
+            other => panic!("expected netflow listener, got {other:?}"),
+        }
     }
 }

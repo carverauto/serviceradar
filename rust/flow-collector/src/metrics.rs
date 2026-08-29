@@ -3,6 +3,7 @@ use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -446,8 +447,17 @@ const READ_TIMEOUT: Duration = Duration::from_secs(3);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Spawn a tiny HTTP server on `addr` that serves the Prometheus
-/// exposition at `GET /metrics`. Any other path returns 404. Hand-rolled
-/// HTTP/1.1 to avoid pulling axum/hyper in for one endpoint.
+/// exposition at `GET /metrics` and publisher readiness at `GET /readyz`.
+/// Any other path returns 404. Hand-rolled HTTP/1.1 to avoid pulling
+/// axum/hyper in for two endpoints.
+///
+/// `/readyz` is deliberately NOT the same signal as "this server is
+/// answering": it reports `200` only while `ready_path` exists on disk
+/// (the same file `Publisher::mark_publisher_ready`/`clear_publisher_ready`
+/// write), and `503` otherwise. The HTTP server itself binds independently
+/// of the publisher (see `main.rs`), so `/metrics` alone would report a pod
+/// Ready before it has ever connected to NATS -- this is what the Helm
+/// readinessProbe checks instead.
 ///
 /// Defensive measures:
 /// * Per-connection read/write timeouts (see [`READ_TIMEOUT`],
@@ -462,6 +472,7 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 pub async fn run_prometheus_server(
     addr: String,
     listeners: Vec<Arc<ListenerMetrics>>,
+    ready_path: PathBuf,
 ) -> Result<()> {
     let socket = TcpListener::bind(&addr)
         .await
@@ -498,11 +509,12 @@ pub async fn run_prometheus_server(
         };
 
         let listeners = listeners.clone();
+        let ready_path = ready_path.clone();
         tokio::spawn(async move {
             // Permit is held for the lifetime of this task and released on
             // drop, regardless of how serve_one exits.
             let _permit = permit;
-            if let Err(e) = serve_one(conn, &listeners).await {
+            if let Err(e) = serve_one(conn, &listeners, &ready_path).await {
                 warn!("metrics conn from {} error: {}", peer, e);
             }
         });
@@ -512,6 +524,7 @@ pub async fn run_prometheus_server(
 async fn serve_one(
     conn: tokio::net::TcpStream,
     listeners: &[Arc<ListenerMetrics>],
+    ready_path: &Path,
 ) -> io::Result<()> {
     let (read_half, mut write_half) = conn.into_split();
     // `take` caps how many bytes the BufReader can pull from the socket.
@@ -555,7 +568,17 @@ async fn serve_one(
     }
 
     let path = request_line.split_whitespace().nth(1).unwrap_or("/");
-    let (status, body) = if path.starts_with("/metrics") {
+    let (status, body) = if path.starts_with("/readyz") {
+        // Same file Publisher::mark_publisher_ready/clear_publisher_ready
+        // write on the connect/disconnect path -- this is what makes the
+        // probe reflect true publisher readiness rather than just "the
+        // metrics HTTP server has bound its socket".
+        if ready_path.exists() {
+            ("200 OK", "ready\n".to_string())
+        } else {
+            ("503 Service Unavailable", "not ready\n".to_string())
+        }
+    } else if path.starts_with("/metrics") {
         ("200 OK", render_prometheus(listeners))
     } else {
         debug!("metrics server returning 404 for path {:?}", path);
@@ -666,8 +689,10 @@ mod tests {
         let addr = socket.local_addr().unwrap();
         drop(socket);
         let addr_str = addr.to_string();
+        // These tests never touch /readyz; a path that never exists is fine.
+        let ready_path = std::env::temp_dir().join("flow-collector-metrics-test-unused-ready");
         tokio::spawn(async move {
-            let _ = run_prometheus_server(addr_str, listeners).await;
+            let _ = run_prometheus_server(addr_str, listeners, ready_path).await;
         });
         // Tiny delay for the server's bind to land before tests connect.
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -756,8 +781,11 @@ mod tests {
         drop(socket);
         let listeners_for_server = listeners.clone();
         let addr_str = addr.to_string();
+        // This test only exercises /metrics and 404; /readyz has its own
+        // dedicated test below.
+        let ready_path = std::env::temp_dir().join("flow-collector-metrics-test-unused-ready");
         tokio::spawn(async move {
-            let _ = run_prometheus_server(addr_str, listeners_for_server).await;
+            let _ = run_prometheus_server(addr_str, listeners_for_server, ready_path).await;
         });
         // Tiny delay for the server to start listening.
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -800,6 +828,67 @@ mod tests {
             "split-read resp={resp}"
         );
         assert!(resp.contains("flow_collector_packets_received_total"));
+    }
+
+    /// `/readyz` must track the *marker file*, not just "the metrics server
+    /// has bound its socket" -- that distinction is the whole point of the
+    /// endpoint (see `run_prometheus_server` docs): a pod that has bound
+    /// its metrics port but not yet connected to NATS must read 503, and
+    /// only flip to 200 once `Publisher::mark_publisher_ready`'s marker
+    /// file actually exists.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn http_server_readyz_tracks_marker_file_not_socket_bind() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let ready_path = std::env::temp_dir().join(format!("flow-collector-readyz-test-{nanos}"));
+        // Guarantee a clean slate even if a previous run of this test
+        // process crashed before cleanup.
+        let _ = std::fs::remove_file(&ready_path);
+
+        let listeners: Vec<Arc<ListenerMetrics>> = vec![];
+        let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap();
+        drop(socket);
+        let addr_str = addr.to_string();
+        let ready_path_for_server = ready_path.clone();
+        tokio::spawn(async move {
+            let _ = run_prometheus_server(addr_str, listeners, ready_path_for_server).await;
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        async fn get_readyz(addr: std::net::SocketAddr) -> String {
+            let mut s = TcpStream::connect(addr).await.unwrap();
+            s.write_all(b"GET /readyz HTTP/1.1\r\nHost: x\r\n\r\n")
+                .await
+                .unwrap();
+            let mut resp = String::new();
+            s.read_to_string(&mut resp).await.unwrap();
+            resp
+        }
+
+        // Marker absent: not ready.
+        let resp = get_readyz(addr).await;
+        assert!(
+            resp.starts_with("HTTP/1.1 503 Service Unavailable"),
+            "resp={resp}"
+        );
+
+        // Marker created (mirrors Publisher::mark_publisher_ready): ready.
+        std::fs::write(&ready_path, b"ready\n").unwrap();
+        let resp = get_readyz(addr).await;
+        assert!(resp.starts_with("HTTP/1.1 200 OK"), "resp={resp}");
+
+        // Marker removed (mirrors Publisher::clear_publisher_ready): not
+        // ready again -- the socket never stopped listening, proving this
+        // is not just "the server is up".
+        std::fs::remove_file(&ready_path).unwrap();
+        let resp = get_readyz(addr).await;
+        assert!(
+            resp.starts_with("HTTP/1.1 503 Service Unavailable"),
+            "resp={resp}"
+        );
     }
 
     #[test]

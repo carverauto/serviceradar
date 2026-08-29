@@ -35,15 +35,6 @@ filegroup(
     ],
 )
 
-py_test(
-    name = "flow_collector_strategy_migration_test",
-    srcs = ["flow_collector_strategy_migration_test.py"],
-    data = [
-        "templates/flow-collector.yaml",
-        "templates/flow-collector-strategy-migration-job.yaml",
-    ],
-)
-
 # Keeps core.migrations.expectedVersion in step with the migrations the repo
 # actually ships. The value is what the `wait-migrations` init container compares
 # the database's high-water mark against, so a stale value silently restores the

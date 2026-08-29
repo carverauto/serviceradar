@@ -22,22 +22,32 @@ The flow collector runs as a single-replica Kubernetes `Deployment` behind a
               NATS JetStream
 ```
 
-### Why single-replica today
+### Capacity model
 
-The collector is not merely a UDP parser. On startup its publisher runs
-`ensure_owned_stream`, which creates or updates the JetStream stream and
-reconciles the owned subject list from durable on-disk markers
-(`rehome_state_path` plus an ownership inventory, both on a `ReadWriteOnce`
-PVC). That is a cluster-singleton control-plane operation with no leader
-election, which is also why the chart pins `strategy: Recreate` -- a rolling
-update would put two publishers live at once during a subject rehome.
+The events->flows cutover no longer runs in the pod. A `pre-install,pre-upgrade`
+Helm hook Job (`serviceradar-flow-collector-bootstrap`) is the single writer of
+stream ownership: it runs `--bootstrap-stream` to completion, including any
+pending cutover, before any collector pod starts. Because that write is
+settled ahead of time, every pod derives its subject list from config alone,
+so concurrent stream ensures converge instead of racing -- which is what makes
+the pods stateless and lets the Deployment run `strategy: RollingUpdate` with
+more than one replica.
 
-Running more than one replica today would mean concurrent stream
-create/update calls racing on divergent subject views. **Raising
-`flowCollector.replicaCount` above 1 is therefore not supported yet.** Making
-stream ownership singleton-safe (leader election, or moving the bootstrap into
-a pre-install hook) is the prerequisite for horizontal scale, tracked
-separately.
+Exporters distribute across replicas by whatever the Service's load-balancing
+mode gives you -- typically an ECMP hash at the network layer plus
+`ClientIP` session affinity at the Service layer. That distribution is uneven
+by construction: a handful of high-volume exporters can land on the same pod
+while others sit mostly idle. Size `replicaCount` for headroom against that
+imbalance, not for an exact per-pod exporter or source count.
+
+Each pod is still limited to **one** Tokio worker under the default `0.5`
+CPU `resources.limits.cpu` quota (measured: `nproc` reports 8 inside the
+container, but the cgroup quota caps the runtime to a single worker thread),
+so per-pod parse throughput is single-threaded regardless of node size.
+Raising the CPU limit (more work per pod) and raising `replicaCount` (more
+pods) are two different levers -- use the CPU limit to buy per-pod headroom
+against a single busy exporter, and `replicaCount` to buy aggregate capacity
+and spread across the uneven exporter distribution above.
 
 ### What the template store changes
 
@@ -71,6 +81,7 @@ in `flow-collector.json`.
 | `template_store.kv_ttl_secs` | `0` (forever) | Auto-expire stale entries | Set to `86400` (24h) if exporters churn frequently and you do not want orphan entries |
 | `template_store.nats_url` | inherits `nats_url` | Override NATS endpoint for template state only | Split-fault-domain setups where template state lives on a different cluster |
 | `listeners[].max_templates` | `2000` | Per-source LRU cache size | Increase if a single exporter announces >2000 templates (rare) |
+| `listeners[].max_sources` | library default `10000` | Distinct exporters tracked per listener; evicts (LRU) past the cap | Raise when `flow_collector_sources` approaches it |
 | `channel_size` | `10000` | Backpressure buffer to publisher | Raise if `flow_collector_flows_dropped_total` rises under burst |
 | `batch_size` | `100` | NATS publish batch | Mostly fine; raise for higher throughput at the cost of per-message latency |
 | `publish_timeout_ms` | `5000` | NATS ack timeout | Lower if you want fast-fail on NATS hiccups |

@@ -758,3 +758,20 @@ spends no extra WAL disk at all, keeping PostgreSQL's own default.
 {{- if gt $minWalMB 1024 -}}{{- $minWalMB = int64 1024 -}}{{- end -}}
 {{- dict "maxSlotWalKeepSize" (printf "%dGB" $cap) "maxWalSize" (printf "%dGB" $maxWalGiB) "minWalSize" (printf "%dMB" $minWalMB) "maxWalGiB" $maxWalGiB | toJson -}}
 {{- end -}}
+
+{{/*
+serviceradar.flowCollectorConfigJSON -- the flow-collector.json body shared by
+the ordinary ConfigMap (flow-collector.yaml, mounted by the Deployment) and
+the hook-scoped bootstrap ConfigMap (flow-collector-bootstrap-configmap.yaml,
+mounted by the pre-install/pre-upgrade bootstrap Job). One source of truth so
+the two can never drift: the Job must see exactly the config the Deployment
+will see, including ready_state_path/rehome_state_path.
+*/}}
+{{- define "serviceradar.flowCollectorConfigJSON" -}}
+{{- $readyPath := .Values.flowCollector.readyPath | default "/var/lib/serviceradar/flow-collector.ready" -}}
+{{- $cfg := deepCopy (default (dict) .Values.flowCollector.config) -}}
+{{- $rehomePath := index $cfg "rehome_state_path" | default "/var/lib/serviceradar/flow-collector-rehome.json" -}}
+{{- $_ := set $cfg "ready_state_path" $readyPath -}}
+{{- $_ := set $cfg "rehome_state_path" $rehomePath -}}
+{{- toJson $cfg -}}
+{{- end -}}

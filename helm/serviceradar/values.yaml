@@ -1704,6 +1704,10 @@ flowCollector:
       - protocol: "netflow"
         listen_addr: "0.0.0.0:2055"
         subject: "flows.raw.netflow"
+        # Distinct exporters this listener tracks. netflow_parser defaults to
+        # 10000 and evicts past it, so a larger fleet thrashes. Unset = library
+        # default. Watch flow_collector_sources against this number.
+        max_sources: 10000
     security:
       mode: "mtls"
       cert_dir: "/etc/serviceradar/certs"

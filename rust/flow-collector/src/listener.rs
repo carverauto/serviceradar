@@ -230,12 +230,14 @@ pub fn build_handler(
             pending_flows,
             default_sampling_rate,
             sampling_rate_overrides,
+            max_sources,
             ..
         } => Box::new(NetflowHandler::new(
             *max_templates,
             pending_flows.as_ref(),
             *default_sampling_rate,
             sampling_rate_overrides.clone(),
+            *max_sources,
             template_store,
             metrics,
         )),
