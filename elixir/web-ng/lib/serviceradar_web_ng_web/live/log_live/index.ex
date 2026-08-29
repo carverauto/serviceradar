@@ -3078,7 +3078,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       data-chart-width="1000"
       data-chart-height="160"
       role="group"
-      tabindex="0"
+      aria-disabled="true"
       aria-label="Select a Traffic Over Time range"
       aria-describedby="netflow-traffic-range-instructions"
       class="w-full relative touch-pan-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sr-brand/70"
@@ -3280,7 +3280,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         data-range-intervals={@range_event && Jason.encode!(@range_intervals)}
         data-range-event={@range_event}
         role={@range_event && "group"}
-        tabindex={@range_event && "0"}
+        aria-disabled={@range_event && "true"}
         aria-label={@range_event && @range_accessible_name}
         aria-describedby={@range_event && "#{@id}-range-instructions"}
       >

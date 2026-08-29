@@ -16,7 +16,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
     assert LazyHTML.attribute(selector, "phx-hook") == ["NetflowTrafficTooltip"]
     assert LazyHTML.attribute(selector, "data-range-event") == ["netflow_range_selected"]
     assert LazyHTML.attribute(selector, "role") == ["group"]
-    assert LazyHTML.attribute(selector, "tabindex") == ["0"]
+    assert LazyHTML.attribute(selector, "aria-disabled") == ["true"]
+    assert LazyHTML.attribute(selector, "tabindex") == []
     assert LazyHTML.attribute(selector, "aria-describedby") == ["netflow-traffic-range-instructions"]
     assert selector |> LazyHTML.attribute("class") |> Enum.any?(&String.contains?(&1, "touch-pan-y"))
     assert one?(LazyHTML.query(selector, "#netflow-traffic-range-instructions"))
@@ -171,7 +172,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
            ]
 
     assert LazyHTML.attribute(selector, "role") == ["group"]
-    assert LazyHTML.attribute(selector, "tabindex") == ["0"]
+    assert LazyHTML.attribute(selector, "aria-disabled") == ["true"]
+    assert LazyHTML.attribute(selector, "tabindex") == []
     assert LazyHTML.attribute(selector, "aria-describedby") == ["netflow-top-stacked-range-instructions"]
     assert one?(LazyHTML.query(selector, "#netflow-top-stacked-range-instructions"))
     assert one?(LazyHTML.query(selector, "[data-range-status][aria-live='polite']"))
@@ -253,7 +255,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
         assert LazyHTML.attribute(selector, "data-range-event") == ["netflow_range_selected"]
         assert decode_attribute(selector, "data-range-intervals") == canonical_intervals_json()
         assert LazyHTML.attribute(selector, "role") == ["group"]
-        assert LazyHTML.attribute(selector, "tabindex") == ["0"]
+        assert LazyHTML.attribute(selector, "aria-disabled") == ["true"]
+        assert LazyHTML.attribute(selector, "tabindex") == []
         assert one?(LazyHTML.query(selector, "[data-range-status][aria-live='polite']"))
       end
     end
@@ -325,7 +328,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
       assert one?(LazyHTML.query(document, "[phx-hook='NetflowStackedAreaChart']"))
       assert one?(LazyHTML.query(document, "[data-range-event='netflow_range_selected']"))
       assert one?(LazyHTML.query(document, "[data-range-intervals]"))
-      assert one?(LazyHTML.query(document, "[tabindex='0']"))
+      assert one?(LazyHTML.query(document, "[aria-disabled='true']"))
+      assert Enum.empty?(LazyHTML.query(document, "[tabindex='0']"))
       assert one?(LazyHTML.query(document, "[role='group']"))
       assert one?(LazyHTML.query(document, "[data-range-status]"))
     end
@@ -371,7 +375,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
     assert decode_attribute(selector, "data-keys") == expected.keys
     assert decode_attribute(selector, "data-colors") == expected.colors
     assert LazyHTML.attribute(selector, "role") == ["group"]
-    assert LazyHTML.attribute(selector, "tabindex") == ["0"]
+    assert LazyHTML.attribute(selector, "aria-disabled") == ["true"]
+    assert LazyHTML.attribute(selector, "tabindex") == []
     assert LazyHTML.attribute(selector, "aria-label") == [expected.accessible_name]
 
     assert LazyHTML.attribute(selector, "aria-describedby") == [

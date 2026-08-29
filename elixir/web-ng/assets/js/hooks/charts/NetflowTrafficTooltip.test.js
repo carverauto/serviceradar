@@ -113,11 +113,11 @@ function click() {
   return {preventDefault: vi.fn(), stopImmediatePropagation: vi.fn(), type: "click"}
 }
 
-function chart() {
-  const svg = new FakeNode({viewBox: "0 0 1000 160"})
-  const overlay = new FakeNode()
+function chart({complete = true} = {}) {
+  let svg = new FakeNode({viewBox: "0 0 1000 160"})
+  let overlay = new FakeNode()
   overlay.classList.add("hidden")
-  const status = new FakeNode()
+  let status = new FakeNode()
   const root = new FakeNode()
   svg.parentElement = root
   root.dataset = {
@@ -131,6 +131,7 @@ function chart() {
     rangeEvent: "netflow_range_selected",
   }
   root.querySelector = (selector) => {
+    if (!complete) return null
     if (selector === "[data-range-svg]" || selector === "svg") return svg
     if (selector === "[data-range-overlay]") return overlay
     if (selector === "[data-range-status]") return status
@@ -139,11 +140,33 @@ function chart() {
     }
     return null
   }
-  return {overlay, root, status, svg}
+  return {
+    enableRangeBinding() {
+      complete = true
+    },
+    replaceRangeBinding() {
+      svg = new FakeNode({viewBox: "0 0 1000 160"})
+      overlay = new FakeNode()
+      overlay.classList.add("hidden")
+      status = new FakeNode()
+      svg.parentElement = root
+      return {overlay, status, svg}
+    },
+    get overlay() {
+      return overlay
+    },
+    root,
+    get status() {
+      return status
+    },
+    get svg() {
+      return svg
+    },
+  }
 }
 
-function mount() {
-  const nodes = chart()
+function mount(options = {}) {
+  const nodes = chart(options)
   const pushEvent = vi.fn()
   const ctx = {el: nodes.root, pushEvent, ...NetflowTrafficTooltip}
   ctx.mounted()
@@ -151,6 +174,30 @@ function mount() {
 }
 
 describe("NetflowTrafficTooltip shared range integration", () => {
+  it("keeps the server-rendered root disabled until the complete current binding arrives", () => {
+    const oldDocument = globalThis.document
+    const oldWindow = globalThis.window
+    globalThis.document = {createElement: () => new FakeNode()}
+    globalThis.window = {getComputedStyle: () => ({position: "relative"})}
+
+    try {
+      const {ctx, enableRangeBinding, root} = mount({complete: false})
+
+      expect(root.getAttribute("aria-disabled")).toBe("true")
+      expect(root.getAttribute("tabindex")).toBeNull()
+
+      enableRangeBinding()
+      ctx.updated()
+
+      expect(root.getAttribute("aria-disabled")).toBeNull()
+      expect(root.getAttribute("tabindex")).toBe("0")
+      expect(ctx.rangeController.options.enabled).toBe(true)
+    } finally {
+      globalThis.document = oldDocument
+      globalThis.window = oldWindow
+    }
+  })
+
   it("keeps tooltip movement while binding one shared range controller", () => {
     const oldDocument = globalThis.document
     const oldWindow = globalThis.window
@@ -176,6 +223,44 @@ describe("NetflowTrafficTooltip shared range integration", () => {
       expect(root.totalListenerCount()).toBe(0)
       expect(svg.totalListenerCount()).toBe(0)
       expect(ctx.rangeController).toBeNull()
+    } finally {
+      globalThis.document = oldDocument
+      globalThis.window = oldWindow
+    }
+  })
+
+  it("commits exactly once across a compatible server SVG replacement and leaves the later bucket click alone", () => {
+    const oldDocument = globalThis.document
+    const oldWindow = globalThis.window
+    globalThis.document = {createElement: () => new FakeNode()}
+    globalThis.window = {getComputedStyle: () => ({position: "relative"})}
+
+    try {
+      const {ctx, pushEvent, replaceRangeBinding, root, svg} = mount()
+
+      svg.dispatch(pointer("pointerdown", 0, 71))
+      replaceRangeBinding()
+      ctx.updated()
+      root.dispatch(pointer("pointerup", 1000, 71))
+
+      expect(pushEvent.mock.calls).toEqual([
+        [
+          "netflow_range_selected",
+          {
+            start: "2026-08-27T10:00:00Z",
+            end: "2026-08-27T10:14:59.999999Z",
+          },
+        ],
+      ])
+
+      const synthetic = click()
+      root.dispatch(synthetic)
+      expect(synthetic.stopImmediatePropagation).toHaveBeenCalledOnce()
+
+      const laterBucketClick = click()
+      root.dispatch(laterBucketClick)
+      expect(laterBucketClick.stopImmediatePropagation).not.toHaveBeenCalled()
+      expect(pushEvent).toHaveBeenCalledTimes(1)
     } finally {
       globalThis.document = oldDocument
       globalThis.window = oldWindow

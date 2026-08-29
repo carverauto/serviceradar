@@ -443,6 +443,46 @@ describe("NetflowStackedAreaChart production render helpers", () => {
 })
 
 describe("NetflowStackedAreaChart lifecycle", () => {
+  it("keeps the D3 root disabled until draw publishes a complete current binding", () => {
+    const oldResizeObserver = globalThis.ResizeObserver
+    globalThis.ResizeObserver = class {
+      disconnect = vi.fn()
+      observe = vi.fn()
+    }
+
+    try {
+      const el = root()
+      el.dataset.points = "[]"
+      el.setAttribute("aria-disabled", "true")
+      const seams = renderSeams(el)
+      const ctx = {
+        el,
+        pushEvent: vi.fn(),
+        ...NetflowStackedAreaChart,
+        _attachTimeTooltip: seams.attachTimeTooltip,
+        _stackedRenderDependencies: seams.dependencies,
+      }
+
+      ctx.mounted()
+      expect(el.getAttribute("aria-disabled")).toBe("true")
+      expect(el.getAttribute("tabindex")).toBeNull()
+      expect(ctx.rangeController).toBeNull()
+
+      el.dataset.points = JSON.stringify([
+        {t: intervals[0].start, web: 10, db: 20},
+        {t: intervals[1].start, web: 20, db: 10},
+        {t: intervals[2].start, web: 30, db: 15},
+      ])
+      ctx.updated()
+
+      expect(el.getAttribute("aria-disabled")).toBeNull()
+      expect(el.getAttribute("tabindex")).toBe("0")
+      expect(ctx.rangeController.options.enabled).toBe(true)
+    } finally {
+      globalThis.ResizeObserver = oldResizeObserver
+    }
+  })
+
   it.each([
     {
       color: "#2563EB",
@@ -569,6 +609,65 @@ describe("NetflowStackedAreaChart lifecycle", () => {
         expect(seams.tooltipCleanups.at(-1)).toHaveBeenCalledOnce()
         expect(seams.svg.totalListenerCount()).toBe(0)
         expect(el.listenerCount("click")).toBe(0)
+      } finally {
+        globalThis.ResizeObserver = oldResizeObserver
+      }
+    },
+  )
+
+  it.each([
+    {field: "protocol_group", key: "tcp"},
+    {field: "app", key: "https"},
+  ])(
+    "commits one $field range across a replacement overlay and releases the next series click",
+    ({field, key: seriesKey}) => {
+      const oldResizeObserver = globalThis.ResizeObserver
+      globalThis.ResizeObserver = class {
+        disconnect = vi.fn()
+        observe = vi.fn()
+      }
+
+      try {
+        const el = root()
+        el.dataset.seriesField = field
+        const seams = renderSeams(el)
+        const pushEvent = vi.fn()
+        const ctx = {
+          el,
+          pushEvent,
+          ...NetflowStackedAreaChart,
+          _attachTimeTooltip: seams.attachTimeTooltip,
+          _stackedRenderDependencies: seams.dependencies,
+        }
+        ctx.mounted()
+        const firstOverlay = ctx.rangeController.options.overlay
+        const seriesClick = seams.records.handlers.find(
+          ({name, selection}) => name === "click" && selection.tag === "path",
+        )
+
+        seams.svg.dispatch(pointer("pointerdown", 44, 72))
+        seams.svg.childrenBySelector.delete("[data-netflow-stacked-render-root]")
+        ctx.updated()
+        el.dispatch(pointer("pointerup", 490, 72))
+
+        expect(ctx.rangeController.options.overlay).not.toBe(firstOverlay)
+        expect(pushEvent.mock.calls).toEqual([
+          [
+            "netflow_range_selected",
+            {start: "2026-08-27T10:00:00Z", end: "2026-08-27T10:14:59.999999Z"},
+          ],
+        ])
+
+        const syntheticSeriesClick = dispatchChartClick(el, seriesClick, seriesKey)
+        expect(syntheticSeriesClick.stopImmediatePropagation).toHaveBeenCalledOnce()
+        expect(pushEvent).toHaveBeenCalledTimes(1)
+
+        const laterSeriesClick = dispatchChartClick(el, seriesClick, seriesKey)
+        expect(laterSeriesClick.stopImmediatePropagation).not.toHaveBeenCalled()
+        expect(pushEvent).toHaveBeenLastCalledWith("netflow_stack_series", {
+          field,
+          value: seriesKey,
+        })
       } finally {
         globalThis.ResizeObserver = oldResizeObserver
       }
