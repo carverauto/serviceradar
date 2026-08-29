@@ -29,7 +29,7 @@ import (
 func TestShouldDropProtectsTheFixture(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range ProtectedDatabases {
+	for _, name := range ProtectedDatabases() {
 		ok, reason := ShouldDrop(Database{Name: name, Age: 48 * time.Hour}, DefaultMaxAge)
 		if ok {
 			t.Fatalf("protected database %q was marked droppable (%s)", name, reason)
@@ -148,7 +148,7 @@ func TestScratchReaperSQLAgreesWithProtectedSet(t *testing.T) {
 	body, sqlPath := readScratchReaperSQL(t)
 
 	sql := string(body)
-	for _, name := range ProtectedDatabases {
+	for _, name := range ProtectedDatabases() {
 		if !strings.Contains(sql, "'"+name+"'") {
 			t.Fatalf("%s does not mention protected database %q", sqlPath, name)
 		}
@@ -172,7 +172,7 @@ func TestScratchReaperSQLAgreesWithProtectedSet(t *testing.T) {
 	if !strings.Contains(yamlText, "srql-fixture-scratch-reaper") {
 		t.Fatalf("%s is not the scratch-reaper CronJob", yamlPath)
 	}
-	for _, name := range ProtectedDatabases {
+	for _, name := range ProtectedDatabases() {
 		if !strings.Contains(yamlText, "'"+name+"'") {
 			t.Fatalf("%s ConfigMap SQL does not mention protected database %q", yamlPath, name)
 		}

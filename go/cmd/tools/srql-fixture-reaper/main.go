@@ -18,7 +18,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -57,18 +56,22 @@ func main() {
 	)
 	flag.Parse()
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	if err := run(ctx, *dryRun, *maxAge, *interval); err != nil {
+	if err := runWithSignals(*dryRun, *maxAge, *interval); err != nil {
 		fmt.Fprintf(os.Stderr, "srql-fixture-reaper: %v\n", err)
 		os.Exit(1)
 	}
 }
 
+func runWithSignals(dryRun bool, maxAge, interval time.Duration) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	return run(ctx, dryRun, maxAge, interval)
+}
+
 func run(ctx context.Context, dryRun bool, maxAge, interval time.Duration) error {
 	if maxAge <= 0 {
-		return errors.New("--max-age must be greater than zero")
+		return reaper.ErrMaxAge
 	}
 
 	for {
@@ -99,7 +102,7 @@ func reapOnce(ctx context.Context, dryRun bool, maxAge time.Duration) (int, int,
 	if err != nil {
 		return 0, 0, fmt.Errorf("connect: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	rows, err := conn.Query(ctx, candidateSQL)
 	if err != nil {

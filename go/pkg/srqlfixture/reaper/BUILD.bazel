@@ -2,7 +2,10 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "reaper",
-    srcs = ["reaper.go"],
+    srcs = [
+        "errors.go",
+        "reaper.go",
+    ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/srqlfixture/reaper",
     visibility = ["//visibility:public"],
 )

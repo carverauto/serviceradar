@@ -38,12 +38,14 @@ const (
 
 // ProtectedDatabases are never dropped, regardless of age. Keep this list in
 // sync with k8s/srql-fixtures/scratch-reaper.sql and rust/integration-db.
-var ProtectedDatabases = []string{
-	"postgres",
-	"template0",
-	"template1",
-	"srql_fixture",
-	"sr_core_template",
+func ProtectedDatabases() []string {
+	return []string{
+		"postgres",
+		"template0",
+		"template1",
+		"srql_fixture",
+		"sr_core_template",
+	}
 }
 
 // Database is one candidate the reaper considers.
@@ -80,7 +82,7 @@ func ShouldDrop(db Database, maxAge time.Duration) (bool, string) {
 
 // IsProtected reports whether name is in the never-drop set.
 func IsProtected(name string) bool {
-	for _, protected := range ProtectedDatabases {
+	for _, protected := range ProtectedDatabases() {
 		if name == protected {
 			return true
 		}
@@ -125,11 +127,11 @@ func QuoteIdent(name string) string {
 // Timescale background workers that would otherwise keep the DROP waiting.
 func DropStatement(name string) (string, error) {
 	if !SafeIdent(name) {
-		return "", fmt.Errorf("refusing to drop unsafe database name %q", name)
+		return "", fmt.Errorf("%w: %s", ErrUnsafeIdent, name)
 	}
 
 	if IsProtected(name) {
-		return "", fmt.Errorf("refusing to drop protected database %q", name)
+		return "", fmt.Errorf("%w: %s", ErrProtected, name)
 	}
 
 	return "DROP DATABASE IF EXISTS " + QuoteIdent(name) + " WITH (FORCE)", nil
