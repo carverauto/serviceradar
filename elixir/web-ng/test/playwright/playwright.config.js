@@ -5,7 +5,7 @@ process.env.PLAYWRIGHT_BROWSERS_PATH = resolve(runfilesRoot, process.env.PLAYWRI
 
 export default {
   testDir: ".",
-  testMatch: "god_view_elk_scene.playwright.js",
+  testMatch: process.env.PLAYWRIGHT_TEST_MATCH || "god_view_elk_scene.playwright.js",
   fullyParallel: false,
   workers: 1,
   retries: 0,

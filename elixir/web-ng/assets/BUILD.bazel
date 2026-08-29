@@ -115,6 +115,89 @@ js_library(
     ],
 )
 
+_CHART_RANGE_SELECTION_TESTS = [
+    "js/hooks/charts/ChartRangeSelection.test.js",
+    "js/hooks/charts/ChartRangeSelectionController.test.js",
+    "js/hooks/charts/NetflowStackedAreaChart.test.js",
+    "js/hooks/charts/NetflowTrafficTooltip.test.js",
+]
+
+_ASSET_UNIT_TESTS = glob([
+    "js/lib/god_view/*.test.js",
+    "js/wasm/*.test.js",
+    "js/lib/remote_desktop/*.test.js",
+    "js/lib/srql/*.test.js",
+    "js/utils/*.test.js",
+    "js/hooks/charts/*.test.js",
+]) + [
+    "js/hooks/DashboardWasmHost.test.js",
+    "js/hooks/DialogTopLayer.test.js",
+    "js/hooks/ToastTopLayer.test.js",
+    "js/hooks/RemoteAccessDesktopSession.test.js",
+    "js/hooks/RemoteAccessSSHConsole.test.js",
+    "js/hooks/SRQLInput.test.js",
+    "js/hooks/SRQLTimeCookie.test.js",
+    "js/hooks/SettingsNavTree.test.js",
+    "component/test/DashboardPanelChart.test.jsx",
+    "component/test/RemoteAccessDesktopSession.test.jsx",
+    "component/test/RemoteAccessSSHConsole.test.jsx",
+    "component/test/sshEphemeralKeypair.test.js",
+]
+
+js_test(
+    name = "chart_range_selection_unit_tests",
+    size = "small",
+    args = ["$(rootpath %s)" % test for test in _CHART_RANGE_SELECTION_TESTS],
+    chdir = package_name(),
+    data = _CHART_RANGE_SELECTION_TESTS + [
+        ":all_srcs",
+        ":node_modules",
+    ],
+    entry_point = "chart_range_selection_test_runner.mjs",
+    tags = ["unit_test"],
+)
+
+js_test(
+    name = "asset_unit_tests",
+    size = "medium",
+    args = ["$(rootpath %s)" % test for test in _ASSET_UNIT_TESTS],
+    chdir = package_name(),
+    data = _ASSET_UNIT_TESTS + [
+        ":all_srcs",
+        ":node_modules",
+    ],
+    entry_point = "chart_range_selection_test_runner.mjs",
+    tags = ["unit_test"],
+)
+
+js_binary(
+    name = "chart_range_selection_acceptance_bundler",
+    data = [":node_modules/esbuild"],
+    entry_point = "god_view_elk_scene_bundle.mjs",
+)
+
+js_run_binary(
+    name = "chart_range_selection_acceptance_bundle",
+    srcs = [
+        ":bundle_srcs",
+        ":node_modules",
+        "chart_range_selection_acceptance_harness.js",
+    ],
+    args = [
+        "chart_range_selection_acceptance_harness.js",
+        "chart_range_selection_acceptance.bundle.js",
+    ],
+    chdir = package_name(),
+    outs = ["chart_range_selection_acceptance.bundle.js"],
+    tool = ":chart_range_selection_acceptance_bundler",
+)
+
+js_library(
+    name = "chart_range_selection_acceptance_test_lib",
+    srcs = ["chart_range_selection_acceptance.playwright.js"],
+    deps = [":node_modules/@playwright/test"],
+)
+
 # Everything under assets/, minus installed dependency trees. node_modules is listed in
 # //.bazelignore, so Bazel does not see it; the excludes here are belt-and-braces for a
 # developer working tree where an install has already happened.

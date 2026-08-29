@@ -69,6 +69,9 @@ dependencies:
   d3-geo:
     specifier: ^3.1.1
     version: 3.1.1
+  d3-scale:
+    specifier: ^4.0.2
+    version: 4.0.2
   d3-sankey:
     specifier: ^0.12.3
     version: 0.12.3

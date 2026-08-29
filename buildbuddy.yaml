@@ -68,6 +68,13 @@ actions:
           //elixir/web-ng/test/playwright:god_view_elk_scene_acceptance
           --test_output=errors --nocache_test_results --flaky_test_attempts=1
 
+      # Native pointer delivery must survive LiveView/D3 renderer replacement on
+      # the first gesture; this runs in the digest-pinned Chromium executor.
+      - run: >-
+          bazel test -c opt --config=ci
+          //elixir/web-ng/test/playwright:chart_range_selection_acceptance
+          --test_output=errors --nocache_test_results --flaky_test_attempts=1
+
       # The database lifecycle. ONE step: the invocations share a shell, and BuildBuddy has no
       # `if: always()`, so a trap is the only way to guarantee teardown after a red suite.
       #
