@@ -16,6 +16,7 @@ export default {
     // showModal() owns this attribute in the browser. Keep LiveView patches
     // from stripping it and reopening the dialog, which would reset focus.
     this.js().ignoreAttributes(this.el, ["open"])
+    this._returnFocus = this._resolveReturnFocus()
     this._onCancel = (e) => this._handleCancel(e)
     this._onClick = (e) => this._handleOutsideClick(e)
     this.el.addEventListener("cancel", this._onCancel)
@@ -36,6 +37,7 @@ export default {
     } catch (_err) {
       // Element may already be detached.
     }
+    this._restoreFocus()
   },
 
   _open() {
@@ -101,6 +103,7 @@ export default {
       } catch (_err) {
         // ignore
       }
+      this._restoreFocus()
       return
     }
 
@@ -109,6 +112,37 @@ export default {
       this.pushEventTo(target, eventName, {})
     } else {
       this.pushEvent(eventName, {})
+    }
+  },
+
+  _resolveReturnFocus() {
+    if (typeof document === "undefined") return null
+
+    const selector = this.el.dataset.returnFocus
+    if (selector) {
+      try {
+        const stableTarget = document.querySelector(selector)
+        if (stableTarget) return stableTarget
+      } catch (_err) {
+        // Invalid selectors fall back to the element focused before opening.
+      }
+    }
+
+    return document.activeElement
+  },
+
+  _restoreFocus() {
+    const target = this._returnFocus
+    if (!target || typeof target.focus !== "function") return
+
+    try {
+      target.focus({preventScroll: true})
+    } catch (_err) {
+      try {
+        target.focus()
+      } catch (_err2) {
+        // The trigger may have been removed by navigation.
+      }
     }
   },
 }

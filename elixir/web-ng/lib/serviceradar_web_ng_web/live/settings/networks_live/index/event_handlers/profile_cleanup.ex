@@ -35,46 +35,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Profile
   end
 
   def handle_event("save_group", %{"form" => params}, socket) do
-    require Logger
+    case canonical_group_params(socket, params) do
+      {:ok, canonical_params} ->
+        submit_group(socket, normalize_static_targets(canonical_params))
 
-    scope = socket.assigns.current_scope
-
-    params = normalize_static_targets(params)
-
-    Logger.debug("[NetworksLive] save_group - params: #{inspect(params)}")
-
-    ash_form = Form.validate(socket.assigns.ash_form, params)
-
-    case Form.submit(ash_form, params: params) do
-      {:ok, group} ->
-        Logger.debug("[NetworksLive] save_group SUCCESS - saved group.target_query: #{inspect(group.target_query)}")
-
-        flash_message = sweep_group_save_message(group.enabled)
-
-        {:noreply,
-         socket
-         |> assign(:sweep_groups, load_sweep_groups(scope))
-         |> put_flash(:info, flash_message)
-         |> push_navigate(to: ~p"/settings/networks")}
-
-      {:ok, group, _notifications} ->
-        Logger.debug("[NetworksLive] save_group SUCCESS - saved group.target_query: #{inspect(group.target_query)}")
-
-        flash_message = sweep_group_save_message(group.enabled)
-
-        {:noreply,
-         socket
-         |> assign(:sweep_groups, load_sweep_groups(scope))
-         |> put_flash(:info, flash_message)
-         |> push_navigate(to: ~p"/settings/networks")}
-
-      {:error, ash_form} ->
-        Logger.warning("[NetworksLive] save_group ERROR - form errors: #{inspect(Form.errors(ash_form))}")
-
-        {:noreply,
-         socket
-         |> assign(:ash_form, ash_form)
-         |> assign(:form, to_form(ash_form))}
+      {:error, message} ->
+        {:noreply, put_flash(socket, :error, message)}
     end
   end
 
@@ -143,6 +109,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Profile
   end
 
   def handle_event("validate_group", %{"form" => params} = payload, socket) do
+    {:ok, params} = canonical_group_params_for_validation(socket, params)
     scope = socket.assigns.current_scope
     params = normalize_static_targets(params)
     target_query = Map.get(params, "target_query")
@@ -218,5 +185,68 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Profile
      |> assign(:ash_form, ash_form)
      |> assign(:form, to_form(ash_form))
      |> assign(:banner_grab_draft, banner_grab_draft)}
+  end
+
+  defp submit_group(socket, params) do
+    require Logger
+
+    scope = socket.assigns.current_scope
+    ash_form = Form.validate(socket.assigns.ash_form, params)
+
+    case Form.submit(ash_form, params: params) do
+      {:ok, group} ->
+        group_saved(socket, scope, group)
+
+      {:ok, group, _notifications} ->
+        group_saved(socket, scope, group)
+
+      {:error, ash_form} ->
+        Logger.warning("[NetworksLive] save_group ERROR - form errors: #{inspect(Form.errors(ash_form))}")
+
+        {:noreply,
+         socket
+         |> assign(:ash_form, ash_form)
+         |> assign(:form, to_form(ash_form))}
+    end
+  end
+
+  defp group_saved(socket, scope, group) do
+    {:noreply,
+     socket
+     |> assign(:sweep_groups, load_sweep_groups(scope))
+     |> put_flash(:info, sweep_group_save_message(group.enabled))
+     |> push_navigate(to: ~p"/settings/networks")}
+  end
+
+  defp canonical_group_params(socket, params) do
+    ids = committed_agent_ids(socket)
+    submitted_mode = Map.get(params, "agent_assignment_mode")
+
+    if submitted_mode == "selected" and ids == [] do
+      {:error, "Select at least one agent before saving a selected-agent sweep group"}
+    else
+      {:ok, inject_agent_ids(params, ids)}
+    end
+  end
+
+  defp canonical_group_params_for_validation(socket, params) do
+    {:ok, inject_agent_ids(params, committed_agent_ids(socket))}
+  end
+
+  defp committed_agent_ids(socket) do
+    socket.assigns.agent_picker.committed
+    |> MapSet.to_list()
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp inject_agent_ids(params, ids) do
+    params
+    |> Map.delete("agent_id")
+    |> Map.delete("agent_assignment_mode")
+    |> Map.put("agent_ids", ids)
   end
 end

@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandsPubSub
   alias ServiceRadar.SweepJobs.SweepPubSub
+  alias ServiceRadarWebNGWeb.Live.Settings.NetworksLive.AgentPicker
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Events
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos
@@ -58,7 +59,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:last_target_query, nil)
         |> assign(:show_mapper_form, nil)
         |> assign(:mapper_jobs, load_mapper_jobs(scope))
-        |> assign(:agents, load_agents(scope))
+        |> assign(:mapper_agents, [])
+        |> assign(:agent_picker, AgentPicker.new([]))
+        |> assign(:agent_picker_open, false)
+        |> assign(:agent_picker_selected_rows, [])
+        |> assign(:agent_picker_summary_agent, nil)
         |> assign(:can_manage_networks, can_manage_networks)
         |> assign(:mapper_job, nil)
         |> assign(:mapper_form, nil)

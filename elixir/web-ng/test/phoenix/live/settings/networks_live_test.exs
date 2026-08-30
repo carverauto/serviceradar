@@ -1,9 +1,10 @@
 defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
-  use ServiceRadarWebNGWeb.ConnCase, async: true
+  use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
   import Phoenix.LiveViewTest
 
+  alias Ecto.Adapters.SQL
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
   alias ServiceRadar.NetworkDiscovery.MapperUnifiController
@@ -95,6 +96,40 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     assert html =~ "Query Builder"
   end
 
+  test "sweep group routes never load or retain an eager agent fleet", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(:create, %{name: "Bounded agents #{unique}"})
+      |> Ash.create(scope: scope)
+
+    for path <- [
+          ~p"/settings/networks",
+          ~p"/settings/networks/groups/new",
+          ~p"/settings/networks/groups/#{group.id}",
+          ~p"/settings/networks/groups/#{group.id}/edit"
+        ] do
+      queries =
+        capture_repo_queries(fn ->
+          {:ok, view, _html} = live(recycle(conn), path)
+          assigns = live_assigns(view)
+
+          refute Map.has_key?(assigns, :agents)
+          assert Map.get(assigns, :mapper_agents) == []
+
+          if path == ~p"/settings/networks/groups/new" do
+            view
+            |> form("#sweep-group-form", %{"form" => %{"name" => "Validation #{unique}"}})
+            |> render_change()
+          end
+        end)
+
+      refute Enum.any?(queries, &agent_query?/1),
+             "expected #{path} not to read the agent fleet, got: #{inspect(queries)}"
+    end
+  end
+
   test "hydrates builder from edit query with negated list filter", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
 
@@ -128,6 +163,269 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
              lv,
              "input[name='builder[filters][0][value]'][value='armis']"
            )
+  end
+
+  test "agent picker searches, cancels drafts, applies selection, and preserves canonical IDs on validate", %{
+    conn: conn
+  } do
+    gateway = gateway_fixture()
+    unique = System.unique_integer([:positive])
+
+    alpha =
+      agent_fixture(gateway, %{
+        uid: "picker-alpha-#{unique}",
+        name: "Picker Alpha #{unique}",
+        capabilities: ["sweep"]
+      })
+
+    beta =
+      agent_fixture(gateway, %{
+        uid: "picker-beta-#{unique}",
+        name: "Picker Beta #{unique}",
+        capabilities: []
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/settings/networks/groups/new")
+
+    view |> element("#sweep-agent-picker-trigger") |> render_click()
+    assert has_element?(view, "#sweep-agent-picker-dialog")
+
+    view
+    |> element("#sweep-agent-picker-search")
+    |> render_keyup(%{"value" => "  PICKER ALPHA #{unique}  "})
+
+    assert has_element?(view, "[data-agent-picker-uid='#{alpha.uid}']")
+    refute has_element?(view, "[data-agent-picker-uid='#{beta.uid}']")
+
+    view
+    |> element("input[phx-click='agent_picker_toggle'][phx-value-uid='#{alpha.uid}']")
+    |> render_click()
+
+    view
+    |> element("#sweep-agent-picker-dialog button[phx-click='agent_picker_cancel']", "Cancel")
+    |> render_click()
+
+    refute has_element?(view, "input[name='form[agent_ids][]'][value='#{alpha.uid}']")
+
+    view |> element("#sweep-agent-picker-trigger") |> render_click()
+
+    view
+    |> element("input[phx-click='agent_picker_toggle'][phx-value-uid='#{alpha.uid}']")
+    |> render_click()
+
+    view |> element("#sweep-agent-picker-selected-tab") |> render_click()
+    assert has_element?(view, "[data-agent-picker-uid='#{alpha.uid}']")
+    view |> element("button[phx-click='agent_picker_apply']") |> render_click()
+
+    assert has_element?(view, "input[name='form[agent_ids][]'][value='#{alpha.uid}']")
+
+    view
+    |> form("#sweep-group-form", %{
+      "form" => %{
+        "name" => "Canonical draft #{unique}",
+        "agent_ids" => [beta.uid],
+        "agent_assignment_mode" => "selected"
+      }
+    })
+    |> render_change()
+
+    assert has_element?(view, "input[name='form[agent_ids][]'][value='#{alpha.uid}']")
+    refute has_element?(view, "input[name='form[agent_ids][]'][value='#{beta.uid}']")
+  end
+
+  test "save injects committed IDs, ignores crafted hidden IDs, and rejects selected-empty mode", %{
+    conn: conn,
+    scope: scope
+  } do
+    gateway = gateway_fixture()
+    unique = System.unique_integer([:positive])
+    selected = agent_fixture(gateway, %{uid: "save-selected-#{unique}", name: "Save selected #{unique}"})
+    crafted = agent_fixture(gateway, %{uid: "save-crafted-#{unique}", name: "Save crafted #{unique}"})
+
+    {:ok, view, _html} = live(conn, ~p"/settings/networks/groups/new")
+    view |> element("#sweep-agent-picker-trigger") |> render_click()
+
+    view
+    |> element("input[phx-click='agent_picker_toggle'][phx-value-uid='#{selected.uid}']")
+    |> render_click()
+
+    view |> element("button[phx-click='agent_picker_apply']") |> render_click()
+
+    name = "Canonical save #{unique}"
+
+    view
+    |> form("#sweep-group-form", %{
+      "form" => %{
+        "name" => name,
+        "agent_ids" => [crafted.uid],
+        "agent_assignment_mode" => "selected"
+      }
+    })
+    |> render_submit()
+
+    group = SweepGroup |> Ash.read!(scope: scope) |> Enum.find(&(&1.name == name))
+    assert group.agent_ids == [selected.uid]
+
+    {:ok, empty_view, _html} = live(recycle(conn), ~p"/settings/networks/groups/new")
+
+    html =
+      empty_view
+      |> form("#sweep-group-form", %{
+        "form" => %{
+          "name" => "Rejected empty #{unique}",
+          "agent_assignment_mode" => "selected",
+          "agent_ids" => [crafted.uid]
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "Select at least one agent"
+    refute Enum.any?(Ash.read!(SweepGroup, scope: scope), &(&1.name == "Rejected empty #{unique}"))
+  end
+
+  test "many selected agents validate and save without a feature flag", %{conn: conn, scope: scope} do
+    gateway = gateway_fixture()
+    unique = System.unique_integer([:positive])
+
+    agents =
+      for index <- 1..3 do
+        agent_fixture(gateway, %{
+          uid: "many-picker-#{unique}-#{index}",
+          name: "Many picker #{unique} #{index}"
+        })
+      end
+
+    {:ok, view, _html} = live(conn, ~p"/settings/networks/groups/new")
+    view |> element("#sweep-agent-picker-trigger") |> render_click()
+
+    view
+    |> element("#sweep-agent-picker-search")
+    |> render_keyup(%{"value" => "many picker #{unique}"})
+
+    for agent <- agents do
+      view
+      |> element("input[phx-click='agent_picker_toggle'][phx-value-uid='#{agent.uid}']")
+      |> render_click()
+    end
+
+    view |> element("button[phx-click='agent_picker_apply']") |> render_click()
+
+    name = "Many selected #{unique}"
+
+    view
+    |> form("#sweep-group-form", %{"form" => %{"name" => name}})
+    |> render_change()
+
+    view
+    |> form("#sweep-group-form", %{"form" => %{"name" => name}})
+    |> render_submit()
+
+    group = SweepGroup |> Ash.read!(scope: scope) |> Enum.find(&(&1.name == name))
+    assert Enum.sort(group.agent_ids) == Enum.sort(Enum.map(agents, & &1.uid))
+  end
+
+  test "closed summary resolves one UID once but keeps multiple UIDs count-only", %{
+    conn: conn,
+    scope: scope
+  } do
+    gateway = gateway_fixture()
+    unique = System.unique_integer([:positive])
+    first = agent_fixture(gateway, %{uid: "summary-one-#{unique}", name: "Summary One #{unique}"})
+    second = agent_fixture(gateway, %{uid: "summary-two-#{unique}", name: "Summary Two #{unique}"})
+
+    {:ok, singleton} =
+      SweepGroup
+      |> Ash.Changeset.for_create(:create, %{name: "Singleton summary #{unique}", agent_ids: [first.uid]})
+      |> Ash.create(scope: scope)
+
+    {:ok, multiple} =
+      SweepGroup
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Multiple summary #{unique}",
+        agent_ids: [first.uid, second.uid]
+      })
+      |> Ash.create(scope: scope)
+
+    singleton_queries =
+      capture_repo_queries(fn ->
+        {:ok, view, _html} = live(recycle(conn), ~p"/settings/networks/groups/#{singleton.id}/edit")
+        assert has_element?(view, "#sweep-agent-assignment-summary", first.name)
+      end)
+
+    assert Enum.count(singleton_queries, &agent_query?/1) == 1
+
+    multiple_queries =
+      capture_repo_queries(fn ->
+        {:ok, view, _html} = live(recycle(conn), ~p"/settings/networks/groups/#{multiple.id}/edit")
+        assert has_element?(view, "#sweep-agent-assignment-summary", "2 selected agents")
+      end)
+
+    refute Enum.any?(multiple_queries, &agent_query?/1)
+  end
+
+  test "selected view renders a stale UID as unavailable and allows removing it", %{
+    conn: conn,
+    scope: scope
+  } do
+    gateway = gateway_fixture()
+    unique = System.unique_integer([:positive])
+    stale = agent_fixture(gateway, %{uid: "stale-picker-#{unique}", name: "Stale picker #{unique}"})
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(:create, %{name: "Stale group #{unique}", agent_ids: [stale.uid]})
+      |> Ash.create(scope: scope)
+
+    SQL.query!(
+      ServiceRadar.Repo,
+      "DELETE FROM platform.agents WHERE uid = $1",
+      [stale.uid]
+    )
+
+    {:ok, view, _html} = live(conn, ~p"/settings/networks/groups/#{group.id}/edit")
+    view |> element("#sweep-agent-picker-trigger") |> render_click()
+    view |> element("#sweep-agent-picker-selected-tab") |> render_click()
+
+    assert has_element?(
+             view,
+             "[data-agent-picker-uid='#{stale.uid}'][data-agent-unavailable='true']"
+           )
+
+    view
+    |> element("button[phx-click='agent_picker_remove'][phx-value-uid='#{stale.uid}']")
+    |> render_click()
+
+    refute has_element?(view, "[data-agent-picker-uid='#{stale.uid}']")
+  end
+
+  test "browse page renders at most fifty agents and truthful boundary pagination", %{conn: conn} do
+    gateway = gateway_fixture()
+    unique = System.unique_integer([:positive])
+
+    for index <- 1..51 do
+      agent_fixture(gateway, %{
+        uid: "bounded-picker-#{unique}-#{String.pad_leading(Integer.to_string(index), 2, "0")}",
+        name: "Bounded picker #{unique} #{String.pad_leading(Integer.to_string(index), 2, "0")}"
+      })
+    end
+
+    {:ok, view, _html} = live(conn, ~p"/settings/networks/groups/new")
+    view |> element("#sweep-agent-picker-trigger") |> render_click()
+
+    view
+    |> element("#sweep-agent-picker-search")
+    |> render_keyup(%{"value" => "bounded picker #{unique}"})
+
+    document = view |> render() |> LazyHTML.from_fragment()
+    assert document |> LazyHTML.query("[data-agent-picker-row]") |> LazyHTML.to_tree() |> length() == 50
+    assert has_element?(view, "button[aria-label='Previous agents page'][disabled]")
+    assert has_element?(view, "button[aria-label='Next agents page']:not([disabled])")
+
+    view |> element("button[aria-label='Next agents page']") |> render_click()
+    document = view |> render() |> LazyHTML.from_fragment()
+    assert document |> LazyHTML.query("[data-agent-picker-row]") |> LazyHTML.to_tree() |> length() == 1
+    assert has_element?(view, "button[aria-label='Next agents page'][disabled]")
+    assert has_element?(view, "button[aria-label='Previous agents page']:not([disabled])")
   end
 
   test "renders new scanner profile form", %{conn: conn} do
@@ -234,6 +532,46 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
     assert has_element?(lv, "select[name='mapper_job[agent_id]']")
     assert has_element?(lv, "option[value='#{agent.uid}']")
+
+    assigns = live_assigns(lv)
+    refute Map.has_key?(assigns, :agents)
+    assert Enum.any?(assigns.mapper_agents, &(&1.uid == agent.uid))
+  end
+
+  test "discovery list and mapper forms lazily load bounded mapper agent options", %{
+    conn: conn,
+    scope: scope
+  } do
+    gateway = gateway_fixture()
+    unique = System.unique_integer([:positive])
+
+    mapper =
+      agent_fixture(gateway, %{
+        uid: "lazy-mapper-#{unique}",
+        name: "Lazy mapper #{unique}",
+        capabilities: ["mapper"]
+      })
+
+    {:ok, job} =
+      MapperJob
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Lazy mapper job #{unique}",
+        agent_id: mapper.uid
+      })
+      |> Ash.create(scope: scope)
+
+    for path <- [
+          ~p"/settings/networks/discovery",
+          ~p"/settings/networks/discovery/new",
+          ~p"/settings/networks/discovery/#{job.id}/edit"
+        ] do
+      {:ok, view, _html} = live(recycle(conn), path)
+      assigns = live_assigns(view)
+
+      refute Map.has_key?(assigns, :agents)
+      assert length(assigns.mapper_agents) <= 51
+      assert Enum.any?(assigns.mapper_agents, &(&1.uid == mapper.uid))
+    end
   end
 
   test "discovery job form renders mikrotik api fields", %{conn: conn} do
@@ -343,7 +681,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
   end
 
   defp ensure_mikrotik_table! do
-    Ecto.Adapters.SQL.query!(
+    SQL.query!(
       ServiceRadar.Repo,
       """
       CREATE TABLE IF NOT EXISTS platform.mapper_mikrotik_controllers (
@@ -360,5 +698,40 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
       """,
       []
     )
+  end
+
+  defp live_assigns(view), do: :sys.get_state(view.pid).socket.assigns
+
+  defp capture_repo_queries(fun) do
+    handler_id = {__MODULE__, :repo_query, System.unique_integer([:positive])}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:serviceradar_core, :repo, :query],
+      fn _event, _measurements, metadata, _config ->
+        send(test_pid, {:networks_repo_query, metadata.query})
+      end,
+      nil
+    )
+
+    try do
+      fun.()
+      drain_repo_queries([])
+    after
+      :telemetry.detach(handler_id)
+    end
+  end
+
+  defp drain_repo_queries(queries) do
+    receive do
+      {:networks_repo_query, query} -> drain_repo_queries([query | queries])
+    after
+      0 -> Enum.reverse(queries)
+    end
+  end
+
+  defp agent_query?(query) do
+    String.contains?(query, ~s(FROM "platform"."agents"))
   end
 end

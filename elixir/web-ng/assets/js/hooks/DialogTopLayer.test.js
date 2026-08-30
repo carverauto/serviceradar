@@ -1,4 +1,4 @@
-import {describe, expect, it, vi} from "vitest"
+import {afterEach, describe, expect, it, vi} from "vitest"
 
 import DialogTopLayer from "./DialogTopLayer"
 
@@ -8,9 +8,10 @@ function makeDialogHook() {
   const listeners = new Map()
   const closeButton = {focus: () => (activeElement = closeButton)}
   const input = {focus: () => (activeElement = input)}
+  const trigger = {focus: vi.fn(() => (activeElement = trigger))}
 
   const el = {
-    dataset: {},
+    dataset: {returnFocus: "#picker-trigger"},
     open: false,
     addEventListener: (event, listener) => listeners.set(event, listener),
     removeEventListener: (event) => listeners.delete(event),
@@ -18,6 +19,9 @@ function makeDialogHook() {
     showModal: vi.fn(() => {
       el.open = true
       closeButton.focus()
+    }),
+    close: vi.fn(() => {
+      el.open = false
     }),
   }
 
@@ -37,8 +41,13 @@ function makeDialogHook() {
     ignoreAttributes,
     ignoredAttributes,
     input,
+    trigger,
   }
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe("DialogTopLayer hook", () => {
   it("keeps an open dialog and input focus across LiveView patches", () => {
@@ -57,5 +66,23 @@ describe("DialogTopLayer hook", () => {
     expect(fixture.el.showModal).toHaveBeenCalledOnce()
     expect(fixture.el.open).toBe(true)
     expect(fixture.activeElement()).toBe(fixture.input)
+  })
+
+  it("restores focus to the stable trigger when LiveView destroys the dialog", () => {
+    const fixture = makeDialogHook()
+
+    vi.stubGlobal("document", {
+      activeElement: fixture.trigger,
+      querySelector: vi.fn(selector =>
+        selector === "#picker-trigger" ? fixture.trigger : null
+      ),
+    })
+
+    fixture.hook.mounted()
+    fixture.input.focus()
+    fixture.hook.destroyed()
+
+    expect(fixture.trigger.focus).toHaveBeenCalledOnce()
+    expect(fixture.activeElement()).toBe(fixture.trigger)
   })
 })

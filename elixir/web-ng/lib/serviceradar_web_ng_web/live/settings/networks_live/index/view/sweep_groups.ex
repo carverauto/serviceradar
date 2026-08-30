@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
                   {group.partition}
                 </td>
                 <td class="text-xs text-sr-muted">
-                  {group.agent_id || "All"}
+                  {agent_assignment_summary(group.agent_ids)}
                 </td>
                 <td class="text-xs text-sr-muted">
                   {format_last_run(group_last_run_at(group))}

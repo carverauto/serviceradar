@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
   import ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents,
     only: [format_last_run: 1, group_last_run_at: 1]
 
+  import ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponents
+
   alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
@@ -13,7 +15,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
   attr :form, :any, required: true
   attr :show_form, :atom, required: true
   attr :profiles, :list, required: true
-  attr :agents, :list, default: []
+  attr :agent_picker, :any, required: true
+  attr :agent_picker_open, :boolean, default: false
+  attr :agent_picker_selected_rows, :list, default: []
+  attr :agent_picker_summary_agent, :any, default: nil
   attr :target_device_count, :integer, default: nil
   attr :builder_open, :boolean, default: false
   attr :builder_sync, :boolean, default: true
@@ -126,24 +131,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             </div>
           </div>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label class="flex items-center justify-between gap-2">
-                <span class="text-sm font-medium text-sr-ink">Agent</span>
-              </label>
-              <.input
-                type="select"
-                field={@form[:agent_id]}
-                class={ui_field_class(class: "w-full")}
-                options={[{"All agents", ""} | Enum.map(@agents, &{agent_display_name(&1), &1.uid})]}
-              />
-              <label class="flex items-center justify-between gap-2">
-                <span class="text-xs text-sr-muted">
-                  Pin this sweep config to a specific agent
-                </span>
-              </label>
-            </div>
-          </div>
+          <.agent_assignment_fields
+            state={@agent_picker}
+            summary_agent={@agent_picker_summary_agent}
+          />
         </div>
 
         <!-- Target Criteria Section -->
@@ -353,6 +344,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           <.ui_button type="submit" variant="primary">Save Sweep Group</.ui_button>
         </div>
       </.form>
+
+      <.agent_picker_modal
+        state={@agent_picker}
+        open={@agent_picker_open}
+        selected_rows={@agent_picker_selected_rows}
+      />
     </.ui_panel>
     """
   end
@@ -734,6 +731,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
             <div class="mt-1">{@group.partition}</div>
           </div>
           <div>
+            <div class="text-xs text-sr-muted uppercase">Scanner agents</div>
+            <div class="mt-1">{agent_assignment_summary(@group.agent_ids)}</div>
+          </div>
+          <div>
             <div class="text-xs text-sr-muted uppercase">Last Run</div>
             <div class="mt-1">{format_last_run(group_last_run_at(@group))}</div>
           </div>
@@ -944,6 +945,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
       agent.name && agent.name != "" -> agent.name
       agent.uid && agent.uid != "" -> agent.uid
       true -> "Agent #{agent.uid}"
+    end
+  end
+
+  def agent_assignment_summary(agent_ids) do
+    case Enum.filter(agent_ids || [], &is_binary/1) do
+      [] -> "All"
+      [uid] -> uid
+      ids -> "#{length(ids)} selected"
     end
   end
 end

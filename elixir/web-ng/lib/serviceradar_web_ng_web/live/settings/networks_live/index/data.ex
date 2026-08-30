@@ -52,23 +52,70 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
     end
   end
 
-  def load_agents(scope) do
+  def load_mapper_agents(scope, selected_uid \\ nil) do
     require Logger
 
     if can_manage_networks?(scope) do
-      result = Ash.read(Agent, domain: ServiceRadar.Infrastructure, scope: scope)
+      result =
+        Agent
+        |> Ash.Query.for_read(:by_capability, %{capability: "mapper"})
+        |> Ash.Query.filter(last_seen_time > ago(30, :minute))
+        |> Ash.Query.sort(name: :asc, uid: :asc)
+        |> Ash.Query.limit(50)
+        |> Ash.read(scope: scope)
 
       case result do
         {:ok, agents} ->
-          Logger.debug("load_agents: loaded #{length(agents)} agents")
-          Enum.filter(agents, &active_agent?/1)
+          agents
+          |> Enum.filter(&active_agent?/1)
+          |> include_selected_mapper_agent(scope, selected_uid)
 
         {:error, reason} ->
-          Logger.warning("load_agents: failed to load agents - #{inspect(reason)}")
-          []
+          Logger.warning("load_mapper_agents: failed to load agents - #{inspect(reason)}")
+          include_selected_mapper_agent([], scope, selected_uid)
       end
     else
       []
+    end
+  end
+
+  def load_agents_by_uids(_scope, []), do: []
+
+  def load_agents_by_uids(scope, uids) when is_list(uids) do
+    bounded_uids = uids |> Enum.filter(&is_binary/1) |> Enum.uniq() |> Enum.take(50)
+
+    Agent
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(uid in ^bounded_uids)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, agents} -> Enum.take(agents, 50)
+      {:error, _reason} -> []
+    end
+  end
+
+  def load_agent_by_uid(_scope, uid) when uid in [nil, ""], do: nil
+
+  def load_agent_by_uid(scope, uid) when is_binary(uid) do
+    Agent
+    |> Ash.Query.for_read(:by_uid, %{uid: uid})
+    |> Ash.read_one(scope: scope)
+    |> case do
+      {:ok, agent} -> agent
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp include_selected_mapper_agent(agents, _scope, selected_uid) when selected_uid in [nil, ""], do: agents
+
+  defp include_selected_mapper_agent(agents, scope, selected_uid) do
+    if Enum.any?(agents, &(&1.uid == selected_uid)) do
+      agents
+    else
+      case load_agent_by_uid(scope, selected_uid) do
+        nil -> agents
+        agent -> [agent | agents]
+      end
     end
   end
 
