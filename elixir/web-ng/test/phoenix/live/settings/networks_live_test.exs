@@ -112,7 +112,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
         ] do
       queries =
         capture_repo_queries(fn ->
-          {:ok, view, _html} = live(recycle(conn), path)
+          {:ok, view, _html} = live(conn, path)
           assigns = live_assigns(view)
 
           refute Map.has_key?(assigns, :agents)
@@ -219,15 +219,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
     assert has_element?(view, "input[name='form[agent_ids][]'][value='#{alpha.uid}']")
 
-    view
-    |> form("#sweep-group-form", %{
+    render_change(view, "validate_group", %{
       "form" => %{
         "name" => "Canonical draft #{unique}",
         "agent_ids" => [beta.uid],
         "agent_assignment_mode" => "selected"
       }
     })
-    |> render_change()
 
     assert has_element?(view, "input[name='form[agent_ids][]'][value='#{alpha.uid}']")
     refute has_element?(view, "input[name='form[agent_ids][]'][value='#{beta.uid}']")
@@ -253,47 +251,41 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
     name = "Canonical save #{unique}"
 
-    view
-    |> form("#sweep-group-form", %{
+    render_submit(view, "save_group", %{
       "form" => %{
         "name" => name,
         "agent_ids" => [crafted.uid],
         "agent_assignment_mode" => "selected"
       }
     })
-    |> render_submit()
 
     group = SweepGroup |> Ash.read!(scope: scope) |> Enum.find(&(&1.name == name))
     assert group.agent_ids == [selected.uid]
 
-    {:ok, empty_view, _html} = live(recycle(conn), ~p"/settings/networks/groups/new")
+    {:ok, empty_view, _html} = live(conn, ~p"/settings/networks/groups/new")
 
     html =
-      empty_view
-      |> form("#sweep-group-form", %{
+      render_submit(empty_view, "save_group", %{
         "form" => %{
           "name" => "Rejected empty #{unique}",
           "agent_assignment_mode" => "selected",
           "agent_ids" => [crafted.uid]
         }
       })
-      |> render_submit()
 
     assert html =~ "Select at least one agent"
     refute Enum.any?(Ash.read!(SweepGroup, scope: scope), &(&1.name == "Rejected empty #{unique}"))
 
-    {:ok, all_view, _html} = live(recycle(conn), ~p"/settings/networks/groups/new")
+    {:ok, all_view, _html} = live(conn, ~p"/settings/networks/groups/new")
     all_name = "Canonical all #{unique}"
 
-    all_view
-    |> form("#sweep-group-form", %{
+    render_submit(all_view, "save_group", %{
       "form" => %{
         "name" => all_name,
         "agent_assignment_mode" => "all",
         "agent_ids" => [crafted.uid]
       }
     })
-    |> render_submit()
 
     all_group = SweepGroup |> Ash.read!(scope: scope) |> Enum.find(&(&1.name == all_name))
     assert all_group.agent_ids == []
@@ -340,31 +332,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     assert Enum.sort(group.agent_ids) == Enum.sort(Enum.map(agents, & &1.uid))
   end
 
-  test "closed summary resolves one UID once but keeps multiple UIDs count-only", %{
-    conn: conn,
-    scope: scope
-  } do
+  test "closed summary resolves one UID once but keeps multiple UIDs count-only", %{conn: conn} do
     gateway = gateway_fixture()
     unique = System.unique_integer([:positive])
     first = agent_fixture(gateway, %{uid: "summary-one-#{unique}", name: "Summary One #{unique}"})
     second = agent_fixture(gateway, %{uid: "summary-two-#{unique}", name: "Summary Two #{unique}"})
 
-    {:ok, singleton} =
-      SweepGroup
-      |> Ash.Changeset.for_create(:create, %{name: "Singleton summary #{unique}", agent_ids: [first.uid]})
-      |> Ash.create(scope: scope)
-
-    {:ok, multiple} =
-      SweepGroup
-      |> Ash.Changeset.for_create(:create, %{
-        name: "Multiple summary #{unique}",
-        agent_ids: [first.uid, second.uid]
-      })
-      |> Ash.create(scope: scope)
+    singleton_id = insert_sweep_group!("Singleton summary #{unique}", [first.uid])
+    multiple_id = insert_sweep_group!("Multiple summary #{unique}", [first.uid, second.uid])
 
     singleton_queries =
       capture_repo_queries(fn ->
-        {:ok, view, _html} = live(recycle(conn), ~p"/settings/networks/groups/#{singleton.id}/edit")
+        {:ok, view, _html} = live(conn, ~p"/settings/networks/groups/#{singleton_id}/edit")
         assert has_element?(view, "#sweep-agent-assignment-summary", first.name)
       end)
 
@@ -372,33 +351,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
     multiple_queries =
       capture_repo_queries(fn ->
-        {:ok, view, _html} = live(recycle(conn), ~p"/settings/networks/groups/#{multiple.id}/edit")
+        {:ok, view, _html} = live(conn, ~p"/settings/networks/groups/#{multiple_id}/edit")
         assert has_element?(view, "#sweep-agent-assignment-summary", "2 selected agents")
       end)
 
     refute Enum.any?(multiple_queries, &agent_query?/1)
   end
 
-  test "selected view renders a stale UID as unavailable and allows removing it", %{
-    conn: conn,
-    scope: scope
-  } do
+  test "selected view renders a stale UID as unavailable and allows removing it", %{conn: conn} do
     gateway = gateway_fixture()
     unique = System.unique_integer([:positive])
     stale = agent_fixture(gateway, %{uid: "stale-picker-#{unique}", name: "Stale picker #{unique}"})
 
-    {:ok, group} =
-      SweepGroup
-      |> Ash.Changeset.for_create(:create, %{name: "Stale group #{unique}", agent_ids: [stale.uid]})
-      |> Ash.create(scope: scope)
+    group_id = insert_sweep_group!("Stale group #{unique}", [stale.uid])
 
     SQL.query!(
       ServiceRadar.Repo,
-      "DELETE FROM platform.agents WHERE uid = $1",
+      "DELETE FROM platform.ocsf_agents WHERE uid = $1",
       [stale.uid]
     )
 
-    {:ok, view, _html} = live(conn, ~p"/settings/networks/groups/#{group.id}/edit")
+    {:ok, view, _html} = live(conn, ~p"/settings/networks/groups/#{group_id}/edit")
     view |> element("#sweep-agent-picker-trigger") |> render_click()
     view |> element("#sweep-agent-picker-selected-tab") |> render_click()
 
@@ -581,7 +554,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
           ~p"/settings/networks/discovery/new",
           ~p"/settings/networks/discovery/#{job.id}/edit"
         ] do
-      {:ok, view, _html} = live(recycle(conn), path)
+      {:ok, view, _html} = live(conn, path)
       assigns = live_assigns(view)
 
       refute Map.has_key?(assigns, :agents)
@@ -718,13 +691,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
   defp live_assigns(view), do: :sys.get_state(view.pid).socket.assigns
 
+  defp insert_sweep_group!(name, agent_ids) do
+    %{rows: [[id]]} =
+      SQL.query!(
+        ServiceRadar.Repo,
+        "INSERT INTO platform.sweep_groups (name, agent_ids) VALUES ($1, $2::text[]) RETURNING id",
+        [name, agent_ids]
+      )
+
+    id
+  end
+
   defp capture_repo_queries(fun) do
     handler_id = {__MODULE__, :repo_query, System.unique_integer([:positive])}
     test_pid = self()
 
     :telemetry.attach(
       handler_id,
-      [:serviceradar_core, :repo, :query],
+      [:service_radar, :repo, :query],
       fn _event, _measurements, metadata, _config ->
         send(test_pid, {:networks_repo_query, metadata.query})
       end,
@@ -748,6 +732,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
   end
 
   defp agent_query?(query) do
-    String.contains?(query, ~s(FROM "platform"."agents"))
+    String.contains?(query, ~s(FROM "platform"."ocsf_agents"))
   end
 end

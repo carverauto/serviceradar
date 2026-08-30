@@ -215,7 +215,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
 
     summary_agent =
       case picker.committed |> MapSet.to_list() |> Enum.sort() do
-        [uid] -> load_agent_by_uid(scope, uid)
+        [uid] -> if connected?(socket), do: load_agent_by_uid(scope, uid)
         _ -> nil
       end
 
