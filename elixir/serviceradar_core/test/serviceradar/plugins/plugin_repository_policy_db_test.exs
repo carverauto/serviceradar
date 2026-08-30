@@ -211,9 +211,13 @@ defmodule ServiceRadar.Plugins.PluginRepositoryPolicyDbTest do
                RepositoryCredentials.fetch_token(repository, actor: SystemActor.system(:test))
     end
 
-    test "replacing a token updates the existing secret rather than orphaning one", %{
+    test "replacing a token retires the old secret and leaves none active but unreferenced", %{
       repository: repository
     } do
+      # In-place payload updates are impossible on this resource: AshCloak's
+      # encryption is non-atomic and there is no primary read to upgrade
+      # through, so Ash raises MustBeAtomic. Replacement therefore creates a new
+      # secret and disables the old one.
       {:ok, repository} =
         RepositoryCredentials.put_token(repository, "ghp_first", actor: SystemActor.system(:test))
 
@@ -224,13 +228,20 @@ defmodule ServiceRadar.Plugins.PluginRepositoryPolicyDbTest do
           actor: SystemActor.system(:test)
         )
 
-      assert repository.credential_secret_id == first_secret_id
+      assert repository.credential_secret_id != first_secret_id
 
       assert {:ok, "ghp_second"} =
                RepositoryCredentials.fetch_token(repository, actor: SystemActor.system(:test))
+
+      {:ok, retired} =
+        NetworkCredentialSecret
+        |> Ash.Query.for_read(:by_id, %{id: first_secret_id})
+        |> Ash.read_one(actor: SystemActor.system(:test))
+
+      assert retired.rotation_state == :disabled
     end
 
-    test "clearing removes both the link and the secret", %{repository: repository} do
+    test "clearing detaches the link and retires the secret", %{repository: repository} do
       {:ok, repository} =
         RepositoryCredentials.put_token(repository, "ghp_gone", actor: SystemActor.system(:test))
 
@@ -241,12 +252,15 @@ defmodule ServiceRadar.Plugins.PluginRepositoryPolicyDbTest do
 
       assert is_nil(cleared.credential_secret_id)
 
-      # A secret bound to nothing is a live credential no surface lists, which
-      # is why clearing destroys it rather than just unlinking.
-      assert {:ok, nil} =
-               NetworkCredentialSecret
-               |> Ash.Query.for_read(:by_id, %{id: secret_id})
-               |> Ash.read_one(actor: SystemActor.system(:test))
+      # The resource has no destroy action -- credentials retire through the
+      # rotation state machine -- so "removed" means disabled, not absent. What
+      # matters is that nothing is left active and unreferenced.
+      {:ok, retired} =
+        NetworkCredentialSecret
+        |> Ash.Query.for_read(:by_id, %{id: secret_id})
+        |> Ash.read_one(actor: SystemActor.system(:test))
+
+      assert retired.rotation_state == :disabled
     end
   end
 end

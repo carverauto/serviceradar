@@ -160,7 +160,7 @@ defmodule ServiceRadar.Plugins.PluginRepositoryDbTest do
       assert {:ok, repository} = create(%{})
 
       assert_raise Postgrex.Error, fn ->
-        Repo.query!(
+        ServiceRadar.Repo.query!(
           "UPDATE platform.plugin_repositories SET is_default = true WHERE id = $1",
           [Ecto.UUID.dump!(repository.id)]
         )
