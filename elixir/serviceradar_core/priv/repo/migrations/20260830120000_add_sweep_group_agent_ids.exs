@@ -4,7 +4,7 @@ defmodule ServiceRadar.Repo.Migrations.AddSweepGroupAgentIds do
 
   @prefix "platform"
   @table "platform.sweep_groups"
-  @index "platform.sweep_groups_agent_ids_gin_idx"
+  @index "sweep_groups_agent_ids_gin_idx"
   @function "platform.sweep_groups_agent_ids_compat"
   @trigger "sweep_groups_agent_ids_compat_trigger"
 
@@ -24,22 +24,11 @@ defmodule ServiceRadar.Repo.Migrations.AddSweepGroupAgentIds do
   def down do
     execute("DROP TRIGGER IF EXISTS #{@trigger} ON #{@table}")
     execute("DROP FUNCTION IF EXISTS #{@function}()")
-    execute("DROP INDEX IF EXISTS #{@index}")
+    execute("DROP INDEX IF EXISTS #{@prefix}.#{@index}")
 
     alter table(:sweep_groups, prefix: @prefix) do
       remove :agent_ids
     end
-  end
-
-  def backfill_sql(table \\ @table) do
-    """
-    UPDATE #{table}
-    SET agent_ids = CASE
-      WHEN NULLIF(btrim(COALESCE(agent_id, '')), '') IS NULL THEN ARRAY[]::text[]
-      ELSE ARRAY[btrim(agent_id)]
-    END
-    WHERE agent_ids IS NULL
-    """
   end
 
   def compatibility_function_sql do
@@ -86,25 +75,25 @@ defmodule ServiceRadar.Repo.Migrations.AddSweepGroupAgentIds do
   def compatibility_trigger_sql(table \\ @table) do
     """
     CREATE TRIGGER #{@trigger}
-    BEFORE INSERT OR UPDATE OF agent_id ON #{table}
+    BEFORE INSERT OR UPDATE OF agent_id, agent_ids ON #{table}
     FOR EACH ROW EXECUTE FUNCTION #{@function}()
     """
   end
 
-  defp backfill_bounded_sql do
+  def backfill_bounded_sql(table \\ @table) do
     """
     DO $$
     DECLARE
       updated_count integer;
     BEGIN
       LOOP
-        UPDATE #{@table}
+        UPDATE #{table}
         SET agent_ids = CASE
           WHEN NULLIF(btrim(COALESCE(agent_id, '')), '') IS NULL THEN ARRAY[]::text[]
           ELSE ARRAY[btrim(agent_id)]
         END
         WHERE ctid IN (
-          SELECT ctid FROM #{@table} WHERE agent_ids IS NULL LIMIT 10000
+          SELECT ctid FROM #{table} WHERE agent_ids IS NULL LIMIT 10000
         );
 
         GET DIAGNOSTICS updated_count = ROW_COUNT;

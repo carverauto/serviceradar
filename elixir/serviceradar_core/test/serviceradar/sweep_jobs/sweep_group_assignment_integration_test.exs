@@ -1,8 +1,6 @@
 defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
-  import Ecto.Query
-
   alias Ash.Error.Invalid
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Repo
@@ -23,6 +21,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
   } do
     agent_a = register_agent("agent-a-#{suffix}", actor)
     agent_b = register_agent("agent-b-#{suffix}", actor)
+    agent_c = register_agent("agent-c-#{suffix}", actor)
+    agent_z = register_agent("agent-z-#{suffix}", actor)
 
     {:ok, all_agents} = create_group("All #{suffix}", %{agent_ids: []}, actor)
 
@@ -38,6 +38,32 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
     assert %{agent_ids: agent_ids, agent_id: agent_id} = selected
     assert agent_ids == [agent_a.uid, agent_b.uid]
     assert agent_id == agent_a.uid
+
+    assert {:ok, one_agent} = update_group(selected, %{agent_id: agent_c.uid}, actor)
+    assert one_agent.agent_ids == [agent_c.uid]
+    assert one_agent.agent_id == agent_c.uid
+
+    assert {:ok, many_agents} =
+             update_group(one_agent, %{agent_ids: [agent_c.uid, agent_b.uid]}, actor)
+
+    assert many_agents.agent_ids == [agent_b.uid, agent_c.uid]
+    assert many_agents.agent_id == agent_b.uid
+
+    assert {:ok, same_first_member} =
+             update_group(
+               many_agents,
+               %{agent_ids: [agent_z.uid, agent_b.uid, agent_c.uid]},
+               actor
+             )
+
+    assert same_first_member.agent_ids == [agent_b.uid, agent_c.uid, agent_z.uid]
+    assert same_first_member.agent_id == agent_b.uid
+
+    assert {:ok, all_agents_after_update} =
+             update_group(same_first_member, %{agent_ids: []}, actor)
+
+    assert all_agents_after_update.agent_ids == []
+    assert is_nil(all_agents_after_update.agent_id)
   end
 
   test "a legacy scalar assignment becomes a one-agent canonical assignment", %{
@@ -65,13 +91,17 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
     known = register_agent("agent-known-#{suffix}", actor)
     {:ok, group} = create_group("Stale #{suffix}", %{agent_ids: [known.uid]}, actor)
     stale_uid = "agent-stale-#{suffix}"
+    {:ok, group_id} = Ecto.UUID.dump(group.id)
 
-    {1, nil} =
-      Repo.update_all(
-        from(group_row in "sweep_groups", where: group_row.id == ^group.id),
-        set: [agent_ids: [stale_uid], agent_id: stale_uid],
-        prefix: "platform"
-      )
+    assert %{num_rows: 1} =
+             Repo.query!(
+               """
+               UPDATE platform.sweep_groups
+               SET agent_ids = $1, agent_id = $2
+               WHERE id = $3::uuid
+               """,
+               [[stale_uid], stale_uid, group_id]
+             )
 
     {:ok, stale_group} = Ash.get(SweepGroup, group.id, actor: actor)
 
@@ -115,5 +145,11 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
              |> Ash.create()
 
     agent
+  end
+
+  defp update_group(group, attrs, actor) do
+    group
+    |> Ash.Changeset.for_update(:update, attrs, actor: actor)
+    |> Ash.update()
   end
 end
