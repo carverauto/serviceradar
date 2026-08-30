@@ -8,11 +8,12 @@ import (
 )
 
 type HTTPRequest struct {
-	Method    string
-	URL       string
-	Headers   map[string]string
-	Body      []byte
-	TimeoutMS int
+	Method             string
+	URL                string
+	Headers            map[string]string
+	Body               []byte
+	TimeoutMS          int
+	InsecureSkipVerify bool
 }
 
 type HTTPResponse struct {
@@ -29,12 +30,13 @@ type SDKHTTPDoer struct{}
 
 func (SDKHTTPDoer) Do(ctx context.Context, request HTTPRequest) (HTTPResponse, error) {
 	response, err := sdk.HTTP.DoContext(ctx, sdk.HTTPRequest{
-		Method:       request.Method,
-		URL:          request.URL,
-		Headers:      request.Headers,
-		Body:         request.Body,
-		ResponseMode: "envelope",
-		TimeoutMS:    request.TimeoutMS,
+		Method:             request.Method,
+		URL:                request.URL,
+		Headers:            request.Headers,
+		Body:               request.Body,
+		ResponseMode:       "envelope",
+		TimeoutMS:          request.TimeoutMS,
+		InsecureSkipVerify: request.InsecureSkipVerify,
 	})
 	if err != nil {
 		return HTTPResponse{}, err

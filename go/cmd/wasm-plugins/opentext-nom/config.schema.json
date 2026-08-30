@@ -99,6 +99,12 @@
       "minimum": 0,
       "maximum": 5,
       "default": 2
+    },
+    "insecure_skip_verify": {
+      "type": "boolean",
+      "default": false,
+      "title": "Skip TLS verification",
+      "description": "Disable TLS certificate verification for Network Automation and NNMi. Use only when those hosts present untrusted certificates on a network path you already trust. Off by default."
     }
   },
   "$defs": {

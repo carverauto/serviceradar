@@ -50,6 +50,7 @@ type Config struct {
 	RequestTimeoutSeconds int          `json:"request_timeout_seconds"`
 	MaxRetries            int          `json:"max_retries"`
 	L2Endpoints           []L2Endpoint `json:"l2_endpoints,omitempty"`
+	InsecureSkipVerify    bool         `json:"insecure_skip_verify,omitempty"`
 	tokenAuthMode         tokenAuthMode
 }
 

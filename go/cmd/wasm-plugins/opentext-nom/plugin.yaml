@@ -1,6 +1,6 @@
 id: opentext-nom-inventory
 name: OpenText Network Operations Management Inventory
-version: 0.1.4
+version: 0.1.5
 description: Collects bounded OpenText NOM device inventory for DIRE reconciliation
 entrypoint: run_check
 runtime: wasi-preview1
@@ -79,6 +79,9 @@ producer_schedules:
         max_retries:
           type: integer
           default: 2
+        insecure_skip_verify:
+          type: boolean
+          default: false
     credential_requirements:
       nom_service_account:
         required: true
@@ -99,6 +102,7 @@ producer_schedules:
               field_username: username
               field_password: password
               fixed_grant_type: password
+              allow_insecure_tls: "true"
     payload_template:
       mode: complete_snapshot
     redaction:

@@ -88,6 +88,7 @@ func (e *pluginExecution) applyCredentialBrokerOAuth2Bearer(
 	grant credentialBrokerGrant,
 	material CredentialBrokerMaterial,
 	shape oauth2GrantShape,
+	insecureSkipVerify bool,
 ) error {
 	if e == nil || e.manager == nil || req == nil || req.URL == nil ||
 		!credentialBrokerInjectionTargetsRequest(req, grant.Inject) {
@@ -115,7 +116,7 @@ func (e *pluginExecution) applyCredentialBrokerOAuth2Bearer(
 	tokenReq.Header.Set("Accept", "application/json")
 	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	client := pluginHTTPClient(e.manager.httpClient, false, pluginDefaultHTTPTimeout)
+	client := pluginHTTPClient(e.manager.httpClient, insecureSkipVerify, pluginDefaultHTTPTimeout)
 	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	}

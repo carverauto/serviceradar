@@ -432,7 +432,7 @@ func (e *pluginExecution) applyCredentialBrokerInjection(
 		return err
 	}
 	if shape, ok := oauth2GrantShapeFor(grant.Inject["type"]); ok {
-		return e.applyCredentialBrokerOAuth2Bearer(ctx, req, *grant, material, shape)
+		return e.applyCredentialBrokerOAuth2Bearer(ctx, req, *grant, material, shape, insecureSkipVerify)
 	}
 
 	return applyCredentialBrokerHTTPInjection(req, *grant, material)

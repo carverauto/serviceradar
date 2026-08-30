@@ -36,6 +36,12 @@ supported layouts:
 both `nnm_url` and `token_url` are set, they must describe the same NNMi token
 endpoint.
 
+`insecure_skip_verify` is off by default. Turn it on only when Network
+Automation and NNMi present untrusted certificates on a path the assigned
+agent already trusts. The host then skips TLS verification for both the OAuth
+token request and the inventory/L2 HTTPS calls. Do not use it as a substitute
+for installing a real CA on the agent.
+
 The default query collects devices with `type=Switch`. Operators can replace it
 with up to eight named query sets using the allowlisted `list device` filters in
 `config.schema.json`. The plugin always controls the command, pagination

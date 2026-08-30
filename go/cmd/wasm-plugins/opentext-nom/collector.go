@@ -194,6 +194,7 @@ func (c *Collector) fetchPage(
 }
 
 func (c *Collector) doWithRetry(ctx context.Context, cfg Config, request HTTPRequest) (HTTPResponse, error) {
+	request.InsecureSkipVerify = cfg.InsecureSkipVerify
 	for attempt := 0; attempt <= cfg.MaxRetries; attempt++ {
 		response, err := c.HTTP.Do(ctx, request)
 		if err == nil && response.Status != http.StatusTooManyRequests && response.Status < 500 {
