@@ -62,6 +62,52 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerStateTest do
     assert retained.draft == MapSet.new(["agent-a", "agent-b", "agent-c"])
   end
 
+  test "retains the page-one selection after page-two load and normalized search reset" do
+    first_page =
+      []
+      |> AgentPicker.new()
+      |> AgentPicker.open()
+      |> AgentPicker.loaded(%{results: [%{uid: "agent-page-one"}], after: "after-page-one", before: nil})
+      |> AgentPicker.toggle("agent-page-one")
+
+    assert AgentPicker.previous_page(first_page) == first_page
+    assert first_page.draft == MapSet.new(["agent-page-one"])
+    assert MapSet.size(first_page.draft) == 1
+
+    second_request = AgentPicker.next_page(first_page)
+
+    assert %{search: "", selector: {:after, "after-page-one"}} = AgentPicker.browse_request(second_request)
+
+    second_page =
+      AgentPicker.loaded(second_request, %{
+        results: [%{uid: "agent-page-two"}],
+        after: nil,
+        before: "before-page-two"
+      })
+
+    assert AgentPicker.next_page(second_page) == second_page
+    assert second_page.draft == MapSet.new(["agent-page-one"])
+    assert MapSet.size(second_page.draft) == 1
+
+    back_on_first = AgentPicker.previous_page(second_page)
+
+    assert back_on_first.cursor == nil
+    assert back_on_first.cursor_history == []
+    assert back_on_first.draft == MapSet.new(["agent-page-one"])
+
+    searched = AgentPicker.search(second_page, "  PAGE Two Search  ")
+
+    assert searched.query == "page two search"
+    assert searched.cursor == nil
+    assert searched.cursor_history == []
+    assert searched.cursor_binding == nil
+    assert searched.draft == MapSet.new(["agent-page-one"])
+    assert MapSet.size(searched.draft) == 1
+    assert AgentPicker.previous_page(searched) == searched
+    assert AgentPicker.next_page(searched) == searched
+    assert %{search: "page two search", selector: :first} = AgentPicker.browse_request(searched)
+  end
+
   test "owns selected pagination boundaries and clamps the offset after removal" do
     ids = for index <- 1..101, do: "agent-#{String.pad_leading(Integer.to_string(102 - index), 3, "0")}"
 
