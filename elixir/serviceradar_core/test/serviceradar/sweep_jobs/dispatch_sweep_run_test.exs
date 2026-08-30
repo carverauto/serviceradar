@@ -3,7 +3,7 @@ defmodule ServiceRadar.SweepJobs.DispatchSweepRunTest do
 
   alias Ash.Resource.Info
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.SweepJobs.Changes.BlankAgentId
+  alias ServiceRadar.SweepJobs.Changes.NormalizeAgentAssignment
   alias ServiceRadar.SweepJobs.SweepGroup
 
   test "run_now remains atomic and retains its post-update dispatch hook" do
@@ -17,9 +17,9 @@ defmodule ServiceRadar.SweepJobs.DispatchSweepRunTest do
              )
   end
 
-  test "create and update normalize a blank Networks UI agent_id to all-agents" do
-    assert blank_agent_id_change?(Info.action(SweepGroup, :create))
-    assert blank_agent_id_change?(Info.action(SweepGroup, :update))
+  test "create and update normalize a blank Networks UI assignment to all agents" do
+    assert normalize_agent_assignment_change?(Info.action(SweepGroup, :create))
+    assert normalize_agent_assignment_change?(Info.action(SweepGroup, :update))
 
     blank =
       Ash.Changeset.for_create(
@@ -30,21 +30,12 @@ defmodule ServiceRadar.SweepJobs.DispatchSweepRunTest do
       )
 
     assert is_nil(Ash.Changeset.get_attribute(blank, :agent_id))
-
-    pinned =
-      Ash.Changeset.for_create(
-        SweepGroup,
-        :create,
-        %{name: "Pinned", partition: "default", interval: "15m", agent_id: "k8s-agent"},
-        actor: SystemActor.system(:blank_agent_id_test)
-      )
-
-    assert Ash.Changeset.get_attribute(pinned, :agent_id) == "k8s-agent"
+    assert Ash.Changeset.get_attribute(blank, :agent_ids) == []
   end
 
-  defp blank_agent_id_change?(action) do
+  defp normalize_agent_assignment_change?(action) do
     Enum.any?(action.changes, fn
-      %{change: {BlankAgentId, _}} -> true
+      %{change: {NormalizeAgentAssignment, _}} -> true
       _ -> false
     end)
   end

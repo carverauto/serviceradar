@@ -40,15 +40,17 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
-  alias ServiceRadar.SweepJobs.Changes.BlankAgentId
+  alias ServiceRadar.SweepJobs.Changes.NormalizeAgentAssignment
   alias ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
   alias ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
+  alias ServiceRadar.SweepJobs.Validations.AgentAssignment
 
   @group_fields [
     :name,
     :description,
     :partition,
     :agent_id,
+    :agent_ids,
     :enabled,
     :interval,
     :schedule_type,
@@ -73,6 +75,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       index [:agent_id],
         where: "agent_id IS NOT NULL",
         name: "sweep_groups_agent_idx"
+
+      index [:agent_ids], name: "sweep_groups_agent_ids_gin_idx", using: "gin"
     end
   end
 
@@ -82,7 +86,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     create :create do
       accept @group_fields
 
-      change BlankAgentId
+      change NormalizeAgentAssignment
+      validate AgentAssignment
       change ScheduleSweepMonitor
       change ValidateSrqlQuery
     end
@@ -92,7 +97,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
       accept @group_fields
 
-      change BlankAgentId
+      change NormalizeAgentAssignment
+      validate AgentAssignment
       change ScheduleSweepMonitor
       change ValidateSrqlQuery
     end
@@ -235,6 +241,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       allow_nil? true
       public? true
       description "Specific scanner agent ID (nil / blank = every agent in the partition)"
+    end
+
+    attribute :agent_ids, {:array, :string} do
+      allow_nil? false
+      public? true
+      default []
+      description "Canonical scanner agent IDs (empty = all agents in the partition)"
     end
 
     attribute :enabled, :boolean do
