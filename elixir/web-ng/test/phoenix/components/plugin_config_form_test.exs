@@ -144,6 +144,25 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     refute html =~ ~s(assignment[params][console])
   end
 
+  test "renders OpenText NOM schema docs and wrapper help text" do
+    schema = opentext_nom_schema_path() |> File.read!() |> Jason.decode!()
+
+    html =
+      render_component(&PluginConfigForm.plugin_config_fields/1, %{
+        schema: schema,
+        params: %{},
+        base_name: "credential_rule[plugin_config]"
+      })
+
+    assert html =~ "Open the configuration guide"
+    assert html =~ "https://docs.serviceradar.cloud/docs/opentext-nom"
+    assert html =~ "Automation wrapper URL"
+    assert html =~ "https://na.example.com/nom/api/automation/v1/wrapper"
+    assert html =~ "https://nnm.example.com:443"
+    refute html =~ "example.com"
+    assert html =~ "Advanced settings (optional)"
+  end
+
   test "renders schema documentation link" do
     schema = %{
       "type" => "object",
@@ -241,5 +260,26 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     assert html =~ ~s(pattern="https://.*")
     refute html =~ ~s(pattern="^https://")
     assert html =~ ~s(pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+  end
+
+  defp opentext_nom_schema_path do
+    relative = "go/cmd/wasm-plugins/opentext-nom/config.schema.json"
+
+    Enum.find(
+      [
+        Path.expand("../../../../../" <> relative, __DIR__),
+        Path.join(File.cwd!(), relative),
+        Path.join([
+          System.get_env("TEST_SRCDIR") || "",
+          System.get_env("TEST_WORKSPACE") || "_main",
+          relative
+        ])
+      ],
+      &File.exists?/1
+    ) ||
+      raise """
+      OpenText NOM config.schema.json was not staged. Declare \
+      //go/cmd/wasm-plugins/opentext-nom:config.schema.json as test data.
+      """
   end
 end

@@ -1,6 +1,6 @@
 id: opentext-nom-inventory
 name: OpenText Network Operations Management Inventory
-version: 0.1.5
+version: 0.1.6
 description: Collects bounded OpenText NOM device inventory for DIRE reconciliation
 entrypoint: run_check
 runtime: wasi-preview1
@@ -114,7 +114,7 @@ integrations:
   documentation:
     title: OpenText NOM inventory configuration
     path: docs/configuration.md
-    url: https://github.com/carverauto/serviceradar/blob/staging/go/cmd/wasm-plugins/opentext-nom/docs/configuration.md
+    url: https://docs.serviceradar.cloud/docs/opentext-nom
   credential_profiles:
     - provider: opentext-nom
       label: OpenText NOM

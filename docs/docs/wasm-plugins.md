@@ -220,6 +220,14 @@ The plugin lifecycle is operator-facing and gated by an approval step:
 4. Approved packages can be assigned to agents.
 5. Agents download packages only from the ServiceRadar control plane — never directly from GitHub.
 
+**Scheduled inventory plugins are the exception to step 4.** A package that
+declares `producer_schedules` and a credential profile with
+`provisioning.mode: producer_schedule` (OpenText NOM today) is **not** enabled
+from **Assign to Agent**. Import and approve it, then create the service-account
+credential and rule under **Settings -> Networks -> Credential Rules**. The
+rule's Scope Value is the agent that runs the Wasm module; saving the rule
+creates the assignment. See [OpenText NOM Inventory](./opentext-nom.md).
+
 Plugin blob upload and download tokens are transported only in explicit headers or POST bodies. Query-string bearer tokens are not supported.
 
 ### Publishing from the CLI

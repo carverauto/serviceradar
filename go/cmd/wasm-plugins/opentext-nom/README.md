@@ -62,6 +62,13 @@ authorization.
 
 ## Configuration
 
+Operators configure this plugin from **Settings -> Networks -> Credential
+Rules**, not from Plugin Packages -> Assign to Agent. The rule's Scope Value is
+the agent that executes the Wasm module. Service-account username and password
+go in a credential secret; the wrapper and NNMi URLs go on that same rule form.
+See [docs/configuration.md](docs/configuration.md) and
+[OpenText NOM Inventory](https://docs.serviceradar.cloud/docs/opentext-nom).
+
 ServiceRadar owns scheduling and credential delivery. The plugin receives only
 public endpoint/query settings and short-lived host-mediated credential grants.
 The default query is:
@@ -76,10 +83,6 @@ The default query is:
 Operators may configure up to eight query sets using the allowlisted network automation list
 filters in `config.schema.json`. The plugin always owns `command=list device`,
 `startid`, and `limitcount`; those values cannot be supplied by an operator.
-
-See [docs/configuration.md](docs/configuration.md) for the provider-owned
-configuration, credential, scheduling, and inventory metadata contract shipped
-inside the signed plugin bundle.
 
 ## Supply Chain
 

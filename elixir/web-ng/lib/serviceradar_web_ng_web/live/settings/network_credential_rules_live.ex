@@ -765,6 +765,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   attr :provider_options, :list, required: true
   attr :integration_profiles, :map, required: true
   attr :agent_options, :list, required: true
+  attr :editing_rule, :any, default: nil
 
   defp rule_form_modal(assigns) do
     assigns =
@@ -844,6 +845,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           >
             {@integration_profile["description"] || @integration_profile["label"]} Credentials are
             resolved by the trusted host and delivered only through scoped runtime grants.
+          </div>
+          <div
+            :if={@plugin_integration?}
+            class="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-sr-ink/90 space-y-2"
+          >
+            <p class="font-medium">Do not assign this plugin from Admin → Plugin Packages.</p>
+            <p>
+              Pick the agent in <span class="font-medium">Scope Value</span> below. Saving this
+              rule creates the assignment and the inventory schedule. Put the service-account
+              username and password in a credential on this page, not in package approval and
+              not on Assign to Agent.
+            </p>
           </div>
           <div
             :if={@provider_value == "unifi-protect"}

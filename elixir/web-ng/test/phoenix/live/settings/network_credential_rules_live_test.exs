@@ -543,6 +543,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert html =~ "Example Scheduled Inventory"
     assert html =~ "Instance ID"
     assert html =~ "Enable recurring inventory refresh"
+    assert html =~ "Do not assign this plugin from Admin"
     refute html =~ "Target Query"
 
     lv

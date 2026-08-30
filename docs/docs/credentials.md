@@ -462,6 +462,39 @@ Axis, like UniFi Protect, is reached by private IP and needs the manifest's
 [0 cameras, 0 streams](#unifi-protect-reports-0-cameras-0-streams) for which
 releases carry it.
 
+### OpenText NOM
+
+OpenText Network Automation and NNMi authenticate with a **service-account
+username and password**. They do not issue API keys. Full endpoint examples
+(wrapper URL, NNMi origin, derived token URLs) are in
+[OpenText NOM Inventory](./opentext-nom.md).
+
+This provider is `producer_schedule`. The credential rule **is** the assignment:
+the rule's **Scope Value** is the agent that runs the Wasm plugin. Do **not**
+use **Admin -> Plugin Packages -> Assign to Agent**, and do **not** put the
+password on package approval.
+
+1. **Import and approve** `opentext-nom-inventory`. Until that is done, this
+   page's **New Credential** / **New Rule** menus will not offer OpenText NOM.
+2. **Create the credential.** **New Credential** ->
+   `OpenText NOM · Username and password`. Store the NOM service account.
+3. **Create the rule.** Provider `opentext-nom`, auth method
+   `username_password`, purpose `device_inventory`, scope **agent** = the agent
+   that can reach both Network Automation and NNMi.
+4. **Fill plugin config on the same rule form**, not on Assign to Agent:
+   `instance_id`, automation wrapper URL
+   (`https://na.example.com/nom/api/automation/v1/wrapper`), and for
+   NNMi-integrated installs the NNMi origin
+   (`https://nnm.example.com:443`). Leave `token_url` blank; the plugin derives
+   `{nnm_url}/idp/oauth2/token`.
+5. Leave recurring refresh off. Use **Run Now** once **Consumers** shows the
+   materialized assignment, then enable the daily cadence (`86400`).
+
+The password stays in `network_credential_secrets`. The assignment row the rule
+creates carries only a grant envelope. Runtime badges `Pending` / `On demand` /
+`Scheduled` on this page apply to OpenText NOM; see
+[Target query and the Runtime column](#target-query-and-the-runtime-column).
+
 ### AWX / AAP
 
 AWX is **credential-only**: its descriptor sets `supports_rules: false`, so an AWX

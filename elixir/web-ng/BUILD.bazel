@@ -362,6 +362,10 @@ ex_unit_tests(
         # assets/ is its own package; glob() here cannot see css/app.css.
         # DashboardLayoutTest reads it at runtime.
         "//elixir/web-ng/assets:css/app.css",
+        # PluginConfigFormTest reads the live OpenText schema via Path.expand
+        # from __DIR__. ex_unit_test mirrors the workspace layout, so this
+        # declared input is what makes that relative path exist in the sandbox.
+        "//go/cmd/wasm-plugins/opentext-nom:config.schema.json",
     ],
     # web-ng already defines a database-free tier: with ALLOW_DB_FREE_TESTS set and neither
     # CI nor REQUIRE_DB_TESTS, test_helper.exs skips Application.ensure_all_started and runs
