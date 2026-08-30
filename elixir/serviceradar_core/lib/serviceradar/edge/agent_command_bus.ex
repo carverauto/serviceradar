@@ -16,6 +16,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.Security.RateLimiter
+  alias ServiceRadar.SweepJobs.AgentAssignment
 
   require Logger
 
@@ -413,98 +414,147 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   def run_sweep_group(group, opts \\ []) do
     payload = %{sweep_group_id: group.id}
-    {dispatch_partition, agent_id} = sweep_dispatch_assignment(group)
+    group_partition = group.partition || "default"
+    agent_ids = AgentAssignment.normalize(group.agent_ids)
+    dispatch_fun = Keyword.get(opts, :dispatch_fun, &dispatch/4)
 
     opts =
-      add_context(opts, %{sweep_group_id: group.id, partition_id: dispatch_partition})
+      add_context(opts, %{sweep_group_id: group.id, device_partition_id: group_partition})
 
-    case agent_id do
-      nil ->
-        dispatch_sweep_group_to_all(dispatch_partition, payload, opts)
+    result =
+      case agent_ids do
+        [] ->
+          dispatch_sweep_group_to_all(group_partition, payload, opts, dispatch_fun)
 
-      agent_id ->
-        dispatch_for_assignment(
-          dispatch_partition,
-          agent_id,
-          "sweep",
-          "sweep.run_group",
-          payload,
-          opts
-        )
-    end
+        selected_agent_ids ->
+          dispatch_sweep_group_to_selected(selected_agent_ids, payload, opts, dispatch_fun)
+      end
+
+    publish_sweep_dispatch(group.id, result)
+    sweep_dispatch_return(result)
   end
 
   # All-agents groups compile onto every scanner in the partition. Run now must
   # fan out the same way; picking the first online session by agent_id left the
   # rest of the fleet idle.
-  defp dispatch_sweep_group_to_all(partition, payload, opts) do
+  defp dispatch_sweep_group_to_all(partition, payload, opts, dispatch_fun) do
     listing_opts =
       Keyword.take(opts, [:registry_present?, :local_registry_reader, :registry_rpc])
 
     case list_online_agents_for_assignment(partition, "sweep", listing_opts) do
       [] ->
-        {:error, :agent_offline}
+        %{commands: [], failures: [], error: :agent_offline}
 
       sessions ->
-        results =
-          Enum.map(sessions, fn session ->
-            dispatch_opts =
-              opts
-              |> put_assignment_context(session.partition_id, "sweep")
-              |> Keyword.put(
-                :required_gateway_node,
-                gateway_node_from_metadata(session.metadata)
-              )
-
-            {session.agent_id,
-             dispatch(session.agent_id, "sweep.run_group", payload, dispatch_opts)}
-          end)
-
-        succeeded =
-          Enum.flat_map(results, fn
-            {_agent_id, {:ok, command_id}} -> [command_id]
-            _failed -> []
-          end)
-
-        failed =
-          Enum.flat_map(results, fn
-            {agent_id, {:error, reason}} -> [{agent_id, reason}]
-            _ok -> []
-          end)
-
-        if succeeded == [] do
-          case List.first(failed) do
-            {_agent_id, reason} -> {:error, reason}
-            nil -> {:error, :agent_offline}
-          end
-        else
-          if failed != [] do
-            Logger.warning(
-              "Run now for all-agents sweep dispatched to #{length(succeeded)}/#{length(sessions)} agents; failures=#{inspect(failed)}"
-            )
-          end
-
-          {:ok, succeeded}
-        end
+        sessions
+        |> Enum.map(&dispatch_sweep_session(&1, payload, opts, dispatch_fun))
+        |> collect_sweep_dispatches()
     end
   end
 
-  # SweepGroup.partition is the device-lookup partition. Isolation scans pin a
-  # scanner that lives in a different control-session partition, so run_now
-  # must dispatch to the agent's live partition rather than the group's.
-  defp sweep_dispatch_assignment(group) do
-    group_partition = group.partition || "default"
+  defp dispatch_sweep_group_to_selected(agent_ids, payload, opts, dispatch_fun) do
+    listing_opts =
+      Keyword.take(opts, [:registry_present?, :local_registry_reader, :registry_rpc])
 
-    case normalize_agent_id(group.agent_id) do
-      nil ->
-        {group_partition, nil}
+    agent_ids
+    |> Enum.map(fn agent_id ->
+      case selected_sweep_session(agent_id, listing_opts) do
+        {:ok, session} -> dispatch_sweep_session(session, payload, opts, dispatch_fun)
+        {:error, reason} -> {:error, agent_id, reason}
+      end
+    end)
+    |> collect_sweep_dispatches()
+  end
 
-      agent_id ->
-        case unique_control_partition(agent_id) do
-          {:ok, agent_partition} -> {agent_partition, agent_id}
-          {:error, _reason} -> {group_partition, agent_id}
+  # A selected UID is authority only through a canonical four-part control key.
+  # Legacy agent-only keys remain observable for transition diagnostics, but they
+  # cannot select a sweep target or make a canonical principal ambiguous.
+  defp selected_sweep_session(agent_id, listing_opts) do
+    sessions =
+      listing_opts
+      |> list_online_sessions()
+      |> Enum.filter(&(&1.canonical_principal? and &1.agent_id == agent_id))
+
+    case sessions |> Enum.map(& &1.partition_id) |> Enum.uniq() do
+      [] ->
+        {:error, {:agent_offline, agent_id}}
+
+      [partition_id] ->
+        with {:ok, evidence} <- resolve_control_session_evidence(partition_id, agent_id, nil),
+             :ok <- selected_sweep_capability(agent_id, evidence) do
+          {:ok,
+           %{
+             agent_id: agent_id,
+             partition_id: partition_id,
+             metadata: evidence
+           }}
         end
+
+      _multiple ->
+        {:error, {:agent_partition_ambiguous, agent_id}}
     end
+  end
+
+  defp selected_sweep_capability(agent_id, %{capabilities: capabilities})
+       when is_list(capabilities) do
+    if "sweep" in capabilities,
+      do: :ok,
+      else: {:error, {:agent_capability_missing, agent_id, "sweep"}}
+  end
+
+  defp selected_sweep_capability(agent_id, _evidence),
+    do: {:error, {:agent_capability_missing, agent_id, "sweep"}}
+
+  defp dispatch_sweep_session(session, payload, opts, dispatch_fun) do
+    gateway_node = gateway_node_from_metadata(session.metadata)
+
+    dispatch_opts =
+      opts
+      |> put_assignment_context(session.partition_id, "sweep")
+      |> add_context(%{
+        agent_id: session.agent_id,
+        member_partition_id: session.partition_id
+      })
+      |> Keyword.put(:required_gateway_node, gateway_node)
+
+    case dispatch_fun.(session.agent_id, "sweep.run_group", payload, dispatch_opts) do
+      {:ok, command_id} -> {:ok, session.agent_id, command_id}
+      {:error, reason} -> {:error, session.agent_id, reason}
+      other -> {:error, session.agent_id, other}
+    end
+  end
+
+  defp collect_sweep_dispatches(results) do
+    commands =
+      Enum.flat_map(results, fn
+        {:ok, agent_id, command_id} -> [%{agent_id: agent_id, command_id: command_id}]
+        _failure -> []
+      end)
+
+    failures =
+      Enum.flat_map(results, fn
+        {:error, agent_id, reason} -> [%{agent_id: agent_id, reason: reason}]
+        _success -> []
+      end)
+
+    error = if commands == [], do: first_sweep_failure(failures)
+
+    maybe_put(%{commands: commands, failures: failures}, :error, error)
+  end
+
+  defp first_sweep_failure([%{reason: reason} | _rest]), do: reason
+  defp first_sweep_failure([]), do: :agent_offline
+
+  defp publish_sweep_dispatch(group_id, result) do
+    result
+    |> Map.put(:sweep_group_id, group_id)
+    |> AgentCommandPubSub.broadcast_sweep_dispatch()
+  end
+
+  defp sweep_dispatch_return(%{commands: [], error: reason}), do: {:error, reason}
+
+  defp sweep_dispatch_return(%{commands: commands, failures: failures}) do
+    {:ok, %{commands: commands, failures: failures}}
   end
 
   def dispatch_bulk_mtr(agent_id, targets, opts \\ []) when is_list(targets) do

@@ -101,6 +101,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos do
      |> assign(:recent_executions, load_recent_executions(scope))}
   end
 
+  def handle_info({:sweep_dispatch, data}, socket) do
+    statuses = seed_sweep_dispatch(socket.assigns.sweep_command_statuses, data)
+    {flash_kind, flash_message} = sweep_dispatch_flash(data)
+
+    {:noreply,
+     socket
+     |> assign(:sweep_command_statuses, statuses)
+     |> put_flash(flash_kind, flash_message)}
+  end
+
   def handle_info({:command_ack, data}, socket) do
     {:noreply, update_command_statuses(socket, :ack, data)}
   end
@@ -114,4 +124,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos do
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  defp sweep_dispatch_flash(data) do
+    successes = data |> Map.get(:commands, []) |> List.wrap() |> length()
+    failures = data |> Map.get(:failures, []) |> List.wrap() |> length()
+
+    cond do
+      successes > 0 and failures == 0 ->
+        {:info, "Sweep queued for #{agent_count(successes)}"}
+
+      successes > 0 ->
+        {:info, "Sweep queued for #{agent_count(successes)}; #{agent_count(failures)} failed to dispatch"}
+
+      failures == 0 ->
+        {:error, "Sweep dispatch failed"}
+
+      true ->
+        {:error, "Sweep dispatch failed for #{agent_count(failures)}"}
+    end
+  end
+
+  defp agent_count(1), do: "1 agent"
+  defp agent_count(count), do: "#{count} agents"
 end

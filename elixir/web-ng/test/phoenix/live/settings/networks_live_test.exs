@@ -35,6 +35,81 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     assert html =~ group.name
   end
 
+  test "renders independent run-now member progress and immediate dispatch failures", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(:create, %{name: "Fanout Group #{unique}"})
+      |> Ash.create(scope: scope)
+
+    {:ok, live_view, _html} = live(conn, ~p"/settings/networks")
+
+    send(live_view.pid, {
+      :sweep_dispatch,
+      %{
+        sweep_group_id: group.id,
+        commands: [
+          %{agent_id: "agent-a", command_id: "command-a"},
+          %{agent_id: "agent-b", command_id: "command-b"}
+        ],
+        failures: [
+          %{agent_id: "agent-c", reason: {:agent_capability_missing, "agent-c", "sweep"}}
+        ]
+      }
+    })
+
+    status = render(element(live_view, "#sweep-command-status-#{group.id}"))
+    assert status =~ "2 pending, 1 failed"
+    assert status =~ "agent-c"
+    assert status =~ "Missing sweep capability"
+
+    send(live_view.pid, {
+      :command_progress,
+      %{
+        sweep_group_id: group.id,
+        command_id: "command-b",
+        agent_id: "agent-b",
+        message: "running B",
+        progress_percent: 55
+      }
+    })
+
+    assert render(element(live_view, "#sweep-command-member-command-b")) =~ "Running 55%"
+    assert render(element(live_view, "#sweep-command-member-command-a")) =~ "Queued"
+
+    send(live_view.pid, {
+      :command_result,
+      %{
+        sweep_group_id: group.id,
+        command_id: "command-a",
+        agent_id: "agent-a",
+        message: "completed A",
+        success: true,
+        payload: %{hosts: 8}
+      }
+    })
+
+    send(live_view.pid, {
+      :command_ack,
+      %{
+        sweep_group_id: group.id,
+        command_id: "command-a",
+        agent_id: "agent-a",
+        message: "late A ack"
+      }
+    })
+
+    assert render(element(live_view, "#sweep-command-member-command-a")) =~ "Completed"
+    assert render(element(live_view, "#sweep-command-member-command-b")) =~ "Running 55%"
+
+    status = render(element(live_view, "#sweep-command-status-#{group.id}"))
+    assert status =~ "1 pending, 1 completed, 1 failed"
+  end
+
   test "shows last run and status from latest execution", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
 

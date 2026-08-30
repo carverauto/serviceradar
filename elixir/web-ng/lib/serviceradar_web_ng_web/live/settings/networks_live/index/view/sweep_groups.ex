@@ -90,9 +90,52 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
                   <%= if status =
                            Map.get(@sweep_command_statuses, group.id) ||
                              persisted_sweep_command_status(group) do %>
-                    <.ui_badge variant={command_status_variant(status)} size="xs">
-                      {command_status_label(status)}
-                    </.ui_badge>
+                    <div id={"sweep-command-status-#{group.id}"} aria-live="polite">
+                      <.ui_badge variant={command_status_variant(status)} size="xs">
+                        {command_status_label(status)}
+                      </.ui_badge>
+                      <div
+                        :if={Map.has_key?(status, :members)}
+                        class="mt-1 space-y-0.5 text-[0.6875rem] text-sr-muted"
+                      >
+                        <div
+                          :for={
+                            member <-
+                              status
+                              |> Map.get(:members, %{})
+                              |> Map.values()
+                              |> Enum.sort_by(& &1.agent_id)
+                          }
+                          id={"sweep-command-member-#{member.command_id}"}
+                        >
+                          <span class="font-mono">{member.agent_id}</span>: {command_status_label(
+                            member
+                          )}
+                        </div>
+                        <div
+                          :for={
+                            {agent_id, failure} <-
+                              status |> Map.get(:failures, %{}) |> Enum.sort_by(&elem(&1, 0))
+                          }
+                          id={"sweep-command-failure-#{group.id}-#{agent_id}"}
+                          class="text-error"
+                        >
+                          <span class="font-mono">{agent_id}</span>: {format_sweep_failure_reason(
+                            failure.reason
+                          )}
+                        </div>
+                        <div
+                          :if={
+                            Map.get(status, :dispatch_error) &&
+                              map_size(Map.get(status, :failures, %{})) == 0
+                          }
+                          id={"sweep-command-dispatch-error-#{group.id}"}
+                          class="text-error"
+                        >
+                          {format_sweep_failure_reason(status.dispatch_error)}
+                        </div>
+                      </div>
+                    </div>
                   <% else %>
                     <span class="text-xs text-sr-muted">—</span>
                   <% end %>

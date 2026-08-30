@@ -73,15 +73,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups 
     scope = socket.assigns.current_scope
 
     with :ok <- require_run_sweeps(socket),
-         {:ok, group} <- fetch_sweep_group(scope, id),
-         {:ok, _updated} <- Ash.update(group, %{}, action: :run_now, scope: scope) do
-      statuses = mark_command_sent(socket.assigns.sweep_command_statuses, group.id, "Sweep command queued")
+         {:ok, group} <- fetch_sweep_group(scope, id) do
+      pending_socket =
+        assign(
+          socket,
+          :sweep_command_statuses,
+          begin_sweep_dispatch(socket.assigns.sweep_command_statuses, group.id)
+        )
 
-      {:noreply,
-       socket
-       |> assign(:sweep_groups, load_sweep_groups(scope))
-       |> assign(:sweep_command_statuses, statuses)
-       |> put_flash(:info, "Sweep group queued to run now")}
+      case Ash.update(group, %{}, action: :run_now, scope: scope) do
+        {:ok, _updated} ->
+          {:noreply,
+           pending_socket
+           |> assign(:sweep_groups, load_sweep_groups(scope))
+           |> put_flash(:info, "Sweep dispatch started")}
+
+        {:error, reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to run sweep group: #{format_error(reason)}")}
+      end
     else
       {:error, :unauthorized} ->
         {:noreply, put_flash(socket, :error, "You are not authorized to run sweep groups")}
