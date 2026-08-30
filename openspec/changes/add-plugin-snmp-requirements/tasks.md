@@ -110,11 +110,19 @@ table, ASCII-only docs.
 
 ## 5. UI
 
-- [ ] 5.1 Provenance badge on the profile list row and in the template
+- [x] 5.1 Provenance badge on the profile list row and in the template
   browser's Custom tab, including the package-removed case.
-- [ ] 5.2 Show compiled target count on the profile row.
-- [ ] 5.3 Warn on enabling a profile with no credential bound.
-- [ ] 5.4 LiveView tests for the badge and the no-credential warning.
+- [x] 5.2 Show compiled target count on the profile row. **Already present** -
+  `Data.load_profiles_with_counts/1` and the `Targets` column predate this
+  change and already dedupe identical target queries across profiles.
+- [x] 5.3 Warn on enabling a profile with no credential bound. Rendered as a
+  persistent inline badge rather than a flash: only `:info` and `:error` flashes
+  are rendered (`core_components.ex` `attr :kind, values: [:info, :error]`), so a
+  `:warning` flash would be silently dropped - and a transient message would also
+  miss a profile that was already enabled without a credential, which is the
+  state most worth surfacing. Uses `CredentialResolver.record_has_credential?/1`,
+  made public so the warning cannot drift from the resolver.
+- [x] 5.4 LiveView tests for the badge and the no-credential warning.
 
 ## 6. Customer-repo follow-up (does not land in this repo)
 

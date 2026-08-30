@@ -226,9 +226,24 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     end
   end
 
-  defp record_has_credential?(nil), do: false
+  @doc """
+  Whether a profile or target record names any credential source at all.
 
-  defp record_has_credential?(record) do
+  This is the question an operator can act on: a profile with no bound
+  credential rule and no inline material compiles to zero targets, because
+  `SNMPCompiler` skips every device whose credential fails to resolve. It is
+  deliberately weaker than the compiler's `valid_credentials?/1`, which inspects
+  the *decrypted* credential - that answer needs secret material the interface
+  should never hold, and an operator cannot fix a missing password from a list
+  view anyway.
+
+  Public so the settings UI warns using the same predicate the resolver uses,
+  rather than a copy that can drift away from it.
+  """
+  @spec record_has_credential?(map() | nil) :: boolean()
+  def record_has_credential?(nil), do: false
+
+  def record_has_credential?(record) do
     present?(Map.get(record, :credential_secret_id)) or
       present?(Map.get(record, :community_encrypted)) or
       present?(Map.get(record, :username)) or
