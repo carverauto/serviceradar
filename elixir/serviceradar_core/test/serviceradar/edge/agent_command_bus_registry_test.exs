@@ -75,6 +75,101 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
     refute_received {:dispatch, ^outsider, _, _, _}
   end
 
+  test "run-now carries one dispatch generation through started, member, and finished events" do
+    agent_id = "generated-dispatch-#{System.unique_integer([:positive])}"
+    start_session(agent_id, "devices", :gateway@generated, :generated, ["sweep"])
+    assert eventually(fn -> canonical_session_visible?(agent_id, "devices") end)
+    :ok = AgentCommandPubSub.subscribe()
+
+    group = sweep_group([agent_id], partition: "devices", agent_id: nil)
+
+    assert {:ok, %{commands: [%{agent_id: ^agent_id}], failures: []}} =
+             AgentCommandBus.run_sweep_group(group,
+               dispatch_fun: recording_dispatch(self()),
+               sweep_dispatch_id: "dispatch-0001",
+               sweep_dispatch_generation: "00000000000000000001:core@one:00000000000000000001"
+             )
+
+    assert_receive {:sweep_dispatch,
+                    %{
+                      phase: :started,
+                      sweep_group_id: "group-1",
+                      sweep_dispatch_id: "dispatch-0001",
+                      sweep_dispatch_generation:
+                        "00000000000000000001:core@one:00000000000000000001",
+                      commands: [],
+                      failures: []
+                    }}
+
+    assert_receive {:dispatch, ^agent_id, "sweep.run_group", _, dispatch_opts}
+
+    assert dispatch_opts[:context].sweep_dispatch_id == "dispatch-0001"
+
+    assert dispatch_opts[:context].sweep_dispatch_generation ==
+             "00000000000000000001:core@one:00000000000000000001"
+
+    assert_receive {:sweep_dispatch,
+                    %{
+                      phase: :finished,
+                      sweep_group_id: "group-1",
+                      sweep_dispatch_id: "dispatch-0001",
+                      sweep_dispatch_generation:
+                        "00000000000000000001:core@one:00000000000000000001",
+                      commands: [%{agent_id: ^agent_id}],
+                      failures: []
+                    }}
+  end
+
+  test "default dispatch identities are unique and locally monotonic total-order tokens" do
+    agent_id = "default-generation-#{System.unique_integer([:positive])}"
+
+    start_session(agent_id, "devices", :gateway@default_generation, :default_generation, ["sweep"])
+
+    assert eventually(fn -> canonical_session_visible?(agent_id, "devices") end)
+    :ok = AgentCommandPubSub.subscribe()
+
+    group = sweep_group([agent_id], partition: "devices", agent_id: nil)
+
+    assert {:ok, _first_result} =
+             AgentCommandBus.run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
+
+    assert_receive {:sweep_dispatch,
+                    %{
+                      phase: :started,
+                      sweep_dispatch_id: first_id,
+                      sweep_dispatch_generation: first_generation
+                    }}
+
+    assert_receive {:sweep_dispatch,
+                    %{
+                      phase: :finished,
+                      sweep_dispatch_id: ^first_id,
+                      sweep_dispatch_generation: ^first_generation
+                    }}
+
+    assert {:ok, _second_result} =
+             AgentCommandBus.run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
+
+    assert_receive {:sweep_dispatch,
+                    %{
+                      phase: :started,
+                      sweep_dispatch_id: second_id,
+                      sweep_dispatch_generation: second_generation
+                    }}
+
+    assert_receive {:sweep_dispatch,
+                    %{
+                      phase: :finished,
+                      sweep_dispatch_id: ^second_id,
+                      sweep_dispatch_generation: ^second_generation
+                    }}
+
+    assert first_id != second_id
+    assert second_generation > first_generation
+    assert first_generation =~ ~r/^\d{20}:.+:\d{20}$/
+    assert second_generation =~ ~r/^\d{20}:.+:\d{20}$/
+  end
+
   test "selected sweep dispatch preserves successes and explicit member failures" do
     online = "selected-online-#{System.unique_integer([:positive])}"
     offline = "selected-offline-#{System.unique_integer([:positive])}"
@@ -160,6 +255,15 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
 
     assert_receive {:sweep_dispatch,
                     %{
+                      phase: :started,
+                      sweep_group_id: "group-1",
+                      commands: [],
+                      failures: []
+                    }}
+
+    assert_receive {:sweep_dispatch,
+                    %{
+                      phase: :finished,
                       sweep_group_id: "group-1",
                       commands: [],
                       failures: [%{agent_id: ^offline, reason: {:agent_offline, ^offline}}],
@@ -188,6 +292,135 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
     assert_receive {:dispatch, ^second, _, _, _}
     refute_received {:dispatch, ^wrong_partition, _, _, _}
     refute_received {:dispatch, ^wrong_capability, _, _, _}
+  end
+
+  test "large selected fanout enumerates canonical live sessions exactly once" do
+    agent_ids =
+      for index <- 1..24 do
+        agent_id = "enumerated-agent-#{String.pad_leading(Integer.to_string(index), 2, "0")}"
+        start_session(agent_id, "devices", :gateway@enumeration, {:enumeration, index}, ["sweep"])
+        agent_id
+      end
+
+    assert eventually(fn ->
+             Enum.all?(agent_ids, &canonical_session_visible?(&1, "devices"))
+           end)
+
+    counter = start_supervised!({Agent, fn -> 0 end})
+
+    reader = fn type ->
+      Agent.update(counter, &(&1 + 1))
+      ProcessRegistry.select_by_type(type)
+    end
+
+    group = sweep_group(Enum.reverse(agent_ids), partition: "devices", agent_id: nil)
+
+    assert {:ok, %{commands: commands, failures: []}} =
+             AgentCommandBus.run_sweep_group(group,
+               local_registry_reader: reader,
+               registry_present?: true,
+               dispatch_fun: recording_dispatch(self())
+             )
+
+    assert Agent.get(counter, & &1) == 1
+    assert Enum.map(commands, & &1.agent_id) == agent_ids
+  end
+
+  test "fanout overlaps sends without exceeding its explicit concurrency cap" do
+    agent_ids =
+      for index <- 1..4 do
+        agent_id = "concurrent-agent-#{index}"
+        start_session(agent_id, "devices", :gateway@concurrent, {:concurrent, index}, ["sweep"])
+        agent_id
+      end
+
+    parent = self()
+
+    dispatch_fun = fn agent_id, _command_type, _payload, _opts ->
+      send(parent, {:fanout_started, agent_id, self()})
+
+      receive do
+        :release_fanout -> {:ok, "command-#{agent_id}"}
+      after
+        2_000 -> {:error, :test_release_timeout}
+      end
+    end
+
+    group = sweep_group(agent_ids, partition: "devices", agent_id: nil)
+
+    run =
+      Task.async(fn ->
+        AgentCommandBus.run_sweep_group(group,
+          dispatch_fun: dispatch_fun,
+          sweep_dispatch_max_concurrency: 2,
+          sweep_dispatch_timeout_ms: 1_000
+        )
+      end)
+
+    first_wave = receive_started_fanout(2)
+    assert first_wave |> Enum.map(&elem(&1, 0)) |> Enum.sort() == Enum.take(agent_ids, 2)
+    refute_receive {:fanout_started, _, _}, 75
+
+    {_first_agent, first_pid} = hd(first_wave)
+    send(first_pid, :release_fanout)
+
+    assert_receive {:fanout_started, third_agent, third_pid}
+    assert third_agent == Enum.at(agent_ids, 2)
+    refute_receive {:fanout_started, _, _}, 75
+
+    {_second_agent, second_pid} = List.last(first_wave)
+    send(second_pid, :release_fanout)
+
+    assert_receive {:fanout_started, fourth_agent, fourth_pid}
+    assert fourth_agent == Enum.at(agent_ids, 3)
+
+    send(third_pid, :release_fanout)
+    send(fourth_pid, :release_fanout)
+
+    assert {:ok, %{commands: commands, failures: []}} = Task.await(run, 2_000)
+    assert Enum.map(commands, & &1.agent_id) == agent_ids
+  end
+
+  test "member timeouts and task exits are ordered failures and do not abort other agents" do
+    agent_ids = ["failure-a-success", "failure-b-timeout", "failure-c-exit", "failure-d-success"]
+
+    Enum.with_index(agent_ids, fn agent_id, index ->
+      start_session(agent_id, "devices", :gateway@failure, {:failure, index}, ["sweep"])
+    end)
+
+    dispatch_fun = fn
+      "failure-b-timeout", _command_type, _payload, _opts ->
+        Process.sleep(250)
+        {:ok, "too-late"}
+
+      "failure-c-exit", _command_type, _payload, _opts ->
+        exit(:synthetic_dispatch_exit)
+
+      agent_id, _command_type, _payload, _opts ->
+        {:ok, "command-#{agent_id}"}
+    end
+
+    group = sweep_group(agent_ids, partition: "devices", agent_id: nil)
+
+    assert {:ok,
+            %{
+              commands: [
+                %{agent_id: "failure-a-success", command_id: "command-failure-a-success"},
+                %{agent_id: "failure-d-success", command_id: "command-failure-d-success"}
+              ],
+              failures: [
+                %{agent_id: "failure-b-timeout", reason: {:dispatch_timeout, 40}},
+                %{
+                  agent_id: "failure-c-exit",
+                  reason: {:dispatch_task_exit, :synthetic_dispatch_exit}
+                }
+              ]
+            }} =
+             AgentCommandBus.run_sweep_group(group,
+               dispatch_fun: dispatch_fun,
+               sweep_dispatch_max_concurrency: 4,
+               sweep_dispatch_timeout_ms: 40
+             )
   end
 
   test "exact partition lookup selects the matching principal and agent-only lookup is ambiguous" do
@@ -366,6 +599,13 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
     fn agent_id, command_type, payload, opts ->
       send(test_pid, {:dispatch, agent_id, command_type, payload, opts})
       {:ok, "command-#{agent_id}"}
+    end
+  end
+
+  defp receive_started_fanout(count) do
+    for _index <- 1..count do
+      assert_receive {:fanout_started, agent_id, pid}, 1_000
+      {agent_id, pid}
     end
   end
 

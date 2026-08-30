@@ -102,13 +102,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos do
   end
 
   def handle_info({:sweep_dispatch, data}, socket) do
-    statuses = seed_sweep_dispatch(socket.assigns.sweep_command_statuses, data)
-    {flash_kind, flash_message} = sweep_dispatch_flash(data)
+    statuses = reduce_sweep_dispatch(socket.assigns.sweep_command_statuses, data)
+    socket = assign(socket, :sweep_command_statuses, statuses)
 
-    {:noreply,
-     socket
-     |> assign(:sweep_command_statuses, statuses)
-     |> put_flash(flash_kind, flash_message)}
+    case Map.get(data, :phase) || Map.get(data, "phase") do
+      phase when phase in [:started, "started"] ->
+        {:noreply, socket}
+
+      _finished_or_legacy ->
+        {flash_kind, flash_message} = sweep_dispatch_flash(data)
+        {:noreply, put_flash(socket, flash_kind, flash_message)}
+    end
   end
 
   def handle_info({:command_ack, data}, socket) do

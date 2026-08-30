@@ -74,17 +74,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups 
 
     with :ok <- require_run_sweeps(socket),
          {:ok, group} <- fetch_sweep_group(scope, id) do
-      pending_socket =
-        assign(
-          socket,
-          :sweep_command_statuses,
-          begin_sweep_dispatch(socket.assigns.sweep_command_statuses, group.id)
-        )
-
       case Ash.update(group, %{}, action: :run_now, scope: scope) do
         {:ok, _updated} ->
           {:noreply,
-           pending_socket
+           socket
            |> assign(:sweep_groups, load_sweep_groups(scope))
            |> put_flash(:info, "Sweep dispatch started")}
 

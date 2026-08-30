@@ -149,6 +149,103 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CommandStatusTest do
              })
   end
 
+  test "passive observers preserve a new terminal event that precedes its dispatch envelope" do
+    statuses =
+      CommandStatus.reduce_sweep_dispatch(
+        %{},
+        sweep_dispatch("dispatch-old", 10, :finished, commands: [%{agent_id: "agent-old", command_id: "command-old"}])
+      )
+
+    statuses =
+      CommandStatus.reduce_sweep_member_event(statuses, {
+        :result,
+        member_event("group-1", "command-new", "agent-new", %{
+          sweep_dispatch_id: "dispatch-new",
+          sweep_dispatch_generation: 20,
+          success: true,
+          payload: %{hosts: 12},
+          message: "new run complete"
+        })
+      })
+
+    # A future run is buffered, not exposed as the currently visible run.
+    assert Map.keys(statuses["group-1"].members) == ["command-old"]
+
+    statuses =
+      CommandStatus.reduce_sweep_dispatch(
+        statuses,
+        sweep_dispatch("dispatch-new", 20, :finished, commands: [%{agent_id: "agent-new", command_id: "command-new"}])
+      )
+
+    assert statuses["group-1"].sweep_dispatch_id == "dispatch-new"
+    assert statuses["group-1"].sweep_dispatch_generation == 20
+    assert statuses["group-1"].members["command-new"].state == :success
+    assert statuses["group-1"].members["command-new"].result_payload == %{hosts: 12}
+
+    after_late_events =
+      statuses
+      |> CommandStatus.reduce_sweep_member_event({
+        :result,
+        member_event("group-1", "command-old", "agent-old", %{
+          sweep_dispatch_id: "dispatch-old",
+          sweep_dispatch_generation: 10,
+          success: true
+        })
+      })
+      |> CommandStatus.reduce_sweep_member_event({
+        :progress,
+        member_event("group-1", "command-unrelated", "agent-x", %{
+          sweep_dispatch_id: "dispatch-new",
+          sweep_dispatch_generation: 20,
+          progress_percent: 99
+        })
+      })
+
+    assert after_late_events == statuses
+  end
+
+  test "a newer started generation cannot be replaced by an older completion or envelope" do
+    statuses =
+      %{}
+      |> CommandStatus.reduce_sweep_dispatch(sweep_dispatch("dispatch-old", 10, :started))
+      |> CommandStatus.reduce_sweep_dispatch(sweep_dispatch("dispatch-new", 20, :started))
+      |> CommandStatus.reduce_sweep_member_event({
+        :progress,
+        member_event("group-1", "command-new", "agent-new", %{
+          sweep_dispatch_id: "dispatch-new",
+          sweep_dispatch_generation: 20,
+          progress_percent: 65
+        })
+      })
+
+    after_old =
+      statuses
+      |> CommandStatus.reduce_sweep_member_event({
+        :result,
+        member_event("group-1", "command-old", "agent-old", %{
+          sweep_dispatch_id: "dispatch-old",
+          sweep_dispatch_generation: 10,
+          success: true
+        })
+      })
+      |> CommandStatus.reduce_sweep_dispatch(
+        sweep_dispatch("dispatch-old", 10, :finished, commands: [%{agent_id: "agent-old", command_id: "command-old"}])
+      )
+
+    assert after_old == statuses
+
+    finished =
+      CommandStatus.reduce_sweep_dispatch(
+        after_old,
+        sweep_dispatch("dispatch-new", 20, :finished, commands: [%{agent_id: "agent-new", command_id: "command-new"}])
+      )
+
+    assert finished["group-1"].sweep_dispatch_id == "dispatch-new"
+    assert finished["group-1"].members["command-new"].state == :progress
+    assert finished["group-1"].members["command-new"].progress_percent == 65
+    refute Map.has_key?(finished["group-1"].members, "command-old")
+  end
+
   test "zero-success dispatch remains visible with stable human failure reasons" do
     statuses =
       CommandStatus.seed_sweep_dispatch(%{}, %{
@@ -235,6 +332,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CommandStatusTest do
         agent_id: agent_id
       },
       extra
+    )
+  end
+
+  defp sweep_dispatch(dispatch_id, generation, phase, extra \\ []) do
+    Map.merge(
+      %{
+        sweep_group_id: "group-1",
+        sweep_dispatch_id: dispatch_id,
+        sweep_dispatch_generation: generation,
+        phase: phase,
+        commands: [],
+        failures: []
+      },
+      Map.new(extra)
     )
   end
 end

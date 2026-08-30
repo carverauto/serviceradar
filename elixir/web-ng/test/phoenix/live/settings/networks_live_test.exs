@@ -52,6 +52,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
       :sweep_dispatch,
       %{
         sweep_group_id: group.id,
+        sweep_dispatch_id: "dispatch-old",
+        sweep_dispatch_generation: "00000000000000000001:web@one:00000000000000000001",
+        phase: :finished,
+        commands: [%{agent_id: "agent-old", command_id: "command-old"}],
+        failures: []
+      }
+    })
+
+    send(live_view.pid, {
+      :command_result,
+      %{
+        sweep_group_id: group.id,
+        sweep_dispatch_id: "dispatch-new",
+        sweep_dispatch_generation: "00000000000000000002:web@one:00000000000000000002",
+        command_id: "command-a",
+        agent_id: "agent-a",
+        message: "completed A",
+        success: true,
+        payload: %{hosts: 8}
+      }
+    })
+
+    assert render(element(live_view, "#sweep-command-member-command-old")) =~ "Queued"
+
+    send(live_view.pid, {
+      :sweep_dispatch,
+      %{
+        sweep_group_id: group.id,
+        sweep_dispatch_id: "dispatch-new",
+        sweep_dispatch_generation: "00000000000000000002:web@one:00000000000000000002",
+        phase: :finished,
         commands: [
           %{agent_id: "agent-a", command_id: "command-a"},
           %{agent_id: "agent-b", command_id: "command-b"}
@@ -63,14 +94,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     })
 
     status = render(element(live_view, "#sweep-command-status-#{group.id}"))
-    assert status =~ "2 pending, 1 failed"
+    assert status =~ "1 pending, 1 completed, 1 failed"
     assert status =~ "agent-c"
     assert status =~ "Missing sweep capability"
+    assert render(element(live_view, "#sweep-command-member-command-a")) =~ "Completed"
 
     send(live_view.pid, {
       :command_progress,
       %{
         sweep_group_id: group.id,
+        sweep_dispatch_id: "dispatch-new",
+        sweep_dispatch_generation: "00000000000000000002:web@one:00000000000000000002",
         command_id: "command-b",
         agent_id: "agent-b",
         message: "running B",
@@ -79,24 +113,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     })
 
     assert render(element(live_view, "#sweep-command-member-command-b")) =~ "Running 55%"
-    assert render(element(live_view, "#sweep-command-member-command-a")) =~ "Queued"
-
-    send(live_view.pid, {
-      :command_result,
-      %{
-        sweep_group_id: group.id,
-        command_id: "command-a",
-        agent_id: "agent-a",
-        message: "completed A",
-        success: true,
-        payload: %{hosts: 8}
-      }
-    })
 
     send(live_view.pid, {
       :command_ack,
       %{
         sweep_group_id: group.id,
+        sweep_dispatch_id: "dispatch-new",
+        sweep_dispatch_generation: "00000000000000000002:web@one:00000000000000000002",
         command_id: "command-a",
         agent_id: "agent-a",
         message: "late A ack"
