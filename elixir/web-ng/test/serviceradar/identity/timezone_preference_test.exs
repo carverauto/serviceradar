@@ -51,6 +51,8 @@ defmodule ServiceRadarWebNG.TimezonePreferenceTest do
 
     assert {:error, %Forbidden{}} =
              User.update_timezone_preference(other_user, %{timezone: "America/Chicago"}, scope: admin_scope)
+
+    assert fresh_user(other_user.id).timezone == "Etc/UTC"
   end
 
   defp fresh_user(id) do
