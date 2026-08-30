@@ -807,6 +807,11 @@ defmodule ServiceRadar.Inventory.Device do
       description "Latest availability reported by each agent for this device"
     end
 
+    has_many :snmp_facts, ServiceRadar.Inventory.DeviceSNMPFact do
+      source_attribute :uid
+      destination_attribute :device_uid
+    end
+
     has_many :risk_contributions, ServiceRadar.Inventory.DeviceRiskContribution do
       source_attribute :uid
       destination_attribute :device_uid
