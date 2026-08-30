@@ -1,13 +1,58 @@
-# ServiceRadar v1.4.48
+# ServiceRadar v1.4.49
 
-Inventory keeps a canonical switch-port attachment instead of
-leaving Armis and OpenText to fight in metadata, SRQL can
-aggregate alerts and sum per-series rates, and a plugin can
-propose alert rules that stay disabled until an operator
-approves them. Also: `serviceradar-cli plugin publish`, SMTP
-relay TLS verification, and literal-IP plugin egress.
+Plugins can come from a third-party catalog with its own signing
+key, a package can declare SNMP OIDs that the native checker
+collects as device facts (including strings), and SNMPv3 plus
+OAuth2 client-credentials work from credential rules. OpenText
+NOM setup no longer fights the assignment form. Also: dashboard
+Share lives in the topbar, failed TCP sweeps stay visible, and
+raw SYN scanners no longer share a fanout group.
 
 ## Whats New
+
+**1.4.49**
+- Plugins: catalog sources become `plugin_repositories` rows
+  with a per-repository ed25519 key. Settings -> Agents ->
+  Plugins lists enabled repos and `… Add New`. Upload
+  signatures verify against the source that published the
+  bundle, so a third-party catalog can ship without sharing
+  the first-party signing key. (PR #4159)
+- Plugins: a package can ship `snmp_requirements` in its
+  manifest. On approval they become SNMP profiles the native
+  checker polls. Target names are sanitized so one FQDN or
+  uid-with-colons no longer disables every SNMP profile on
+  the agent. (PR #4155, #4162)
+- Inventory: SNMP readings land as per-device facts, including
+  string values. The agent used to drop anything that would
+  not parse as a float, so sysName/sysDescr never left the
+  checker. (PR #4168)
+- SNMPv3: poller and mapper open a real USM session from
+  credential rules. Mapper no longer hard-codes AuthPriv;
+  protocol identifiers accept `SHA`/`SHA-256` and `AES`/
+  `AES-256` and fail closed on unknowns. (PR #4156)
+- Credentials: OAuth2 client-credentials is an injection
+  mode on the credential broker. ClearPass 6.9/6.11 returns
+  403 on HTTP Basic `/api/session` and 200 on
+  `POST /api/oauth`. (PR #4154)
+- OpenText NOM: operator guide plus assignment-form fixes.
+  JSON Schema `^https://` is no longer copied into HTML
+  `pattern`; interval/timeout default from the producer
+  schedule; unsigned NA/NNMi certs can skip TLS verify;
+  `SourceFacts` `insert_all` sends binary UUIDs. Assign is
+  blocked for this plugin. (PR #4164, #4157)
+- Web UI: dashboard Share moves into the operations topbar
+  instead of an overlay on the WASM canvas, which had covered
+  in-dashboard controls on RIDS. (PR #4161)
+- Sweep: reconstructed host summaries keep a requested TCP
+  mode as `no_response` when every port is closed or
+  filtered, instead of looking like ICMP-only. (PR #4169)
+- Scan: each raw SYN scanner gets its own kernel
+  `PACKET_FANOUT` group. Simultaneous scanners no longer
+  share a group, and ICMP-only / TCP-connect-only profiles
+  do not open a raw socket. (PR #4172)
+- Schema: `20260829200000` (plugin repositories),
+  `20260829210000` (plugin SNMP requirements).
+  `migrations.expectedVersion` is `20260829210000`.
 
 **1.4.48**
 - Inventory: switch-port evidence becomes a canonical

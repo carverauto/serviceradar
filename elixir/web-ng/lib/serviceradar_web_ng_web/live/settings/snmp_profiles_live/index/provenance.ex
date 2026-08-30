@@ -1,84 +1,132 @@
 defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance do
-  @moduledoc false
-  use ServiceRadarWebNGWeb, :live_view
+  @moduledoc """
+  Says who contributed a profile or OID template, where the operator sees it.
 
-  @no_credential_warning "This profile has no SNMP credential bound. It will compile to zero targets until you bind one."
+  Configuration that appears in an operator's list with no explanation of where
+  it came from is exactly the buried-backend-state problem plugin-declared SNMP
+  requirements exist to avoid, so recording provenance in a column nothing
+  renders would not satisfy the requirement.
 
-  def no_credential_warning, do: @no_credential_warning
+  Two independent signals are read, because each survives a loss the other does
+  not:
 
-  def credential_bound?(nil), do: false
+    * `plugin_package_id` survives an operator renaming the row, but is set to
+      NULL when the package is deleted (`on_delete: :nilify_all`).
+    * The `"plugin:<package>:<entry>"` name `SNMPRequirementCatalog` writes
+      survives package deletion, but not a rename.
 
-  def credential_bound?(record) when is_map(record) do
-    present?(Map.get(record, :credential_secret_id)) or
-      present?(Map.get(record, :community_encrypted)) or
-      present?(Map.get(record, :username))
+  Reading only the id is how a plugin-contributed row silently reverts to
+  looking operator-authored the moment its package is removed.
+  """
+
+  use ServiceRadarWebNGWeb, :html
+
+  alias ServiceRadar.Plugins.PluginPackage
+
+  require Ash.Query
+
+  @type provenance :: :none | {:plugin, String.t()} | {:plugin_removed, String.t() | nil}
+
+  @doc """
+  Maps every plugin package id referenced by `rows` to its display name.
+
+  One query for the whole list rather than a load per row, and none at all when
+  no row carries a package.
+  """
+  @spec load_package_names(map(), [map()]) :: %{optional(String.t()) => String.t()}
+  def load_package_names(scope, rows) when is_list(rows) do
+    ids =
+      rows
+      |> Enum.map(&Map.get(&1, :plugin_package_id))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    if ids == [] do
+      %{}
+    else
+      PluginPackage
+      |> Ash.Query.filter(id in ^ids)
+      |> Ash.read(scope: scope)
+      |> case do
+        {:ok, packages} -> Map.new(packages, &{&1.id, &1.name})
+        {:error, _reason} -> %{}
+      end
+    end
   end
 
-  def plugin_contributed?(record) when is_map(record) do
-    truthy?(Map.get(record, :plugin_contributed) || Map.get(record, "plugin_contributed"))
-  end
+  def load_package_names(_scope, _rows), do: %{}
 
-  def plugin_contributed?(_record), do: false
+  @doc "Classifies one row against the package names loaded for its list."
+  @spec describe(map(), map()) :: provenance()
+  def describe(row, package_names) do
+    case Map.get(row, :plugin_package_id) do
+      nil ->
+        case package_from_name(Map.get(row, :name)) do
+          nil -> :none
+          package -> {:plugin_removed, package}
+        end
 
-  def plugin_label(record) do
-    cond do
-      not plugin_contributed?(record) ->
-        nil
-
-      is_nil(package_id(record)) ->
-        "Plugin (removed)"
-
-      true ->
-        case package_name(record) do
-          nil -> "Plugin"
-          name -> "Plugin · #{name}"
+      id ->
+        case Map.get(package_names, id) do
+          # An id that resolves to no package means the row still points at
+          # something the reader cannot see, so it is reported as removed rather
+          # than as unattributed.
+          nil -> {:plugin_removed, package_from_name(Map.get(row, :name))}
+          package -> {:plugin, package}
         end
     end
   end
 
-  def plugin_badge_variant(record) do
-    if plugin_contributed?(record) and is_nil(package_id(record)), do: "warning", else: "info"
+  # Only reached once a package is already gone, since a live package row is
+  # always preferred. `parts: 2` keeps any colon in the entry name where it
+  # belongs rather than truncating the package.
+  defp package_from_name("plugin:" <> rest) when is_binary(rest) do
+    case String.split(rest, ":", parts: 2) do
+      [package, _entry] when package != "" -> package
+      _other -> nil
+    end
   end
 
-  attr :record, :map, required: true
-  attr :id, :string, default: nil
+  defp package_from_name(_name), do: nil
 
-  def plugin_badge(assigns) do
-    label = plugin_label(assigns.record)
+  attr :id, :string, required: true
+  attr :row, :map, required: true
+  attr :package_names, :map, default: %{}
 
-    assigns =
-      assigns
-      |> assign(:label, label)
-      |> assign(:variant, plugin_badge_variant(assigns.record))
+  def provenance_badge(assigns) do
+    assigns = assign(assigns, :provenance, describe(assigns.row, assigns.package_names))
 
     ~H"""
-    <.ui_badge :if={@label} id={@id} variant={@variant} size="xs" title={@label}>
-      {@label}
-    </.ui_badge>
+    <%= case @provenance do %>
+      <% {:plugin, package} -> %>
+        <.ui_badge
+          id={@id}
+          variant="info"
+          size="xs"
+          title={"Contributed by the plugin package #{package}"}
+        >
+          Plugin: {package}
+        </.ui_badge>
+      <% {:plugin_removed, nil} -> %>
+        <.ui_badge
+          id={@id}
+          variant="warning"
+          size="xs"
+          title="Contributed by a plugin package that has since been removed"
+        >
+          Plugin (package removed)
+        </.ui_badge>
+      <% {:plugin_removed, package} -> %>
+        <.ui_badge
+          id={@id}
+          variant="warning"
+          size="xs"
+          title={"Contributed by the plugin package #{package}, which has since been removed"}
+        >
+          Plugin: {package} (removed)
+        </.ui_badge>
+      <% :none -> %>
+    <% end %>
     """
   end
-
-  defp package_id(record) do
-    case Map.get(record, :plugin_package_id) || Map.get(record, "plugin_package_id") do
-      id when is_binary(id) -> id
-      _ -> nil
-    end
-  end
-
-  defp package_name(%{plugin_package: %{name: name}}) when is_binary(name) and name != "", do: name
-
-  defp package_name(record) when is_map(record) do
-    case Map.get(record, :plugin_package_name) || Map.get(record, "plugin_package_name") do
-      name when is_binary(name) and name != "" -> name
-      _ -> nil
-    end
-  end
-
-  defp present?(nil), do: false
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(_value), do: true
-
-  defp truthy?(true), do: true
-  defp truthy?("true"), do: true
-  defp truthy?(_), do: false
 end

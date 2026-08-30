@@ -549,12 +549,11 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
     [profile] = snmp_profiles_for(package.id, actor)
     assert profile.enabled == false
-    assert profile.plugin_contributed == true
     assert profile.plugin_package_id == package.id
     assert is_nil(profile.credential_secret_id)
 
     [template] = snmp_templates_for(package.id, actor)
-    assert template.plugin_contributed == true
+    assert template.plugin_package_id == package.id
     assert template.vendor == "plugin"
   end
 

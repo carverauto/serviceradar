@@ -2,13 +2,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
-  import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance, only: [plugin_badge: 1]
+  import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance,
+    only: [provenance_badge: 1]
 
   alias ServiceRadar.SNMPProfiles.BuiltinTemplates
 
   attr :search, :string, default: ""
   attr :selected_vendor, :string, default: "standard"
   attr :custom_templates, :list, default: []
+  attr :package_names, :map, default: %{}
 
   def template_browser_modal(assigns) do
     builtin_templates = BuiltinTemplates.all_templates()
@@ -41,9 +43,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
             category: t.category,
             oids: t.oids || [],
             is_custom: true,
-            plugin_contributed: Map.get(t, :plugin_contributed, false),
-            plugin_package_id: Map.get(t, :plugin_package_id),
-            plugin_package: Map.get(t, :plugin_package)
+            plugin_package_id: Map.get(t, :plugin_package_id)
           }
         end)
       else
@@ -148,10 +148,11 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
               <div class="flex-1">
                 <div class="flex items-center gap-2">
                   <div class="font-medium text-sm">{template.name}</div>
-                  <.plugin_badge
+                  <.provenance_badge
                     :if={template.is_custom}
-                    record={template}
-                    id={"snmp-template-#{template.id}-plugin"}
+                    id={"snmp-template-#{template.id}-provenance"}
+                    row={template}
+                    package_names={@package_names}
                   />
                 </div>
                 <p :if={template.description} class="text-xs text-sr-muted mt-0.5">

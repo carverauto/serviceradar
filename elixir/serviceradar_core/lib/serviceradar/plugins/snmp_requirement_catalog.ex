@@ -189,9 +189,7 @@ defmodule ServiceRadar.Plugins.SNMPRequirementCatalog do
   # `plugin_package_id` in its action's `accept`, so an ordinary API caller
   # cannot claim a package contributed their row.
   defp put_provenance(changeset, package) do
-    changeset
-    |> Ash.Changeset.force_change_attribute(:plugin_package_id, package.id)
-    |> Ash.Changeset.force_change_attribute(:plugin_contributed, true)
+    Ash.Changeset.force_change_attribute(changeset, :plugin_package_id, package.id)
   end
 
   defp update_profile(profile, attrs, actor) do

@@ -192,7 +192,6 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriterTest do
       SNMPProfile
       |> Ash.Changeset.for_create(:create, %{name: "facts-#{System.unique_integer([:positive])}"})
       |> Ash.Changeset.force_change_attribute(:plugin_package_id, package.id)
-      |> Ash.Changeset.force_change_attribute(:plugin_contributed, true)
       |> Ash.create(actor: actor)
 
     :ok =

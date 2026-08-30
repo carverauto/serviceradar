@@ -97,10 +97,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     custom_indexes do
       index [:agent_ids], using: "gin", name: "snmp_profiles_agent_ids_idx"
     end
-
-    references do
-      reference :plugin_package, on_delete: :nilify
-    end
   end
 
   actions do
@@ -303,14 +299,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
       description "Plugin package that proposed this profile, when any"
     end
 
-    attribute :plugin_contributed, :boolean do
-      allow_nil? false
-      default false
-      public? true
-
-      description "True when a plugin package created this profile, even after the package is gone"
-    end
-
     # SNMP credentials (profile-scoped, encrypted at rest)
     CredentialDsl.credential_attributes()
 
@@ -320,13 +308,6 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
   relationships do
     has_many :targets, ServiceRadar.SNMPProfiles.SNMPTarget do
       destination_attribute :snmp_profile_id
-    end
-
-    belongs_to :plugin_package, ServiceRadar.Plugins.PluginPackage do
-      source_attribute :plugin_package_id
-      define_attribute? false
-      allow_nil? true
-      public? true
     end
   end
 

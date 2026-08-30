@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting
 
   require Ash.Query
@@ -22,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
     socket
     |> assign(:profiles, profiles)
     |> assign(:profile_target_counts, profile_target_counts)
+    |> assign(:profile_package_names, Provenance.load_package_names(scope, profiles))
   end
 
   def load_profiles_with_counts(scope) do
@@ -31,12 +33,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   end
 
   def load_profiles(scope) do
-    query =
-      SNMPProfile
-      |> Ash.Query.for_read(:read)
-      |> Ash.Query.load(:plugin_package)
-
-    case Ash.read(query, scope: scope) do
+    case Ash.read(SNMPProfile, scope: scope) do
       {:ok, profiles} ->
         # Sort by priority (highest first), then by name
         Enum.sort_by(profiles, fn p -> {-p.priority, p.name} end)
@@ -68,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   end
 
   def load_profile(scope, id) do
-    case Ash.get(SNMPProfile, id, scope: scope, load: [:plugin_package]) do
+    case Ash.get(SNMPProfile, id, scope: scope) do
       {:ok, profile} -> profile
       {:error, _} -> nil
     end
@@ -121,13 +118,16 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
     end
   end
 
-  def load_custom_templates(scope) do
-    query =
-      SNMPOIDTemplate
-      |> Ash.Query.for_read(:list_custom)
-      |> Ash.Query.load(:plugin_package)
+  def assign_custom_templates(socket, scope) do
+    templates = load_custom_templates(scope)
 
-    case Ash.read(query, scope: scope) do
+    socket
+    |> assign(:custom_templates, templates)
+    |> assign(:template_package_names, Provenance.load_package_names(scope, templates))
+  end
+
+  def load_custom_templates(scope) do
+    case Ash.read(SNMPOIDTemplate, action: :list_custom, scope: scope) do
       {:ok, templates} -> templates
       {:error, _} -> []
     end

@@ -4,7 +4,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles d
 
   alias AshPhoenix.Form
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data
-  alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting
 
   def handle_event("validate_profile", %{"form" => params}, socket) do
@@ -72,7 +71,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles d
             {:noreply,
              socket
              |> Data.assign_profiles_with_counts(scope)
-             |> flash_toggle_result(profile, new_enabled)}
+             |> put_flash(:info, "Profile #{if new_enabled, do: "enabled", else: "disabled"}")}
 
           {:error, _} ->
             {:noreply, put_flash(socket, :error, "Failed to update profile")}
@@ -203,18 +202,6 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles d
           {:error, "Could not save the credential for reuse: #{inspect(reason)}"}
       end
     end
-  end
-
-  defp flash_toggle_result(socket, profile, true) do
-    if Provenance.credential_bound?(profile) do
-      put_flash(socket, :info, "Profile enabled")
-    else
-      put_flash(socket, :warning, Provenance.no_credential_warning())
-    end
-  end
-
-  defp flash_toggle_result(socket, _profile, false) do
-    put_flash(socket, :info, "Profile disabled")
   end
 
   defp blank?(nil), do: true

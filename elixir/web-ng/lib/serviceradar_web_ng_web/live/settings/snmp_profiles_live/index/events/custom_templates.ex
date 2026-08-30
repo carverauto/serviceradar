@@ -117,7 +117,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.CustomTemp
          |> assign(:custom_template_oids, [])
          |> assign(:editing_custom_template, nil)
          |> assign(:ash_custom_template_form, nil)
-         |> assign(:custom_templates, Data.load_custom_templates(scope))
+         |> Data.assign_custom_templates(scope)
          |> put_flash(:info, "Template #{action}: #{template.name}")}
 
       {:error, ash_form} ->
@@ -138,7 +138,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.CustomTemp
           :ok ->
             {:noreply,
              socket
-             |> assign(:custom_templates, Data.load_custom_templates(scope))
+             |> Data.assign_custom_templates(scope)
              |> put_flash(:info, "Template deleted: #{template.name}")}
 
           {:error, _} ->
