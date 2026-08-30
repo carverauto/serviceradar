@@ -11,7 +11,9 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
+  alias ServiceRadar.AgentConfig.ConfigCache
   alias ServiceRadar.AgentConfig.ConfigServer
+  alias ServiceRadar.AgentConfig.DependencyDiagnostics
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.Device
@@ -733,34 +735,68 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       refute disabled.id in selected_a_ids
     end
 
-    test "a subset assignment invalidates cached config for the newly selected agent", %{
+    test "a subset reassignment invalidates every warmed agent config before recompiling", %{
       actor: actor,
       unique_id: unique_id
     } do
-      first_agent = register_agent("agent-first-#{unique_id}", actor)
-      replacement_agent = register_agent("agent-replacement-#{unique_id}", actor)
+      deselected_agent = register_agent("agent-deselected-#{unique_id}", actor)
+      selected_agent = register_agent("agent-selected-#{unique_id}", actor)
       partition = "assignment-invalidation-#{unique_id}"
 
       {:ok, group} =
         create_group(
           "Invalidate subset #{unique_id}",
           partition,
-          %{agent_ids: [first_agent.uid]},
+          %{agent_ids: [deselected_agent.uid]},
           actor
         )
 
-      {:ok, initial} = ConfigServer.get_config(:sweep, partition, replacement_agent.uid)
-      refute group.id in Enum.map(initial.config["groups"] || [], & &1["sweep_group_id"])
+      {:ok, initially_deselected} =
+        ConfigServer.get_config(:sweep, partition, deselected_agent.uid)
+
+      {:ok, initially_unselected} = ConfigServer.get_config(:sweep, partition, selected_agent.uid)
+
+      assert group.id in config_group_ids(initially_deselected)
+      refute group.id in config_group_ids(initially_unselected)
+
+      assert {:ok, _} = ConfigCache.get(:sweep, partition, deselected_agent.uid)
+      assert {:ok, _} = ConfigCache.get(:sweep, partition, selected_agent.uid)
+
+      DependencyDiagnostics.clear()
 
       assert {:ok, _updated} =
                group
-               |> Ash.Changeset.for_update(:update, %{agent_ids: [replacement_agent.uid]},
+               |> Ash.Changeset.for_update(:update, %{agent_ids: [selected_agent.uid]},
                  actor: actor
                )
                |> Ash.update()
 
-      assert {:ok, refreshed} = ConfigServer.get_config(:sweep, partition, replacement_agent.uid)
-      assert group.id in Enum.map(refreshed.config["groups"] || [], & &1["sweep_group_id"])
+      assert_eventually(
+        fn ->
+          Enum.any?(DependencyDiagnostics.recent(), fn diagnostic ->
+            diagnostic.dependency_id == :sweep_group_config and
+              diagnostic.action_type == :update and
+              diagnostic.affected_agents == :all_online and diagnostic.result == :ok
+          end)
+        end,
+        "fleet-wide sweep update dispatch"
+      )
+
+      assert_eventually(
+        fn ->
+          ConfigCache.get(:sweep, partition, deselected_agent.uid) == :miss and
+            ConfigCache.get(:sweep, partition, selected_agent.uid) == :miss
+        end,
+        "both warmed sweep configs to be invalidated"
+      )
+
+      {:ok, recomputed_deselected} =
+        ConfigServer.get_config(:sweep, partition, deselected_agent.uid)
+
+      {:ok, recomputed_selected} = ConfigServer.get_config(:sweep, partition, selected_agent.uid)
+
+      refute group.id in config_group_ids(recomputed_deselected)
+      assert group.id in config_group_ids(recomputed_selected)
     end
 
     test "the explicit-membership predicate can use the sweep-group GIN index", %{
@@ -780,21 +816,22 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
                  )
       end
 
-      assert %{command: :set} = Repo.query!("SET LOCAL enable_seqscan = off")
+      {:ok, ecto_query} =
+        SweepGroup
+        |> Ash.Query.for_read(:for_agent_partition, %{agent_id: agent.uid, partition: partition})
+        |> Ash.Query.data_layer_query()
 
-      assert %{rows: plan_rows} =
-               Repo.query!(
-                 """
-                 EXPLAIN (COSTS OFF)
-                 SELECT id
-                 FROM platform.sweep_groups
-                 WHERE enabled = true AND agent_ids @> ARRAY[$1]::text[]
-                 """,
-                 [agent.uid]
-               )
+      {sql, params} = Ecto.Adapters.SQL.to_sql(:all, Repo, ecto_query)
+
+      assert {:ok, %{rows: plan_rows}} =
+               Repo.transaction(fn ->
+                 assert %{command: :set} = Repo.query!("SET LOCAL enable_seqscan = off")
+                 Repo.query!("EXPLAIN (COSTS OFF) #{sql}", params)
+               end)
 
       plan = Enum.map_join(plan_rows, "\n", &hd/1)
       assert plan =~ "sweep_groups_agent_ids_gin_idx"
+      assert plan =~ "Index Cond: (agent_ids @>"
     end
   end
 
@@ -909,6 +946,28 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
     |> Ash.Query.for_read(:for_agent_partition, %{agent_id: agent_id, partition: partition})
     |> Ash.read!(actor: actor)
     |> Enum.map(& &1.id)
+  end
+
+  defp config_group_ids(config_entry) do
+    Enum.map(config_entry.config["groups"] || [], & &1["sweep_group_id"])
+  end
+
+  defp assert_eventually(predicate, artifact, timeout_ms \\ 2_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    await_artifact(predicate, artifact, deadline)
+  end
+
+  defp await_artifact(predicate, artifact, deadline) do
+    if predicate.() do
+      :ok
+    else
+      if System.monotonic_time(:millisecond) >= deadline do
+        flunk("Timed out waiting for #{artifact}")
+      else
+        Process.sleep(10)
+        await_artifact(predicate, artifact, deadline)
+      end
+    end
   end
 
   defp create_group(name, partition, attrs, actor) do

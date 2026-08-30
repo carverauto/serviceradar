@@ -202,7 +202,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       filter expr(
                enabled == true and
                  ((not is_nil(^arg(:agent_id)) and ^arg(:agent_id) != "" and
-                     ^arg(:agent_id) in agent_ids) or
+                     fragment("? @> ?", agent_ids, [^arg(:agent_id)])) or
                     (agent_ids == [] and partition == ^arg(:partition)))
              )
     end
