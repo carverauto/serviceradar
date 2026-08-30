@@ -992,7 +992,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert html =~ "upgrade or version selector"
   end
 
-  test "prefills assignment interval and timeout from producer schedule defaults", %{
+  test "does not offer manual assignment for producer-schedule plugins", %{
     conn: conn,
     actor: actor
   } do
@@ -1009,13 +1009,23 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
         ]
       )
 
-    {:ok, _lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
+    {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
 
-    assert html =~ ~s(name="assignment[interval_seconds]")
-    assert html =~ ~s(value="86400")
-    assert html =~ ~s(min="3600")
-    assert html =~ ~s(name="assignment[timeout_seconds]")
-    assert html =~ ~s(value="900")
+    assert html =~ "Do not assign this plugin here"
+    assert html =~ "Settings → Networks → Credentials"
+    refute html =~ ~s(name="assignment[interval_seconds]")
+    refute has_element?(lv, "form[phx-submit='create_assignment']")
+
+    html =
+      render_click(lv, "create_assignment", %{
+        "assignment" => %{
+          "agent_uid" => "agent-ignored",
+          "interval_seconds" => "86400",
+          "timeout_seconds" => "900"
+        }
+      })
+
+    assert html =~ "assigned from a credential rule"
   end
 
   test "shows first-party package provenance", %{conn: conn, actor: actor} do

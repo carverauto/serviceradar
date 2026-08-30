@@ -768,19 +768,23 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   def handle_event("create_assignment", %{"assignment" => params}, socket) do
-    scope = socket.assigns.current_scope
+    if producer_schedule_provisioned?(socket.assigns.selected_package) do
+      {:noreply, put_flash(socket, :error, producer_schedule_assignment_message())}
+    else
+      scope = socket.assigns.current_scope
 
-    case parse_assignment_params(params, socket.assigns.selected_package) do
-      {:ok, attrs} ->
-        handle_assignment_upsert(socket, scope, attrs)
+      case parse_assignment_params(params, socket.assigns.selected_package) do
+        {:ok, attrs} ->
+          handle_assignment_upsert(socket, scope, attrs)
 
-      {:error, {:invalid_json, message}} ->
-        Logger.error("Plugin assignment failed - invalid JSON: #{message}")
-        {:noreply, put_flash(socket, :error, message)}
+        {:error, {:invalid_json, message}} ->
+          Logger.error("Plugin assignment failed - invalid JSON: #{message}")
+          {:noreply, put_flash(socket, :error, message)}
 
-      {:error, error} ->
-        Logger.error("Plugin assignment failed: #{inspect(error)}")
-        {:noreply, put_flash(socket, :error, "Failed to assign: #{format_error(error)}")}
+        {:error, error} ->
+          Logger.error("Plugin assignment failed: #{inspect(error)}")
+          {:noreply, put_flash(socket, :error, "Failed to assign: #{format_error(error)}")}
+      end
     end
   end
 
@@ -2297,11 +2301,20 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           <div class="rounded-xl border border-sr-line p-4 space-y-3">
             <div class="text-sm font-semibold">Assign to Agent</div>
             <.credential_rule_assignment_banner
-              :if={is_list(@credential_fields) and @credential_fields != []}
+              :if={
+                producer_schedule_provisioned?(@package) or
+                  (is_list(@credential_fields) and @credential_fields != [])
+              }
               plugin_id={@package.plugin_id}
               coverage={@credential_coverage}
+              producer_schedule?={producer_schedule_provisioned?(@package)}
             />
-            <form phx-submit="create_assignment" phx-change="assignment_change" class="space-y-3">
+            <form
+              :if={!producer_schedule_provisioned?(@package)}
+              phx-submit="create_assignment"
+              phx-change="assignment_change"
+              class="space-y-3"
+            >
               <div>
                 <label class="flex items-center justify-between gap-2">
                   <span class="text-sm font-medium text-sr-ink">Agent</span>
@@ -2457,12 +2470,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 </.ui_button>
               </div>
             </form>
-            <%= if @package.status != :approved do %>
+            <%= if not producer_schedule_provisioned?(@package) and @package.status != :approved do %>
               <p class="text-xs text-sr-muted">
                 Approve the package before assigning it to agents.
               </p>
             <% end %>
-            <%= if @package.status == :approved and not blob_present?(@blob_present) do %>
+            <%= if not producer_schedule_provisioned?(@package) and @package.status == :approved and
+                    not blob_present?(@blob_present) do %>
               <p class="text-xs text-warning">
                 Upload the Wasm blob before assigning this package.
               </p>
@@ -3823,6 +3837,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp first_producer_schedule(_package), do: nil
 
+  defp producer_schedule_provisioned?(package), do: match?(%{}, first_producer_schedule(package))
+
+  defp producer_schedule_assignment_message do
+    "This plugin is assigned from a credential rule under Settings → Networks → Credentials. Pick the agent as the rule Scope Value; do not assign it here."
+  end
+
   defp schedule_get(nil, _key), do: nil
 
   defp schedule_get(schedule, key) when is_map(schedule) do
@@ -4642,6 +4662,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   attr :plugin_id, :string, required: true
   attr :coverage, :map, default: nil
+  attr :producer_schedule?, :boolean, default: false
 
   defp credential_rule_assignment_banner(assigns) do
     provider =
@@ -4656,17 +4677,34 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       |> assign(:new_rule_path, credential_rule_new_path(provider))
 
     ~H"""
-    <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm space-y-2">
-      <div class="font-semibold">Create a credential rule first</div>
-      <p class="text-xs text-sr-ink/80">
-        Passwords, API keys, and controller logins belong in <span class="font-medium">Settings → Networks → Credentials</span>,
-        not on this assignment. Create a <span class="font-mono">{@provider}</span>
-        rule, attach the secret, then assign this plugin to an agent that rule covers.
-      </p>
-      <p :if={match?(%{state: :uncovered}, @coverage)} class="text-xs text-warning">
-        No enabled {@provider} rule covers the selected agent yet. The plugin will
-        fail at runtime until one does.
-      </p>
+    <div class={[
+      "rounded-lg p-3 text-sm space-y-2",
+      if(@producer_schedule?,
+        do: "border border-warning/30 bg-warning/10",
+        else: "border border-info/20 bg-info/10"
+      )
+    ]}>
+      <%= if @producer_schedule? do %>
+        <div class="font-semibold">Do not assign this plugin here</div>
+        <p class="text-xs text-sr-ink/80">
+          This scheduled inventory plugin runs from a credential rule, not from this form.
+          Create a <span class="font-mono">{@provider}</span>
+          username/password credential and rule under <span class="font-medium">Settings → Networks → Credentials</span>.
+          The rule's Scope Value is the agent that executes the Wasm module; saving
+          the rule creates the assignment.
+        </p>
+      <% else %>
+        <div class="font-semibold">Create a credential rule first</div>
+        <p class="text-xs text-sr-ink/80">
+          Passwords, API keys, and controller logins belong in <span class="font-medium">Settings → Networks → Credentials</span>,
+          not on this assignment. Create a <span class="font-mono">{@provider}</span>
+          rule, attach the secret, then assign this plugin to an agent that rule covers.
+        </p>
+        <p :if={match?(%{state: :uncovered}, @coverage)} class="text-xs text-warning">
+          No enabled {@provider} rule covers the selected agent yet. The plugin will
+          fail at runtime until one does.
+        </p>
+      <% end %>
       <.link navigate={@new_rule_path} class="link link-primary text-xs">
         Open the {@provider} credential rule form
       </.link>

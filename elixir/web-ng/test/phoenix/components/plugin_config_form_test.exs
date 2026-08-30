@@ -144,6 +144,31 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     refute html =~ ~s(assignment[params][console])
   end
 
+  test "renders OpenText NOM schema docs and wrapper help text" do
+    schema_path =
+      Path.expand(
+        "../../../../../go/cmd/wasm-plugins/opentext-nom/config.schema.json",
+        __DIR__
+      )
+
+    schema = schema_path |> File.read!() |> Jason.decode!()
+
+    html =
+      render_component(&PluginConfigForm.plugin_config_fields/1, %{
+        schema: schema,
+        params: %{},
+        base_name: "credential_rule[plugin_config]"
+      })
+
+    assert html =~ "Open the configuration guide"
+    assert html =~ "https://docs.serviceradar.cloud/docs/opentext-nom"
+    assert html =~ "Automation wrapper URL"
+    assert html =~ "https://na.example.com/nom/api/automation/v1/wrapper"
+    assert html =~ "https://nnm.example.com:443"
+    refute html =~ "example.com"
+    assert html =~ "Advanced settings (optional)"
+  end
+
   test "renders schema documentation link" do
     schema = %{
       "type" => "object",
