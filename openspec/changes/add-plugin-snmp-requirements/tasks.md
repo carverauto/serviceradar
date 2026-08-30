@@ -95,13 +95,13 @@ table, ASCII-only docs.
 - [x] 4.1 `packages.ex`: `sync_snmp_requirements(:approved)` on approve,
   `(:disabled)` on deny/revoke/restage - the three call sites that already
   carry `sync_alert_rules`.
-- [ ] 4.2 Test each transition end to end through `Packages` in `web-ng`. The
+- [x] 4.2 Test each transition end to end through `Packages` in `web-ng`. The
   catalog itself is covered directly in `serviceradar_core`; what is untested is
   the three call sites.
 
 ## 4b. Fact provenance (follow-up)
 
-- [ ] 4b.1 Thread the collecting profile id through to the reading so
+- [x] 4b.1 Thread the collecting profile id through to the reading so
   `device_snmp_facts.snmp_profile_id` and `plugin_package_id` stop being NULL.
   Nothing on the wire links a reading back to its profile today:
   `protoToSNMPConfig` never copies `SNMPTargetConfig.id` into `snmp.Target`, and

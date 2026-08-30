@@ -180,6 +180,35 @@ func TestMarshalSNMPMetricEnvelopePreservesCounterSemantics(t *testing.T) {
 	require.Equal(t, ".1.3.6.1.2.1.31.1.1.1.6.7", entry(metric.Metadata, "oid"))
 }
 
+func TestMarshalSNMPMetricEnvelopeCarriesProfileIDInPointMetadata(t *testing.T) {
+	t.Parallel()
+
+	profileID := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	payload, err := marshalSNMPMetricEnvelope([]snmpMetricResult{
+		{
+			Target:    "clearpass-a",
+			Host:      "10.0.0.8",
+			Metric:    "node_version",
+			OID:       ".1.3.6.1.4.1.14823.1.6.1.1.1.1.1.3.0",
+			Value:     "6.11.15",
+			RawValue:  "6.11.15",
+			Timestamp: time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC),
+			DataType:  "string",
+			ProfileID: profileID,
+		},
+	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition})
+	require.NoError(t, err)
+
+	batch := decodeMetricBatch(t, payload)
+	require.Len(t, batch.Metrics, 1)
+
+	point := batch.Metrics[0].Points[0]
+	require.Equal(t, profileID, entry(point.Metadata, "snmp_profile_id"))
+	require.Equal(t, "true", entry(point.Metadata, "non_numeric"))
+	// Provenance must not fork the series: attributes feed the series key.
+	require.Empty(t, entry(point.Attributes, "snmp_profile_id"))
+}
+
 func TestMarshalICMPMetricEnvelope(t *testing.T) {
 	t.Parallel()
 

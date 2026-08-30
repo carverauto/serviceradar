@@ -53,7 +53,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         |> assign(:custom_template_form, nil)
         |> assign(:custom_template_oids, [])
         |> assign(:editing_custom_template, nil)
-        |> assign(:custom_templates, Data.load_custom_templates(scope))
+        |> Data.assign_custom_templates(scope)
         |> assign(:snmp_credentials, Data.load_snmp_credentials(scope))
         |> assign(:available_templates, Data.load_all_templates(scope))
         |> assign(:selected_template_ids, [])

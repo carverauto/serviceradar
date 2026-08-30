@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.ProvenanceTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance
+  alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrowserModal
 
   setup :register_and_log_in_admin_user
 
@@ -111,6 +112,31 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.ProvenanceTest do
       assert Provenance.describe(%{plugin_package_id: nil, name: "Core switches"}, %{}) == :none
       assert Provenance.describe(%{plugin_package_id: nil, name: nil}, %{}) == :none
     end
+  end
+
+  test "template browser Custom tab badges a plugin-removed template" do
+    template_id = Ecto.UUID.generate()
+
+    html =
+      render_component(&TemplateBrowserModal.template_browser_modal/1, %{
+        search: "",
+        selected_vendor: "custom",
+        custom_templates: [
+          %{
+            id: template_id,
+            name: "plugin:ClearPass:node-health",
+            description: "Node health",
+            vendor: "plugin",
+            category: "system",
+            oids: [%{"oid" => ".1.3.6.1.2.1.1.1.0"}],
+            plugin_package_id: nil
+          }
+        ],
+        package_names: %{}
+      })
+
+    assert html =~ "Plugin: ClearPass (removed)"
+    assert html =~ "snmp-template-#{template_id}-provenance"
   end
 
   defp register_and_log_in_admin_user(%{conn: conn}) do

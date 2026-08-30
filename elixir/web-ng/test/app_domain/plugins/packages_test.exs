@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
+  alias ServiceRadar.SNMPProfiles.SNMPOIDTemplate
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins.FirstPartySyncWorker
   alias ServiceRadarWebNG.Plugins.Packages
@@ -538,6 +540,78 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     assert Exception.message(error) =~ "plugin is already enabled for this agent"
   end
 
+  test "approve materializes inert plugin SNMP rows" do
+    actor = system_actor()
+    package = create_snmp_package()
+
+    assert {:ok, approved} = Packages.approve(package.id, %{}, actor: actor)
+    assert approved.status == :approved
+
+    [profile] = snmp_profiles_for(package.id, actor)
+    assert profile.enabled == false
+    assert profile.plugin_package_id == package.id
+    assert is_nil(profile.credential_secret_id)
+
+    [template] = snmp_templates_for(package.id, actor)
+    assert template.plugin_package_id == package.id
+    assert template.vendor == "plugin"
+  end
+
+  test "revoke and restage disable operator-enabled plugin SNMP profiles" do
+    actor = system_actor()
+    package = create_snmp_package()
+
+    assert {:ok, _} = Packages.approve(package.id, %{}, actor: actor)
+    [profile] = snmp_profiles_for(package.id, actor)
+
+    {:ok, _} =
+      profile
+      |> Ash.Changeset.for_update(:update, %{enabled: true}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert {:ok, _} =
+             Packages.revoke(package.id, %{denied_reason: "revoked"}, actor: actor)
+
+    assert [%{enabled: false}] = snmp_profiles_for(package.id, actor)
+
+    assert {:ok, restaged} = Packages.restage(package.id, actor: actor)
+    assert restaged.status == :staged
+    assert [%{enabled: false}] = snmp_profiles_for(package.id, actor)
+
+    [profile] = snmp_profiles_for(package.id, actor)
+
+    {:ok, _} =
+      profile
+      |> Ash.Changeset.for_update(:update, %{enabled: true}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert {:ok, denied} =
+             Packages.deny(package.id, %{denied_reason: "denied"}, actor: actor)
+
+    assert denied.status == :denied
+    assert [%{enabled: false}] = snmp_profiles_for(package.id, actor)
+  end
+
+  test "re-approving after revoke does not re-arm plugin SNMP profiles" do
+    actor = system_actor()
+    package = create_snmp_package()
+
+    assert {:ok, _} = Packages.approve(package.id, %{}, actor: actor)
+    [profile] = snmp_profiles_for(package.id, actor)
+
+    {:ok, _} =
+      profile
+      |> Ash.Changeset.for_update(:update, %{enabled: true}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert {:ok, _} =
+             Packages.revoke(package.id, %{denied_reason: "revoked"}, actor: actor)
+
+    assert {:ok, _} = Packages.restage(package.id, actor: actor)
+    assert {:ok, _} = Packages.approve(package.id, %{}, actor: actor)
+    assert [%{enabled: false}] = snmp_profiles_for(package.id, actor)
+  end
+
   defp register_control_session!(agent_uid, partition_id) do
     if !ProcessRegistry.registry_present?() do
       start_supervised!(
@@ -709,6 +783,71 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
       actor: system_actor()
     )
     |> Ash.create!()
+  end
+
+  defp create_snmp_package do
+    suffix = System.unique_integer([:positive])
+    plugin_id = "snmp-req-pkg-#{suffix}"
+    name = "SNMP Req #{suffix}"
+    requirement = snmp_requirement()
+    manifest = Map.merge(@manifest, %{"id" => plugin_id, "name" => name, "snmp_requirements" => [requirement]})
+
+    create_plugin(plugin_id)
+
+    PluginPackage
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        plugin_id: plugin_id,
+        name: name,
+        version: "0.1.0",
+        entrypoint: "run_check",
+        outputs: "serviceradar.plugin_result.v1",
+        manifest: manifest,
+        snmp_requirements: [requirement],
+        config_schema: %{},
+        signature: %{},
+        source_type: :github,
+        source_commit: "test-#{plugin_id}-0.1.0"
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+  end
+
+  defp snmp_requirement do
+    %{
+      "name" => "clearpass-node-health",
+      "description" => "Node health from CLEARPASS-MIB.",
+      "category" => "system",
+      "default_poll_interval_seconds" => 300,
+      "target_hint" => "in:devices device_type:clearpass",
+      "oids" => [
+        %{
+          "oid" => ".1.3.6.1.4.1.14823.1.6.1.1.1.1.1.16.0",
+          "name" => "node_cpu_pct",
+          "data_type" => "gauge"
+        }
+      ]
+    }
+  end
+
+  defp snmp_profiles_for(package_id, actor) do
+    {:ok, rows} =
+      SNMPProfile
+      |> Ash.Query.filter(plugin_package_id == ^package_id)
+      |> Ash.read(actor: actor)
+
+    rows
+  end
+
+  defp snmp_templates_for(package_id, actor) do
+    {:ok, rows} =
+      SNMPOIDTemplate
+      |> Ash.Query.filter(plugin_package_id == ^package_id)
+      |> Ash.read(actor: actor)
+
+    rows
   end
 
   defp restore_system_env(key, nil), do: System.delete_env(key)

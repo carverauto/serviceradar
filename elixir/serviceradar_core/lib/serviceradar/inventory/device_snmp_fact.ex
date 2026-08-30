@@ -54,7 +54,15 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFact do
 
       upsert? true
       upsert_identity :unique_reading
-      upsert_fields [:oid_name, :value, :data_type, :snmp_profile_id, :collected_at]
+
+      upsert_fields [
+        :oid_name,
+        :value,
+        :data_type,
+        :snmp_profile_id,
+        :plugin_package_id,
+        :collected_at
+      ]
     end
 
     update :update do

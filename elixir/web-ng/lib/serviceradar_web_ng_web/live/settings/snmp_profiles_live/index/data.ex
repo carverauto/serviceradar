@@ -118,6 +118,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
     end
   end
 
+  def assign_custom_templates(socket, scope) do
+    templates = load_custom_templates(scope)
+
+    socket
+    |> assign(:custom_templates, templates)
+    |> assign(:template_package_names, Provenance.load_package_names(scope, templates))
+  end
+
   def load_custom_templates(scope) do
     case Ash.read(SNMPOIDTemplate, action: :list_custom, scope: scope) do
       {:ok, templates} -> templates

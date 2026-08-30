@@ -14,6 +14,9 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriterTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceSNMPFact
   alias ServiceRadar.Inventory.DeviceSNMPFactWriter
+  alias ServiceRadar.Plugins.Plugin
+  alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   require Ash.Query
 
@@ -169,6 +172,38 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriterTest do
     assert facts(device.uid, actor) == []
   end
 
+  test "records the collecting profile id from metadata", %{actor: actor, device: device} do
+    profile_id = Ecto.UUID.generate()
+
+    :ok =
+      DeviceSNMPFactWriter.write_rows([
+        row(device.uid, snmp_profile_id: profile_id, raw_value: "6.11.15")
+      ])
+
+    assert [fact] = facts(device.uid, actor)
+    assert fact.snmp_profile_id == profile_id
+    assert is_nil(fact.plugin_package_id)
+  end
+
+  test "fills plugin_package_id from the collecting profile", %{actor: actor, device: device} do
+    package = plugin_package(actor)
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{name: "facts-#{System.unique_integer([:positive])}"})
+      |> Ash.Changeset.force_change_attribute(:plugin_package_id, package.id)
+      |> Ash.create(actor: actor)
+
+    :ok =
+      DeviceSNMPFactWriter.write_rows([
+        row(device.uid, snmp_profile_id: profile.id, raw_value: "6.11.15")
+      ])
+
+    assert [fact] = facts(device.uid, actor)
+    assert fact.snmp_profile_id == profile.id
+    assert fact.plugin_package_id == package.id
+  end
+
   defp row(device_uid, opts \\ []) do
     metadata =
       %{}
@@ -178,6 +213,8 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriterTest do
 
     metadata = put_present(metadata, "oid_index", Keyword.get(opts, :oid_index))
     metadata = put_present(metadata, "non_numeric", Keyword.get(opts, :non_numeric))
+    metadata = put_present(metadata, "snmp_profile_id", Keyword.get(opts, :snmp_profile_id))
+    metadata = put_present(metadata, "plugin_package_id", Keyword.get(opts, :plugin_package_id))
 
     tags = put_present(%{}, "interface_uid", Keyword.get(opts, :interface_uid))
 
@@ -214,5 +251,42 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriterTest do
       |> Ash.read(actor: actor)
 
     facts
+  end
+
+  defp plugin_package(actor) do
+    suffix = System.unique_integer([:positive])
+    plugin_id = "snmp-fact-pkg-#{suffix}"
+    name = "SNMP Fact Package #{suffix}"
+
+    {:ok, _plugin} =
+      Plugin
+      |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: name}, actor: actor)
+      |> Ash.create()
+
+    {:ok, package} =
+      PluginPackage
+      |> Ash.Changeset.for_create(:create, %{
+        plugin_id: plugin_id,
+        name: name,
+        version: "0.1.0",
+        entrypoint: "run_check",
+        runtime: "wasi-preview1",
+        outputs: "serviceradar.plugin_result.v1",
+        manifest: %{
+          "id" => plugin_id,
+          "name" => name,
+          "version" => "0.1.0",
+          "entrypoint" => "run_check",
+          "runtime" => "wasi-preview1",
+          "outputs" => "serviceradar.plugin_result.v1",
+          "capabilities" => ["get_config"],
+          "resources" => %{"requested_memory_mb" => 32, "requested_cpu_ms" => 100}
+        },
+        content_hash: "sha256:snmp-fact-#{suffix}",
+        source_type: :upload
+      })
+      |> Ash.create(actor: actor, domain: ServiceRadar.Plugins)
+
+    package
   end
 end

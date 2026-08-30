@@ -37,7 +37,9 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriter do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.DeviceSNMPFact
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
 
+  require Ash.Query
   require Logger
 
   @snmp_metric_type "snmp"
@@ -58,7 +60,10 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriter do
 
       facts ->
         actor = SystemActor.system(:device_snmp_fact_writer)
-        Enum.each(facts, &upsert(&1, actor))
+
+        facts
+        |> attach_plugin_package_ids(actor)
+        |> Enum.each(&upsert(&1, actor))
     end
   rescue
     error ->
@@ -97,10 +102,53 @@ defmodule ServiceRadar.Inventory.DeviceSNMPFactWriter do
         oid_name: row[:metric_name],
         data_type: data_type(metadata),
         value: value(metadata, row[:value]),
+        snmp_profile_id: parse_uuid(metadata["snmp_profile_id"]),
+        plugin_package_id: parse_uuid(metadata["plugin_package_id"]),
         collected_at: row[:timestamp] || DateTime.utc_now()
       }
     end
   end
+
+  defp attach_plugin_package_ids(facts, actor) do
+    profile_ids =
+      facts
+      |> Enum.map(& &1.snmp_profile_id)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    package_by_profile = plugin_package_ids(profile_ids, actor)
+
+    Enum.map(facts, fn fact ->
+      case {fact.plugin_package_id, Map.get(package_by_profile, fact.snmp_profile_id)} do
+        {nil, package_id} -> Map.put(fact, :plugin_package_id, package_id)
+        {_present, _} -> fact
+      end
+    end)
+  end
+
+  defp plugin_package_ids([], _actor), do: %{}
+
+  defp plugin_package_ids(profile_ids, actor) do
+    case SNMPProfile
+         |> Ash.Query.filter(id in ^profile_ids)
+         |> Ash.read(actor: actor) do
+      {:ok, profiles} ->
+        Map.new(profiles, fn profile -> {profile.id, profile.plugin_package_id} end)
+
+      {:error, reason} ->
+        Logger.warning("device SNMP fact profile lookup failed", error: inspect(reason))
+        %{}
+    end
+  end
+
+  defp parse_uuid(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp parse_uuid(_value), do: nil
 
   # Prefers the declared type over the wire type. `raw_value_type` describes how
   # the value was encoded on the wire; `data_type` is what the OID was declared
