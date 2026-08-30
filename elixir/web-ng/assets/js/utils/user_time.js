@@ -7,10 +7,11 @@ const DATE_PART_OPTIONS = Object.freeze({
   second: "2-digit",
   hourCycle: "h23",
   numberingSystem: "latn",
+  calendar: "iso8601",
 })
 
 const OFFSET_PATTERN = /(?:GMT|UTC)[+-]\d{1,2}(?::?\d{2})?/
-const ISO_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/
+const ISO_INSTANT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/
 
 export const STYLE_OPTIONS = Object.freeze({
   full: Object.freeze({
@@ -118,7 +119,19 @@ function styleRequiresOffset(style) {
 }
 
 function validInstant(iso) {
-  return typeof iso === "string" && ISO_INSTANT_PATTERN.test(iso) && !Number.isNaN(new Date(iso).getTime())
+  if (typeof iso !== "string") return false
+
+  const match = ISO_INSTANT_PATTERN.exec(iso)
+  if (!match) return false
+
+  const [year, month, day, hour, minute, second] = match.slice(1, 7).map(Number)
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)
+  const daysInMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+  if (month < 1 || month > 12 || day < 1 || day > daysInMonth[month - 1]) return false
+  if (hour > 23 || minute > 59 || second > 59) return false
+
+  return !Number.isNaN(new Date(iso).getTime())
 }
 
 export function formatUserTime(iso, {timeZone, style = "full", locale, intl = globalThis.Intl} = {}) {
