@@ -883,9 +883,9 @@ func protoToSNMPAuthProtocol(ap proto.SNMPAuthProtocol) snmp.AuthProtocol {
 	case proto.SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA512:
 		return snmp.AuthProtocolSHA512
 	case proto.SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_UNSPECIFIED:
-		return snmp.AuthProtocolMD5
+		return ""
 	}
-	return snmp.AuthProtocolMD5
+	return ""
 }
 
 // protoToSNMPPrivProtocol converts proto SNMPPrivProtocol to snmp.PrivProtocol.
@@ -902,7 +902,7 @@ func protoToSNMPPrivProtocol(pp proto.SNMPPrivProtocol) snmp.PrivProtocol {
 		proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES256C:
 		return snmp.PrivProtocolAES256
 	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_UNSPECIFIED:
-		return snmp.PrivProtocolDES
+		return ""
 	}
-	return snmp.PrivProtocolDES
+	return ""
 }

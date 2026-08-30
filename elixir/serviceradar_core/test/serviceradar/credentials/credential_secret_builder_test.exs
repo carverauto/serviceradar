@@ -292,6 +292,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
 
       assert attrs.provider == "snmp"
       assert attrs.credential_kind == :snmp
+      assert NativeDescriptors.snmp()["supports_rules"] == true
       assert Jason.decode!(attrs.secret_payload) == %{"community" => "public-ish"}
       assert attrs.metadata["plugin_id"] == "snmp"
       assert attrs.metadata["plugin_version"] == "native"
@@ -304,6 +305,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
                  "v3",
                  %{
                    "username" => "monitor",
+                   "security_level" => "authPriv",
                    "auth_protocol" => "sha",
                    "auth_password" => "auth-secret",
                    "priv_protocol" => "aes",
@@ -317,6 +319,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
 
       assert %{
                "username" => "monitor",
+               "security_level" => "authPriv",
                "auth_protocol" => "sha",
                "auth_password" => "auth-secret",
                "priv_protocol" => "aes",

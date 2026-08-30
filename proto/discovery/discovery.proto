@@ -80,6 +80,7 @@ message SNMPCredentials {
   string privacy_protocol = 6;                   // Privacy protocol for v3 (DES/AES)
   string privacy_password = 7;                   // Privacy password for v3
   map<string, SNMPCredentials> target_specific = 8; // Credentials for specific targets
+  string security_level = 9;                     // noAuthNoPriv, authNoPriv, or authPriv
 }
 
 // DiscoveryResponse is returned when a discovery operation is initiated

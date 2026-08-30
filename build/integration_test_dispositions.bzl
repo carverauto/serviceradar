@@ -446,7 +446,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/security/edge_isolation_test.exs": 7,
     "test/serviceradar/security/events_test.exs": 5,
     "test/serviceradar/security/rate_limiter_test.exs": 17,
-    "test/serviceradar/snmp_profiles/credential_resolver_test.exs": 3,
+    "test/serviceradar/snmp_profiles/credential_resolver_test.exs": 4,
     "test/serviceradar/snmp_profiles/snmp_compiler_test.exs": 30,
     "test/serviceradar/snmp_profiles/snmp_profile_test.exs": 23,
     "test/serviceradar/snmp_profiles/srql_target_resolver_test.exs": 13,

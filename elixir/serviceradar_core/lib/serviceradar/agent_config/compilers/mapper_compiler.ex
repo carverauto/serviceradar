@@ -45,7 +45,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     jobs = load_jobs(partition, agent_id, actor)
     mikrotik_controllers = load_mikrotik_controllers(jobs, actor)
     unifi_controllers = load_unifi_controllers(jobs, actor)
-    credentials = resolve_credentials(device_uid, actor)
+    credentials = resolve_credentials(device_uid, actor, agent_id: agent_id, partition: partition)
     proxmox_candidate_probe? = proxmox_candidate_probe_enabled?(partition, agent_id, actor)
 
     config = %{
@@ -258,22 +258,22 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   defp string_or_empty(value) when is_binary(value), do: value
   defp string_or_empty(value), do: to_string(value)
 
-  defp resolve_credentials(device_uid, actor) do
-    case CredentialResolver.resolve_for_device(device_uid, actor) do
+  defp resolve_credentials(device_uid, actor, opts) do
+    case CredentialResolver.resolve_for_device(device_uid, actor, opts) do
       {:ok, %{credential: nil}} ->
-        resolve_default_credentials(actor)
+        resolve_default_credentials(actor, opts)
 
       {:ok, %{credential: credential}} ->
         CredentialResolver.to_mapper_credentials(credential)
 
       {:error, _} ->
         Logger.warning("MapperCompiler: failed to resolve SNMP credentials for discovery jobs")
-        resolve_default_credentials(actor)
+        resolve_default_credentials(actor, opts)
     end
   end
 
-  defp resolve_default_credentials(actor) do
-    case CredentialResolver.resolve_default(actor) do
+  defp resolve_default_credentials(actor, opts) do
+    case CredentialResolver.resolve_default(actor, opts) do
       {:ok, %{credential: nil}} ->
         Logger.warning("MapperCompiler: no default SNMP credentials resolved for discovery jobs")
         %{"version" => "v2c"}
