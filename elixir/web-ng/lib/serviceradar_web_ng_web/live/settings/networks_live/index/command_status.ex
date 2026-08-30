@@ -44,18 +44,30 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.CommandStatus do
 
   def begin_sweep_dispatch(statuses, _group_id), do: statuses
 
-  def reduce_sweep_dispatch(statuses, data) when is_map(statuses) and is_map(data) do
+  def apply_sweep_dispatch(statuses, data) when is_map(statuses) and is_map(data) do
     case event_value(data, :phase) do
       phase when phase in [:started, "started"] -> start_sweep_dispatch(statuses, data)
-      phase when phase in [:finished, "finished"] -> seed_sweep_dispatch(statuses, data)
-      nil -> seed_sweep_dispatch(statuses, data)
-      _unknown_phase -> statuses
+      phase when phase in [:finished, "finished"] -> apply_seed_sweep_dispatch(statuses, data)
+      nil -> apply_seed_sweep_dispatch(statuses, data)
+      _unknown_phase -> {:ignored, statuses}
     end
   end
 
-  def reduce_sweep_dispatch(statuses, _data), do: statuses
+  def apply_sweep_dispatch(statuses, _data), do: {:ignored, statuses}
+
+  def reduce_sweep_dispatch(statuses, data) do
+    {_disposition, statuses} = apply_sweep_dispatch(statuses, data)
+    statuses
+  end
 
   def seed_sweep_dispatch(statuses, data) when is_map(statuses) and is_map(data) do
+    {_disposition, statuses} = apply_seed_sweep_dispatch(statuses, data)
+    statuses
+  end
+
+  def seed_sweep_dispatch(statuses, _data), do: statuses
+
+  defp apply_seed_sweep_dispatch(statuses, data) do
     case event_value(data, :sweep_group_id) do
       group_id when is_binary(group_id) and group_id != "" ->
         existing = Map.get(statuses, group_id, empty_sweep_status(false))
@@ -85,18 +97,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.CommandStatus do
               )
               |> summarize_sweep_status()
 
-            Map.put(statuses, group_id, status)
+            {:accepted, Map.put(statuses, group_id, status)}
 
           :older ->
-            statuses
+            {:ignored, statuses}
         end
 
       _missing_group_id ->
-        statuses
+        {:ignored, statuses}
     end
   end
-
-  def seed_sweep_dispatch(statuses, _data), do: statuses
 
   def reduce_sweep_member_event(statuses, {event_type, data}) when is_map(statuses) and is_map(data) do
     group_id = event_value(data, :sweep_group_id)
@@ -250,13 +260,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.CommandStatus do
             )
             |> summarize_sweep_status()
 
-          Map.put(statuses, group_id, status)
+          {:accepted, Map.put(statuses, group_id, status)}
 
         _same_or_older ->
-          statuses
+          {:ignored, statuses}
       end
     else
-      _invalid_dispatch -> statuses
+      _invalid_dispatch -> {:ignored, statuses}
     end
   end
 
@@ -391,21 +401,41 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.CommandStatus do
   defp bound_pending_dispatches(pending) do
     pending
     |> Enum.sort_by(
-      fn {dispatch_id, buffered} -> {Map.get(buffered, :generation, 0), dispatch_id} end,
+      fn {dispatch_id, buffered} ->
+        {sweep_generation_number(Map.get(buffered, :generation)), dispatch_id}
+      end,
       :desc
     )
     |> Enum.take(@max_buffered_sweep_dispatches)
     |> Map.new()
   end
 
-  defp valid_sweep_generation?(generation),
-    do: (is_integer(generation) and generation > 0) or valid_status_key?(generation)
+  defp valid_sweep_generation?(generation), do: match?({:ok, _generation}, parse_sweep_generation(generation))
 
-  defp newer_sweep_generation?(incoming, active) when is_integer(incoming) and is_integer(active), do: incoming > active
+  defp newer_sweep_generation?(incoming, active) do
+    with {:ok, incoming_number} <- parse_sweep_generation(incoming),
+         {:ok, active_number} <- parse_sweep_generation(active) do
+      incoming_number > active_number
+    else
+      _invalid_generation -> false
+    end
+  end
 
-  defp newer_sweep_generation?(incoming, active) when is_binary(incoming) and is_binary(active), do: incoming > active
+  defp parse_sweep_generation(generation) when is_binary(generation) do
+    case Integer.parse(generation) do
+      {generation, ""} when generation > 0 -> {:ok, generation}
+      _invalid -> :error
+    end
+  end
 
-  defp newer_sweep_generation?(_incoming, _active), do: false
+  defp parse_sweep_generation(_generation), do: :error
+
+  defp sweep_generation_number(generation) do
+    case parse_sweep_generation(generation) do
+      {:ok, generation} -> generation
+      :error -> 0
+    end
+  end
 
   defp empty_sweep_status(seeded?) do
     %{

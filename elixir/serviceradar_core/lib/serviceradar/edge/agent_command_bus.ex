@@ -30,7 +30,6 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   @max_endpoint_inventory_cohort_concurrency 16
   @send_timeout 5_000
   @sweep_dispatch_max_concurrency 8
-  @sweep_dispatch_timeout_ms @send_timeout + 500
   @endpoint_inventory_capability "endpoint-inventory"
   @endpoint_inventory_cache_query_type "endpoint_inventory.cache_query"
   @endpoint_inventory_force_fresh_scan_type "endpoint_inventory.force_fresh_scan"
@@ -415,11 +414,16 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   def run_sweep_group(group, opts \\ []) do
+    with {:ok, {dispatch_id, dispatch_generation}} <- sweep_dispatch_identity(opts) do
+      do_run_sweep_group(group, opts, dispatch_id, dispatch_generation)
+    end
+  end
+
+  defp do_run_sweep_group(group, opts, dispatch_id, dispatch_generation) do
     payload = %{sweep_group_id: group.id}
     group_partition = group.partition || "default"
     agent_ids = AgentAssignment.normalize(group.agent_ids)
     dispatch_fun = Keyword.get(opts, :dispatch_fun, &dispatch/4)
-    {dispatch_id, dispatch_generation} = sweep_dispatch_identity(opts)
 
     opts =
       add_context(opts, %{
@@ -555,19 +559,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         {{:error, _agent_id, _reason}, _index} -> []
       end)
 
-    max_concurrency =
-      positive_sweep_dispatch_option(
-        opts,
-        :sweep_dispatch_max_concurrency,
-        @sweep_dispatch_max_concurrency
-      )
-
-    timeout_ms =
-      positive_sweep_dispatch_option(
-        opts,
-        :sweep_dispatch_timeout_ms,
-        @sweep_dispatch_timeout_ms
-      )
+    max_concurrency = sweep_dispatch_concurrency(opts)
 
     dispatched_by_index =
       dispatch_entries
@@ -577,12 +569,11 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         end,
         max_concurrency: max_concurrency,
         ordered: true,
-        on_timeout: :kill_task,
-        timeout: timeout_ms
+        timeout: :infinity
       )
       |> Enum.zip(dispatch_entries)
       |> Map.new(fn {task_result, {index, session}} ->
-        {index, normalize_sweep_dispatch_task_result(task_result, session.agent_id, timeout_ms)}
+        {index, normalize_sweep_dispatch_task_result(task_result, session.agent_id)}
       end)
 
     candidates
@@ -602,25 +593,21 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     kind, _reason -> {:task_exit, kind}
   end
 
-  defp normalize_sweep_dispatch_task_result({:ok, {:completed, result}}, _agent_id, _timeout_ms),
-    do: result
+  defp normalize_sweep_dispatch_task_result({:ok, {:completed, result}}, _agent_id), do: result
 
-  defp normalize_sweep_dispatch_task_result({:ok, {:task_exit, reason}}, agent_id, _timeout_ms),
+  defp normalize_sweep_dispatch_task_result({:ok, {:task_exit, reason}}, agent_id),
     do: {:error, agent_id, {:dispatch_task_exit, safe_sweep_dispatch_exit(reason)}}
 
-  defp normalize_sweep_dispatch_task_result({:exit, :timeout}, agent_id, timeout_ms),
-    do: {:error, agent_id, {:dispatch_timeout, timeout_ms}}
-
-  defp normalize_sweep_dispatch_task_result({:exit, reason}, agent_id, _timeout_ms),
+  defp normalize_sweep_dispatch_task_result({:exit, reason}, agent_id),
     do: {:error, agent_id, {:dispatch_task_exit, safe_sweep_dispatch_exit(reason)}}
 
   defp safe_sweep_dispatch_exit(reason) when is_atom(reason), do: reason
   defp safe_sweep_dispatch_exit(_reason), do: :abnormal
 
-  defp positive_sweep_dispatch_option(opts, key, default) do
-    case Keyword.get(opts, key, default) do
-      value when is_integer(value) and value > 0 -> value
-      _invalid -> default
+  defp sweep_dispatch_concurrency(opts) do
+    case Keyword.get(opts, :sweep_dispatch_max_concurrency, @sweep_dispatch_max_concurrency) do
+      value when is_integer(value) and value > 0 -> min(value, @sweep_dispatch_max_concurrency)
+      _invalid -> @sweep_dispatch_max_concurrency
     end
   end
 
@@ -657,32 +644,47 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp sweep_dispatch_identity(opts) do
     dispatch_id = Keyword.get_lazy(opts, :sweep_dispatch_id, &Ash.UUIDv7.generate/0)
 
-    dispatch_generation =
-      Keyword.get_lazy(opts, :sweep_dispatch_generation, &new_sweep_dispatch_generation/0)
+    allocator =
+      Keyword.get(
+        opts,
+        :sweep_dispatch_generation_allocator,
+        &allocate_sweep_dispatch_generation/0
+      )
 
-    {dispatch_id, dispatch_generation}
+    case call_sweep_dispatch_generation_allocator(allocator) do
+      {:ok, generation} -> {:ok, {dispatch_id, generation}}
+      {:error, _reason} -> {:error, :sweep_dispatch_generation_unavailable}
+    end
   end
 
-  defp new_sweep_dispatch_generation do
-    timestamp = System.system_time(:nanosecond)
-    node_id = Atom.to_string(node())
-    tie_breaker = System.unique_integer([:monotonic, :positive])
-
-    Enum.join(
-      [
-        padded_sweep_generation_integer(timestamp),
-        node_id,
-        padded_sweep_generation_integer(tie_breaker)
-      ],
-      ":"
-    )
+  defp allocate_sweep_dispatch_generation do
+    case control_repo().query("SELECT txid_current()::text", []) do
+      {:ok, %{rows: [[generation]]}} -> {:ok, generation}
+      {:error, reason} -> {:error, reason}
+      _unexpected -> {:error, :unexpected_generation_result}
+    end
   end
 
-  defp padded_sweep_generation_integer(value) do
-    value
-    |> Integer.to_string()
-    |> String.pad_leading(20, "0")
+  defp call_sweep_dispatch_generation_allocator(allocator) when is_function(allocator, 0) do
+    normalize_sweep_dispatch_generation(allocator.())
+  rescue
+    _exception -> {:error, :generation_allocator_failed}
+  catch
+    _kind, _reason -> {:error, :generation_allocator_failed}
   end
+
+  defp call_sweep_dispatch_generation_allocator(_allocator),
+    do: {:error, :invalid_generation_allocator}
+
+  defp normalize_sweep_dispatch_generation({:ok, generation}) when is_binary(generation) do
+    case Integer.parse(generation) do
+      {generation, ""} when generation > 0 -> {:ok, Integer.to_string(generation)}
+      _invalid -> {:error, :invalid_generation}
+    end
+  end
+
+  defp normalize_sweep_dispatch_generation({:error, reason}), do: {:error, reason}
+  defp normalize_sweep_dispatch_generation(_unexpected), do: {:error, :invalid_generation_result}
 
   defp sweep_dispatch_return(%{commands: [], error: reason}), do: {:error, reason}
 

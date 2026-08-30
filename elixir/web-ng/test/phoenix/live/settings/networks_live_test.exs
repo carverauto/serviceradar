@@ -53,7 +53,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
       %{
         sweep_group_id: group.id,
         sweep_dispatch_id: "dispatch-old",
-        sweep_dispatch_generation: "00000000000000000001:web@one:00000000000000000001",
+        sweep_dispatch_generation: "1",
         phase: :finished,
         commands: [%{agent_id: "agent-old", command_id: "command-old"}],
         failures: []
@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
       %{
         sweep_group_id: group.id,
         sweep_dispatch_id: "dispatch-new",
-        sweep_dispatch_generation: "00000000000000000002:web@one:00000000000000000002",
+        sweep_dispatch_generation: "2",
         command_id: "command-a",
         agent_id: "agent-a",
         message: "completed A",
@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
       %{
         sweep_group_id: group.id,
         sweep_dispatch_id: "dispatch-new",
-        sweep_dispatch_generation: "00000000000000000002:web@one:00000000000000000002",
+        sweep_dispatch_generation: "2",
         phase: :finished,
         commands: [
           %{agent_id: "agent-a", command_id: "command-a"},
@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
       %{
         sweep_group_id: group.id,
         sweep_dispatch_id: "dispatch-new",
-        sweep_dispatch_generation: "00000000000000000002:web@one:00000000000000000002",
+        sweep_dispatch_generation: "2",
         command_id: "command-b",
         agent_id: "agent-b",
         message: "running B",
@@ -119,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
       %{
         sweep_group_id: group.id,
         sweep_dispatch_id: "dispatch-new",
-        sweep_dispatch_generation: "00000000000000000002:web@one:00000000000000000002",
+        sweep_dispatch_generation: "2",
         command_id: "command-a",
         agent_id: "agent-a",
         message: "late A ack"

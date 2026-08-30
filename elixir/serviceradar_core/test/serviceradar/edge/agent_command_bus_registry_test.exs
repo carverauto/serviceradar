@@ -56,7 +56,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
               ],
               failures: []
             }} =
-             AgentCommandBus.run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
+             run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
 
     assert_receive {:dispatch, ^first, "sweep.run_group", %{sweep_group_id: "group-1"},
                     first_opts}
@@ -84,10 +84,10 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
     group = sweep_group([agent_id], partition: "devices", agent_id: nil)
 
     assert {:ok, %{commands: [%{agent_id: ^agent_id}], failures: []}} =
-             AgentCommandBus.run_sweep_group(group,
+             run_sweep_group(group,
                dispatch_fun: recording_dispatch(self()),
                sweep_dispatch_id: "dispatch-0001",
-               sweep_dispatch_generation: "00000000000000000001:core@one:00000000000000000001"
+               sweep_dispatch_generation_allocator: fn -> {:ok, "1001"} end
              )
 
     assert_receive {:sweep_dispatch,
@@ -95,8 +95,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
                       phase: :started,
                       sweep_group_id: "group-1",
                       sweep_dispatch_id: "dispatch-0001",
-                      sweep_dispatch_generation:
-                        "00000000000000000001:core@one:00000000000000000001",
+                      sweep_dispatch_generation: "1001",
                       commands: [],
                       failures: []
                     }}
@@ -105,33 +104,41 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
 
     assert dispatch_opts[:context].sweep_dispatch_id == "dispatch-0001"
 
-    assert dispatch_opts[:context].sweep_dispatch_generation ==
-             "00000000000000000001:core@one:00000000000000000001"
+    assert dispatch_opts[:context].sweep_dispatch_generation == "1001"
 
     assert_receive {:sweep_dispatch,
                     %{
                       phase: :finished,
                       sweep_group_id: "group-1",
                       sweep_dispatch_id: "dispatch-0001",
-                      sweep_dispatch_generation:
-                        "00000000000000000001:core@one:00000000000000000001",
+                      sweep_dispatch_generation: "1001",
                       commands: [%{agent_id: ^agent_id}],
                       failures: []
                     }}
   end
 
-  test "default dispatch identities are unique and locally monotonic total-order tokens" do
-    agent_id = "default-generation-#{System.unique_integer([:positive])}"
+  test "shared decimal allocations order dispatches independently of caller node clocks" do
+    agent_id = "shared-generation-#{System.unique_integer([:positive])}"
 
-    start_session(agent_id, "devices", :gateway@default_generation, :default_generation, ["sweep"])
+    start_session(agent_id, "devices", :gateway@shared_generation, :shared_generation, ["sweep"])
 
     assert eventually(fn -> canonical_session_visible?(agent_id, "devices") end)
     :ok = AgentCommandPubSub.subscribe()
 
     group = sweep_group([agent_id], partition: "devices", agent_id: nil)
+    allocations = start_supervised!({Agent, fn -> ["9", "10"] end})
+
+    allocator = fn ->
+      Agent.get_and_update(allocations, fn [generation | remaining] ->
+        {{:ok, generation}, remaining}
+      end)
+    end
 
     assert {:ok, _first_result} =
-             AgentCommandBus.run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
+             run_sweep_group(group,
+               dispatch_fun: recording_dispatch(self()),
+               sweep_dispatch_generation_allocator: allocator
+             )
 
     assert_receive {:sweep_dispatch,
                     %{
@@ -148,7 +155,10 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
                     }}
 
     assert {:ok, _second_result} =
-             AgentCommandBus.run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
+             run_sweep_group(group,
+               dispatch_fun: recording_dispatch(self()),
+               sweep_dispatch_generation_allocator: allocator
+             )
 
     assert_receive {:sweep_dispatch,
                     %{
@@ -165,9 +175,29 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
                     }}
 
     assert first_id != second_id
-    assert second_generation > first_generation
-    assert first_generation =~ ~r/^\d{20}:.+:\d{20}$/
-    assert second_generation =~ ~r/^\d{20}:.+:\d{20}$/
+    assert first_generation == "9"
+    assert second_generation == "10"
+    assert Agent.get(allocations, & &1) == []
+  end
+
+  test "generation allocation failure sends nothing and fails before publishing" do
+    agent_id = "allocation-failure-#{System.unique_integer([:positive])}"
+
+    start_session(agent_id, "devices", :gateway@allocation_failure, :allocation_failure, ["sweep"])
+
+    assert eventually(fn -> canonical_session_visible?(agent_id, "devices") end)
+    :ok = AgentCommandPubSub.subscribe()
+
+    result =
+      run_sweep_group(
+        sweep_group([agent_id], partition: "devices", agent_id: nil),
+        dispatch_fun: recording_dispatch(self()),
+        sweep_dispatch_generation_allocator: fn -> {:error, :database_unavailable} end
+      )
+
+    assert result == {:error, :sweep_dispatch_generation_unavailable}
+    refute_received {:dispatch, ^agent_id, _, _, _}
+    refute_received {:sweep_dispatch, _data}
   end
 
   test "selected sweep dispatch preserves successes and explicit member failures" do
@@ -184,7 +214,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
     group = sweep_group([online, offline, incapable], partition: "devices", agent_id: nil)
 
     assert {:ok, %{commands: [%{agent_id: ^online}], failures: failures}} =
-             AgentCommandBus.run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
+             run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
 
     assert Enum.sort_by(failures, & &1.agent_id) ==
              Enum.sort_by(
@@ -215,7 +245,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
     group = sweep_group([agent_id], partition: "farm01", agent_id: nil)
 
     assert {:error, {:agent_partition_ambiguous, ^agent_id}} =
-             AgentCommandBus.run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
+             run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
 
     refute_received {:dispatch, ^agent_id, _, _, _}
   end
@@ -237,7 +267,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
               commands: [%{agent_id: ^canonical}],
               failures: [%{agent_id: ^legacy_only, reason: {:agent_offline, ^legacy_only}}]
             }} =
-             AgentCommandBus.run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
+             run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
 
     assert_receive {:dispatch, ^canonical, _, _, opts}
     assert opts[:required_partition] == "farm01"
@@ -251,7 +281,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
     group = sweep_group([offline], partition: "devices", agent_id: nil)
 
     assert {:error, {:agent_offline, ^offline}} =
-             AgentCommandBus.run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
+             run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
 
     assert_receive {:sweep_dispatch,
                     %{
@@ -285,7 +315,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
     group = sweep_group([], partition: "devices", agent_id: "stale-scalar-must-be-ignored")
 
     assert {:ok, %{commands: commands, failures: []}} =
-             AgentCommandBus.run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
+             run_sweep_group(group, dispatch_fun: recording_dispatch(self()))
 
     assert Enum.map(commands, & &1.agent_id) == Enum.sort([first, second])
     assert_receive {:dispatch, ^first, _, _, _}
@@ -316,7 +346,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
     group = sweep_group(Enum.reverse(agent_ids), partition: "devices", agent_id: nil)
 
     assert {:ok, %{commands: commands, failures: []}} =
-             AgentCommandBus.run_sweep_group(group,
+             run_sweep_group(group,
                local_registry_reader: reader,
                registry_present?: true,
                dispatch_fun: recording_dispatch(self())
@@ -350,10 +380,9 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
 
     run =
       Task.async(fn ->
-        AgentCommandBus.run_sweep_group(group,
+        run_sweep_group(group,
           dispatch_fun: dispatch_fun,
-          sweep_dispatch_max_concurrency: 2,
-          sweep_dispatch_timeout_ms: 1_000
+          sweep_dispatch_max_concurrency: 2
         )
       end)
 
@@ -381,17 +410,81 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
     assert Enum.map(commands, & &1.agent_id) == agent_ids
   end
 
-  test "member timeouts and task exits are ordered failures and do not abort other agents" do
-    agent_ids = ["failure-a-success", "failure-b-timeout", "failure-c-exit", "failure-d-success"]
+  test "fanout clamps an oversized concurrency override to the production cap" do
+    agent_ids =
+      for index <- 1..10 do
+        agent_id = "clamped-agent-#{String.pad_leading(Integer.to_string(index), 2, "0")}"
+        start_session(agent_id, "devices", :gateway@clamped, {:clamped, index}, ["sweep"])
+        agent_id
+      end
+
+    parent = self()
+
+    dispatch_fun = fn agent_id, _command_type, _payload, _opts ->
+      send(parent, {:fanout_started, agent_id, self()})
+
+      receive do
+        :release_fanout -> {:ok, "command-#{agent_id}"}
+      after
+        7_000 -> {:error, :test_release_timeout}
+      end
+    end
+
+    run =
+      Task.async(fn ->
+        run_sweep_group(
+          sweep_group(agent_ids, partition: "devices", agent_id: nil),
+          dispatch_fun: dispatch_fun,
+          sweep_dispatch_max_concurrency: 99
+        )
+      end)
+
+    first_wave = receive_started_fanout(8)
+
+    assert first_wave |> Enum.map(&elem(&1, 0)) |> Enum.sort() ==
+             agent_ids |> Enum.take(8) |> Enum.sort()
+
+    refute_receive {:fanout_started, _, _}, 75
+    Enum.each(first_wave, fn {_agent_id, pid} -> send(pid, :release_fanout) end)
+
+    second_wave = receive_started_fanout(2)
+    assert second_wave |> Enum.map(&elem(&1, 0)) |> Enum.sort() == Enum.drop(agent_ids, 8)
+    Enum.each(second_wave, fn {_agent_id, pid} -> send(pid, :release_fanout) end)
+
+    assert {:ok, %{commands: commands, failures: []}} = Task.await(run, 2_000)
+    assert Enum.map(commands, & &1.agent_id) == agent_ids
+  end
+
+  test "completed side-effecting dispatch beyond the former outer timeout keeps its command id" do
+    agent_id = "slow-complete-agent-#{System.unique_integer([:positive])}"
+    start_session(agent_id, "devices", :gateway@slow_complete, :slow_complete, ["sweep"])
+
+    dispatch_fun = fn ^agent_id, _command_type, _payload, _opts ->
+      Process.sleep(5_600)
+      {:ok, "slow-command-id"}
+    end
+
+    assert {:ok,
+            %{
+              commands: [%{agent_id: ^agent_id, command_id: "slow-command-id"}],
+              failures: []
+            }} =
+             run_sweep_group(
+               sweep_group([agent_id], partition: "devices", agent_id: nil),
+               dispatch_fun: dispatch_fun
+             )
+  end
+
+  test "member errors and task exits are ordered failures and do not abort other agents" do
+    agent_ids = ["failure-a-success", "failure-b-error", "failure-c-exit", "failure-d-success"]
 
     Enum.with_index(agent_ids, fn agent_id, index ->
       start_session(agent_id, "devices", :gateway@failure, {:failure, index}, ["sweep"])
     end)
 
     dispatch_fun = fn
-      "failure-b-timeout", _command_type, _payload, _opts ->
-        Process.sleep(250)
-        {:ok, "too-late"}
+      "failure-b-error", _command_type, _payload, _opts ->
+        {:error, :control_session_timeout}
 
       "failure-c-exit", _command_type, _payload, _opts ->
         exit(:synthetic_dispatch_exit)
@@ -409,17 +502,16 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
                 %{agent_id: "failure-d-success", command_id: "command-failure-d-success"}
               ],
               failures: [
-                %{agent_id: "failure-b-timeout", reason: {:dispatch_timeout, 40}},
+                %{agent_id: "failure-b-error", reason: :control_session_timeout},
                 %{
                   agent_id: "failure-c-exit",
                   reason: {:dispatch_task_exit, :synthetic_dispatch_exit}
                 }
               ]
             }} =
-             AgentCommandBus.run_sweep_group(group,
+             run_sweep_group(group,
                dispatch_fun: dispatch_fun,
-               sweep_dispatch_max_concurrency: 4,
-               sweep_dispatch_timeout_ms: 40
+               sweep_dispatch_max_concurrency: 4
              )
   end
 
@@ -593,6 +685,17 @@ defmodule ServiceRadar.Edge.AgentCommandBusRegistryTest do
       agent_ids: agent_ids,
       agent_id: Keyword.get(opts, :agent_id)
     }
+  end
+
+  defp run_sweep_group(group, opts) do
+    opts =
+      Keyword.put_new(
+        opts,
+        :sweep_dispatch_generation_allocator,
+        fn -> {:ok, "1000"} end
+      )
+
+    AgentCommandBus.run_sweep_group(group, opts)
   end
 
   defp recording_dispatch(test_pid) do

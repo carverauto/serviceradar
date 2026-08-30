@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CommandStatusTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.CommandStatus
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos
 
   @moduletag :db_free
 
@@ -153,7 +154,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CommandStatusTest do
     statuses =
       CommandStatus.reduce_sweep_dispatch(
         %{},
-        sweep_dispatch("dispatch-old", 10, :finished, commands: [%{agent_id: "agent-old", command_id: "command-old"}])
+        sweep_dispatch("dispatch-old", "10", :finished, commands: [%{agent_id: "agent-old", command_id: "command-old"}])
       )
 
     statuses =
@@ -161,7 +162,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CommandStatusTest do
         :result,
         member_event("group-1", "command-new", "agent-new", %{
           sweep_dispatch_id: "dispatch-new",
-          sweep_dispatch_generation: 20,
+          sweep_dispatch_generation: "20",
           success: true,
           payload: %{hosts: 12},
           message: "new run complete"
@@ -174,11 +175,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CommandStatusTest do
     statuses =
       CommandStatus.reduce_sweep_dispatch(
         statuses,
-        sweep_dispatch("dispatch-new", 20, :finished, commands: [%{agent_id: "agent-new", command_id: "command-new"}])
+        sweep_dispatch("dispatch-new", "20", :finished, commands: [%{agent_id: "agent-new", command_id: "command-new"}])
       )
 
     assert statuses["group-1"].sweep_dispatch_id == "dispatch-new"
-    assert statuses["group-1"].sweep_dispatch_generation == 20
+    assert statuses["group-1"].sweep_dispatch_generation == "20"
     assert statuses["group-1"].members["command-new"].state == :success
     assert statuses["group-1"].members["command-new"].result_payload == %{hosts: 12}
 
@@ -188,7 +189,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CommandStatusTest do
         :result,
         member_event("group-1", "command-old", "agent-old", %{
           sweep_dispatch_id: "dispatch-old",
-          sweep_dispatch_generation: 10,
+          sweep_dispatch_generation: "10",
           success: true
         })
       })
@@ -196,7 +197,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CommandStatusTest do
         :progress,
         member_event("group-1", "command-unrelated", "agent-x", %{
           sweep_dispatch_id: "dispatch-new",
-          sweep_dispatch_generation: 20,
+          sweep_dispatch_generation: "20",
           progress_percent: 99
         })
       })
@@ -207,13 +208,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CommandStatusTest do
   test "a newer started generation cannot be replaced by an older completion or envelope" do
     statuses =
       %{}
-      |> CommandStatus.reduce_sweep_dispatch(sweep_dispatch("dispatch-old", 10, :started))
-      |> CommandStatus.reduce_sweep_dispatch(sweep_dispatch("dispatch-new", 20, :started))
+      |> CommandStatus.reduce_sweep_dispatch(sweep_dispatch("dispatch-old", "10", :started))
+      |> CommandStatus.reduce_sweep_dispatch(sweep_dispatch("dispatch-new", "20", :started))
       |> CommandStatus.reduce_sweep_member_event({
         :progress,
         member_event("group-1", "command-new", "agent-new", %{
           sweep_dispatch_id: "dispatch-new",
-          sweep_dispatch_generation: 20,
+          sweep_dispatch_generation: "20",
           progress_percent: 65
         })
       })
@@ -224,12 +225,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CommandStatusTest do
         :result,
         member_event("group-1", "command-old", "agent-old", %{
           sweep_dispatch_id: "dispatch-old",
-          sweep_dispatch_generation: 10,
+          sweep_dispatch_generation: "10",
           success: true
         })
       })
       |> CommandStatus.reduce_sweep_dispatch(
-        sweep_dispatch("dispatch-old", 10, :finished, commands: [%{agent_id: "agent-old", command_id: "command-old"}])
+        sweep_dispatch("dispatch-old", "10", :finished, commands: [%{agent_id: "agent-old", command_id: "command-old"}])
       )
 
     assert after_old == statuses
@@ -237,13 +238,83 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.CommandStatusTest do
     finished =
       CommandStatus.reduce_sweep_dispatch(
         after_old,
-        sweep_dispatch("dispatch-new", 20, :finished, commands: [%{agent_id: "agent-new", command_id: "command-new"}])
+        sweep_dispatch("dispatch-new", "20", :finished, commands: [%{agent_id: "agent-new", command_id: "command-new"}])
       )
 
     assert finished["group-1"].sweep_dispatch_id == "dispatch-new"
     assert finished["group-1"].members["command-new"].state == :progress
     assert finished["group-1"].members["command-new"].progress_percent == 65
     refute Map.has_key?(finished["group-1"].members, "command-old")
+  end
+
+  test "an ignored older final envelope leaves current status and flash unchanged" do
+    statuses =
+      CommandStatus.reduce_sweep_dispatch(
+        %{},
+        sweep_dispatch("dispatch-new", "20", :started)
+      )
+
+    socket = %Phoenix.LiveView.Socket{
+      assigns: %{
+        __changed__: %{},
+        flash: %{"info" => "current dispatch"},
+        sweep_command_statuses: statuses
+      },
+      private: %{live_temp: %{}}
+    }
+
+    old_final =
+      sweep_dispatch("dispatch-old", "10", :finished, commands: [%{agent_id: "agent-old", command_id: "command-old"}])
+
+    assert {:noreply, updated_socket} = Infos.handle_info({:sweep_dispatch, old_final}, socket)
+    assert updated_socket.assigns.sweep_command_statuses == statuses
+    assert updated_socket.assigns.flash == %{"info" => "current dispatch"}
+    assert updated_socket.private.live_temp == %{}
+  end
+
+  test "decimal dispatch generations compare numerically across digit widths" do
+    {:accepted, old_statuses} =
+      CommandStatus.apply_sweep_dispatch(
+        %{},
+        sweep_dispatch("dispatch-old", "9", :started)
+      )
+
+    assert {:accepted, newer_statuses} =
+             CommandStatus.apply_sweep_dispatch(
+               old_statuses,
+               sweep_dispatch("dispatch-new", "10", :started)
+             )
+
+    assert newer_statuses["group-1"].sweep_dispatch_id == "dispatch-new"
+    assert newer_statuses["group-1"].sweep_dispatch_generation == "10"
+  end
+
+  test "bounded future-event buffer keeps the newest decimal generations numerically" do
+    statuses =
+      CommandStatus.reduce_sweep_dispatch(
+        %{},
+        sweep_dispatch("dispatch-current", "1", :started)
+      )
+
+    statuses =
+      Enum.reduce(["9", "10", "11", "12", "13"], statuses, fn generation, statuses ->
+        CommandStatus.reduce_sweep_member_event(statuses, {
+          :result,
+          member_event("group-1", "command-#{generation}", "agent-#{generation}", %{
+            sweep_dispatch_id: "dispatch-#{generation}",
+            sweep_dispatch_generation: generation,
+            success: true
+          })
+        })
+      end)
+
+    statuses =
+      CommandStatus.reduce_sweep_dispatch(
+        statuses,
+        sweep_dispatch("dispatch-10", "10", :finished, commands: [%{agent_id: "agent-10", command_id: "command-10"}])
+      )
+
+    assert statuses["group-1"].members["command-10"].state == :success
   end
 
   test "zero-success dispatch remains visible with stable human failure reasons" do
