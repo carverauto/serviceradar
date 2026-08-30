@@ -19,7 +19,7 @@ defmodule ServiceRadar.Infrastructure.AgentPicker do
     Agent
     |> Ash.Query.for_read(:agent_picker, %{search: normalize_search(search)})
     |> Ash.read(scope: scope, page: page_options(selector))
-    |> normalize_page_cursors()
+    |> normalize_page_cursors(selector)
   end
 
   defp page_options(:first), do: [limit: @page_size]
@@ -30,17 +30,41 @@ defmodule ServiceRadar.Infrastructure.AgentPicker do
   defp page_options({:before, cursor}) when is_binary(cursor),
     do: [limit: @page_size, before: cursor]
 
-  defp normalize_page_cursors({:ok, %Keyset{results: results} = page}) do
+  defp normalize_page_cursors({:ok, %Keyset{results: []} = page}, _selector),
+    do: {:ok, %{page | before: nil, after: nil}}
+
+  defp normalize_page_cursors({:ok, %Keyset{results: results, more?: more?} = page}, :first) do
+    {:ok, %{page | before: nil, after: cursor_if(more?, List.last(results))}}
+  end
+
+  defp normalize_page_cursors(
+         {:ok, %Keyset{results: results, more?: more?} = page},
+         {:after, _cursor}
+       ) do
     {:ok,
      %{
        page
-       | after: results |> List.last() |> keyset(),
-         before: results |> List.first() |> keyset()
+       | before: keyset(List.first(results)),
+         after: cursor_if(more?, List.last(results))
      }}
   end
 
-  defp normalize_page_cursors(other), do: other
+  defp normalize_page_cursors(
+         {:ok, %Keyset{results: results, more?: more?} = page},
+         {:before, _cursor}
+       ) do
+    {:ok,
+     %{
+       page
+       | before: cursor_if(more?, List.first(results)),
+         after: keyset(List.last(results))
+     }}
+  end
 
+  defp normalize_page_cursors(other, _selector), do: other
+
+  defp cursor_if(true, record), do: keyset(record)
+  defp cursor_if(false, _record), do: nil
   defp keyset(nil), do: nil
   defp keyset(record), do: record |> Map.get(:__metadata__, %{}) |> Map.get(:keyset)
 

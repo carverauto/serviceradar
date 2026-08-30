@@ -313,6 +313,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
       pagination keyset?: true,
                  required?: true,
+                 via_data_layer?: false,
                  default_limit: 50,
                  max_page_size: 50,
                  stable_sort: [picker_sort_key: :asc, uid: :asc]

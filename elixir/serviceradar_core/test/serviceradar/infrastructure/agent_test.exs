@@ -449,7 +449,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       operator_scope = %{actor: %{id: "operator-#{unique_id}", role: :operator}}
       prefix = "picker-page-#{unique_id}-"
 
-      for index <- 1..51 do
+      for index <- 1..101 do
         create_picker_agent(
           "#{prefix}#{String.pad_leading(Integer.to_string(index), 3, "0")}",
           "#{prefix}#{String.pad_leading(Integer.to_string(index), 3, "0")}",
@@ -463,20 +463,40 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       {:ok, first_page} = agent_picker_page(prefix, operator_scope)
 
       assert 50 = length(first_page.results)
+      assert first_page.before == nil
       assert first_page.after
       refute Enum.any?(first_page.results, &(&1.uid == "#{prefix}051"))
 
-      {:ok, second_page} =
+      {:ok, middle_page} =
         agent_picker_page(prefix, operator_scope, {:after, first_page.after})
 
-      assert [%{uid: last_uid}] = second_page.results
-      assert last_uid == "#{prefix}051"
-      assert second_page.before
+      assert 50 = length(middle_page.results)
+      assert %{uid: middle_first_uid} = List.first(middle_page.results)
+      assert middle_first_uid == "#{prefix}051"
+      assert %{uid: middle_last_uid} = List.last(middle_page.results)
+      assert middle_last_uid == "#{prefix}100"
+      assert middle_page.before
+      assert middle_page.after
+
+      {:ok, terminal_page} =
+        agent_picker_page(prefix, operator_scope, {:after, middle_page.after})
+
+      assert [%{uid: last_uid}] = terminal_page.results
+      assert last_uid == "#{prefix}101"
+      assert terminal_page.before
+      assert terminal_page.after == nil
 
       {:ok, rewind_page} =
-        agent_picker_page(prefix, operator_scope, {:before, second_page.before})
+        agent_picker_page(prefix, operator_scope, {:before, middle_page.before})
 
       assert Enum.map(rewind_page.results, & &1.uid) == Enum.map(first_page.results, & &1.uid)
+      assert rewind_page.before == nil
+      assert rewind_page.after
+
+      {:ok, empty_page} = agent_picker_page("picker-empty-#{unique_id}", operator_scope)
+      assert empty_page.results == []
+      assert empty_page.before == nil
+      assert empty_page.after == nil
     end
 
     test "loads only each row's persisted gateway partition and retains viewer-plus authorization",

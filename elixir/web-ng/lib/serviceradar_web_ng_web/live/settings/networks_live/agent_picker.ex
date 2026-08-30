@@ -140,14 +140,20 @@ defmodule ServiceRadarWebNGWeb.Live.Settings.NetworksLive.AgentPicker do
     %{state | selected_offset: offset}
   end
 
-  @spec browse_request(t()) :: %{search: String.t(), page: keyword()}
+  @spec browse_request(t()) :: %{
+          search: String.t(),
+          selector: :first | {:after, String.t()} | {:before, String.t()}
+        }
   def browse_request(%__MODULE__{} = state) do
-    page = maybe_put_cursor([limit: @page_size], bound_cursor(state))
-    %{search: state.query, page: page}
+    %{search: state.query, selector: cursor_selector(state)}
   end
 
-  defp maybe_put_cursor(page, nil), do: page
-  defp maybe_put_cursor(page, cursor), do: Keyword.put(page, :after, cursor)
+  defp cursor_selector(state) do
+    case bound_cursor(state) do
+      nil -> :first
+      cursor -> {:after, cursor}
+    end
+  end
 
   defp bound_cursor(%__MODULE__{cursor: cursor, cursor_binding: %{query: query, sort: @sort_version}, query: query}),
     do: cursor

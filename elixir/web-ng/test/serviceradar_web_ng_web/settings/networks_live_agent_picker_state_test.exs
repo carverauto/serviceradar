@@ -31,13 +31,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerStateTest do
     assert state.cursor == "cursor-1"
     assert state.cursor_history == [nil]
     assert %{query: "", sort: "agent-picker-name-uid-v1"} = state.cursor_binding
-    assert [after: "cursor-1", limit: 50] == AgentPicker.browse_request(state).page
+    assert %{search: "", selector: {:after, "cursor-1"}} = AgentPicker.browse_request(state)
 
     state =
       state
       |> AgentPicker.loaded(%{results: [%{uid: "agent-b"}], after: nil, before: "cursor-1"})
       |> AgentPicker.toggle("agent-b")
-      |> AgentPicker.previous_page()
+
+    assert AgentPicker.next_page(state) == state
+
+    state = AgentPicker.previous_page(state)
 
     assert state.cursor == nil
     assert state.cursor_history == []
@@ -48,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerStateTest do
     assert reset.cursor == nil
     assert reset.cursor_history == []
     assert reset.cursor_binding == nil
-    assert [limit: 50] == AgentPicker.browse_request(reset).page
+    assert %{search: "another query", selector: :first} = AgentPicker.browse_request(reset)
   end
 
   test "switches between Browse and selected pages without resolving more than fifty sorted UIDs" do
