@@ -130,7 +130,18 @@ defmodule ServiceRadar.Edge.PublisherPool do
     attempt_ref = make_ref()
 
     try do
-      GenServer.call(pool, {:admit, key, bytes, ack_timeout_ms, attempt_ref}, call_timeout())
+      case GenServer.call(pool, {:admit, key, bytes, ack_timeout_ms, attempt_ref}, call_timeout()) do
+        {:ok, reservation} ->
+          # HANDOFF CONFIRMED. Until this arrives the pool holds the admission provisionally and
+          # will revoke it if this process dies -- because nothing can have been published before
+          # admit/4 returned. After it, death is conservatively charged: by then a request may be
+          # on the socket.
+          GenServer.cast(pool, {:confirm_admission, attempt_ref})
+          {:ok, reservation}
+
+        {:error, _reason} = error ->
+          error
+      end
     catch
       :exit, {:timeout, _} ->
         GenServer.cast(pool, {:cancel_admission, attempt_ref})
@@ -175,19 +186,21 @@ defmodule ServiceRadar.Edge.PublisherPool do
      %{
        class: Keyword.fetch!(opts, :class),
        window: window,
-       # Admissions that have been made but whose reference has not been revoked. Only used to
-       # answer a cancellation; a reservation leaves this map as soon as it settles.
-       admissions: %{}
+       # Admissions made but NOT yet confirmed as received by their caller. Bounded by the number
+       # of in-flight admit calls, not by retries: an entry leaves on confirmation, revocation, or
+       # the caller's death. It previously kept one entry per admission for the life of the
+       # reservation, so a record retried a hundred times carried a hundred entries.
+       pending: %{}
      }}
   end
 
   @impl true
-  def handle_call({:admit, key, bytes, ack_timeout_ms, attempt_ref}, _from, state) do
+  def handle_call({:admit, key, bytes, ack_timeout_ms, attempt_ref}, {caller, _tag}, state) do
     # The deadline is stamped HERE, not by the caller before the call. Stamped earlier, the time a
     # caller spent queued for this GenServer was silently deducted from the PubAck interval that
     # the deadline is supposed to measure -- so a contended pool shortened every ack window.
     case deadline(ack_timeout_ms) do
-      {:ok, deadline_at} -> admit_reply(state, attempt_ref, key, bytes, deadline_at)
+      {:ok, deadline_at} -> admit_reply(state, {attempt_ref, caller}, key, bytes, deadline_at)
       :error -> {:reply, {:error, :deadline}, state}
     end
   end
@@ -199,9 +212,9 @@ defmodule ServiceRadar.Edge.PublisherPool do
     end
   end
 
-  def handle_call({:settle, {key, _token} = reservation, outcome}, _from, state) do
+  def handle_call({:settle, reservation, outcome}, _from, state) do
     case PublishWindow.settle(state.window, reservation, outcome) do
-      {:ok, window} -> {:reply, :ok, forget_admission(%{state | window: window}, key)}
+      {:ok, window} -> {:reply, :ok, %{state | window: window}}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
@@ -241,27 +254,40 @@ defmodule ServiceRadar.Edge.PublisherPool do
   @impl true
   def handle_cast({:cancel_admission, attempt_ref}, state) do
     # The caller gave up before it received this reservation, so nothing was published against it.
-    case Map.fetch(state.admissions, attempt_ref) do
-      {:ok, key} ->
-        window =
-          case PublishWindow.abandon(state.window, key) do
-            {:ok, w} -> w
-            {:error, _} -> state.window
-          end
+    {:noreply, revoke(state, attempt_ref)}
+  end
 
-        {:noreply,
-         %{state | window: window, admissions: Map.delete(state.admissions, attempt_ref)}}
+  def handle_cast({:confirm_admission, attempt_ref}, state) do
+    {:noreply, drop_pending(state, attempt_ref)}
+  end
 
-      :error ->
-        {:noreply, state}
+  @impl true
+  def handle_info({:DOWN, monitor, :process, _pid, _reason}, state) do
+    # Only ever a PENDING admission: the monitor is dropped the moment the handoff is confirmed.
+    # A caller dying before it received its reservation cannot have published, so revoking is
+    # authorised here in a way that caller death in general is NOT.
+    case Enum.find(state.pending, fn {_ref, p} -> p.monitor === monitor end) do
+      {attempt_ref, _pending} -> {:noreply, revoke(state, attempt_ref)}
+      nil -> {:noreply, state}
     end
   end
 
-  defp admit_reply(state, attempt_ref, key, bytes, deadline_at) do
+  def handle_info(_message, state), do: {:noreply, state}
+
+  defp admit_reply(state, {attempt_ref, caller}, key, bytes, deadline_at) do
+    # WHICH KIND of admission this is decides what revoking it must do. A first admission CREATED
+    # the reservation, so revoking releases the credits. A retry RE-ARMED an existing one and added
+    # no credits -- the record is still unresolved and still owed a republish -- so revoking must
+    # restore its no-attempt state instead. Abandoning there released a broker-ambiguous
+    # reservation and let the lane publish past its grant.
+    kind = if PublishWindow.outstanding?(state.window, key), do: :rearmed, else: :created
+
     case PublishWindow.admit(state.window, key, bytes, deadline_at) do
-      {:ok, window, reservation} ->
+      {:ok, window, {_key, token} = reservation} ->
+        pending = %{key: key, token: token, kind: kind, monitor: Process.monitor(caller)}
+
         {:reply, {:ok, reservation},
-         %{state | window: window, admissions: Map.put(state.admissions, attempt_ref, key)}}
+         %{state | window: window, pending: Map.put(state.pending, attempt_ref, pending)}}
 
       # The rejected call returns the ORIGINAL state. This is the case immutability made
       # untestable in parts 1 and 2, and it is asserted at the process boundary now.
@@ -283,7 +309,40 @@ defmodule ServiceRadar.Edge.PublisherPool do
 
   defp deadline(_), do: :error
 
-  defp forget_admission(state, key) do
-    %{state | admissions: :maps.filter(fn _ref, k -> k !== key end, state.admissions)}
+  # Undo an admission whose caller never took delivery of it.
+  defp revoke(state, attempt_ref) do
+    case Map.fetch(state.pending, attempt_ref) do
+      {:ok, %{key: key, token: token, kind: kind}} ->
+        reservation = {key, token}
+
+        result =
+          case kind do
+            :created -> PublishWindow.abandon(state.window, reservation)
+            :rearmed -> PublishWindow.attempt_failed(state.window, reservation)
+          end
+
+        window =
+          case result do
+            {:ok, w} -> w
+            # Token mismatch: this attempt was already superseded, so there is nothing to undo.
+            {:error, _} -> state.window
+          end
+
+        drop_pending(%{state | window: window}, attempt_ref)
+
+      :error ->
+        state
+    end
+  end
+
+  defp drop_pending(state, attempt_ref) do
+    case Map.pop(state.pending, attempt_ref) do
+      {nil, _} ->
+        state
+
+      {%{monitor: monitor}, rest} ->
+        Process.demonitor(monitor, [:flush])
+        %{state | pending: rest}
+    end
   end
 end

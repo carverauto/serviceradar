@@ -56,7 +56,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
       a different record on the same slot        -> a DIFFERENT publication, admitted on its own
                                                     credits (the spec REQUIRES it to be published)
       attempt_failed on the live attempt         -> {:ok, window}  (credits KEPT)
-      abandon a key whose owner died             -> {:ok, window}  (credits released, no outcome)
+      abandon an admission never received       -> {:ok, window}  (credits released, no outcome)
       admit beyond the frame grant               -> {:error, :frame_credits_exhausted}
       admit beyond the byte grant                -> {:error, :byte_credits_exhausted}
       settle with a settling outcome             -> {:ok, window}
@@ -220,23 +220,27 @@ defmodule ServiceRadar.Edge.PublishWindow do
   end
 
   @doc """
-  Releases a reservation whose OWNER is gone, without an outcome.
+  Releases a reservation whose admitting caller never RECEIVED it.
 
   Deliberately a separate, named entry point rather than a settlement: nothing was published and
-  no disposition applies. It exists because a reservation is only ever settled or retried by the
-  caller that took it, so if that caller has died the credits would otherwise be charged forever.
+  no disposition applies. The narrow authority matters, so it is worth stating what it is NOT --
+  caller death does not authorise this. A caller can die after the request reached the socket, or
+  exit normally after `attempt_failed/2` deliberately kept the credit; releasing on death would
+  permit a second publish while the first is still broker-ambiguous.
 
-  The motivating case is not a crash but a TIMEOUT: `GenServer.call/3` exits the caller when it
-  gives up, and OTP does not cancel the queued message, so the pool can admit a frame whose caller
-  is already gone -- charging the window for a request that will never be made. `PublisherPool`
-  monitors admitting callers and calls this on `:DOWN`.
+  What DOES authorise it is a handoff that never completed: an admission whose reservation the
+  caller never received, so no publication can have been attempted against it. `PublisherPool`
+  owns that determination.
 
-  Takes the KEY, not a reservation: the point is that no live caller holds the token.
+  Takes a RESERVATION, not a bare key: the token binds the release to the exact attempt that was
+  never handed over, so a revocation arriving after that attempt was superseded cannot release
+  whatever holds the key now. A key-only version could not express that, and so could not enforce
+  its own contract.
   """
-  @spec abandon(t(), key()) :: {:ok, t()} | {:error, atom()}
-  def abandon(%__MODULE__{} = w, key) do
+  @spec abandon(t(), reservation()) :: {:ok, t()} | {:error, atom()}
+  def abandon(%__MODULE__{} = w, {key, token}) do
     case Map.fetch(w.outstanding, key) do
-      {:ok, {bytes, _deadline, _attempt}} ->
+      {:ok, {bytes, _deadline, ^token}} ->
         {:ok,
          %{
            w
@@ -244,7 +248,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
              bytes_outstanding: w.bytes_outstanding - bytes
          }}
 
-      :error ->
+      _ ->
         {:error, :not_outstanding}
     end
   end
