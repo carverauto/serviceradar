@@ -60,6 +60,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/inventory/device_metadata_merge_test.exs",
     "test/serviceradar/inventory/device_revival_audit_db_test.exs",
     "test/serviceradar/inventory/device_snmp_fact_test.exs",
+    "test/serviceradar/inventory/device_snmp_fact_writer_test.exs",
     "test/serviceradar/inventory/device_soft_delete_test.exs",
     "test/serviceradar/inventory/endpoint_inventory_fleet_ordinal_test.exs",
     "test/serviceradar/inventory/endpoint_inventory_retention_test.exs",
