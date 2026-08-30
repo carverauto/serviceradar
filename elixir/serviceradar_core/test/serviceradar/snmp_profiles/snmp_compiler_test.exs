@@ -203,7 +203,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         )
         |> Ash.create(actor: actor)
 
-      expected_target_name = target.name
+      # Sanitized, not verbatim: the device name contains spaces and the agent
+      # admits only [A-Za-z0-9_-] in a target name.
+      expected_target_name = String.replace(target.name, ~r/[^A-Za-z0-9_-]/, "_")
 
       # Create an OID config
       {:ok, _oid} =
@@ -388,7 +390,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       assert length(config["targets"]) == 1
 
       [compiled_target] = config["targets"]
-      assert compiled_target["name"] == "Secure Router"
+      # "Secure Router" sanitized - a space is not a valid target-name character.
+      assert compiled_target["name"] == "Secure_Router"
       assert compiled_target["version"] == "v3"
 
       v3_auth = compiled_target["v3_auth"]
@@ -473,7 +476,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       {:ok, config} = SNMPCompiler.compile("default", nil, actor: actor)
 
       assert config["enabled"] == true
-      assert [%{"name" => "Brokered Router", "community" => "broker-public"}] = config["targets"]
+      assert [%{"name" => "Brokered_Router", "community" => "broker-public"}] = config["targets"]
     end
 
     @tag :integration
