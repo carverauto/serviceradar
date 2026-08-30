@@ -43,7 +43,7 @@ The catalog covers these areas:
 | **Devices** | Viewing, creating, updating, bulk-editing, importing/exporting, and deleting devices; opening device consoles; all SSH/RDP/app/TCP remote-access actions, recordings, and file transfers. |
 | **Services** | Viewing, creating, updating, deleting, and running service checks. |
 | **Observability** | Viewing logs, metrics, traces, events, NetFlow, and alerts; creating/updating/deleting observability rules; acknowledging and resolving alerts. |
-| **Settings** | Viewing settings; managing users and auth; managing RBAC; managing networks, NetFlow, integrations, credentials, outbound mail (`settings.mail.manage`), SNMP/Sysmon profiles, jobs, plugins, edge packages, remote-access host keys and targets; viewing and managing the audit/security state. See [Outbound Mail](./outbound-mail.md). |
+| **Settings** | Viewing settings; managing users and auth; managing RBAC; managing networks, NetFlow, integrations, credentials, outbound mail (`settings.mail.manage`), SNMP/Sysmon profiles, [visibility profiles](./visibility-profiles.md), jobs, plugins, edge packages, remote-access host keys and targets; viewing and managing the audit/security state. See [Outbound Mail](./outbound-mail.md). |
 | **Plugins** | Viewing, staging, approving, and assigning plugin packages. |
 | **Ansible** | Viewing/managing AWX controllers and playbook repositories; viewing canonical operation history; launching reviewed playbooks; authorizing operation cancellation. Reserved schedule keys expose no workflow. |
 | **Northbound Actions** | Viewing, managing, launching, and cancelling provider-neutral northbound actions; managing event handlers. |

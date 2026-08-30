@@ -76,10 +76,12 @@ platform. Common sections include:
   providers (`/settings/authentication`), and RBAC policy profiles
   (`/settings/auth/rbac`). See [Authentication](./auth-configuration.md) and
   [Roles & Permissions](./rbac-and-roles.md).
-- **Networks** — sweep profiles (`/settings/networks`), visibility profiles,
-  discovery jobs, device enrichment, credential rules, remote-access host keys
-  and desktop targets, BMP, MTR profiles, field surveys, integrations, prefix
-  tags, and threat intel. See [Network Sweeps](./network-sweeps.md).
+- **Networks** — sweep profiles (`/settings/networks`), visibility profiles
+  (`/settings/networks/visibility-profiles`), discovery jobs, device
+  enrichment, credential rules, remote-access host keys and desktop targets,
+  BMP, MTR profiles, field surveys, integrations, prefix tags, and threat
+  intel. See [Network Sweeps](./network-sweeps.md) and
+  [Visibility Profiles](./visibility-profiles.md).
 - **Flows** — NetFlow directionality plus GeoIP / ipinfo enrichment
   (`/settings/flows`).
 - **SNMP / Host Health** — SNMP profiles (`/settings/snmp`) and Sysmon host

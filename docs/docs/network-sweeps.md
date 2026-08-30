@@ -8,6 +8,10 @@ title: Network Sweeps
 Network sweeps let you define scheduled scans against device inventories and
 explicit IP targets. Sweeps are configured in the Web UI under Settings > Networks.
 
+Sweeps are active scans. They are not [Visibility Profiles](./visibility-profiles.md),
+which configure passive host-side fingerprinting, DPI, and flow attribution on
+enrolled agents.
+
 ## Sweep Groups
 
 Sweep groups are the primary unit of configuration. Each group includes:

@@ -668,7 +668,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       parent_group: :net_discovery,
       subgroup: "Profiles",
       title: "Visibility Profiles",
-      description: "Manage network scanning visibility presets.",
+      description: "Scope passive fingerprinting and DPI per device.",
       icon: "hero-eye",
       route: "/settings/networks/visibility-profiles",
       live_view: ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Index,
@@ -678,7 +678,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
-      keywords: ["visibility", "profiles", "scope", "partition"],
+      keywords: ["visibility", "profiles", "fingerprint", "dpi", "netprobe", "capture", "scope", "partition"],
       badge: nil,
       hidden_from_nav: false
     },

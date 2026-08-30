@@ -455,6 +455,7 @@ capabilities, DPI, flow-related options, process snapshots, and retention.
 This is related to—but not the same as—the **netprobe** native add-on. Netprobe
 is the privileged host collector; visibility profiles shape how agent-side
 visibility/fingerprint config is applied. See
+[Visibility Profiles](./visibility-profiles.md) and
 [Fingerprint Architecture](./fingerprint-architecture.md).
 
 ### 8.3 Netprobe (process-attributed host network)
