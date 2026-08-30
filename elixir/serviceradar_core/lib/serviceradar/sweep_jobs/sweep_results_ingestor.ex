@@ -2211,7 +2211,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       )
 
     with {:ok, winning_execution} <- load_execution_identity(execution_id),
-         :ok <- validate_execution_owner(winning_execution, reporter_context) do
+         :ok <-
+           validate_inserted_or_winning_execution_owner(
+             inserted_count,
+             winning_execution,
+             reporter_context
+           ) do
       maybe_mark_superseded_executions(
         reporter_context,
         execution_id,
@@ -2272,14 +2277,37 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     do: {:error, :unresolved_execution_identity}
 
   defp validate_execution_owner(execution, reporter_context) do
-    expected_agent_id =
-      reporter_context.authenticated_agent_id || reporter_context.reporter_agent_id
+    authenticated_agent_id = valid_reporter_uid(reporter_context.authenticated_agent_id)
 
     cond do
       execution.sweep_group_id != reporter_context.resolved_group_id ->
         {:error, :conflicting_execution_group}
 
-      valid_reporter_uid(execution.agent_id) != valid_reporter_uid(expected_agent_id) ->
+      is_nil(authenticated_agent_id) ->
+        {:error, :conflicting_execution_reporter}
+
+      valid_reporter_uid(execution.agent_id) != authenticated_agent_id ->
+        {:error, :conflicting_execution_reporter}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_inserted_or_winning_execution_owner(0, winning_execution, reporter_context) do
+    validate_execution_owner(winning_execution, reporter_context)
+  end
+
+  defp validate_inserted_or_winning_execution_owner(1, nil, _reporter_context),
+    do: {:error, :unresolved_execution_identity}
+
+  defp validate_inserted_or_winning_execution_owner(1, inserted_execution, reporter_context) do
+    cond do
+      inserted_execution.sweep_group_id != reporter_context.resolved_group_id ->
+        {:error, :conflicting_execution_group}
+
+      valid_reporter_uid(inserted_execution.agent_id) !=
+          valid_reporter_uid(reporter_context.reporter_agent_id) ->
         {:error, :conflicting_execution_reporter}
 
       true ->

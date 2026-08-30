@@ -2664,6 +2664,73 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
              }
     end
 
+    test "a body-only claim cannot reuse an authenticated reporter's execution", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      agent_id = "execution-body-only-#{unique_id}"
+      register_reporter!(actor, agent_id)
+
+      owner_device = reporter_device!(actor, unique_id, "execution-body-owner", false)
+      forensic_device = reporter_device!(actor, unique_id, "execution-body-forensic", false)
+      group = reporter_group!(actor, unique_id, "execution-body-only", [agent_id])
+      execution_id = Ash.UUID.generate()
+
+      assert {:ok, _} =
+               SweepResultsIngestor.ingest_results(
+                 [available_result(owner_device.ip)],
+                 execution_id,
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 config_version: "execution-body-owner-#{unique_id}",
+                 request_id: "request-owner-#{unique_id}",
+                 banner_grab_summary: %{"sweep_banner_grab_probes_total" => 1}
+               )
+
+      execution_before = execution_snapshot(execution_id)
+      host_results_before = host_result_snapshots(actor, execution_id)
+      audit_count_before = execution_audit_count(execution_id)
+
+      result =
+        SweepResultsIngestor.ingest_results(
+          [available_result(forensic_device.ip)],
+          execution_id,
+          actor: actor,
+          sweep_group_id: group.id,
+          agent_id: agent_id,
+          config_version: "execution-body-forensic-#{unique_id}",
+          request_id: "request-forensic-#{unique_id}",
+          banner_grab_summary: %{"sweep_banner_grab_probes_total" => 99}
+        )
+
+      assert {:ok, forensic_row} =
+               DeviceAgentAvailability.get_by_device_agent(
+                 forensic_device.uid,
+                 agent_id,
+                 actor: actor
+               )
+
+      assert %{
+               result: result,
+               forensic_execution_id: forensic_row.execution_id,
+               forensic_expectation: forensic_row.metadata["sweep_reporter_expectation"],
+               canonical_available: reload_device!(actor, forensic_device.uid).is_available,
+               execution: execution_snapshot(execution_id),
+               host_results: host_result_snapshots(actor, execution_id),
+               audit_count: execution_audit_count(execution_id)
+             } == %{
+               result: {:error, :conflicting_execution_reporter},
+               forensic_execution_id: nil,
+               forensic_expectation: "unknown",
+               canonical_available: false,
+               execution: execution_before,
+               host_results: host_results_before,
+               audit_count: audit_count_before
+             }
+    end
+
     test "an existing execution resolves an omitted direct group identity", %{actor: actor} do
       unique_id = Ash.UUID.generate()
       agent_id = "execution-redelivery-#{unique_id}"
@@ -3074,12 +3141,17 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       :agent_id,
       :sweep_group_id,
       :status,
+      :started_at,
       :completed_at,
       :duration_ms,
       :hosts_total,
       :hosts_available,
       :hosts_failed,
+      :error_message,
+      :config_version,
+      :scanner_metrics,
       :banner_grab_summary,
+      :inserted_at,
       :updated_at
     ])
   end
