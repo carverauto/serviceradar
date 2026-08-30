@@ -47,6 +47,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   slot(:inner_block, required: true)
 
+  slot(:topbar_actions,
+    doc: "Optional page actions rendered in the shell topbar, before alerts and profile"
+  )
+
   def app(assigns) do
     assigns = assign_new(assigns, :srql, fn -> %{} end)
     assigns = assign_new(assigns, :hide_breadcrumb, fn -> false end)
@@ -128,6 +132,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
               <div class="flex shrink-0 items-center gap-2">
                 <%!-- Theme toggle hidden; app defaults to dark. Re-enable with <.theme_toggle /> --%>
+                {render_slot(@topbar_actions)}
 
                 <%= if not @signed_in? do %>
                   <.ui_button href={~p"/users/log-in"} variant="primary" size="sm">Log in</.ui_button>
@@ -411,6 +416,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
           <div class="sr-ops-topbar-actions">
             <%!-- Theme toggle hidden; app defaults to dark. Re-enable with <.theme_toggle /> --%>
+            {render_slot(@topbar_actions)}
             <.link
               navigate={~p"/observability/alerts"}
               class="sr-ops-topbar-icon"

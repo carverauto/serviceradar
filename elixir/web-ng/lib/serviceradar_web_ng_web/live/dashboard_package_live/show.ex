@@ -171,6 +171,10 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     {:noreply, assign(socket, :sharing_open?, !socket.assigns.sharing_open?)}
   end
 
+  def handle_event("close_sharing", _params, socket) do
+    {:noreply, assign(socket, :sharing_open?, false)}
+  end
+
   def handle_event("update_visibility", %{"instance" => params}, socket) do
     params = stringify_map(params)
 
@@ -345,6 +349,60 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       hide_breadcrumb
       srql={@srql}
     >
+      <%!-- Package dashboards fill the page; overlay chrome blocked renderer controls. --%>
+      <:topbar_actions :if={@can_share?}>
+        <.ui_button
+          type="button"
+          id="dashboard-package-share-button"
+          phx-click="toggle_sharing"
+          size="sm"
+          variant="neutral"
+          active={@sharing_open?}
+          aria-expanded={to_string(@sharing_open?)}
+          aria-controls="dashboard-package-share-modal"
+        >
+          <.icon name="hero-share" class="size-4" /> Share
+        </.ui_button>
+      </:topbar_actions>
+
+      <.ui_modal
+        :if={@can_share?}
+        id="dashboard-package-share-modal"
+        open={@sharing_open?}
+        size="xl"
+        on_cancel="close_sharing"
+      >
+        <:title>Share dashboard</:title>
+        <.form
+          for={@visibility_form}
+          as={:instance}
+          phx-submit="update_visibility"
+          class="mb-4 space-y-3"
+        >
+          <.input
+            field={@visibility_form[:visibility]}
+            type="select"
+            label="Visibility"
+            options={AccessControls.visibility_options()}
+          />
+          <p class="text-xs text-sr-muted">
+            Grants apply when visibility is Shared. Private is owner-only; Public is every signed-in user.
+          </p>
+          <.ui_button type="submit" size="sm" variant="primary">Save visibility</.ui_button>
+        </.form>
+
+        <.sharing_settings
+          dashboard={@instance}
+          access_grants={@access_grants}
+          user_grant_form={@user_grant_form}
+          group_grant_form={@group_grant_form}
+          users={@users}
+          user_groups={@user_groups}
+          can_view_groups?={@can_view_groups?}
+          show_pickers?={@can_view_share_principals?}
+        />
+      </.ui_modal>
+
       <div class="min-h-[calc(100vh-5rem)] bg-sr-surface">
         <div :if={@load_state == :loading} class="flex min-h-[28rem] items-center justify-center">
           <.ui_spinner size="lg" />
@@ -374,48 +432,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
           </.ui_button>
         </div>
 
-        <section :if={@load_state == :ready} class="relative flex min-h-[calc(100vh-5rem)] flex-col">
-          <div :if={@can_share?} class="absolute right-4 top-4 z-20 flex flex-col items-end gap-3">
-            <.ui_button type="button" phx-click="toggle_sharing" size="sm" variant="neutral">
-              <.icon name="hero-share" class="size-4" />
-              {if @sharing_open?, do: "Close sharing", else: "Share"}
-            </.ui_button>
-
-            <div
-              :if={@sharing_open?}
-              class="w-[min(100vw-2rem,48rem)] rounded-sr-surface border border-sr-line bg-sr-surface p-3 shadow-sr-button"
-            >
-              <.form
-                for={@visibility_form}
-                as={:instance}
-                phx-submit="update_visibility"
-                class="mb-4 space-y-3"
-              >
-                <.input
-                  field={@visibility_form[:visibility]}
-                  type="select"
-                  label="Visibility"
-                  options={AccessControls.visibility_options()}
-                />
-                <p class="text-xs text-sr-muted">
-                  Grants apply when visibility is Shared. Private is owner-only; Public is every signed-in user.
-                </p>
-                <.ui_button type="submit" size="sm" variant="primary">Save visibility</.ui_button>
-              </.form>
-
-              <.sharing_settings
-                dashboard={@instance}
-                access_grants={@access_grants}
-                user_grant_form={@user_grant_form}
-                group_grant_form={@group_grant_form}
-                users={@users}
-                user_groups={@user_groups}
-                can_view_groups?={@can_view_groups?}
-                show_pickers?={@can_view_share_principals?}
-              />
-            </div>
-          </div>
-
+        <section :if={@load_state == :ready} class="flex min-h-[calc(100vh-5rem)] flex-col">
           <div
             id={"dashboard-package-host-#{@instance.id}"}
             phx-hook="DashboardWasmHost"
