@@ -84,7 +84,21 @@ func NewSNMPService(config *SNMPConfig, log logger.Logger) (*SNMPService, error)
 // NewSNMPServiceForAgent creates a new SNMP monitoring service for agent use.
 // This uses less strict validation that doesn't require NodeAddress, ListenAddr, and Partition.
 func NewSNMPServiceForAgent(config *SNMPConfig, log logger.Logger) (*SNMPService, error) {
-	if err := config.ValidateForAgent(); err != nil {
+	rejections, err := config.ValidateForAgent()
+
+	// Log rejections whether or not validation ultimately succeeded. A dropped
+	// target is silent data loss otherwise: the service starts, reports
+	// healthy, and simply never polls that device.
+	for _, rejection := range rejections {
+		log.Warn().
+			Int("target_index", rejection.Index).
+			Str("target_name", rejection.Name).
+			Str("target_host", rejection.Host).
+			Err(rejection.Err).
+			Msg("Dropping invalid SNMP target; remaining targets still poll")
+	}
+
+	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errInvalidConfig, err)
 	}
 

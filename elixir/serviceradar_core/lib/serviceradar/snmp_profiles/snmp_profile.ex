@@ -290,6 +290,15 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
       description "Agent UIDs that run this profile ([] = legacy all-agents target_query/is_default behavior)"
     end
 
+    # Provenance, so an operator can tell a plugin-proposed profile from their
+    # own. Nullable: every profile authored before this existed keeps a NULL,
+    # and a profile outlives the package that proposed it.
+    attribute :plugin_package_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Plugin package that proposed this profile, when any"
+    end
+
     # SNMP credentials (profile-scoped, encrypted at rest)
     CredentialDsl.credential_attributes()
 

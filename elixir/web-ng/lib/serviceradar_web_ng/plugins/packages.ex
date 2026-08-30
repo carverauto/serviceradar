@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Plugins.PluginArtifactMirror
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.ProducerScheduleCatalog
+  alias ServiceRadar.Plugins.SNMPRequirementCatalog
   alias ServiceRadarWebNG.Observability.ContractRegistry
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.GitHubImporter
@@ -112,6 +113,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> update_resource_with_opts(ash_opts)
       |> sync_northbound_actions(:approved)
       |> sync_alert_rules(:approved)
+      |> sync_snmp_requirements(:approved)
       |> refresh_contract_index()
     end
   end
@@ -132,6 +134,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> update_resource_with_opts(ash_opts)
       |> sync_northbound_actions(:disabled)
       |> sync_alert_rules(:disabled)
+      |> sync_snmp_requirements(:disabled)
     end
   end
 
@@ -203,6 +206,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> update_resource_with_opts(ash_opts)
       |> sync_northbound_actions(:disabled)
       |> sync_alert_rules(:disabled)
+      |> sync_snmp_requirements(:disabled)
     end
   end
 
@@ -443,6 +447,12 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
           manifest_struct.alert_rules ||
           []
 
+      snmp_requirements =
+        Map.get(attrs, :snmp_requirements) ||
+          Map.get(attrs, "snmp_requirements") ||
+          manifest_struct.snmp_requirements ||
+          []
+
       display_contracts =
         Map.get(attrs, :display_contracts) ||
           Map.get(attrs, "display_contracts") ||
@@ -462,6 +472,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         |> Map.put_new(:signal_schemas, signal_schemas)
         |> Map.put_new(:producer_schedules, producer_schedules)
         |> Map.put_new(:alert_rules, alert_rules)
+        |> Map.put_new(:snmp_requirements, snmp_requirements)
 
       PluginPackage
       |> Ash.Changeset.for_create(:create, attrs)
@@ -804,6 +815,29 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   end
 
   defp sync_alert_rules(other, _mode), do: other
+
+  # Same transitions, same reason, and a stronger case than alert rules: an
+  # approved SNMP requirement ultimately produces outbound UDP/161 traffic from
+  # an agent to real inventory devices bearing real credentials.
+  #
+  # Profiles are disabled rather than deleted on deny/revoke/restage, for the
+  # same reason rules are -- an operator may have bound a credential and
+  # narrowed the target query, and re-approving must not lose that.
+  defp sync_snmp_requirements({:ok, %PluginPackage{} = package}, :approved) do
+    case SNMPRequirementCatalog.sync_package(package) do
+      :ok -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp sync_snmp_requirements({:ok, %PluginPackage{} = package}, :disabled) do
+    case SNMPRequirementCatalog.disable_package_snmp(package, []) do
+      :ok -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp sync_snmp_requirements(other, _mode), do: other
 
   defp disable_assignments_for_package(%PluginPackage{} = package, ash_opts) do
     PackageAssignmentLifecycle.disable_for_package(package, actor_opts(ash_opts))

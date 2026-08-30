@@ -7,10 +7,10 @@ table, ASCII-only docs.
 
 ## 0. Preconditions (blocking; see proposal.md)
 
-- [ ] 0.1 Sanitize the compiled target name in `build_base_target/5` to
+- [x] 0.1 Sanitize the compiled target name in `build_base_target/5` to
   `[A-Za-z0-9_-]` and truncate, so an FQDN-named device cannot produce an
   invalid target. Add a test using a dotted hostname.
-- [ ] 0.2 Decide and implement the behavior for one bad target in
+- [x] 0.2 Decide and implement the behavior for one bad target in
   `ValidateForAgent`: drop-with-warning rather than reject-all, or an
   equivalent guard. Today one bad target disables SNMP for every profile on
   that agent. Add a test proving a good target still polls alongside a bad one.
@@ -19,71 +19,81 @@ table, ASCII-only docs.
 
 ## 1. Manifest
 
-- [ ] 1.1 Add `:snmp_requirements` to the `Manifest` defstruct and
+- [x] 1.1 Add `:snmp_requirements` to the `Manifest` defstruct and
   `from_map/1`.
-- [ ] 1.2 `validate_snmp_requirements/2`: entry-key allowlist, per-OID key
+- [x] 1.2 `validate_snmp_requirements/2`: entry-key allowlist, per-OID key
   allowlist, and explicit rejection of every credential key and every
   polling-control key (`enabled`, `is_default`, `priority`, `agent_ids`,
   `host`, `port`).
-- [ ] 1.3 Enforce the agent's own OID rules at parse time: `.1.3.6.1.` prefix
+- [x] 1.3 Enforce the agent's own OID rules at parse time: `.1.3.6.1.` prefix
   with numeric arcs, name non-empty and <= 64, `data_type` in the allowlist,
   `mode` in `get|walk`, non-negative `scale`/`max_rows`/`walk_timeout_seconds`.
-- [ ] 1.4 Tests: a well-formed block parses; each rejected key is rejected
+- [x] 1.4 Tests: a well-formed block parses; each rejected key is rejected
   individually; a malformed OID is rejected; a package with no block is
   unaffected.
 
 ## 2. Schema
 
-- [ ] 2.1 Migration adding `plugin_packages.snmp_requirements` (`{:array,
+- [x] 2.1 Migration adding `plugin_packages.snmp_requirements` (`{:array,
   :map}`), and `plugin_package_id` on both `snmp_oid_templates` and
   `snmp_profiles` as `references(..., on_delete: :nilify_all)`.
-- [ ] 2.2 Add the attributes to the `SNMPOIDTemplate` and `SNMPProfile` Ash
+- [x] 2.2 Add the attributes to the `SNMPOIDTemplate` and `SNMPProfile` Ash
   resources.
-- [ ] 2.3 Bump `core.migrations.expectedVersion` in
+- [x] 2.3 Bump `core.migrations.expectedVersion` in
   `helm/serviceradar/values.yaml`.
 
 ## 3. Catalog
 
-- [ ] 3.1 `ServiceRadar.Plugins.SNMPRequirementCatalog`, structurally following
+- [x] 3.1 `ServiceRadar.Plugins.SNMPRequirementCatalog`, structurally following
   `alert_rule_catalog.ex`: `sync_package/2`, `disable_package_snmp/2`,
   `find_existing/3` keyed on `(plugin_package_id, name)`.
-- [ ] 3.2 Materialize one template + one profile per entry. Force
+- [x] 3.2 Materialize one template + one profile per entry. Force
   `enabled: false`, `is_default: false`, `priority: 0`, `agent_ids: []`, and
   write no credential attribute under any circumstance.
-- [ ] 3.3 Namespace every materialized OID name with the package id; add a
+- [x] 3.3 Namespace every materialized OID name with the package id; add a
   name-level `uniq_by` with a dropped-name warning in `compile_oids/1` so no
   combination of operator-selected templates can produce a duplicate-name
   rejection.
-- [ ] 3.4 Split fields: `@template_definition_fields [:description, :category,
+- [x] 3.4 Split fields: `@template_definition_fields [:description, :category,
   :oids]` updated on every sync; everything else create-only, including
   `oid_template_ids`.
-- [ ] 3.5 Return `:ok` before any query when `snmp_requirements` is nil.
-- [ ] 3.6 Tests: approve creates inert rows; re-approve after revoke does not
+- [x] 3.5 Return `:ok` before any query when `snmp_requirements` is nil.
+- [x] 3.6 Tests: approve creates inert rows; re-approve after revoke does not
   re-enable; upgrade updates OIDs and preserves all four operator-tunable
   fields; a package with no block is a no-op on every transition.
 
 ## 3b. Device-linked fact storage
 
-- [ ] 3b.1 Migration creating `device_snmp_facts` with `device_uid`
+- [x] 3b.1 Migration creating `device_snmp_facts` with `device_uid`
   referencing `ocsf_devices(uid)` on delete cascade, plus `oid`, `oid_name`,
   `oid_index`, `value` (text), `data_type`, `plugin_package_id`,
   `snmp_profile_id`, and `collected_at`. Unique on
   `(device_uid, oid, oid_index)`.
-- [ ] 3b.2 `ServiceRadar.Inventory.DeviceSNMPFact` resource; add the
+- [x] 3b.2 `ServiceRadar.Inventory.DeviceSNMPFact` resource; add the
   `has_many :snmp_facts` relationship to `Device`.
 - [ ] 3b.3 Write facts on ingestion for declared OIDs whose `data_type` is
   `string`, and for every OID regardless of type as current state. Numeric OIDs
   continue to `timeseries_metrics` unchanged.
-- [ ] 3b.4 Tests: a string OID round-trips; walked rows keep distinct
+  **Path traced, and it does not run through core.** The agent drains points in
+  `push_loop_snmp.go`, streams them with `Source: "snmp-metrics"`, and
+  `ResultsRouter.handle_snmp_metrics/1` deliberately answers
+  `{:error, {:gateway_metric_status_not_core_routable, _}}`
+  (`results_router.ex:465,871`). The live path is
+  `serviceradar_agent_gateway`'s `status_processor.ex:142`
+  `publish_snmp_metrics/1`. Fact-writing therefore lands in the gateway or its
+  consumer, not in `serviceradar_core`, and is its own change.
+- [x] 3b.4 Tests: a string OID round-trips; walked rows keep distinct
   `oid_index`; facts are deleted with their device; a fact names its package and
   profile.
 
 ## 4. Lifecycle wiring
 
-- [ ] 4.1 `packages.ex`: `sync_snmp_requirements(:approved)` on approve,
+- [x] 4.1 `packages.ex`: `sync_snmp_requirements(:approved)` on approve,
   `(:disabled)` on deny/revoke/restage - the three call sites that already
   carry `sync_alert_rules`.
-- [ ] 4.2 Test each transition end to end.
+- [ ] 4.2 Test each transition end to end through `Packages` in `web-ng`. The
+  catalog itself is covered directly in `serviceradar_core`; what is untested is
+  the three call sites.
 
 ## 5. UI
 
