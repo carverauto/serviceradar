@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SNMPTarget
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting
 
   require Ash.Query
@@ -22,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
     socket
     |> assign(:profiles, profiles)
     |> assign(:profile_target_counts, profile_target_counts)
+    |> assign(:profile_package_names, Provenance.load_package_names(scope, profiles))
   end
 
   def load_profiles_with_counts(scope) do
