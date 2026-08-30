@@ -127,6 +127,21 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       prepare build(select: @public_read_fields)
     end
 
+    # Ash re-reads a record through this action when it upgrades a non-atomic
+    # update. Without one, every update action on this resource fails with
+    # Ash.Error.Framework.MustBeAtomic ("cannot atomically update a record
+    # without a primary read action or a configured `atomic_upgrade_with`
+    # action") -- :update, :disable_rotation and the rotation transitions alike,
+    # which is why none of them could be called at all.
+    #
+    # Deliberately NOT the primary read: `:read` carries a select preparation,
+    # and Ash warns that a primary read with preparations also governs policy
+    # checks and relationship loads. Narrowing those on a shared credential
+    # resource is a larger change than enabling its own update actions needs.
+    read :atomic_upgrade do
+      description "Internal re-read used by Ash when upgrading a non-atomic update"
+    end
+
     read :by_id do
       argument :id, :uuid, allow_nil?: false
       get? true
@@ -153,6 +168,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
     update :update do
       accept [:secret_payload | @fields]
+      atomic_upgrade_with :atomic_upgrade
     end
 
     update :mark_rotation_due do
@@ -189,6 +205,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
     update :disable_rotation do
       accept []
+      atomic_upgrade_with :atomic_upgrade
       change transition_state(:disabled)
       change {WriteSecretLifecycleEvent, action: :disable_rotation}
     end

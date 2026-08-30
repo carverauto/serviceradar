@@ -162,7 +162,13 @@ defmodule ServiceRadar.Plugins.RepositoryCredentials do
     end
   end
 
-  defp secret_name(repository), do: "plugin-repository-#{repository.id}"
+  # `identity :unique_provider_name, [:provider, :name]` means a name derived only
+  # from the repository would collide the moment a token is replaced, since
+  # replacement creates a new secret alongside the retired one. The suffix keeps
+  # the repository recognisable while letting its credentials accumulate a
+  # history.
+  defp secret_name(repository),
+    do: "plugin-repository-#{repository.id}-#{System.unique_integer([:positive, :monotonic])}"
 
   defp actor(opts),
     do: Keyword.get(opts, :actor) || SystemActor.system(:plugin_repository_credentials)
