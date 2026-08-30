@@ -60,30 +60,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.AgentPi
   end
 
   def handle_event("agent_picker_selected_next", _params, socket) do
-    picker = socket.assigns.agent_picker
-    next_offset = picker.selected_offset + 50
-
-    if next_offset < MapSet.size(picker.draft) do
-      {:noreply, load_selected_rows(socket, AgentPicker.selected_page(picker, next_offset))}
-    else
-      {:noreply, socket}
-    end
+    paginate_selected(socket, &AgentPicker.selected_next_page/1)
   end
 
   def handle_event("agent_picker_selected_previous", _params, socket) do
-    picker = socket.assigns.agent_picker
-    previous_offset = max(picker.selected_offset - 50, 0)
+    paginate_selected(socket, &AgentPicker.selected_previous_page/1)
+  end
 
-    if previous_offset == picker.selected_offset do
-      {:noreply, socket}
-    else
-      {:noreply, load_selected_rows(socket, AgentPicker.selected_page(picker, previous_offset))}
-    end
+  def handle_event("agent_picker_selected_retry", _params, socket) do
+    {:noreply, load_selected_rows(socket, socket.assigns.agent_picker)}
   end
 
   def handle_event("agent_picker_remove", %{"uid" => uid}, socket) do
     picker = AgentPicker.remove(socket.assigns.agent_picker, uid)
-    picker = clamp_selected_offset(picker)
     {:noreply, load_selected_rows(socket, picker)}
   end
 
@@ -141,18 +130,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.AgentPi
   end
 
   defp load_selected_rows(socket, picker) do
-    uids = AgentPicker.selected_page(picker)
+    %{uids: uids} = AgentPicker.selected_page(picker)
 
-    agents_by_uid =
-      socket.assigns.current_scope
-      |> load_agents_by_uids(uids)
-      |> Map.new(&{&1.uid, &1})
+    case load_agents_by_uids(socket.assigns.current_scope, uids) do
+      {:ok, agents} ->
+        agents_by_uid = Map.new(agents, &{&1.uid, &1})
+        rows = Enum.map(uids, &%{uid: &1, agent: Map.get(agents_by_uid, &1)})
 
-    rows = Enum.map(uids, &%{uid: &1, agent: Map.get(agents_by_uid, &1)})
+        socket
+        |> assign(:agent_picker, AgentPicker.selected_loaded(picker, :ok))
+        |> assign(:agent_picker_selected_rows, rows)
 
-    socket
-    |> assign(:agent_picker, picker)
-    |> assign(:agent_picker_selected_rows, rows)
+      {:error, reason} ->
+        socket
+        |> assign(:agent_picker, AgentPicker.selected_loaded(picker, {:error, reason}))
+        |> assign(:agent_picker_selected_rows, [])
+    end
   end
 
   defp assign_summary_agent(socket, picker) do
@@ -162,9 +155,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.AgentPi
     end
   end
 
-  defp clamp_selected_offset(picker) do
-    count = MapSet.size(picker.draft)
-    last_offset = if count == 0, do: 0, else: div(count - 1, 50) * 50
-    AgentPicker.selected_page(picker, min(picker.selected_offset, last_offset))
+  defp paginate_selected(socket, transition) do
+    picker = transition.(socket.assigns.agent_picker)
+
+    if picker == socket.assigns.agent_picker do
+      {:noreply, socket}
+    else
+      {:noreply, load_selected_rows(socket, picker)}
+    end
   end
 end

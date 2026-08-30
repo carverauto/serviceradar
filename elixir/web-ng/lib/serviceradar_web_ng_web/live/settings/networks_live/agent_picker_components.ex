@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponents do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadarWebNGWeb.Live.Settings.NetworksLive.AgentPicker
+
   attr :state, :any, required: true
   attr :summary_agent, :any, default: nil
 
@@ -74,15 +76,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponents do
   attr :selected_rows, :list, default: []
 
   def agent_picker_modal(assigns) do
-    browse_rows = Enum.take(assigns.state.page.results, 50)
-    draft_count = MapSet.size(assigns.state.draft)
+    selected_page = AgentPicker.selected_page(assigns.state)
 
     assigns =
       assigns
-      |> assign(:browse_rows, browse_rows)
-      |> assign(:draft_count, draft_count)
-      |> assign(:selected_has_previous, assigns.state.selected_offset > 0)
-      |> assign(:selected_has_next, assigns.state.selected_offset + 50 < draft_count)
+      |> assign(:browse_rows, AgentPicker.browse_results(assigns.state))
+      |> assign(:selected_page, selected_page)
 
     ~H"""
     <.ui_modal
@@ -116,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponents do
           </button>
         </div>
         <span id="sweep-agent-picker-selected-count" class="text-sm text-sr-muted" aria-live="polite">
-          {@draft_count} selected
+          {@selected_page.count} selected
         </span>
       </div>
 
@@ -214,13 +213,32 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponents do
       <% else %>
         <div class="space-y-3">
           <div
+            :if={@state.selected_error}
+            class="rounded-md border border-error/30 bg-error/5 p-3"
+            role="alert"
+          >
+            <p class="text-sm text-error">
+              Selected agents could not be loaded. Your selection is unchanged.
+            </p>
+            <.ui_button
+              type="button"
+              size="sm"
+              variant="outline"
+              phx-click="agent_picker_selected_retry"
+            >
+              Retry
+            </.ui_button>
+          </div>
+
+          <div
+            :if={is_nil(@state.selected_error)}
             id="sweep-agent-picker-selected-rows"
             class="max-h-[24rem] overflow-y-auto rounded-md border border-sr-line"
           >
-            <p :if={@selected_rows == []} class="p-5 text-center text-sm text-sr-muted">
+            <p :if={@selected_page.uids == []} class="p-5 text-center text-sm text-sr-muted">
               No agents selected.
             </p>
-            <%= for row <- Enum.take(@selected_rows, 50) do %>
+            <%= for row <- @selected_rows do %>
               <div
                 data-agent-picker-row
                 data-agent-picker-uid={row.uid}
@@ -258,7 +276,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponents do
               variant="outline"
               phx-click="agent_picker_selected_previous"
               aria-label="Previous selected agents page"
-              disabled={not @selected_has_previous}
+              disabled={not @selected_page.has_previous?}
             >
               Previous
             </.ui_button>
@@ -268,7 +286,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponents do
               variant="outline"
               phx-click="agent_picker_selected_next"
               aria-label="Next selected agents page"
-              disabled={not @selected_has_next}
+              disabled={not @selected_page.has_next?}
             >
               Next
             </.ui_button>

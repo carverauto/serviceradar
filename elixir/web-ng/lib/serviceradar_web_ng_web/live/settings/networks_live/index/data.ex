@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Live.Settings.NetworksLive.AgentPicker
 
   require Ash.Query
 
@@ -79,18 +80,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
     end
   end
 
-  def load_agents_by_uids(_scope, []), do: []
+  def load_agents_by_uids(_scope, []), do: {:ok, []}
 
   def load_agents_by_uids(scope, uids) when is_list(uids) do
-    bounded_uids = uids |> Enum.filter(&is_binary/1) |> Enum.uniq() |> Enum.take(50)
+    bounded_uids =
+      uids
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+      |> Enum.take(AgentPicker.page_size())
 
     Agent
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(uid in ^bounded_uids)
     |> Ash.read(scope: scope)
     |> case do
-      {:ok, agents} -> Enum.take(agents, 50)
-      {:error, _reason} -> []
+      {:ok, agents} -> {:ok, Enum.take(agents, AgentPicker.page_size())}
+      {:error, reason} -> {:error, reason}
     end
   end
 

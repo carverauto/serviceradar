@@ -82,6 +82,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponentsTest d
     refute LazyHTML.text(document) =~ "Unavailable"
   end
 
+  test "all mode submits only the canonical empty assignment" do
+    state = AgentPicker.new([])
+
+    html =
+      render_component(&AgentPickerComponents.agent_assignment_fields/1,
+        state: state,
+        summary_agent: nil
+      )
+
+    document = LazyHTML.from_fragment(html)
+
+    assert document
+           |> LazyHTML.query("input[name='form[agent_assignment_mode]'][value='all']")
+           |> LazyHTML.to_tree() != []
+
+    assert document
+           |> LazyHTML.query("input[name='form[agent_ids][]']")
+           |> LazyHTML.to_tree() == []
+  end
+
   test "selected mode renders stale IDs as removable unavailable rows" do
     state =
       ["agent-known", "agent-stale"]
@@ -108,5 +128,60 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponentsTest d
     assert document
            |> LazyHTML.query("button[phx-click='agent_picker_remove'][phx-value-uid='agent-stale']")
            |> LazyHTML.to_tree() != []
+  end
+
+  test "selected lookup failure offers retry without mislabeling retained UIDs as unavailable" do
+    state =
+      ["agent-retained"]
+      |> AgentPicker.new()
+      |> AgentPicker.open()
+      |> AgentPicker.show_selected()
+      |> AgentPicker.selected_loaded({:error, :timeout})
+
+    html =
+      render_component(&AgentPickerComponents.agent_picker_modal/1,
+        state: state,
+        open: true,
+        selected_rows: [%{uid: "agent-retained", agent: nil}]
+      )
+
+    document = LazyHTML.from_fragment(html)
+
+    assert document
+           |> LazyHTML.query("[role='alert'] button[phx-click='agent_picker_selected_retry']")
+           |> LazyHTML.to_tree() != []
+
+    assert LazyHTML.text(document) =~ "1 selected"
+    refute LazyHTML.text(document) =~ "Unavailable"
+
+    assert document
+           |> LazyHTML.query("[data-agent-picker-uid='agent-retained']")
+           |> LazyHTML.to_tree() == []
+  end
+
+  test "every modal close control uses the common cancel event" do
+    state = ["agent-a"] |> AgentPicker.new() |> AgentPicker.open()
+
+    html =
+      render_component(&AgentPickerComponents.agent_picker_modal/1,
+        state: state,
+        open: true,
+        selected_rows: []
+      )
+
+    document = LazyHTML.from_fragment(html)
+
+    assert document
+           |> LazyHTML.query("#sweep-agent-picker-dialog[data-cancel='agent_picker_cancel']")
+           |> LazyHTML.to_tree() != []
+
+    assert document
+           |> LazyHTML.query("button[aria-label='Close'][phx-click='agent_picker_cancel']")
+           |> LazyHTML.to_tree() != []
+
+    assert document
+           |> LazyHTML.query("button[phx-click='agent_picker_cancel']")
+           |> LazyHTML.to_tree()
+           |> length() == 2
   end
 end

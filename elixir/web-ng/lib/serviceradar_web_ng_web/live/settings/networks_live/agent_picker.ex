@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Live.Settings.NetworksLive.AgentPicker do
             cursor_history: [],
             page: %{results: [], after: nil, before: nil},
             selected_offset: 0,
+            selected_error: nil,
             error: nil
 
   @type t :: %__MODULE__{
@@ -30,6 +31,7 @@ defmodule ServiceRadarWebNGWeb.Live.Settings.NetworksLive.AgentPicker do
           cursor_history: [String.t() | nil],
           page: %{results: [map()], after: String.t() | nil, before: String.t() | nil},
           selected_offset: non_neg_integer(),
+          selected_error: %{reason: term(), retryable?: true} | nil,
           error: %{reason: term(), retryable?: true} | nil
         }
 
@@ -41,7 +43,7 @@ defmodule ServiceRadarWebNGWeb.Live.Settings.NetworksLive.AgentPicker do
 
   @spec open(t()) :: t()
   def open(%__MODULE__{} = state) do
-    reset_browse(%{state | draft: state.committed, mode: :browse})
+    reset_browse(%{state | draft: state.committed, mode: :browse, selected_offset: 0, selected_error: nil})
   end
 
   @spec search(t(), term()) :: t()
@@ -96,7 +98,7 @@ defmodule ServiceRadarWebNGWeb.Live.Settings.NetworksLive.AgentPicker do
   end
 
   @spec show_selected(t()) :: t()
-  def show_selected(%__MODULE__{} = state), do: %{state | mode: :selected, selected_offset: 0}
+  def show_selected(%__MODULE__{} = state), do: %{state | mode: :selected, selected_offset: 0, selected_error: nil}
 
   @spec show_browse(t()) :: t()
   def show_browse(%__MODULE__{} = state), do: %{state | mode: :browse}
@@ -110,34 +112,84 @@ defmodule ServiceRadarWebNGWeb.Live.Settings.NetworksLive.AgentPicker do
         MapSet.put(state.draft, uid)
       end
 
-    %{state | draft: draft}
+    clamp_selected_offset(%{state | draft: draft})
   end
 
   @spec remove(t(), String.t()) :: t()
   def remove(%__MODULE__{} = state, uid) when is_binary(uid) do
-    %{state | draft: MapSet.delete(state.draft, uid)}
+    clamp_selected_offset(%{state | draft: MapSet.delete(state.draft, uid)})
   end
 
   @spec clear(t()) :: t()
-  def clear(%__MODULE__{} = state), do: %{state | draft: MapSet.new(), selected_offset: 0}
+  def clear(%__MODULE__{} = state), do: %{state | draft: MapSet.new(), selected_offset: 0, selected_error: nil}
 
   @spec apply(t()) :: t()
-  def apply(%__MODULE__{} = state), do: %{state | committed: state.draft, error: nil}
+  def apply(%__MODULE__{} = state), do: %{state | committed: state.draft, error: nil, selected_error: nil}
 
   @spec cancel(t()) :: t()
-  def cancel(%__MODULE__{} = state), do: %{state | draft: state.committed, error: nil, selected_offset: 0}
+  def cancel(%__MODULE__{} = state),
+    do: %{state | draft: state.committed, error: nil, selected_offset: 0, selected_error: nil}
 
-  @spec selected_page(t()) :: [String.t()]
+  @spec selected_page(t()) :: %{
+          uids: [String.t()],
+          count: non_neg_integer(),
+          offset: non_neg_integer(),
+          has_previous?: boolean(),
+          has_next?: boolean()
+        }
   def selected_page(%__MODULE__{} = state) do
-    state.draft
-    |> MapSet.to_list()
-    |> Enum.sort()
-    |> Enum.slice(state.selected_offset, @page_size)
+    count = MapSet.size(state.draft)
+
+    uids =
+      state.draft
+      |> MapSet.to_list()
+      |> Enum.sort()
+      |> Enum.slice(state.selected_offset, @page_size)
+
+    %{
+      uids: uids,
+      count: count,
+      offset: state.selected_offset,
+      has_previous?: state.selected_offset > 0,
+      has_next?: state.selected_offset + @page_size < count
+    }
   end
 
-  @spec selected_page(t(), non_neg_integer()) :: t()
-  def selected_page(%__MODULE__{} = state, offset) when is_integer(offset) and offset >= 0 do
-    %{state | selected_offset: offset}
+  @spec selected_next_page(t()) :: t()
+  def selected_next_page(%__MODULE__{} = state) do
+    if selected_page(state).has_next? do
+      %{state | selected_offset: state.selected_offset + @page_size, selected_error: nil}
+    else
+      state
+    end
+  end
+
+  @spec selected_previous_page(t()) :: t()
+  def selected_previous_page(%__MODULE__{} = state) do
+    if selected_page(state).has_previous? do
+      %{state | selected_offset: max(state.selected_offset - @page_size, 0), selected_error: nil}
+    else
+      state
+    end
+  end
+
+  @spec selected_loaded(t(), :ok | {:error, term()}) :: t()
+  def selected_loaded(%__MODULE__{} = state, :ok), do: %{state | selected_error: nil}
+
+  def selected_loaded(%__MODULE__{} = state, {:error, reason}) do
+    %{state | selected_error: %{reason: reason, retryable?: true}}
+  end
+
+  @spec browse_results(t()) :: [map()]
+  def browse_results(%__MODULE__{} = state), do: Enum.take(state.page.results, @page_size)
+
+  @spec page_size() :: pos_integer()
+  def page_size, do: @page_size
+
+  defp clamp_selected_offset(%__MODULE__{} = state) do
+    count = MapSet.size(state.draft)
+    last_offset = if count == 0, do: 0, else: div(count - 1, @page_size) * @page_size
+    %{state | selected_offset: min(state.selected_offset, last_offset)}
   end
 
   @spec browse_request(t()) :: %{

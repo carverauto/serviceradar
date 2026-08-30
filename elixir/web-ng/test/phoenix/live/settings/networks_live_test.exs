@@ -281,6 +281,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
     assert html =~ "Select at least one agent"
     refute Enum.any?(Ash.read!(SweepGroup, scope: scope), &(&1.name == "Rejected empty #{unique}"))
+
+    {:ok, all_view, _html} = live(recycle(conn), ~p"/settings/networks/groups/new")
+    all_name = "Canonical all #{unique}"
+
+    all_view
+    |> form("#sweep-group-form", %{
+      "form" => %{
+        "name" => all_name,
+        "agent_assignment_mode" => "all",
+        "agent_ids" => [crafted.uid]
+      }
+    })
+    |> render_submit()
+
+    all_group = SweepGroup |> Ash.read!(scope: scope) |> Enum.find(&(&1.name == all_name))
+    assert all_group.agent_ids == []
   end
 
   test "many selected agents validate and save without a feature flag", %{conn: conn, scope: scope} do

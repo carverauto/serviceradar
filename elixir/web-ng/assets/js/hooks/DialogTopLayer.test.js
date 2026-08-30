@@ -32,6 +32,7 @@ function makeDialogHook() {
   const hook = Object.create(DialogTopLayer)
   hook.el = el
   hook.js = () => ({ignoreAttributes})
+  hook.pushEvent = vi.fn()
 
   return {
     activeElement: () => activeElement,
@@ -42,6 +43,7 @@ function makeDialogHook() {
     ignoredAttributes,
     input,
     trigger,
+    listeners,
   }
 }
 
@@ -84,5 +86,19 @@ describe("DialogTopLayer hook", () => {
 
     expect(fixture.trigger.focus).toHaveBeenCalledOnce()
     expect(fixture.activeElement()).toBe(fixture.trigger)
+  })
+
+  it("routes Escape and backdrop dismissal through the same server cancel event", () => {
+    const fixture = makeDialogHook()
+    fixture.el.dataset.cancel = "agent_picker_cancel"
+    fixture.hook.mounted()
+
+    const escape = {preventDefault: vi.fn()}
+    fixture.listeners.get("cancel")(escape)
+    fixture.listeners.get("click")({target: fixture.el})
+
+    expect(escape.preventDefault).toHaveBeenCalledOnce()
+    expect(fixture.hook.pushEvent).toHaveBeenNthCalledWith(1, "agent_picker_cancel", {})
+    expect(fixture.hook.pushEvent).toHaveBeenNthCalledWith(2, "agent_picker_cancel", {})
   })
 })

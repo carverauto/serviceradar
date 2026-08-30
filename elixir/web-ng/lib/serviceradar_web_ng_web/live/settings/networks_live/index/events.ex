@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Events do
              "agent_picker_show_selected",
              "agent_picker_selected_next",
              "agent_picker_selected_previous",
+             "agent_picker_selected_retry",
              "agent_picker_remove",
              "agent_picker_clear",
              "agent_picker_apply",
