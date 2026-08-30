@@ -70,7 +70,7 @@ The assignment migration is additive and runs before array-aware application
 pods start during a normal hooked Helm upgrade. Multi-agent selection is
 enabled immediately after the upgrade; there is no manual cutover or feature
 flag. During the typical 10-30 second rolling overlap, an old pod sees All as
-the legacy empty scalar or a multi-agent subset as its first selected UID. This
+the legacy nil scalar or a multi-agent subset as its first selected UID. This
 is deliberately fail-narrow: an old pod may temporarily deliver to one member
 of the subset, but it cannot broaden the job to unselected agents.
 
