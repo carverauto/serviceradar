@@ -27,7 +27,9 @@ defmodule ServiceRadarWebNGWeb.Components.UserTimeTest do
     assert LazyHTML.attribute(time, "data-user-time-iso") == ["2026-08-30T18:00:00Z"]
     assert LazyHTML.attribute(time, "data-user-time-zone") == ["America/Chicago"]
     assert LazyHTML.attribute(time, "data-user-time-style") == ["full"]
+    assert LazyHTML.attribute(time, "data-user-time-fallback") == ["2026-08-30T18:00:00Z"]
     assert LazyHTML.attribute(time, "phx-hook") == ["UserTime"]
+    assert LazyHTML.attribute(time, "phx-update") == ["ignore"]
     assert LazyHTML.attribute(time, "title") == ["2026-08-30T18:00:00Z (UTC); display zone America/Chicago"]
     assert LazyHTML.attribute(time, "aria-label") == ["2026-08-30T18:00:00Z UTC; display zone America/Chicago"]
     assert LazyHTML.text(time) == "2026-08-30T18:00:00Z"
@@ -51,8 +53,21 @@ defmodule ServiceRadarWebNGWeb.Components.UserTimeTest do
     assert LazyHTML.text(time) == canonical
   end
 
-  test "normalizes a DateTime value to canonical UTC metadata" do
-    {:ok, value, _offset} = DateTime.from_iso8601("2026-08-30T13:00:00.123456-05:00")
+  test "normalizes a non-UTC DateTime value to canonical UTC metadata" do
+    value = %DateTime{
+      year: 2026,
+      month: 8,
+      day: 30,
+      hour: 13,
+      minute: 0,
+      second: 0,
+      microsecond: {123_456, 6},
+      time_zone: "America/Chicago",
+      zone_abbr: "CDT",
+      utc_offset: -18_000,
+      std_offset: 0,
+      calendar: Calendar.ISO
+    }
 
     html =
       render_component(&CoreComponents.user_time/1, %{

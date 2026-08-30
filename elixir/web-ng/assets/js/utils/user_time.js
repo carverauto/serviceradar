@@ -6,6 +6,7 @@ const DATE_PART_OPTIONS = Object.freeze({
   minute: "2-digit",
   second: "2-digit",
   hourCycle: "h23",
+  numberingSystem: "latn",
 })
 
 const OFFSET_PATTERN = /(?:GMT|UTC)[+-]\d{1,2}(?::?\d{2})?/
@@ -48,6 +49,17 @@ function formatterParts(formatter, instant) {
   return formatter.formatToParts(instant)
 }
 
+function compatibleFormatter(intl, locale, options) {
+  try {
+    return new intl.DateTimeFormat(locale, options)
+  } catch (error) {
+    if (options.timeZoneName !== "shortOffset") throw error
+
+    const {timeZoneName: _timeZoneName, ...fallbackOptions} = options
+    return new intl.DateTimeFormat(locale, fallbackOptions)
+  }
+}
+
 function numericOffsetFromParts(intl, locale, timeZone, instant) {
   const localFormatter = new intl.DateTimeFormat(locale, {...DATE_PART_OPTIONS, timeZone})
   const utcFormatter = new intl.DateTimeFormat(locale, {...DATE_PART_OPTIONS, timeZone: "Etc/UTC"})
@@ -85,14 +97,18 @@ function dateParts(parts) {
 }
 
 function numericOffset(intl, locale, timeZone, instant) {
-  const offsetFormatter = new intl.DateTimeFormat(locale, {
-    ...DATE_PART_OPTIONS,
-    timeZone,
-    timeZoneName: "shortOffset",
-  })
-  const namedOffset = formatterParts(offsetFormatter, instant)?.find((part) => part.type === "timeZoneName")?.value
+  try {
+    const offsetFormatter = new intl.DateTimeFormat(locale, {
+      ...DATE_PART_OPTIONS,
+      timeZone,
+      timeZoneName: "shortOffset",
+    })
+    const namedOffset = formatterParts(offsetFormatter, instant)?.find((part) => part.type === "timeZoneName")?.value
 
-  if (namedOffset && OFFSET_PATTERN.test(namedOffset)) return namedOffset
+    if (namedOffset && OFFSET_PATTERN.test(namedOffset)) return namedOffset
+  } catch (_error) {
+    // Some supported Intl runtimes reject shortOffset but still provide formatToParts.
+  }
 
   return numericOffsetFromParts(intl, locale, timeZone, instant)
 }
@@ -111,7 +127,7 @@ export function formatUserTime(iso, {timeZone, style = "full", locale, intl = gl
   const instant = new Date(iso)
 
   try {
-    const formatter = new intl.DateTimeFormat(locale, {...STYLE_OPTIONS[style], timeZone})
+    const formatter = compatibleFormatter(intl, locale, {...STYLE_OPTIONS[style], timeZone})
     const offset = numericOffset(intl, locale, timeZone, instant)
     const initialText = formatter.format(instant)
 
@@ -128,9 +144,12 @@ export function formatUserTime(iso, {timeZone, style = "full", locale, intl = gl
 }
 
 function axisCanonicalValue(value) {
-  if (validInstant(value)) return value
+  if (typeof value === "string") return validInstant(value) ? value : null
 
-  const instant = value instanceof Date ? value : new Date(value)
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString()
+  if (typeof value !== "number" || !Number.isFinite(value)) return null
+
+  const instant = new Date(value)
 
   return Number.isNaN(instant.getTime()) ? null : instant.toISOString()
 }

@@ -400,9 +400,13 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
           class={@class}
           datetime={@iso}
           phx-hook="UserTime"
+          phx-update="ignore"
           data-user-time-iso={@iso}
           data-user-time-zone={@zone}
           data-user-time-style={@style}
+          data-user-time-fallback={@iso}
+          data-user-time-title={"#{@iso} (UTC); display zone #{@zone}"}
+          data-user-time-aria-label={"#{@iso} UTC; display zone #{@zone}"}
           title={"#{@iso} (UTC); display zone #{@zone}"}
           aria-label={"#{@iso} UTC; display zone #{@zone}"}
         >{@iso}</time>
@@ -417,7 +421,9 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
     end
   end
 
-  defp canonical_user_time(%DateTime{} = value), do: {:ok, DateTime.to_iso8601(value)}
+  defp canonical_user_time(%DateTime{} = value) do
+    {:ok, value |> DateTime.shift_zone!("Etc/UTC") |> DateTime.to_iso8601()}
+  end
 
   defp canonical_user_time(%NaiveDateTime{} = value) do
     {:ok, value |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()}

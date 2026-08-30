@@ -86,6 +86,46 @@ describe("formatUserTime", () => {
     expect(calls).not.toContainEqual(expect.not.objectContaining({timeZone: expect.anything()}))
   })
 
+  it("retries shortOffset formatting and derives a numeric offset when the runtime rejects that option", () => {
+    const calls = []
+    const intl = {
+      DateTimeFormat: class {
+        constructor(_locale, options) {
+          calls.push(options)
+          if (options.timeZoneName === "shortOffset") throw new Error("shortOffset unsupported")
+          this.options = options
+        }
+
+        format() {
+          return "Aug 30, 2026, 1:00 PM"
+        }
+
+        formatToParts() {
+          const values = this.options.timeZone === "America/Chicago"
+            ? [2026, 8, 30, 13, 0, 0]
+            : [2026, 8, 30, 18, 0, 0]
+
+          return ["year", "month", "day", "hour", "minute", "second"].map((type, index) => ({
+            type,
+            value: String(values[index]).padStart(2, "0"),
+          }))
+        }
+      },
+    }
+
+    const result = formatUserTime("2026-08-30T18:00:00Z", {
+      timeZone: "America/Chicago",
+      style: "full",
+      intl,
+    })
+
+    expect(result).toMatchObject({offset: "GMT-05:00"})
+    expect(result.text).toContain("GMT-05:00")
+    expect(calls.some((options) => options.timeZone === "America/Chicago" && !("timeZoneName" in options))).toBe(true)
+    expect(calls).toContainEqual(expect.objectContaining({timeZone: "Etc/UTC", numberingSystem: "latn"}))
+    expect(calls).not.toContainEqual(expect.not.objectContaining({timeZone: expect.anything()}))
+  })
+
   it("keeps offsets out of axis labels while preserving them for full and tooltip labels", () => {
     const options = {timeZone: "America/Chicago", locale: "en-US"}
 
@@ -101,5 +141,12 @@ describe("formatUserTime", () => {
 
     expect(formatAxis(input)).toBeTruthy()
     expect(input.toISOString()).toBe("2026-08-30T18:00:00.000Z")
+  })
+
+  it("rejects zone-less and invalid string axis inputs instead of interpreting them in the host timezone", () => {
+    const formatAxis = axisUserTimeFormatter({timeZone: "America/Chicago", locale: "en-US"})
+
+    expect(formatAxis("2026-08-30T18:00:00")).toBe("")
+    expect(formatAxis("not-an-instant")).toBe("")
   })
 })

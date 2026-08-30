@@ -4,11 +4,19 @@ import UserTime from "./UserTime"
 
 function makeHook({iso = "2026-08-30T18:00:00.123456Z", timeZone = "America/Chicago", style = "full"} = {}) {
   const attributes = {
+    datetime: iso,
     "aria-label": `${iso} UTC; display zone ${timeZone}`,
     title: `${iso} (UTC); display zone ${timeZone}`,
   }
   const el = {
-    dataset: {userTimeIso: iso, userTimeZone: timeZone, userTimeStyle: style},
+    dataset: {
+      userTimeIso: iso,
+      userTimeZone: timeZone,
+      userTimeStyle: style,
+      userTimeFallback: iso,
+      userTimeTitle: `${iso} (UTC); display zone ${timeZone}`,
+      userTimeAriaLabel: `${iso} UTC; display zone ${timeZone}`,
+    },
     textContent: iso,
     getAttribute: (name) => attributes[name] ?? null,
     setAttribute: (name, value) => {
@@ -33,17 +41,41 @@ describe("UserTime hook", () => {
     expect(fixture.attributes["aria-label"]).toContain("GMT-5")
   })
 
-  it("reformats updated server markup without replacing its canonical instant", () => {
+  it("synchronizes fresh server metadata before localizing an updated canonical instant", () => {
     const fixture = makeHook()
     fixture.hook.mounted()
-    fixture.el.dataset.userTimeIso = "2026-11-01T07:30:00.123456Z"
+    const canonical = "2026-11-01T07:30:00.123456Z"
+    fixture.el.dataset.userTimeIso = canonical
+    fixture.el.dataset.userTimeFallback = canonical
     fixture.el.dataset.userTimeZone = "America/Chicago"
-    fixture.el.textContent = "2026-11-01T07:30:00.123456Z"
+    fixture.el.dataset.userTimeTitle = `${canonical} (UTC); display zone America/Chicago`
+    fixture.el.dataset.userTimeAriaLabel = `${canonical} UTC; display zone America/Chicago`
 
     fixture.hook.updated()
 
-    expect(fixture.attributes["aria-label"]).toContain("2026-11-01T07:30:00.123456Z")
+    expect(fixture.el.textContent).not.toBe(canonical)
+    expect(fixture.attributes.datetime).toBe(canonical)
+    expect(fixture.attributes.title).toBe(`${canonical} (UTC); display zone America/Chicago`)
+    expect(fixture.attributes["aria-label"]).toContain(canonical)
     expect(fixture.attributes["aria-label"]).toContain("GMT-6")
+  })
+
+  it("restores fresh server metadata and UTC fallback after a failed update following localization", () => {
+    const fixture = makeHook()
+    fixture.hook.mounted()
+    const canonical = "2026-11-01T07:30:00.123456Z"
+    fixture.el.dataset.userTimeIso = canonical
+    fixture.el.dataset.userTimeFallback = canonical
+    fixture.el.dataset.userTimeZone = "Mars/Olympus"
+    fixture.el.dataset.userTimeTitle = `${canonical} (UTC); display zone Mars/Olympus`
+    fixture.el.dataset.userTimeAriaLabel = `${canonical} UTC; display zone Mars/Olympus`
+
+    fixture.hook.updated()
+
+    expect(fixture.el.textContent).toBe(canonical)
+    expect(fixture.attributes.datetime).toBe(canonical)
+    expect(fixture.attributes.title).toBe(`${canonical} (UTC); display zone Mars/Olympus`)
+    expect(fixture.attributes["aria-label"]).toBe(`${canonical} UTC; display zone Mars/Olympus`)
   })
 
   it("restores the server UTC fallback when explicit-zone localization fails", () => {
