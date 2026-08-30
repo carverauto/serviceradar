@@ -114,8 +114,21 @@ config :serviceradar_core, ServiceRadar.Repo,
   # Reduce flakiness under `mix test` with higher concurrency when using a remote CNPG DB.
   queue_target: String.to_integer(System.get_env("TEST_CNPG_QUEUE_TARGET_MS", "1000")),
   queue_interval: String.to_integer(System.get_env("TEST_CNPG_QUEUE_INTERVAL_MS", "1000")),
-  # Some migrations (Timescale hypertables, indexes) can take > 2 minutes on CI/dev hardware.
-  ownership_timeout: 300_000,
+  # Some migrations take minutes on CI/dev hardware, and at least one
+  # (`MovePublicSchemaObjectsToPlatform`) stalls for ~264s against a remote
+  # database while doing ~340ms of actual work -- see
+  # https://github.com/carverauto/serviceradar/issues/4151. When the connection
+  # is held past this timeout the whole `mix ecto.migrate` run aborts with
+  # `{:error, :rollback}` out of `do_lock_for_migrations/5`, which names neither
+  # the migration nor the timeout as the cause. Configurable so a slower or
+  # remote database is a longer wait rather than a hard failure; the default is
+  # unchanged. `serviceradar_core`'s test config already reads the same variable.
+  ownership_timeout:
+    String.to_integer(
+      System.get_env("SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS") ||
+        System.get_env("TEST_CNPG_OWNERSHIP_TIMEOUT_MS") ||
+        "300000"
+    ),
   parameters: [search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")],
   types: ServiceRadar.PostgresTypes
 
