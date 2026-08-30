@@ -145,13 +145,7 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
   end
 
   test "renders OpenText NOM schema docs and wrapper help text" do
-    schema_path =
-      Path.expand(
-        "../../../../../go/cmd/wasm-plugins/opentext-nom/config.schema.json",
-        __DIR__
-      )
-
-    schema = schema_path |> File.read!() |> Jason.decode!()
+    schema = opentext_nom_schema_path() |> File.read!() |> Jason.decode!()
 
     html =
       render_component(&PluginConfigForm.plugin_config_fields/1, %{
@@ -266,5 +260,26 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     assert html =~ ~s(pattern="https://.*")
     refute html =~ ~s(pattern="^https://")
     assert html =~ ~s(pattern="[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+  end
+
+  defp opentext_nom_schema_path do
+    relative = "go/cmd/wasm-plugins/opentext-nom/config.schema.json"
+
+    Enum.find(
+      [
+        Path.expand("../../../../../" <> relative, __DIR__),
+        Path.join(File.cwd!(), relative),
+        Path.join([
+          System.get_env("TEST_SRCDIR") || "",
+          System.get_env("TEST_WORKSPACE") || "_main",
+          relative
+        ])
+      ],
+      &File.exists?/1
+    ) ||
+      raise """
+      OpenText NOM config.schema.json was not staged. Declare \
+      //go/cmd/wasm-plugins/opentext-nom:config.schema.json as test data.
+      """
   end
 end
