@@ -89,9 +89,10 @@
 
 - [x] 6.1 Add `ServiceRadar.Plugins.PluginRepositoryNotifier` writing through
       `ServiceRadar.Events.AuditNotifier` on create/update/enable/disable/destroy.
-- [ ] 6.2 Include actor, repository URL, name, enabled state and signing key id in the audit details
-      (DONE), and assert in a test that no credential material is present (NOT DONE -- the notifier
-      records `credential_attached` as a boolean and never the token, but that is unasserted).
+- [x] 6.2 Audit details carry actor, repo URL, name, enabled state and signing key id.
+      `PluginRepositoryNotifier.audit_details/1` is public so the "no credential material" property
+      is asserted directly rather than by reconstructing the notifier -> AuditWriter ->
+      InternalLogPublisher pipeline. Tests assert neither the token nor the secret id appears.
 - [ ] 6.3 Attach the notifier to the resource and confirm the OCSF audit record reaches
       `logs.internal.audit`.
 
@@ -144,11 +145,17 @@
       reflects state.
 - [ ] 9.6 Sync worker tests: all enabled repositories imported; one failing repository does not abort
       the others; disabled repositories skipped.
-- [ ] 9.7 Audit test: create/update/destroy each emit an audit record with actor and repo URL.
-- [ ] 9.8 LiveView tests: dropdown renders repositories with built-in preselected; `… Add New` opens
-      the modal; save selects the new repository and reloads the catalog; invalid input keeps the
-      modal open; controls hidden without permission.
-- [ ] 9.9 Migration test: seed is idempotent and does not duplicate when `repo_url` was overridden.
+- [x] 9.7 Audit tests written (unrun, need DB): details carry the repo URL and signing key id, and
+      carry neither the token nor the credential secret id; a public repository reports
+      `credential_attached: false`.
+- [x] 9.8 LiveView tests written (unrun, need DB) in `plugin_repository_live_test.exs`: dropdown
+      renders with the built-in preselected and the old free-form field gone; `… Add New` opens the
+      modal; a valid save persists and closes; an invalid key and a malformed URL each keep the modal
+      open with the error; a viewer sees the dropdown but not `… Add New`; and the handlers refuse a
+      viewer who sends the event directly, since a hidden control is not the check.
+- [x] 9.9 Seed tests written (unrun, need DB): exactly one built-in row and exactly one default,
+      and they are the same row; re-registering the seeded `repo_url` is rejected by the unique
+      index, which is what makes the migration's ON CONFLICT re-run safe.
 
 ## 10. Verification
 

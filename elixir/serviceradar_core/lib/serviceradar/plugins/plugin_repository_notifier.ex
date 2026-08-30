@@ -27,22 +27,36 @@ defmodule ServiceRadar.Plugins.PluginRepositoryNotifier do
       resource_type: "plugin_repository",
       resource_id: record.id,
       resource_name: record.name,
-      details: %{
-        repo_url: record.repo_url,
-        artifact_kind: record.artifact_kind,
-        index_asset_name: record.index_asset_name,
-        # The key id identifies which trust anchor is in play; the public key is
-        # not a secret but is noise in an audit trail.
-        signing_key_id: record.signing_key_id,
-        enabled: record.enabled,
-        builtin: record.builtin,
-        is_default: record.is_default,
-        credential_attached: not is_nil(record.credential_secret_id)
-      }
+      details: audit_details(record)
     )
 
     :ok
   end
 
   def notify(_notification), do: :ok
+
+  @doc """
+  The details recorded for a repository change.
+
+  Public so the "no credential material reaches the audit log" property can be
+  asserted directly, rather than by reconstructing the whole notifier ->
+  AuditWriter -> InternalLogPublisher pipeline in a test. `credential_attached`
+  is deliberately a boolean: the audit trail should record that a repository has
+  a token, never which one or what it is.
+  """
+  @spec audit_details(struct()) :: map()
+  def audit_details(record) do
+    %{
+      repo_url: record.repo_url,
+      artifact_kind: record.artifact_kind,
+      index_asset_name: record.index_asset_name,
+      # The key id identifies which trust anchor is in play; the public key is
+      # not a secret but is noise in an audit trail.
+      signing_key_id: record.signing_key_id,
+      enabled: record.enabled,
+      builtin: record.builtin,
+      is_default: record.is_default,
+      credential_attached: not is_nil(record.credential_secret_id)
+    }
+  end
 end

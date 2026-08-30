@@ -126,6 +126,35 @@ defmodule ServiceRadar.Plugins.PluginRepositoryDbTest do
     end
   end
 
+  describe "the migration seed" do
+    test "leaves exactly one built-in row and exactly one default" do
+      # The migration ends with a DO $$ block that raises unless exactly one
+      # default row exists, and its INSERT is keyed ON CONFLICT (repo_url) so a
+      # re-run cannot duplicate. This asserts the post-condition that guard
+      # exists to protect: a deployment with two defaults, or none, would import
+      # from the wrong place or from nowhere.
+      builtins =
+        PluginRepository
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(builtin == true)
+        |> Ash.read!(actor: actor())
+
+      defaults =
+        PluginRepository
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(is_default == true)
+        |> Ash.read!(actor: actor())
+
+      assert length(builtins) == 1
+      assert length(defaults) == 1
+      assert hd(builtins).id == hd(defaults).id
+    end
+
+    test "the seeded row is unique on repo_url, so a re-run cannot duplicate it" do
+      assert {:error, _} = create(%{repo_url: "https://github.com/carverauto/serviceradar"})
+    end
+  end
+
   describe "single default" do
     test "a second default row is rejected by the partial unique index" do
       assert {:ok, repository} = create(%{})

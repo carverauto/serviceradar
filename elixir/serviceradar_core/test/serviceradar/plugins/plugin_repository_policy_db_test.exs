@@ -16,6 +16,7 @@ defmodule ServiceRadar.Plugins.PluginRepositoryPolicyDbTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Plugins.PluginRepository
+  alias ServiceRadar.Plugins.PluginRepositoryNotifier
   alias ServiceRadar.Plugins.RepositoryCredentials
 
   require Ash.Query
@@ -125,6 +126,35 @@ defmodule ServiceRadar.Plugins.PluginRepositoryPolicyDbTest do
                PluginRepository |> Ash.Query.for_read(:read) |> Ash.read(actor: viewer())
 
       assert repositories != []
+    end
+  end
+
+  describe "audit details" do
+    test "record what changed without carrying credential material" do
+      {:ok, repository} = create_as(repo_admin())
+      token = "ghp_" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+
+      {:ok, repository} =
+        RepositoryCredentials.put_token(repository, token, actor: SystemActor.system(:test))
+
+      details = PluginRepositoryNotifier.audit_details(repository)
+
+      assert details.repo_url == repository.repo_url
+      assert details.signing_key_id == "acme-v1"
+      assert details.enabled
+      refute details.builtin
+
+      # The whole point: an auditor learns a token is attached, never its value
+      # or which secret holds it.
+      assert details.credential_attached == true
+      refute details |> inspect() |> String.contains?(token)
+      refute details |> inspect() |> String.contains?(repository.credential_secret_id)
+    end
+
+    test "report no credential on a public repository" do
+      {:ok, repository} = create_as(repo_admin())
+
+      assert PluginRepositoryNotifier.audit_details(repository).credential_attached == false
     end
   end
 
