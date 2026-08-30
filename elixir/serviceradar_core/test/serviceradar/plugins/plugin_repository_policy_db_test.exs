@@ -10,7 +10,7 @@ defmodule ServiceRadar.Plugins.PluginRepositoryPolicyDbTest do
   verified one.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias Ash.Error.Forbidden
   alias ServiceRadar.Actors.SystemActor

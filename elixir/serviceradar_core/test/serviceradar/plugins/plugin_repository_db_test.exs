@@ -6,7 +6,7 @@ defmodule ServiceRadar.Plugins.PluginRepositoryDbTest do
   source must be neither editable nor deletable.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.PluginRepository
