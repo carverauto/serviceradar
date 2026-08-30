@@ -178,7 +178,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 	// Build NumCPU ring readers with BPF + FANOUT
 	// Setup order: open → fanout → BPF → TPACKET_V3 → mmap
 	// This order is preferred by most codebases and avoids potential PACKET_RX_RING EINVAL issues.
-	fanoutGroup := (os.Getpid() * 131) & 0xFFFF
+	fanoutGroup := 0
 
 	// Determine ring reader count
 	ringCount := runtime.NumCPU()
@@ -190,7 +190,7 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 		ringCount = defaultRingCount
 	}
 
-	log.Debug().Int("ringCount", ringCount).Int("fanoutGroup", fanoutGroup).Msg("Ring setup parameters")
+	log.Debug().Int("ringCount", ringCount).Msg("Ring setup parameters")
 
 	rings := make([]*ringBuf, 0, ringCount)
 
@@ -214,9 +214,13 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 
 		log.Debug().Int("fd", fd).Msg("Sniffer opened successfully")
 
-		log.Debug().Int("fanoutGroup", fanoutGroup).Msg("Enabling packet fanout")
+		if i == 0 {
+			fanoutGroup, err = createFanoutGroup(fd)
+		} else {
+			err = enableFanout(fd, fanoutGroup)
+		}
 
-		if err := enableFanout(fd, fanoutGroup); err != nil {
+		if err != nil {
 			log.Error().Err(err).Msg("Failed to enable packet fanout")
 
 			_ = unix.Close(fd)
@@ -228,10 +232,20 @@ func NewSYNScanner(timeout time.Duration, concurrency int, log logger.Logger, op
 
 			closeRawSendSockets(log, sendSocket, sendSocket6)
 
-			return nil, fmt.Errorf("enableFanout failed: %w", err)
+			return nil, fmt.Errorf("configure packet fanout failed: %w", err)
 		}
 
-		log.Debug().Msg("Packet fanout enabled successfully")
+		if i == 0 {
+			log.Info().
+				Int("fanoutGroup", fanoutGroup).
+				Int("ringCount", ringCount).
+				Str("interface", iface).
+				Msg("Created isolated packet fanout group")
+		} else {
+			log.Debug().Int("fanoutGroup", fanoutGroup).Int("ringIndex", i).
+				Msg("Joined packet ring to scanner fanout group")
+		}
+
 		log.Debug().Msg("Attaching BPF filter")
 
 		if err := attachBPF(fd, sourceIP, sourceIP6, scanPortStart, scanPortEnd); err != nil {

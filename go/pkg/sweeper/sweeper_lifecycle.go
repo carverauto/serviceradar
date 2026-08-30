@@ -178,6 +178,12 @@ func (s *NetworkSweeper) ensureScannersInitialized() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.ensureScannersInitializedLocked()
+}
+
+// ensureScannersInitializedLocked initializes only scanners requested by the
+// active config. The caller must hold s.mu.
+func (s *NetworkSweeper) ensureScannersInitializedLocked() {
 	if s.icmpScanner == nil {
 		s.icmpScanner = initializeICMPScanner(s.config, s.logger)
 	}

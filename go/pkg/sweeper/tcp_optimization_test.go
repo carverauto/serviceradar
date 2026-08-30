@@ -49,6 +49,76 @@ func skipIfNotLinuxRoot(t *testing.T) {
 	}
 }
 
+func TestNeedsTCPScanning(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *models.Config
+		want   bool
+	}{
+		{
+			name:   "empty config",
+			config: &models.Config{},
+			want:   false,
+		},
+		{
+			name: "ICMP-only global mode",
+			config: &models.Config{
+				SweepModes: []models.SweepMode{models.ModeICMP},
+			},
+			want: false,
+		},
+		{
+			name: "TCP connect-only global mode",
+			config: &models.Config{
+				SweepModes: []models.SweepMode{models.ModeTCPConnect},
+			},
+			want: false,
+		},
+		{
+			name: "raw TCP global mode",
+			config: &models.Config{
+				SweepModes: []models.SweepMode{models.ModeTCP},
+			},
+			want: true,
+		},
+		{
+			name: "raw TCP device mode",
+			config: &models.Config{
+				SweepModes: []models.SweepMode{models.ModeICMP},
+				DeviceTargets: []models.DeviceTarget{{
+					Network:    "192.0.2.1/32",
+					SweepModes: []models.SweepMode{models.ModeTCP},
+				}},
+			},
+			want: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, needsTCPScanning(tt.config))
+		})
+	}
+}
+
+func TestInitializeTCPScannerSkipsProfilesWithoutRawTCP(t *testing.T) {
+	log := logger.NewTestLogger()
+
+	for _, config := range []*models.Config{
+		{},
+		{SweepModes: []models.SweepMode{models.ModeICMP}},
+		{SweepModes: []models.SweepMode{models.ModeTCPConnect}},
+		{
+			DeviceTargets: []models.DeviceTarget{{
+				Network:    "192.0.2.1/32",
+				SweepModes: []models.SweepMode{models.ModeICMP},
+			}},
+		},
+	} {
+		assert.Nil(t, initializeTCPScanner(config, log))
+	}
+}
+
 func TestNetworkSweeper_OptimizedTCPScannerSelection(t *testing.T) {
 	skipIfNotLinuxRoot(t)
 

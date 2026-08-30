@@ -28,6 +28,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const packetFanoutGroupIDMask = 0xFFFF
+
 // BPF + Fanout
 // TODO: double-tag (QinQ) variant or an auxdata-aware approach
 func attachBPF(fd int, localIP4, localIP6 net.IP, sportLo, sportHi uint16) error {
@@ -216,15 +218,39 @@ func attachBPFIPv4(fd int, localIP net.IP, sportLo, sportHi uint16) error {
 	return unix.SetsockoptSockFprog(fd, unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, &fprog)
 }
 
+// createFanoutGroup asks the kernel to allocate a group ID that is unique in
+// the current network namespace. The first ring creates the group; the
+// scanner's remaining rings join it through enableFanout.
+//
+// Using a process-derived group ID here is not sufficient: every SYNScanner in
+// one agent process would join the same PACKET_FANOUT group, causing the kernel
+// to load-balance replies across scanners with unrelated source-port maps.
+func createFanoutGroup(fd int) (int, error) {
+	mode := unix.PACKET_FANOUT_HASH | unix.PACKET_FANOUT_FLAG_DEFRAG | unix.PACKET_FANOUT_FLAG_UNIQUEID
+	val := (mode & packetFanoutGroupIDMask) << 16
+
+	if err := unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_FANOUT, val); err != nil {
+		return 0, fmt.Errorf("create unique packet fanout group: %w", err)
+	}
+
+	configured, err := unix.GetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_FANOUT)
+	if err != nil {
+		return 0, fmt.Errorf("read unique packet fanout group: %w", err)
+	}
+
+	groupID := configured & packetFanoutGroupIDMask
+	return groupID, nil
+}
+
 func enableFanout(fd int, groupID int) error {
 	// See `man 7 packet`: lower 16 bits = group ID, upper 16 bits = mode|flags.
 	// option = (mode|flags)<<16 | groupID
-	if groupID == 0 {
-		groupID = 1 // kernel rejects id 0
+	if groupID < 0 || groupID > packetFanoutGroupIDMask {
+		return fmt.Errorf("invalid packet fanout group ID %d", groupID)
 	}
 
 	mode := unix.PACKET_FANOUT_HASH | unix.PACKET_FANOUT_FLAG_DEFRAG
-	val := ((mode & 0xFFFF) << 16) | (groupID & 0xFFFF)
+	val := ((mode & packetFanoutGroupIDMask) << 16) | (groupID & packetFanoutGroupIDMask)
 
 	return unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_FANOUT, val)
 }
