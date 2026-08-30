@@ -3,6 +3,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupRunNowTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.TestSupport
 
@@ -19,13 +20,22 @@ defmodule ServiceRadar.SweepJobs.SweepGroupRunNowTest do
     agent_id = "offline-sweep-agent-#{unique}"
     :ok = AgentCommandPubSub.subscribe()
 
+    assert {:ok, %Agent{uid: ^agent_id, status: :connecting}} =
+             Agent
+             |> Ash.Changeset.for_create(
+               :register,
+               %{uid: agent_id, metadata: %{"partition_id" => "default"}},
+               actor: actor
+             )
+             |> Ash.create()
+
     assert {:ok, group} =
              SweepGroup
              |> Ash.Changeset.for_create(
                :create,
                %{
                  name: "Offline run-now group #{unique}",
-                 agent_id: agent_id,
+                 agent_ids: [agent_id],
                  enabled: false
                },
                actor: actor
