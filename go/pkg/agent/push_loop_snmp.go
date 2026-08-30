@@ -27,10 +27,14 @@ import (
 )
 
 type snmpMetricResult struct {
-	Target       string
-	Host         string
-	Metric       string
-	OID          string
+	Target string
+	Host   string
+	Metric string
+	OID    string
+	// Raw walk-row index; empty for a scalar get. Carried explicitly because
+	// the only other place it survives is InterfaceUID, which folds it together
+	// with a derived ifIndex and cannot be told apart from one downstream.
+	OIDIndex     string
 	Value        interface{}
 	RawValue     interface{}
 	Timestamp    time.Time
@@ -207,6 +211,7 @@ func (p *PushLoop) buildSNMPDrainedResults(
 				Host:         status.HostIP,
 				Metric:       metricName,
 				OID:          pointOID,
+				OIDIndex:     point.OIDIndex,
 				Value:        point.Value,
 				RawValue:     point.RawValue,
 				Timestamp:    point.Timestamp,
