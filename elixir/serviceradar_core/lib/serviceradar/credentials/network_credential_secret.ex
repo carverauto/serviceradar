@@ -11,7 +11,9 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     domain: ServiceRadar.Credentials,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshCloak, AshStateMachine, AshPaperTrail.Resource],
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    # The primary read deliberately carries a select preparation; see `read :read`.
+    primary_read_warning?: false
 
   alias ServiceRadar.Credentials.Changes.WriteSecretLifecycleEvent
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -123,23 +125,22 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
   end
 
   actions do
-    read :read do
-      prepare build(select: @public_read_fields)
-    end
-
-    # Ash re-reads a record through this action when it upgrades a non-atomic
-    # update. Without one, every update action on this resource fails with
-    # Ash.Error.Framework.MustBeAtomic ("cannot atomically update a record
-    # without a primary read action or a configured `atomic_upgrade_with`
-    # action") -- :update, :disable_rotation and the rotation transitions alike,
-    # which is why none of them could be called at all.
+    # Primary because every update on this resource needs it. Without a primary
+    # read, `:update`, `:disable_rotation` and the rotation transitions all fail
+    # -- first with Ash.Error.Framework.MustBeAtomic, and then, once
+    # `atomic_upgrade_with` is configured, with `Required primary read action`
+    # raised from the `Ash.load/3` inside `Ash.Actions.Update.run/4`. No caller
+    # had ever updated this resource, so none of its update actions worked.
     #
-    # Deliberately NOT the primary read: `:read` carries a select preparation,
-    # and Ash warns that a primary read with preparations also governs policy
-    # checks and relationship loads. Narrowing those on a shared credential
-    # resource is a larger change than enabling its own update actions needs.
-    read :atomic_upgrade do
-      description "Internal re-read used by Ash when upgrading a non-atomic update"
+    # The select preparation is why `use Ash.Resource` carries
+    # `primary_read_warning?: false`. Ash warns that a primary read with
+    # preparations also governs relationship loads and policy checks -- here that
+    # is the desired effect, not an accident: it means loading a repository's
+    # `credential_secret` yields the public fields and never the encrypted
+    # payload. `:by_id_with_secret` remains the only way to reach that.
+    read :read do
+      primary? true
+      prepare build(select: @public_read_fields)
     end
 
     read :by_id do
@@ -168,7 +169,6 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
     update :update do
       accept [:secret_payload | @fields]
-      atomic_upgrade_with :atomic_upgrade
     end
 
     update :mark_rotation_due do
@@ -205,7 +205,6 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
     update :disable_rotation do
       accept []
-      atomic_upgrade_with :atomic_upgrade
       change transition_state(:disabled)
       change {WriteSecretLifecycleEvent, action: :disable_rotation}
     end
