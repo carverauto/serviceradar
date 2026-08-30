@@ -376,6 +376,72 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
   end
 
   @doc """
+  Renders a canonical UTC timestamp that the `UserTime` hook can localize in an
+  explicitly selected IANA timezone.
+  """
+  attr :value, :any, required: true
+  attr :timezone, :string, default: "Etc/UTC"
+  attr :style, :atom, default: :full, values: [:full, :compact, :date, :time, :axis]
+  attr :fallback, :string, default: "—"
+  attr :id, :string, required: true
+  attr :class, :string, default: nil
+
+  def user_time(assigns) do
+    case canonical_user_time(assigns.value) do
+      {:ok, iso} ->
+        assigns =
+          assigns
+          |> assign(:iso, iso)
+          |> assign(:zone, assigns.timezone || "Etc/UTC")
+
+        ~H"""
+        <time
+          id={@id}
+          class={@class}
+          datetime={@iso}
+          phx-hook="UserTime"
+          data-user-time-iso={@iso}
+          data-user-time-zone={@zone}
+          data-user-time-style={@style}
+          title={"#{@iso} (UTC); display zone #{@zone}"}
+          aria-label={"#{@iso} UTC; display zone #{@zone}"}
+        >{@iso}</time>
+        """
+
+      :error ->
+        assigns = assign(assigns, :fallback_text, assigns.fallback)
+
+        ~H"""
+        <span class={@class}>{@fallback_text}</span>
+        """
+    end
+  end
+
+  defp canonical_user_time(%DateTime{} = value), do: {:ok, DateTime.to_iso8601(value)}
+
+  defp canonical_user_time(%NaiveDateTime{} = value) do
+    {:ok, value |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()}
+  end
+
+  defp canonical_user_time(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> {:ok, canonical_iso8601(value, datetime)}
+      _error -> :error
+    end
+  end
+
+  defp canonical_user_time(_value), do: :error
+
+  defp canonical_iso8601(value, _datetime) when is_binary(value) do
+    if String.ends_with?(value, "Z"), do: value, else: canonical_iso8601_from_offset(value)
+  end
+
+  defp canonical_iso8601_from_offset(value) do
+    {:ok, datetime, _offset} = DateTime.from_iso8601(value)
+    datetime |> DateTime.shift_zone!("Etc/UTC") |> DateTime.to_iso8601()
+  end
+
+  @doc """
   Renders a table with generic styling.
 
   ## Examples

@@ -12,6 +12,7 @@ import DashboardWasmHost from "./DashboardWasmHost"
 import DetailsState from "./DetailsState"
 import JdmEditorHook from "./JdmEditorHook"
 import LocalTime from "./LocalTime"
+import UserTime from "./UserTime"
 import MapboxFlowMap from "./MapboxFlowMap"
 import MapboxLocationPicker from "./MapboxLocationPicker"
 import OperationsTrafficMap from "./OperationsTrafficMap"
@@ -61,6 +62,7 @@ export default {
   DetailsState,
   JdmEditorHook,
   LocalTime,
+  UserTime,
   MapboxFlowMap,
   MapboxLocationPicker,
   OperationsTrafficMap,
