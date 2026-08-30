@@ -10,7 +10,12 @@ defmodule ServiceRadarWebNG.Mcp.Runner do
   @spec execute_srql(Ash.ActionInput.t(), map()) :: {:ok, map()} | {:error, term()}
   def execute_srql(input, context) do
     query = input.arguments.query
-    limit = Access.clamp_limit(input.arguments[:limit])
+
+    limit =
+      case input.arguments[:limit] do
+        nil -> nil
+        value -> Access.clamp_limit(value)
+      end
 
     run_tool(context, :execute_srql, input.arguments, [query: query], fn ->
       case Access.execute_query(scope!(context), %{"query" => query, "limit" => limit}) do
