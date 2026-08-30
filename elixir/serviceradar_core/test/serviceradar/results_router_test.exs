@@ -321,6 +321,7 @@ defmodule ServiceRadar.ResultsRouterTest do
     payload = %{
       "execution_id" => execution_id,
       "sweep_group_id" => sweep_group_id,
+      "agent_id" => "spoofed-payload-agent",
       "last_sweep" => last_sweep,
       "total_hosts" => 50,
       "scanner_stats" => %{"packets_sent" => 100, "packets_recv" => 90},
@@ -370,6 +371,7 @@ defmodule ServiceRadar.ResultsRouterTest do
 
     assert opts[:sweep_group_id] == sweep_group_id
     assert opts[:agent_id] == "agent-1"
+    assert opts[:authenticated_agent_id] == "agent-1"
     assert opts[:expected_total_hosts] == 50
     assert opts[:scanner_metrics] == %{"packets_sent" => 100, "packets_recv" => 90}
 

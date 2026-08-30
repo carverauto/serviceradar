@@ -438,6 +438,7 @@ defmodule ServiceRadar.ResultsRouter do
           [
             sweep_group_id: sweep_group_id,
             agent_id: status[:agent_id],
+            authenticated_agent_id: status[:agent_id],
             actor: actor,
             expected_total_hosts: expected_total_hosts,
             scanner_metrics: scanner_metrics,
