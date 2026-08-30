@@ -71,7 +71,7 @@ table, ASCII-only docs.
   `(device_uid, oid, oid_index)`.
 - [x] 3b.2 `ServiceRadar.Inventory.DeviceSNMPFact` resource; add the
   `has_many :snmp_facts` relationship to `Device`.
-- [ ] 3b.3 Write facts on ingestion for declared OIDs whose `data_type` is
+- [x] 3b.3 Write facts on ingestion for declared OIDs whose `data_type` is
   `string`, and for every OID regardless of type as current state. Numeric OIDs
   continue to `timeseries_metrics` unchanged.
   **Path traced, and it does not run through core.** The agent drains points in
@@ -80,8 +80,12 @@ table, ASCII-only docs.
   `{:error, {:gateway_metric_status_not_core_routable, _}}`
   (`results_router.ex:465,871`). The live path is
   `serviceradar_agent_gateway`'s `status_processor.ex:142`
-  `publish_snmp_metrics/1`. Fact-writing therefore lands in the gateway or its
-  consumer, not in `serviceradar_core`, and is its own change.
+  `publish_snmp_metrics/1`. **Resolved differently than that note predicted**:
+  the write landed in `serviceradar_core`'s metric consumer
+  (`processors/metrics.ex`) after all, because that is the only point where a
+  decoded reading and a resolved `ocsf_devices.uid` coexist - the gateway has no
+  database dependency at all. Required an agent change first: string readings
+  were being discarded in `marshalSNMPMetricEnvelope` before reaching the wire.
 - [x] 3b.4 Tests: a string OID round-trips; walked rows keep distinct
   `oid_index`; facts are deleted with their device; a fact names its package and
   profile.
@@ -94,6 +98,15 @@ table, ASCII-only docs.
 - [ ] 4.2 Test each transition end to end through `Packages` in `web-ng`. The
   catalog itself is covered directly in `serviceradar_core`; what is untested is
   the three call sites.
+
+## 4b. Fact provenance (follow-up)
+
+- [ ] 4b.1 Thread the collecting profile id through to the reading so
+  `device_snmp_facts.snmp_profile_id` and `plugin_package_id` stop being NULL.
+  Nothing on the wire links a reading back to its profile today:
+  `protoToSNMPConfig` never copies `SNMPTargetConfig.id` into `snmp.Target`, and
+  `snmp.Target` has no id field, so this needs a proto and agent change rather
+  than inference from the OID name.
 
 ## 5. UI
 
