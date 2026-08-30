@@ -147,6 +147,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:skip, reason} ->
         {:error, reason}
 
+      {:quarantine, reason} ->
+        reporter_context = quarantine_reporter_context(reporter_context, reason)
+        persist_quarantined_agent_availability(results, reporter_context, actor)
+        {:error, reason}
+
       :ok ->
         start_time = System.monotonic_time(:millisecond)
 
@@ -399,6 +404,20 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
         {:skip, :unresolved_sweep_group}
 
+      {:error, reason}
+      when reason in [:conflicting_execution_reporter, :conflicting_execution_group] ->
+        Logger.warning(
+          "SweepResultsIngestor: Quarantining results for execution #{execution_id}: #{reason}"
+        )
+
+        {:quarantine, reason}
+
+      {:error, :unresolved_execution_identity} ->
+        {:skip, :unresolved_execution_identity}
+
+      {:error, {:execution_lookup_failed, _reason}} = error ->
+        {:skip, elem(error, 1)}
+
       {:error, reason} ->
         Logger.error(
           "SweepResultsIngestor: Failed to ensure execution exists: #{inspect(reason)}"
@@ -407,6 +426,59 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         # Continue anyway - we'll just update what we can
         :ok
     end
+  end
+
+  defp quarantine_reporter_context(reporter_context, reason) do
+    %{reporter_context | expectation: :unknown, expectation_reason: reason}
+  end
+
+  defp persist_quarantined_agent_availability(results, reporter_context, actor) do
+    ips = results |> Enum.map(&extract_ip/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+    partition = sweep_group_partition(reporter_context.group)
+
+    device_map =
+      DeviceLookup.batch_lookup_by_ip(ips,
+        actor: actor,
+        include_deleted: true,
+        use_cache: false,
+        partition: partition
+      )
+
+    unknown_ips = ips -- Map.keys(device_map)
+
+    detected_device_map =
+      unknown_ips
+      |> DeviceLookup.lookup_detected_aliases_by_ip(
+        actor: actor,
+        include_deleted: true,
+        partition: partition
+      )
+      |> Map.new(fn {ip, {record, _alias}} -> {ip, record} end)
+
+    created_device_map =
+      create_available_unknown_devices(
+        results,
+        unknown_ips -- Map.keys(detected_device_map),
+        reporter_context.resolved_group_id,
+        actor,
+        partition
+      )
+
+    all_devices =
+      device_map
+      |> Map.merge(detected_device_map)
+      |> Map.merge(created_device_map)
+
+    _accepted =
+      upsert_agent_availability(
+        results,
+        all_devices,
+        nil,
+        reporter_context,
+        utc_now_usec()
+      )
+
+    :ok
   end
 
   defp process_batches(results, execution_id, reporter_context, actor, mapper_promotion_opts) do
@@ -552,8 +624,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     detected_ips = Map.keys(detected_alias_map)
 
-    # Step 4a: Confirm detected aliases that matched sweep results
-    confirm_detected_aliases(detected_alias_map, execution_id, actor)
+    # Step 4a: Confirm detected aliases only for a resolved authenticated reporter.
+    aliases_confirmed =
+      maybe_confirm_detected_aliases(
+        detected_alias_map,
+        execution_id,
+        reporter_context,
+        actor
+      )
 
     # Step 4b: Extract device records from detected aliases
     detected_device_map =
@@ -593,12 +671,21 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           stats
           |> Map.put(:devices_created, map_size(created_device_map))
           |> Map.put(:devices_updated, length(known_ips) + length(detected_ips))
-          |> Map.put(:aliases_confirmed, length(detected_ips))
+          |> Map.put(:aliases_confirmed, aliases_confirmed)
 
         {:ok, final_stats}
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp maybe_confirm_detected_aliases(detected_alias_map, execution_id, reporter_context, actor) do
+    if expected_reporter?(reporter_context) do
+      confirm_detected_aliases(detected_alias_map, execution_id, actor)
+      map_size(detected_alias_map)
+    else
+      0
     end
   end
 
@@ -630,6 +717,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp process_mapper_promotions([], _reporter_context, _actor, _mapper_promotion_opts) do
+    prefix_promotion_stats(%{})
+  end
+
+  defp process_mapper_promotions(
+         _results,
+         %{expectation: expectation},
+         _actor,
+         _mapper_promotion_opts
+       )
+       when expectation in [:unexpected, :unknown] do
     prefix_promotion_stats(%{})
   end
 
@@ -1117,45 +1214,55 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     status_timestamp = DateTime.truncate(availability_timestamp, :second)
     availability_policy = availability_policy(reporter_context)
 
-    upsert_agent_availability(
-      results,
-      device_map,
-      execution_id,
-      reporter_context,
-      availability_timestamp
-    )
+    accepted_observations =
+      upsert_agent_availability(
+        results,
+        device_map,
+        execution_id,
+        reporter_context,
+        availability_timestamp
+      )
 
-    available_ips = result_ips_for_status(results, true)
-    unavailable_ips = result_ips_for_status(results, false)
+    available_uids = observation_uids_for_status(accepted_observations, true)
+    unavailable_uids = observation_uids_for_status(accepted_observations, false)
 
-    available_uids = device_uids_for_ips(available_ips, device_map)
-    unavailable_uids = device_uids_for_ips(unavailable_ips, device_map)
-
-    restore_deleted_devices(Enum.uniq(available_uids ++ unavailable_uids), actor)
-
-    recovered_rows =
-      update_device_statuses_available(
-        available_uids,
-        status_timestamp,
+    changed_uids =
+      canonical_authorized_observation_uids(
+        Enum.uniq(available_uids ++ unavailable_uids),
         availability_policy
       )
 
-    down_rows =
-      update_device_statuses_with_hysteresis(
-        unavailable_uids,
-        status_timestamp,
+    if changed_uids != [] do
+      changed_uid_set = MapSet.new(changed_uids)
+      available_uids = Enum.filter(available_uids, &MapSet.member?(changed_uid_set, &1))
+      unavailable_uids = Enum.filter(unavailable_uids, &MapSet.member?(changed_uid_set, &1))
+
+      restore_deleted_devices(changed_uids, actor)
+
+      recovered_rows =
+        update_device_statuses_available(
+          available_uids,
+          status_timestamp,
+          availability_policy
+        )
+
+      down_rows =
+        update_device_statuses_with_hysteresis(
+          unavailable_uids,
+          status_timestamp,
+          reporter_context.group,
+          availability_policy
+        )
+
+      maybe_emit_availability_events(
+        recovered_rows ++ down_rows,
         reporter_context.group,
-        availability_policy
+        reporter_context.reporter_agent_id,
+        execution_id
       )
 
-    maybe_emit_availability_events(
-      recovered_rows ++ down_rows,
-      reporter_context.group,
-      reporter_context.reporter_agent_id,
-      execution_id
-    )
-
-    maybe_add_sweep_source(Enum.uniq(available_uids ++ unavailable_uids))
+      maybe_add_sweep_source(changed_uids)
+    end
 
     :ok
   end
@@ -1168,7 +1275,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          _timestamp
        )
        when agent_id in [nil, ""] do
-    :ok
+    []
   end
 
   defp upsert_agent_availability(results, device_map, execution_id, reporter_context, timestamp) do
@@ -1227,7 +1334,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp bulk_upsert_agent_availability([]), do: :ok
+  defp bulk_upsert_agent_availability([]), do: []
 
   defp bulk_upsert_agent_availability(records) do
     records = dedupe_availability_records(records)
@@ -1251,26 +1358,28 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         ]
       )
 
-    {count, _} =
+    {count, accepted_observations} =
       Repo.insert_all(
         DeviceAgentAvailability,
         records,
         on_conflict: on_conflict_query,
         conflict_target: [:device_uid, :agent_id],
-        returning: false
+        returning: [:device_uid, :is_available]
       )
 
     Logger.debug("SweepResultsIngestor: Upserted #{count} per-agent availability rows")
 
     # Fire-and-forget: always returns :ok, so ingestion never fails because a
     # composite check refresh could not be scheduled.
-    ServiceRadar.CompositeChecks.Refresh.enqueue_many(Enum.map(records, & &1.device_uid))
+    ServiceRadar.CompositeChecks.Refresh.enqueue_many(
+      Enum.map(accepted_observations, & &1.device_uid)
+    )
 
-    :ok
+    accepted_observations
   rescue
     e ->
       Logger.error("SweepResultsIngestor: Failed to upsert per-agent availability: #{inspect(e)}")
-      :ok
+      []
   end
 
   # One sweep batch can carry multiple results for the same (device_uid,
@@ -1406,19 +1515,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     Enum.any?(sources, fn source -> String.downcase(source) != "sweep" and source != "" end)
   end
 
-  defp result_ips_for_status(results, desired) do
-    results
-    |> Enum.filter(fn result -> result_available?(result) == desired end)
-    |> Enum.map(&extract_ip/1)
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp device_uids_for_ips(ips, device_map) do
-    ips
-    |> Enum.map(&Map.get(device_map, &1))
-    |> Enum.reject(&is_nil/1)
-    |> Enum.map(& &1.canonical_device_id)
-    |> Enum.reject(&is_nil/1)
+  defp observation_uids_for_status(observations, desired) do
+    observations
+    |> Enum.filter(&(&1.is_available == desired))
+    |> Enum.map(& &1.device_uid)
+    |> Enum.uniq()
   end
 
   defp availability_policy(reporter_context) do
@@ -1426,6 +1527,51 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       authenticated_agent_id: reporter_context.authenticated_agent_id,
       reporter_expectation: reporter_context.expectation
     }
+  end
+
+  defp expected_reporter?(%{authenticated_agent_id: agent_id, expectation: :expected})
+       when is_binary(agent_id), do: true
+
+  defp expected_reporter?(_reporter_context), do: false
+
+  defp canonical_authorized_observation_uids([], _availability_policy), do: []
+
+  defp canonical_authorized_observation_uids(_device_uids, %{reporter_expectation: :unknown}),
+    do: []
+
+  defp canonical_authorized_observation_uids(device_uids, availability_policy) do
+    sql = """
+    SELECT d.uid
+    FROM ocsf_devices AS d
+    WHERE d.uid = ANY($1)
+      AND (
+        (
+          NULLIF(BTRIM(d.availability_source_agent_id), '') IS NOT NULL
+          AND d.availability_source_agent_id = $2
+          AND $3::text <> 'unknown'
+        )
+        OR (
+          NULLIF(BTRIM(d.availability_source_agent_id), '') IS NULL
+          AND $3::text = 'expected'
+        )
+      )
+    """
+
+    case Repo.query(sql, [
+           device_uids,
+           availability_policy.authenticated_agent_id,
+           Atom.to_string(availability_policy.reporter_expectation)
+         ]) do
+      {:ok, %{rows: rows}} ->
+        Enum.map(rows, fn [uid] -> uid end)
+
+      {:error, reason} ->
+        Logger.error(
+          "SweepResultsIngestor: Failed to resolve canonical availability authority: #{inspect(reason)}"
+        )
+
+        []
+    end
   end
 
   # Mark devices as available and reset consecutive failure count
@@ -2001,8 +2147,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
        ) do
     cond do
       not is_nil(reporter_context.execution) ->
-        Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists")
-        :ok
+        with :ok <- validate_execution_owner(reporter_context.execution, reporter_context) do
+          Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists")
+          :ok
+        end
 
       is_nil(reporter_context.resolved_group_id) ->
         Logger.warning(
@@ -2039,8 +2187,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     sweep_group_id = reporter_context.resolved_group_id
     agent_id = reporter_context.reporter_agent_id
 
-    mark_superseded_executions(sweep_group_id, agent_id, started_at)
-
     # DB connection's search_path determines the schema
     record = %{
       id: execution_id,
@@ -2056,35 +2202,46 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       updated_at: inserted_at
     }
 
-    case Repo.insert_all(
-           SweepGroupExecution,
-           [record],
-           on_conflict: :nothing,
-           returning: false
-         ) do
-      {1, _} ->
-        Logger.info(
-          "SweepResultsIngestor: Created execution record #{execution_id} for group #{sweep_group_id}"
-        )
+    {inserted_count, _} =
+      Repo.insert_all(
+        SweepGroupExecution,
+        [record],
+        on_conflict: :nothing,
+        returning: false
+      )
 
-        # Broadcast new execution for real-time UI updates
-        execution = %{
-          id: execution_id,
-          sweep_group_id: sweep_group_id,
-          agent_id: agent_id,
-          started_at: started_at,
-          config_version: config_version
-        }
+    with {:ok, winning_execution} <- load_execution_identity(execution_id),
+         :ok <- validate_execution_owner(winning_execution, reporter_context) do
+      maybe_mark_superseded_executions(
+        reporter_context,
+        execution_id,
+        started_at
+      )
 
-        SweepPubSub.broadcast_started(execution)
-        record_group_execution(reporter_context, actor)
+      case inserted_count do
+        1 ->
+          Logger.info(
+            "SweepResultsIngestor: Created execution record #{execution_id} for group #{sweep_group_id}"
+          )
 
-        :ok
+          # Broadcast new execution for real-time UI updates
+          execution = %{
+            id: execution_id,
+            sweep_group_id: sweep_group_id,
+            agent_id: agent_id,
+            started_at: started_at,
+            config_version: config_version
+          }
 
-      {0, _} ->
-        # Record already exists (race condition), that's fine
-        Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists (race)")
-        :ok
+          SweepPubSub.broadcast_started(execution)
+          record_group_execution(reporter_context, actor)
+
+          :ok
+
+        0 ->
+          Logger.debug("SweepResultsIngestor: Execution #{execution_id} already exists (race)")
+          :ok
+      end
     end
   rescue
     e ->
@@ -2111,13 +2268,50 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp record_group_execution(_reporter_context, _actor), do: :ok
 
-  defp mark_superseded_executions(nil, _agent_id, _now), do: :ok
-  defp mark_superseded_executions("", _agent_id, _now), do: :ok
+  defp validate_execution_owner(nil, _reporter_context),
+    do: {:error, :unresolved_execution_identity}
 
-  defp mark_superseded_executions(sweep_group_id, agent_id, now) do
+  defp validate_execution_owner(execution, reporter_context) do
+    expected_agent_id =
+      reporter_context.authenticated_agent_id || reporter_context.reporter_agent_id
+
+    cond do
+      execution.sweep_group_id != reporter_context.resolved_group_id ->
+        {:error, :conflicting_execution_group}
+
+      valid_reporter_uid(execution.agent_id) != valid_reporter_uid(expected_agent_id) ->
+        {:error, :conflicting_execution_reporter}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp maybe_mark_superseded_executions(
+         %{authenticated_agent_id: agent_id, expectation: expectation} = reporter_context,
+         execution_id,
+         now
+       )
+       when is_binary(agent_id) and expectation in [:expected, :unexpected] do
+    mark_superseded_executions(
+      reporter_context.resolved_group_id,
+      agent_id,
+      execution_id,
+      now
+    )
+  end
+
+  defp maybe_mark_superseded_executions(_reporter_context, _execution_id, _now), do: :ok
+
+  defp mark_superseded_executions(nil, _agent_id, _execution_id, _now), do: :ok
+  defp mark_superseded_executions("", _agent_id, _execution_id, _now), do: :ok
+
+  defp mark_superseded_executions(sweep_group_id, agent_id, execution_id, now) do
     base_query =
       from(e in SweepGroupExecution,
-        where: e.sweep_group_id == ^sweep_group_id and e.status == :running
+        where:
+          e.sweep_group_id == ^sweep_group_id and e.status == :running and
+            e.id != ^execution_id
       )
 
     query =
