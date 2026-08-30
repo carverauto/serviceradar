@@ -43,6 +43,7 @@ var (
 	ErrICMPv6Unreachable  = errors.New("ICMPv6 destination unreachable")
 	ErrICMPv6PacketTooBig = errors.New("ICMPv6 packet too big")
 	ErrICMPv6TimeExceeded = errors.New("ICMPv6 time exceeded")
+	errInvalidFanoutGroup = errors.New("invalid packet fanout group ID")
 
 	// Interface errors
 	ErrNoSuitableInterface = errors.New("no suitable local IP address and interface found")

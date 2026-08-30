@@ -246,7 +246,7 @@ func enableFanout(fd int, groupID int) error {
 	// See `man 7 packet`: lower 16 bits = group ID, upper 16 bits = mode|flags.
 	// option = (mode|flags)<<16 | groupID
 	if groupID < 0 || groupID > packetFanoutGroupIDMask {
-		return fmt.Errorf("invalid packet fanout group ID %d", groupID)
+		return fmt.Errorf("%w: %d", errInvalidFanoutGroup, groupID)
 	}
 
 	mode := unix.PACKET_FANOUT_HASH | unix.PACKET_FANOUT_FLAG_DEFRAG
