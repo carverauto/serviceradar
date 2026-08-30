@@ -30,13 +30,21 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
     config = Catalog.entity("interfaces")
     version = get_form_value(assigns.form, :version, "v2c")
     credential_secret_id = get_form_value(assigns.form, :credential_secret_id, "")
+    credential_secret_id = to_string(credential_secret_id || "")
+
+    selected_credential =
+      Enum.find(
+        assigns.snmp_credentials,
+        &(to_string(&1.id) == credential_secret_id)
+      )
 
     assigns =
       assigns
       |> assign(:is_default, is_default)
       |> assign(:config, config)
       |> assign(:version, version)
-      |> assign(:credential_secret_id, to_string(credential_secret_id || ""))
+      |> assign(:credential_secret_id, credential_secret_id)
+      |> assign(:selected_credential, selected_credential)
       |> assign(:credential_options, Data.snmp_credential_options(assigns.snmp_credentials))
 
     ~H"""
@@ -155,7 +163,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
 
             <div>
               <label class="flex items-center justify-between gap-2">
-                <span class="text-sm font-medium text-sr-ink">Credential</span>
+                <span class="text-sm font-medium text-sr-ink">Reusable Credential</span>
               </label>
               <.input
                 type="select"
@@ -163,17 +171,28 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
                 class={ui_field_class(class: "w-full")}
                 options={@credential_options}
               />
-              <label class="flex items-center justify-between gap-2">
-                <span class="text-xs text-sr-muted">
-                  <%= if @credential_secret_id == "" do %>
-                    Stored on this profile only. Choose a reusable credential to share one
-                    secret across profiles.
-                  <% else %>
-                    Reusable credential from the shared inventory. The fields below are
-                    ignored while one is selected.
-                  <% end %>
+              <div class="flex items-start justify-between gap-3 text-xs text-sr-muted">
+                <span :if={@credential_secret_id == ""}>
+                  Stored on this profile only. Choose a reusable credential to share one
+                  secret across profiles.
                 </span>
-              </label>
+                <span :if={@selected_credential}>
+                  Reusable credential from the shared inventory. The fields below are ignored
+                  while one is selected.
+                </span>
+                <span
+                  :if={@credential_secret_id != "" and is_nil(@selected_credential)}
+                  id="snmp-profile-reusable-credential-unavailable"
+                  class="text-warning"
+                >
+                  The selected reusable credential is unavailable. Choose another credential
+                  or store credentials on this profile.
+                </span>
+                <.reusable_credential_reference
+                  :if={@selected_credential}
+                  credential={@selected_credential}
+                />
+              </div>
             </div>
           </div>
 
@@ -724,6 +743,25 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
       </div>
     </.ui_panel>
     """
+  end
+
+  attr :credential, :any, required: true
+
+  def reusable_credential_reference(assigns) do
+    ~H"""
+    <.link
+      id="snmp-profile-reusable-credential-link"
+      navigate={credential_inventory_path(@credential.id)}
+      class="shrink-0 font-medium text-sr-brand hover:underline"
+    >
+      View reusable credential
+    </.link>
+    """
+  end
+
+  defp credential_inventory_path(secret_id) do
+    ~p"/settings/networks/credentials?credential_id=#{secret_id}" <>
+      "#credential-secret-#{secret_id}"
   end
 
   def version_badge_variant(:v1), do: "ghost"

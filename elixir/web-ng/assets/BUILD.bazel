@@ -19,6 +19,7 @@ on assets/** and the HEEx templates, so an .ex-only change is a cache hit.
 load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
 load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_library", "js_run_binary", "js_test")
 load("@web_ng_npm//elixir/web-ng/assets:@tailwindcss/cli/package_json.bzl", tailwind_bin = "bin")
+load("@web_ng_npm//elixir/web-ng/assets:vitest/package_json.bzl", vitest_bin = "bin")
 load("@web_ng_npm//:defs.bzl", "npm_link_all_packages")
 load("//build:phoenix_digest.bzl", "phoenix_digest")
 
@@ -76,6 +77,21 @@ js_test(
         "js/lib/GodViewRenderer.js",
     ],
     entry_point = "god_view_scene_test_runner.mjs",
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
+    name = "credential_deep_link_focus_test",
+    args = [
+        "run",
+        "js/hooks/CredentialDeepLinkFocus.test.js",
+    ],
+    chdir = package_name(),
+    data = [
+        ":node_modules",
+        "js/hooks/CredentialDeepLinkFocus.js",
+        "js/hooks/CredentialDeepLinkFocus.test.js",
+    ],
     tags = ["unit_test"],
 )
 

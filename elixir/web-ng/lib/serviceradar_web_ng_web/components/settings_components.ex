@@ -456,7 +456,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
             active: String.starts_with?(path, "/settings/networks/visibility-profiles")
           },
           %{
-            label: "Credential Rules",
+            label: "Credentials and Rules",
             navigate: ~p"/settings/networks/credentials",
             active: String.starts_with?(path, "/settings/networks/credentials")
           },
@@ -564,7 +564,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       case label do
         "SNMP" -> "settings.snmp_profiles.manage"
         "Visibility Profiles" -> "visibility_profiles:read"
-        "Credential Rules" -> "settings.credentials.manage"
+        "Credentials and Rules" -> "settings.credentials.manage"
         "Host Keys" -> "settings.remote_access_host_keys.manage"
         "Desktop Targets" -> "settings.edge.manage"
         "Recordings" -> remote_access_recording_permissions()

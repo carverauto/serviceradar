@@ -2,6 +2,7 @@ import AllMetadataCard from "./AllMetadataCard"
 import BulkEditTagsToggle from "./BulkEditTagsToggle"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
 import CommandPalette from "./CommandPalette"
+import CredentialDeepLinkFocus from "./CredentialDeepLinkFocus"
 import DialogTopLayer from "./DialogTopLayer"
 import ToastTopLayer from "./ToastTopLayer"
 import DashboardBuilderCanvas from "./DashboardBuilderCanvas"
@@ -50,6 +51,7 @@ export default {
   BulkEditTagsToggle,
   CameraRelayStatusStream,
   CommandPalette,
+  CredentialDeepLinkFocus,
   DialogTopLayer,
   ToastTopLayer,
   DashboardBuilderCanvas,

@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.Plugins.Packages
@@ -53,6 +54,44 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert html =~ "VulnCheck · API token"
     refute html =~ "Read the Proxmox setup guide"
     refute html =~ "Axis (VAPIX)"
+  end
+
+  test "lists and focuses reusable credentials independently of credential rules", %{
+    conn: conn,
+    scope: scope
+  } do
+    secret =
+      credential_secret_fixture(scope, %{
+        name: "Core switches #{System.unique_integer([:positive])}",
+        provider: "snmp",
+        credential_kind: :snmp,
+        username: "snmp-operator",
+        public_fingerprint: "sha256:snmp-test",
+        secret_payload: Jason.encode!(%{"username" => "snmp-operator"}),
+        metadata: %{"auth_method" => "v3"}
+      })
+
+    {:ok, _profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Core SNMP #{System.unique_integer([:positive])}",
+        version: :v3,
+        credential_secret_id: secret.id
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} =
+      live(conn, ~p"/settings/networks/credentials?credential_id=#{secret.id}")
+
+    row = "#credential-secret-#{secret.id}"
+
+    assert has_element?(lv, "#reusable-credentials")
+    assert has_element?(lv, "#reusable-credentials", "SNMP profiles / Rules")
+    assert has_element?(lv, "#{row}[data-focused='true']", secret.name)
+    assert has_element?(lv, row, "SNMP")
+    assert has_element?(lv, row, "SNMPv3 user")
+    assert has_element?(lv, row, "1 SNMP profile")
+    assert has_element?(lv, row, "0 rules")
   end
 
   test "viewer is blocked from credential rules settings", %{conn: conn} do
