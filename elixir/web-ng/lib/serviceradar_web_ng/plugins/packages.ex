@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadarWebNG.Observability.ContractRegistry
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.GitHubImporter
+  alias ServiceRadarWebNG.Plugins.Repositories
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
 
@@ -261,7 +262,17 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     limit = Keyword.get(opts, :limit, 10)
     release_tag = Keyword.get(opts, :release_tag)
 
-    discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
+    # Trust material for this repository -- its access token and its signing key
+    # -- rides along with every discovery and import call, so the importer never
+    # has to look a repository up and its tests stay database-free.
+    source_attrs =
+      %{}
+      |> maybe_put(:repo_url, repo_url)
+      |> maybe_put(:index_asset_name, Keyword.get(opts, :index_asset_name))
+      |> maybe_put(:github_token, Keyword.get(opts, :github_token))
+      |> maybe_put(:trusted_upload_signing_keys, Keyword.get(opts, :trusted_upload_signing_keys))
+
+    discovery_attrs = source_attrs
 
     with {:ok, plugins} <- discover_first_party_plugins(discovery_attrs, limit, release_tag) do
       existing = existing_import_keys(opts)
@@ -282,13 +293,14 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
       results =
         Enum.map(to_import, fn plugin ->
-          import_attrs = %{
-            source_type: :first_party,
-            repo_url: plugin.repo_url,
-            release_tag: plugin.release_tag,
-            plugin_id: plugin.plugin_id,
-            version: plugin.version
-          }
+          import_attrs =
+            Map.merge(source_attrs, %{
+              source_type: :first_party,
+              repo_url: plugin.repo_url,
+              release_tag: plugin.release_tag,
+              plugin_id: plugin.plugin_id,
+              version: plugin.version
+            })
 
           {plugin, create(import_attrs, opts)}
         end)
@@ -906,11 +918,38 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
     case package.source_type do
       :github -> enforce_github_policy(package, policy)
-      :first_party -> enforce_upload_policy(package, policy)
+      # A first-party package names the catalog it came from, so it is verified
+      # against that repository's key rather than a global map. An uploaded
+      # package has no catalog -- the CLI and the admin upload form both land
+      # here -- so it keeps the configured policy.
+      :first_party -> enforce_upload_policy(package, repository_policy(package, policy))
       :upload -> enforce_upload_policy(package, policy)
       _ -> :ok
     end
   end
+
+  # Falls back to the configured policy when the package's source is not a known
+  # repository. That keeps packages imported before repositories became records
+  # verifiable, and it is not a hole: an unknown source cannot widen trust, it
+  # can only fall back to the same global map that governed every package
+  # before this change.
+  defp repository_policy(%PluginPackage{source_repo_url: repo_url}, policy) when is_binary(repo_url) do
+    case Repositories.get_by_repo_url(repo_url) do
+      {:ok, repository} ->
+        case Repositories.trusted_keys(repository) do
+          keys when map_size(keys) > 0 ->
+            %{policy | trusted_upload_signing_keys: UploadSignature.normalize_trusted_keys(keys)}
+
+          _ ->
+            policy
+        end
+
+      {:error, _reason} ->
+        policy
+    end
+  end
+
+  defp repository_policy(_package, policy), do: policy
 
   defp enforce_github_policy(package, policy) do
     signer =

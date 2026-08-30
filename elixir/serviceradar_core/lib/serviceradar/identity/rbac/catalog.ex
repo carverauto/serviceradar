@@ -866,6 +866,19 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Assign plugins",
           description: "Assign plugins to agents and resources",
           default_roles: @admin_roles
+        },
+        %{
+          key: "plugins.repositories.manage",
+          section: "plugins",
+          resource: "plugins.repositories",
+          action: "manage",
+          label: "Manage plugin repositories",
+          description:
+            "Add, edit, enable, disable and remove the catalog sources plugins " <>
+              "are imported from. Deliberately separate from plugins.stage: " <>
+              "staging imports from a trusted source, this decides which " <>
+              "sources are trusted.",
+          default_roles: @admin_roles
         }
       ]
     },

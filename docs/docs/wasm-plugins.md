@@ -333,6 +333,65 @@ actions so the historical row remains available for investigation.
 
 ServiceRadar ships first-party Wasm plugins as signed artifacts published by release automation. The Plugins UI can sync a first-party plugin index, verify the referenced signed bundle, mirror the Wasm payload into ServiceRadar-managed plugin storage, and stage the package for normal capability review. Imported first-party packages are not assignable until an authorized operator approves them.
 
+### Third-party plugin repositories
+
+The Plugins UI imports from a **plugin repository**: a record naming a GitHub
+repository, the release asset holding its plugin index, and the ed25519 key its
+bundles must verify against. The built-in `carverauto/serviceradar` source is
+seeded as one of these records; it can be disabled but not edited or removed.
+
+Adding a repository requires the `plugins.repositories.manage` permission, which
+is separate from `plugins.stage` on purpose: staging imports from a source the
+platform already trusts, while adding a repository decides *which sources are
+trusted*. Every add, edit, enable, disable and removal is written to the audit
+log with the actor, the repository URL and its signing key id.
+
+#### What a repository must publish
+
+A release carries:
+
+- the plugin index asset (default `serviceradar-wasm-plugin-index.json`), whose
+  entries name each plugin's id, version, `bundle_url`, `bundle_digest` and
+  `upload_signature_url`;
+- the bundle zip for each entry;
+- an ed25519 upload-signature document per bundle.
+
+Bundles are signed with `build/wasm_plugins/upload_signature_tool.go`, a
+dependency-free Go binary that cross-compiles to macOS, Windows and Linux and
+reads its key from an environment variable or a file. **Cosign is not required**
+for a third-party repository. Cosign applies only to the first-party OCI artifact
+path, which additionally requires a public Rekor transparency-log entry.
+
+The repository record stores the matching `key_id` and base64 public key, and a
+bundle is verified against *that repository's* key -- so a bundle signed by one
+publisher cannot be imported through another's catalog. A repository cannot be
+saved without a key: a source with no trust anchor could never import anything,
+so the failure belongs where a human can fix it.
+
+#### Private repositories
+
+Attach a GitHub personal access token to the repository. A fine-grained token
+with read-only Contents access to that one repository is enough. The token is
+stored encrypted in the credential store, is never returned by any read of the
+repository, and never appears in an audit record -- the UI shows only whether one
+is attached.
+
+Two behaviours worth knowing:
+
+- GitHub answers **404, not 403**, for a private repository a token cannot see.
+  A missing or expired token therefore looks identical to a missing release, so
+  the error messages name both possibilities.
+- Private release assets download through the API endpoint, which redirects to a
+  short-lived pre-signed URL. ServiceRadar does not forward the token to that
+  redirect target: the pre-signed URL carries its own authorization, and sending
+  the token would disclose it to a host that has no need for it.
+
+#### Sync
+
+Each enabled repository syncs independently. One unreachable source -- an expired
+token, a repository that moved -- does not stop the others from importing; its
+error is recorded on the repository row.
+
 ### GitHub imports and verification
 
 For GitHub-sourced plugins, the control plane fetches `plugin.yaml`, `plugin.wasm`, and an optional config schema. Commit verification is captured from GitHub. If `PLUGIN_REQUIRE_GPG_FOR_GITHUB=true`, unsigned or unverified commits are rejected during import.

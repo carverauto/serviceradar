@@ -11,7 +11,9 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     domain: ServiceRadar.Credentials,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshCloak, AshStateMachine, AshPaperTrail.Resource],
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    # The primary read deliberately carries a select preparation; see `read :read`.
+    primary_read_warning?: false
 
   alias ServiceRadar.Credentials.Changes.WriteSecretLifecycleEvent
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -123,7 +125,21 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
   end
 
   actions do
+    # Primary because every update on this resource needs it. Without a primary
+    # read, `:update`, `:disable_rotation` and the rotation transitions all fail
+    # -- first with Ash.Error.Framework.MustBeAtomic, and then, once
+    # `atomic_upgrade_with` is configured, with `Required primary read action`
+    # raised from the `Ash.load/3` inside `Ash.Actions.Update.run/4`. No caller
+    # had ever updated this resource, so none of its update actions worked.
+    #
+    # The select preparation is why `use Ash.Resource` carries
+    # `primary_read_warning?: false`. Ash warns that a primary read with
+    # preparations also governs relationship loads and policy checks -- here that
+    # is the desired effect, not an accident: it means loading a repository's
+    # `credential_secret` yields the public fields and never the encrypted
+    # payload. `:by_id_with_secret` remains the only way to reach that.
     read :read do
+      primary? true
       prepare build(select: @public_read_fields)
     end
 
