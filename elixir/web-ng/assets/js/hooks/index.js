@@ -5,6 +5,7 @@ import CommandPalette from "./CommandPalette"
 import CredentialDeepLinkFocus from "./CredentialDeepLinkFocus"
 import DialogTopLayer from "./DialogTopLayer"
 import ToastTopLayer from "./ToastTopLayer"
+import TimezoneSelect from "./TimezoneSelect"
 import DashboardBuilderCanvas from "./DashboardBuilderCanvas"
 import DashboardPanelChart from "./DashboardPanelChart"
 import DashboardMapViewSelect from "./DashboardMapViewSelect"
@@ -55,6 +56,7 @@ export default {
   CredentialDeepLinkFocus,
   DialogTopLayer,
   ToastTopLayer,
+  TimezoneSelect,
   DashboardBuilderCanvas,
   DashboardPanelChart,
   DashboardMapViewSelect,
