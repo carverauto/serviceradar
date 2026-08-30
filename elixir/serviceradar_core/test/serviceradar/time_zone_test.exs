@@ -25,6 +25,15 @@ defmodule ServiceRadar.TimeZoneTest do
              {:ok, ["America/Chicago", "Etc/UTC"]}
   end
 
+  test "returns only canonical Etc/UTC for UTC catalog aliases" do
+    catalog_query = fn _, _ ->
+      {:ok, %{rows: [["Etc/GMT"], ["Etc/UTC"], ["Etc/Zulu"], ["America/Chicago"]]}}
+    end
+
+    assert TimeZone.profile_timezones(query: catalog_query) ==
+             {:ok, ["America/Chicago", "Etc/UTC"]}
+  end
+
   test "reports an unavailable PostgreSQL timezone catalog" do
     assert TimeZone.profile_timezones(query: fn _, _ -> {:error, :catalog_unavailable} end) ==
              {:error, :catalog_unavailable}

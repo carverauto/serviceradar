@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNG.TimezonePreferenceTest do
   alias ServiceRadarWebNG.Accounts.Scope
 
   test "updates only the acting user's validated display timezone" do
-    user = user_fixture()
+    user = viewer_user_fixture()
     other_user = user_fixture()
     admin = admin_user_fixture()
     own_scope = Scope.for_user(user)
@@ -45,18 +45,12 @@ defmodule ServiceRadarWebNG.TimezonePreferenceTest do
     assert fresh_user(utc.id).timezone == "Etc/UTC"
 
     assert {:error, %Forbidden{}} =
+             User.update_timezone_preference(other_user, %{timezone: "America/Chicago"}, scope: own_scope)
+
+    assert fresh_user(other_user.id).timezone == "Etc/UTC"
+
+    assert {:error, %Forbidden{}} =
              User.update_timezone_preference(other_user, %{timezone: "America/Chicago"}, scope: admin_scope)
-  end
-
-  test "generated migration backfills the non-null UTC preference default" do
-    migration =
-      "../../../../serviceradar_core/priv/repo/migrations/*_add_user_timezone_preference.exs"
-      |> Path.expand(__DIR__)
-      |> Path.wildcard()
-      |> Enum.reject(&String.ends_with?(&1, "_extensions_1.exs"))
-
-    assert [migration] = migration
-    assert File.read!(migration) =~ "add :timezone, :text, null: false, default: \"Etc/UTC\""
   end
 
   defp fresh_user(id) do

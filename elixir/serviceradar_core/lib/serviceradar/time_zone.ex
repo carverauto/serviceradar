@@ -66,8 +66,14 @@ defmodule ServiceRadar.TimeZone do
         zones =
           rows
           |> Enum.flat_map(fn
-            [name] when is_binary(name) -> if(profile_shape?(name), do: [name], else: [])
-            _ -> []
+            [name] when is_binary(name) ->
+              case normalize_preference(name) do
+                {:ok, canonical_name} -> [canonical_name]
+                {:error, :invalid_timezone} -> []
+              end
+
+            _ ->
+              []
           end)
           |> then(&["Etc/UTC" | &1])
           |> Enum.uniq()

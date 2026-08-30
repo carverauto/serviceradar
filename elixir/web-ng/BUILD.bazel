@@ -368,6 +368,9 @@ ex_unit_tests(
         # from __DIR__. ex_unit_test mirrors the workspace layout, so this
         # declared input is what makes that relative path exist in the sandbox.
         "//go/cmd/wasm-plugins/opentext-nom:config.schema.json",
+        # TimezoneMigrationTest asserts on the generated core migration from the
+        # database-free shard, so the cross-package source must be in runfiles.
+        "//elixir/serviceradar_core:migrations",
     ],
     # web-ng already defines a database-free tier: with ALLOW_DB_FREE_TESTS set and neither
     # CI nor REQUIRE_DB_TESTS, test_helper.exs skips Application.ensure_all_started and runs
