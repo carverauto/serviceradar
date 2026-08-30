@@ -95,13 +95,13 @@ table, ASCII-only docs.
 - [x] 4.1 `packages.ex`: `sync_snmp_requirements(:approved)` on approve,
   `(:disabled)` on deny/revoke/restage - the three call sites that already
   carry `sync_alert_rules`.
-- [ ] 4.2 Test each transition end to end through `Packages` in `web-ng`. The
+- [x] 4.2 Test each transition end to end through `Packages` in `web-ng`. The
   catalog itself is covered directly in `serviceradar_core`; what is untested is
   the three call sites.
 
 ## 4b. Fact provenance (follow-up)
 
-- [ ] 4b.1 Thread the collecting profile id through to the reading so
+- [x] 4b.1 Thread the collecting profile id through to the reading so
   `device_snmp_facts.snmp_profile_id` and `plugin_package_id` stop being NULL.
   Nothing on the wire links a reading back to its profile today:
   `protoToSNMPConfig` never copies `SNMPTargetConfig.id` into `snmp.Target`, and
@@ -110,11 +110,11 @@ table, ASCII-only docs.
 
 ## 5. UI
 
-- [ ] 5.1 Provenance badge on the profile list row and in the template
+- [x] 5.1 Provenance badge on the profile list row and in the template
   browser's Custom tab, including the package-removed case.
-- [ ] 5.2 Show compiled target count on the profile row.
-- [ ] 5.3 Warn on enabling a profile with no credential bound.
-- [ ] 5.4 LiveView tests for the badge and the no-credential warning.
+- [x] 5.2 Show compiled target count on the profile row.
+- [x] 5.3 Warn on enabling a profile with no credential bound.
+- [x] 5.4 LiveView tests for the badge and the no-credential warning.
 
 ## 6. Customer-repo follow-up (does not land in this repo)
 

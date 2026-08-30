@@ -1164,6 +1164,10 @@ func snmpPointMetadata(result snmpMetricResult, numeric bool) map[string]string 
 		"oid_index": result.OIDIndex,
 	}
 
+	if result.ProfileID != "" {
+		metadata["snmp_profile_id"] = result.ProfileID
+	}
+
 	if !numeric {
 		metadata["non_numeric"] = "true"
 	}

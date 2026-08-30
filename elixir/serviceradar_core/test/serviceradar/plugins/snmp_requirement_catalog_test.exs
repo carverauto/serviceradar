@@ -35,10 +35,12 @@ defmodule ServiceRadar.Plugins.SNMPRequirementCatalogTest do
       assert template.name == "plugin:#{package.name}:clearpass-node-health"
       assert template.vendor == "plugin"
       assert template.is_builtin == false
+      assert template.plugin_contributed == true
       assert length(template.oids) == 2
 
       assert [profile] = package_rows(SNMPProfile, package.id, actor)
       assert profile.oid_template_ids == [template.id]
+      assert profile.plugin_contributed == true
 
       # Inert on every axis the manifest cannot express.
       assert profile.enabled == false

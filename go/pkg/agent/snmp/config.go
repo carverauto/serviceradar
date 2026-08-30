@@ -41,6 +41,8 @@ type SNMPConfig struct {
 	Targets     []Target               `json:"targets"`
 	Partition   string                 `json:"partition"`
 	Logger      *logger.Config         `json:"logger,omitempty"`
+	ProfileID   string                 `json:"profile_id,omitempty"`
+	ProfileName string                 `json:"profile_name,omitempty"`
 }
 
 const (

@@ -31,7 +31,12 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   end
 
   def load_profiles(scope) do
-    case Ash.read(SNMPProfile, scope: scope) do
+    query =
+      SNMPProfile
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.load(:plugin_package)
+
+    case Ash.read(query, scope: scope) do
       {:ok, profiles} ->
         # Sort by priority (highest first), then by name
         Enum.sort_by(profiles, fn p -> {-p.priority, p.name} end)
@@ -63,7 +68,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   end
 
   def load_profile(scope, id) do
-    case Ash.get(SNMPProfile, id, scope: scope) do
+    case Ash.get(SNMPProfile, id, scope: scope, load: [:plugin_package]) do
       {:ok, profile} -> profile
       {:error, _} -> nil
     end
@@ -117,7 +122,12 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data do
   end
 
   def load_custom_templates(scope) do
-    case Ash.read(SNMPOIDTemplate, action: :list_custom, scope: scope) do
+    query =
+      SNMPOIDTemplate
+      |> Ash.Query.for_read(:list_custom)
+      |> Ash.Query.load(:plugin_package)
+
+    case Ash.read(query, scope: scope) do
       {:ok, templates} -> templates
       {:error, _} -> []
     end

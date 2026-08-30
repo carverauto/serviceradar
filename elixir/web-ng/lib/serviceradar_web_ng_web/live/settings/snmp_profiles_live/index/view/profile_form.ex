@@ -5,8 +5,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
   import ServiceRadarWebNGWeb.QueryBuilderComponents
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data, only: [agent_display_name: 1]
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.FormHelpers, only: [get_form_value: 3]
+  import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance, only: [plugin_badge: 1]
 
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data
+  alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   attr :form, :any, required: true
@@ -31,6 +33,15 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
     version = get_form_value(assigns.form, :version, "v2c")
     credential_secret_id = get_form_value(assigns.form, :credential_secret_id, "")
 
+    form_has_credential? =
+      present_form_value?(credential_secret_id) or
+        Provenance.credential_bound?(assigns.selected_profile)
+
+    show_no_credential_warning? =
+      assigns.selected_profile &&
+        assigns.selected_profile.enabled &&
+        not form_has_credential?
+
     assigns =
       assigns
       |> assign(:is_default, is_default)
@@ -38,14 +49,22 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
       |> assign(:version, version)
       |> assign(:credential_secret_id, to_string(credential_secret_id || ""))
       |> assign(:credential_options, Data.snmp_credential_options(assigns.snmp_credentials))
+      |> assign(:show_no_credential_warning?, show_no_credential_warning?)
 
     ~H"""
     <.ui_panel>
       <:header>
-        <div class="text-sm font-semibold">
-          {if @show_form == :new_profile,
-            do: "New SNMP Profile",
-            else: "Edit #{@selected_profile.name}"}
+        <div class="flex items-center gap-2 text-sm font-semibold">
+          <span>
+            {if @show_form == :new_profile,
+              do: "New SNMP Profile",
+              else: "Edit #{@selected_profile.name}"}
+          </span>
+          <.plugin_badge
+            :if={@selected_profile}
+            record={@selected_profile}
+            id={"snmp-profile-form-#{@selected_profile.id}-plugin"}
+          />
         </div>
       </:header>
 
@@ -129,6 +148,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
             />
           </div>
         </div>
+
+        <.ui_alert
+          :if={@show_no_credential_warning?}
+          id="snmp-profile-no-credential-warning"
+          variant="warning"
+        >
+          {Provenance.no_credential_warning()}
+        </.ui_alert>
 
         <!-- SNMP Credentials Section -->
         <div class="space-y-4">
@@ -736,4 +763,9 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfileForm 
   def format_version(:v3), do: "v3"
   def format_version(v) when is_binary(v), do: v
   def format_version(_), do: "v2c"
+
+  defp present_form_value?(nil), do: false
+  defp present_form_value?(""), do: false
+  defp present_form_value?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_form_value?(_value), do: true
 end

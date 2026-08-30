@@ -66,6 +66,10 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
     table "snmp_oid_templates"
     repo ServiceRadar.Repo
     schema "platform"
+
+    references do
+      reference :plugin_package, on_delete: :nilify
+    end
   end
 
   actions do
@@ -182,7 +186,24 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
       description "Plugin package that contributed this template, when any"
     end
 
+    attribute :plugin_contributed, :boolean do
+      allow_nil? false
+      default false
+      public? true
+
+      description "True when a plugin package created this template, even after the package is gone"
+    end
+
     timestamps()
+  end
+
+  relationships do
+    belongs_to :plugin_package, ServiceRadar.Plugins.PluginPackage do
+      source_attribute :plugin_package_id
+      define_attribute? false
+      allow_nil? true
+      public? true
+    end
   end
 
   identities do

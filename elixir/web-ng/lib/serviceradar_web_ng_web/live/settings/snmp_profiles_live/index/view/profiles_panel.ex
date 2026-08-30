@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance, only: [plugin_badge: 1]
+
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting,
     only: [format_target_count: 1, target_count_title: 1]
 
@@ -66,6 +68,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
                       {profile.name}
                     </.link>
                     <.ui_badge :if={profile.is_default} variant="info" size="xs">Default</.ui_badge>
+                    <.plugin_badge
+                      record={profile}
+                      id={"snmp-profile-#{profile.id}-plugin"}
+                    />
                   </div>
                   <p :if={profile.description} class="text-xs text-sr-muted truncate max-w-xs">
                     {profile.description}

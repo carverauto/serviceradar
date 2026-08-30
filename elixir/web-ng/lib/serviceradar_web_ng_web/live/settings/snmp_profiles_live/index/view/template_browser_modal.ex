@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance, only: [plugin_badge: 1]
+
   alias ServiceRadar.SNMPProfiles.BuiltinTemplates
 
   attr :search, :string, default: ""
@@ -38,7 +40,10 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
             vendor: t.vendor,
             category: t.category,
             oids: t.oids || [],
-            is_custom: true
+            is_custom: true,
+            plugin_contributed: Map.get(t, :plugin_contributed, false),
+            plugin_package_id: Map.get(t, :plugin_package_id),
+            plugin_package: Map.get(t, :plugin_package)
           }
         end)
       else
@@ -141,7 +146,14 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrow
           <%= for template <- @templates do %>
             <div class="flex items-center justify-between p-3 bg-sr-subtle/30 rounded-lg hover:bg-sr-subtle/50">
               <div class="flex-1">
-                <div class="font-medium text-sm">{template.name}</div>
+                <div class="flex items-center gap-2">
+                  <div class="font-medium text-sm">{template.name}</div>
+                  <.plugin_badge
+                    :if={template.is_custom}
+                    record={template}
+                    id={"snmp-template-#{template.id}-plugin"}
+                  />
+                </div>
                 <p :if={template.description} class="text-xs text-sr-muted mt-0.5">
                   {template.description}
                 </p>

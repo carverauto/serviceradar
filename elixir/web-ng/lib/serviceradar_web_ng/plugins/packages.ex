@@ -163,6 +163,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         other ->
           other
       end
+      |> sync_alert_rules(:disabled)
+      |> sync_snmp_requirements(:disabled)
       |> refresh_contract_index()
     end
   end

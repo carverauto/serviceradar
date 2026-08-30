@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
+  alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.TemplateBrowserModal
 
   setup :register_and_log_in_admin_user
 
@@ -251,5 +252,87 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
 
       assert profile.credential_secret_id == nil
     end
+  end
+
+  test "shows a plugin-removed badge on a contributed profile", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Orphaned Plugin Profile #{unique}",
+        enabled: false
+      })
+      |> Ash.Changeset.force_change_attribute(:plugin_contributed, true)
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp")
+
+    assert has_element?(lv, "#snmp-profile-#{profile.id}-plugin", "Plugin (removed)")
+  end
+
+  test "warns when enabling a profile with no credential bound", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "No Cred #{unique}",
+        enabled: false
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp")
+
+    html =
+      lv
+      |> element("button[phx-click='toggle_profile'][phx-value-id='#{profile.id}']")
+      |> render_click()
+
+    assert html =~ "no SNMP credential bound"
+  end
+
+  test "warns on the edit form when an enabled profile has no credential", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: "Enabled No Cred #{unique}",
+        enabled: true
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/snmp/#{profile.id}/edit")
+
+    assert has_element?(lv, "#snmp-profile-no-credential-warning")
+  end
+
+  test "template browser Custom tab badges a plugin-removed template" do
+    template_id = Ecto.UUID.generate()
+
+    html =
+      render_component(&TemplateBrowserModal.template_browser_modal/1, %{
+        search: "",
+        selected_vendor: "custom",
+        custom_templates: [
+          %{
+            id: template_id,
+            name: "plugin:clearpass:node-health",
+            description: "Node health",
+            vendor: "plugin",
+            category: "system",
+            oids: [%{"oid" => ".1.3.6.1.2.1.1.1.0"}],
+            plugin_contributed: true,
+            plugin_package_id: nil
+          }
+        ]
+      })
+
+    assert html =~ "Plugin (removed)"
+    assert html =~ "snmp-template-#{template_id}-plugin"
   end
 end
