@@ -832,19 +832,26 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert {:error, :not_outstanding} = PublishWindow.settle(w1, fresh, @primary)
     end
 
-    test "abandon releases a reservation whose owner is gone, whatever its attempt state" do
+    test "abandon releases only the EXACT attempt that was never handed over" do
       w = admit!(window(), 1, 100, 500)
 
-      assert {:ok, released} = PublishWindow.abandon(w, k(1))
+      assert {:ok, released} = PublishWindow.abandon(w, r(1))
       assert PublishWindow.outstanding_frames(released) === 0
       assert PublishWindow.outstanding_bytes(released) === 0
 
-      # Also works once the attempt has ended, which is the state a timed-out caller leaves.
+      # Token-bound: a superseded attempt cannot release whatever holds the key now. Without this
+      # a revocation arriving late released a reservation that had since been re-armed.
       {:ok, ended} = PublishWindow.attempt_failed(w, r(1))
-      assert {:ok, released2} = PublishWindow.abandon(ended, k(1))
-      assert PublishWindow.outstanding_frames(released2) === 0
+      {:ok, rearmed, current} = PublishWindow.admit(ended, k(1), 100, 900)
 
-      assert {:error, :not_outstanding} = PublishWindow.abandon(released, k(1))
+      assert {:error, :not_outstanding} = PublishWindow.abandon(rearmed, r(1))
+      assert PublishWindow.outstanding_frames(rearmed) === 1
+
+      # NOT VACUOUS: the CURRENT attempt's handle does release it.
+      assert {:ok, gone} = PublishWindow.abandon(rearmed, current)
+      assert PublishWindow.outstanding_frames(gone) === 0
+
+      assert {:error, :not_outstanding} = PublishWindow.abandon(released, r(1))
     end
   end
 end

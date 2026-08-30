@@ -249,67 +249,14 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
     end
   end
 
-  describe "an admission the caller never received is revoked" do
-    setup do
-      previous = Application.get_env(:serviceradar_core, :publisher_pool_call_timeout_ms)
-      Application.put_env(:serviceradar_core, :publisher_pool_call_timeout_ms, 50)
-
-      on_exit(fn ->
-        case previous do
-          nil -> Application.delete_env(:serviceradar_core, :publisher_pool_call_timeout_ms)
-          v -> Application.put_env(:serviceradar_core, :publisher_pool_call_timeout_ms, v)
-        end
-      end)
-
-      :ok
-    end
-
-    test "a queued admission processed AFTER the caller gave up does not stay charged" do
-      # THE EXACT CASE. GenServer.call/3 gives up, but OTP does not cancel the queued message: the
-      # pool goes on to admit, charging a frame for a request that was never made. The caller does
-      # NOT die -- the publisher catches that exit -- so nothing about caller liveness can recover
-      # it. Only the caller's own revocation can, because only the caller knows it never published.
-      p = pool(:bulk, 1, 100)
-
-      :sys.suspend(p)
-      task = Task.async(fn -> PublisherPool.admit(p, k(1), 50, 60_000) end)
-      assert {:error, :pool_timeout} = Task.await(task, 5_000)
-
-      # The pool now processes the queued admission, then the revocation behind it.
-      :sys.resume(p)
-
-      assert eventually(fn ->
-               match?(%{outstanding_frames: 0, outstanding_bytes: 0}, PublisherPool.capacity(p))
-             end),
-             "the admission the caller never received stayed charged"
-
-      # NOT VACUOUS: the credit is genuinely usable again.
-      assert {:ok, _} = PublisherPool.admit(p, k(2), 50, 60_000)
-    end
-
-    test "revocation does not touch a reservation the caller DID receive" do
-      p = pool(:bulk, 2, 200)
-      assert {:ok, held} = PublisherPool.admit(p, k(1), 50, 60_000)
-
-      :sys.suspend(p)
-      task = Task.async(fn -> PublisherPool.admit(p, k(2), 50, 60_000) end)
-      assert {:error, :pool_timeout} = Task.await(task, 5_000)
-      :sys.resume(p)
-
-      assert eventually(fn ->
-               match?(%{outstanding_frames: 1}, PublisherPool.capacity(p))
-             end)
-
-      # The reservation the caller actually holds is untouched and still settles.
-      assert :ok = PublisherPool.settle(p, held, :primary_publication)
-    end
-
-    test "caller death alone releases NOTHING" do
-      # Deliberate. A caller can die after Gnat has written the request to the socket, or exit
-      # normally after attempt_failed/2 kept the credit on purpose. Releasing on death would permit
-      # another publish while the first is still broker-ambiguous, which is the bound this exists
-      # to hold. The conservative direction is to keep the credits charged; a lane restart is what
-      # clears them.
+  describe "caller death alone authorises nothing" do
+    test "a caller that dies AFTER taking delivery leaves its credits charged" do
+      # Deliberate, and the conservative direction. By the time a caller holds its reservation a
+      # request may already be on the socket; releasing then would permit a second publish while
+      # the first is still broker-ambiguous. A lane restart is what clears these.
+      #
+      # The pre-handoff case -- a caller that dies before it ever receives the reservation -- is a
+      # different question and is covered in PublisherPoolHandoffTest.
       p = pool(:bulk, 1, 100)
       test_pid = self()
 
@@ -324,14 +271,14 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       Process.exit(caller, :kill)
       assert_receive {:DOWN, ^ref, :process, ^caller, _}
 
-      # Still charged, on purpose.
       Process.sleep(50)
       assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
     end
 
     test "an unrecognised :DOWN cannot release anything" do
-      # The pool no longer monitors callers at all, so a stray :DOWN is inert. It used to release
-      # the named pid's reservations without ever checking the monitor reference.
+      # The pool only ever acts on a monitor reference it issued for a PENDING admission. An
+      # earlier version matched on the pid alone and released that owner's reservations for any
+      # :DOWN naming it.
       p = pool(:bulk, 1, 100)
       assert {:ok, _} = PublisherPool.admit(p, k(1), 50, 60_000)
 

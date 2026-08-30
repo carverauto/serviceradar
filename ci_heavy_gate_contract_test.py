@@ -1566,11 +1566,11 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         load_only = [row for row in rows if row["mode"] == "load_only"]
 
         self.assertEqual(286, len(selected))
-        # +42 load_only: the unify-sweep-results-proto edge suites. All are database-free -- none
+        # +43 load_only: the unify-sweep-results-proto edge suites. All are database-free -- none
         # carries an :integration or :requires_app identity -- so they load and never select,
         # and the SELECTED count is deliberately unchanged.
-        self.assertEqual(550, len(load_only))
-        self.assertEqual(836, len(rows))
+        self.assertEqual(551, len(load_only))
+        self.assertEqual(837, len(rows))
         self.assertEqual(
             set(ordinary_core_test_sources()),
             {row["source"] for row in rows},

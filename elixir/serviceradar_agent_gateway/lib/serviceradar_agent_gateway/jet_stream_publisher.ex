@@ -161,7 +161,12 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
 
       name when is_atom(name) ->
         case Process.whereis(name) do
-          nil -> {:error, {:derivation, {:no_publisher_pool, lane}}}
+          # TRANSIENT, not a derivation failure. `:derivation` means a bad route, identity or
+          # grant -- a bug or a bad grant, not something to retry against the broker. A lane
+          # restart leaves a registration gap of exactly this shape, so it belongs on the same
+          # retryable path as a dead or timed-out pool. Publishing still fails closed; what
+          # changes is that the caller is told to come back.
+          nil -> {:error, :systemic}
           pid -> {:ok, pid}
         end
     end
