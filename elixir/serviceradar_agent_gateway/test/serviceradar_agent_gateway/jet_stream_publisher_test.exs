@@ -584,11 +584,15 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       # registered in this VM and a test that assumed otherwise passed for the wrong reason.
       with_reply({:ok, %{body: ~s({"stream":"S","seq":1})}})
 
-      assert {:error, {:derivation, {:no_publisher_pool, :bulk}}} =
+      # RETRYABLE, not a derivation failure: a lane restart leaves a registration gap of exactly
+      # this shape, and `:derivation` means a bad route, identity or grant.
+      assert {:error, :systemic} =
                JetStreamPublisher.publish_record(publication(),
                  connection: FakeConn,
                  pools: %{bulk: :no_such_publisher_pool_is_registered}
                )
+
+      assert JetStreamPublisher.retryable?(:systemic)
 
       refute_received {:requested, _, _, _, _}
     end
