@@ -3,6 +3,7 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
 
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Edge.AgentConfigGenerator
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
@@ -23,6 +24,8 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
     }
 
     agent_id = "agent-#{System.unique_integer([:positive])}"
+
+    register_agent(agent_id, actor)
 
     {:ok, actor: actor, agent_id: agent_id}
   end
@@ -249,6 +252,8 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
     agent_b = "agent-b-#{unique_id}"
     target = "10.2.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}"
 
+    register_agent(agent_a, actor)
+
     {:ok, group} =
       SweepGroup
       |> Ash.Changeset.for_create(
@@ -298,7 +303,67 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
     assert target in compiled_b["targets"]
   end
 
+  test "a fixed subset compiles the same schema for every selected agent across partitions", %{
+    actor: actor
+  } do
+    unique_id = System.unique_integer([:positive])
+    agent_a = register_agent("agent-subset-a-#{unique_id}", actor)
+    agent_b = register_agent("agent-subset-b-#{unique_id}", actor)
+    unselected = register_agent("agent-subset-c-#{unique_id}", actor)
+    agent_partition = "agent-subset-home-#{unique_id}"
+    device_partition = "agent-subset-device-#{unique_id}"
+    target = "10.3.#{rem(unique_id, 200) + 20}.#{rem(div(unique_id, 200), 200) + 20}"
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Selected subset #{unique_id}",
+          partition: device_partition,
+          agent_ids: [agent_a.uid, agent_b.uid],
+          interval: "2m",
+          sweep_modes: ["icmp"],
+          static_targets: [target]
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, config_a} = AgentConfigGenerator.generate_config(agent_a.uid, agent_partition)
+    {:ok, config_b} = AgentConfigGenerator.generate_config(agent_b.uid, agent_partition)
+    {:ok, config_c} = AgentConfigGenerator.generate_config(unselected.uid, agent_partition)
+
+    group_a = compiled_group(config_a, group.id)
+    group_b = compiled_group(config_b, group.id)
+
+    assert group_a == group_b
+    assert target in group_a["targets"]
+    refute Map.has_key?(group_a, "agent_id")
+    refute Map.has_key?(group_a, "agent_ids")
+    assert is_nil(compiled_group(config_c, group.id))
+  end
+
   defp device_target_networks(compiled_group) do
     Enum.map(compiled_group["device_targets"] || [], & &1["network"])
+  end
+
+  defp compiled_group(config, group_id) do
+    config.config_json
+    |> Jason.decode!()
+    |> get_in(["sweep", "groups"])
+    |> Enum.find(&(&1["sweep_group_id"] == group_id))
+  end
+
+  defp register_agent(uid, actor) do
+    case Agent.get_by_uid(uid, actor: actor) do
+      {:ok, agent} ->
+        agent
+
+      {:error, _reason} ->
+        Agent
+        |> Ash.Changeset.for_create(:register, %{uid: uid}, actor: actor)
+        |> Ash.create!()
+    end
   end
 end

@@ -3,6 +3,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.CoverageTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.CompositeChecks.Validation.Coverage
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
@@ -47,6 +48,10 @@ defmodule ServiceRadar.CompositeChecks.Validation.CoverageTest do
   end
 
   defp create_group!(attrs) do
+    attrs
+    |> assignment_agent_ids()
+    |> Enum.each(&register_agent!/1)
+
     SweepGroup
     |> Ash.Changeset.for_create(
       :create,
@@ -61,6 +66,27 @@ defmodule ServiceRadar.CompositeChecks.Validation.CoverageTest do
       actor: actor()
     )
     |> Ash.create!()
+  end
+
+  defp assignment_agent_ids(attrs) do
+    attrs
+    |> Map.get(:agent_ids, List.wrap(Map.get(attrs, :agent_id)))
+    |> List.wrap()
+    |> Enum.reject(&(&1 in [nil, ""]))
+  end
+
+  defp register_agent!(uid) do
+    case Agent.get_by_uid(uid, actor: actor()) do
+      {:ok, _agent} ->
+        :ok
+
+      {:error, _reason} ->
+        Agent
+        |> Ash.Changeset.for_create(:register, %{uid: uid}, actor: actor())
+        |> Ash.create!()
+
+        :ok
+    end
   end
 
   test "a device matching in:devices inherits the group's compiled profile settings" do
@@ -151,5 +177,29 @@ defmodule ServiceRadar.CompositeChecks.Validation.CoverageTest do
              Coverage.cover(device.uid, ip, isolation_partition, "k8s-agent")
 
     assert settings.modes == ["icmp"]
+  end
+
+  test "coverage includes every selected agent but excludes nil and deselected requesters" do
+    ip = unique_ip()
+    device = create_device!(ip, "coverage-device-partition")
+    profile = create_profile!(%{ports: [443], sweep_modes: ["icmp", "tcp"]})
+
+    create_group!(%{
+      partition: "coverage-device-partition",
+      agent_ids: ["coverage-selected-a", "coverage-selected-b"],
+      static_targets: [ip],
+      profile_id: profile.id
+    })
+
+    assert {:ok, settings_a} =
+             Coverage.cover(device.uid, ip, "coverage-agent-partition", "coverage-selected-a")
+
+    assert {:ok, settings_b} =
+             Coverage.cover(device.uid, ip, "coverage-agent-partition", "coverage-selected-b")
+
+    assert settings_a == settings_b
+
+    assert {:error, :uncovered} =
+             Coverage.cover(device.uid, ip, "coverage-agent-partition", "coverage-deselected")
   end
 end

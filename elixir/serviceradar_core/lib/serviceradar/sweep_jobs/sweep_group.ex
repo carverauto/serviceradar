@@ -26,12 +26,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
   ## Agent Assignment
 
-  - `partition`: Device-lookup partition for ingest. Unassigned groups are
+  - `partition`: Device-lookup partition for ingest. Partition-wide groups are
     compiled onto agents that live in this same partition.
-  - `agent_id`: Optional specific scanner (nil = any agent in `partition`).
-    An explicit agent still receives and runs the group even when that agent
-    lives in another partition, which is how isolation scans work: a scanner
-    on a blocked subnet probes devices in a different device partition.
+  - `agent_ids`: Canonical scanner assignment. An empty list means every agent
+    in `partition`; a non-empty list means exactly the selected scanners. A
+    selected agent still receives and runs the group when it lives in another
+    partition, which is how isolation scans work: a scanner on a blocked subnet
+    probes devices in a different device partition.
   """
 
   use Ash.Resource,
@@ -180,7 +181,9 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
       filter expr(
                enabled == true and
-                 (agent_id == ^arg(:agent_id) or is_nil(agent_id) or agent_id == "")
+                 (agent_ids == [] or
+                    (not is_nil(^arg(:agent_id)) and ^arg(:agent_id) != "" and
+                       ^arg(:agent_id) in agent_ids))
              )
     end
 
@@ -188,8 +191,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       description """
       Groups this agent should run.
 
-      Includes (1) groups assigned to this agent, including isolation scans
-      whose device partition differs from the agent's, and (2) unassigned
+      Includes (1) groups whose fixed subset contains this agent, including isolation scans
+      whose device partition differs from the agent's, and (2) partition-wide
       groups whose partition matches the agent's.
       """
 
@@ -198,10 +201,9 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
       filter expr(
                enabled == true and
-                 ((not is_nil(^arg(:agent_id)) and agent_id == ^arg(:agent_id)) or
-                    (partition == ^arg(:partition) and
-                       (is_nil(^arg(:agent_id)) or is_nil(agent_id) or agent_id == "" or
-                          agent_id == ^arg(:agent_id))))
+                 ((not is_nil(^arg(:agent_id)) and ^arg(:agent_id) != "" and
+                     ^arg(:agent_id) in agent_ids) or
+                    (agent_ids == [] and partition == ^arg(:partition)))
              )
     end
   end
@@ -234,13 +236,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       allow_nil? false
       public? true
       default "default"
-      description "Device-lookup partition; unassigned groups also compile onto agents here"
+      description "Device-lookup partition; partition-wide groups also compile onto agents here"
     end
 
     attribute :agent_id, :string do
       allow_nil? true
       public? true
-      description "Specific scanner agent ID (nil / blank = every agent in the partition)"
+      description "Compatibility mirror of the first selected scanner agent ID"
     end
 
     attribute :agent_ids, {:array, :string} do
