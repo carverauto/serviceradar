@@ -32,7 +32,9 @@ defmodule ServiceRadar.Plugins.SNMPRequirementCatalogTest do
       assert :ok = SNMPRequirementCatalog.sync_package(package)
 
       assert [template] = package_rows(SNMPOIDTemplate, package.id, actor)
-      assert template.name == "plugin:#{package.name}:clearpass-node-health"
+      # Keyed on plugin_id, not the display name: PluginPackage is unique on
+      # (plugin_id, version), so the display name is shared across versions.
+      assert template.name == "plugin:#{package.plugin_id}:clearpass-node-health"
       assert template.vendor == "plugin"
       assert template.is_builtin == false
       assert length(template.oids) == 2
@@ -128,6 +130,38 @@ defmodule ServiceRadar.Plugins.SNMPRequirementCatalogTest do
       assert after_sync.poll_interval == 900
       assert after_sync.target_query == "in:devices device_type:clearpass partition:ord"
       assert after_sync.oid_template_ids == []
+    end
+
+    # PluginPackage is unique on (plugin_id, version) and NOT on name, so a new
+    # version is a separate row carrying the same display name. Keying the
+    # materialized rows on the display name made v0.2.0 collide with v0.1.0 on
+    # snmp_oid_templates_unique_name_per_vendor_index and fail the whole sync,
+    # so approving an upgrade materialized nothing.
+    test "approving a NEW VERSION of a package updates its rows rather than colliding", %{
+      actor: actor
+    } do
+      package = package_with([requirement()])
+      assert :ok = SNMPRequirementCatalog.sync_package(package)
+
+      [profile] = package_rows(SNMPProfile, package.id, actor)
+
+      {:ok, _tuned} =
+        profile
+        |> Ash.Changeset.for_update(:update, %{poll_interval: 900}, actor: actor)
+        |> Ash.update(actor: actor)
+
+      upgraded = next_version(package, [requirement(%{"description" => "v2"})])
+
+      assert :ok = SNMPRequirementCatalog.sync_package(upgraded)
+
+      # One row, not two, and it now belongs to the new package version.
+      assert [template] = package_rows(SNMPOIDTemplate, upgraded.id, actor)
+      assert template.description == "v2"
+      assert package_rows(SNMPOIDTemplate, package.id, actor) == []
+
+      assert [after_upgrade] = package_rows(SNMPProfile, upgraded.id, actor)
+      assert after_upgrade.id == profile.id
+      assert after_upgrade.poll_interval == 900
     end
 
     test "re-approving after a revoke does not re-arm polling", %{actor: actor} do
@@ -242,6 +276,30 @@ defmodule ServiceRadar.Plugins.SNMPRequirementCatalogTest do
 
   defp package_with(requirements, %PluginPackage{} = existing),
     do: %{existing | snmp_requirements: requirements}
+
+  # A genuinely separate package row: same plugin_id and display name, new
+  # version. This is what approving an upgrade actually produces.
+  defp next_version(%PluginPackage{} = package, requirements) do
+    actor = SystemActor.system(:snmp_requirement_catalog_test)
+
+    {:ok, upgraded} =
+      PluginPackage
+      |> Ash.Changeset.for_create(:create, %{
+        plugin_id: package.plugin_id,
+        name: package.name,
+        version: "0.2.0",
+        entrypoint: package.entrypoint,
+        runtime: package.runtime,
+        outputs: package.outputs,
+        manifest: package.manifest,
+        content_hash: package.content_hash <> "-v2",
+        source_type: :upload,
+        snmp_requirements: requirements
+      })
+      |> Ash.create(actor: actor, domain: ServiceRadar.Plugins)
+
+    upgraded
+  end
 
   defp package_rows(resource, package_id, actor) do
     {:ok, rows} =
