@@ -54,6 +54,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   @behaviour ServiceRadar.AgentConfig.Compiler
 
+  # Mirrors maxTargetNameLength in go/pkg/agent/snmp/config.go. A name over the
+  # bound is rejected by the agent, so it is enforced here where the name is
+  # built rather than discovered at the far end.
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.TargetedProfileResolver
   alias ServiceRadar.Ash.Page
@@ -74,6 +77,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   require Ash.Query
   require Logger
+
+  @max_target_name_length 128
 
   @impl true
   def config_type, do: :snmp
@@ -179,6 +184,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       profile_targets
       |> merge_targets(query_targets)
       |> sort_targets()
+      |> sanitize_target_names()
 
     %{
       "enabled" => profile.enabled and compiled_targets != [],
@@ -834,6 +840,81 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   defp sort_targets(targets) when is_list(targets) do
     Enum.sort_by(targets, &target_sort_key/1)
+  end
+
+  @doc """
+  Rewrites compiled target names into the form the agent will accept.
+
+  The agent admits only `[A-Za-z0-9_-]` in a target name, caps it at 128 bytes,
+  and rejects duplicates (`isValidNameChar` and `validateTargetName` in
+  `go/pkg/agent/snmp/config.go`). Target names here come from
+  `device.name || device.hostname || device.uid`, none of which is constrained
+  that way: every FQDN-named device carries dots and a device uid carries
+  colons.
+
+  This is public because it encodes a contract defined in another language in
+  another directory, and that contract is worth being able to state and test
+  directly rather than only through a compile.
+  """
+  @spec sanitize_target_names([map()]) :: [map()]
+  def sanitize_target_names(targets) when is_list(targets) do
+    targets
+    |> Enum.map_reduce(MapSet.new(), fn target, seen ->
+      name = target |> Map.get("name") |> sanitize_target_name(Map.get(target, "id"))
+
+      name =
+        if MapSet.member?(seen, name),
+          do: disambiguate_target_name(name, Map.get(target, "id")),
+          else: name
+
+      {Map.put(target, "name", name), MapSet.put(seen, name)}
+    end)
+    |> elem(0)
+  end
+
+  # Falls back when the scrubbed name carries no alphanumeric character at all,
+  # not merely when it is empty. A name of "..." scrubs to "___", which the
+  # agent accepts but which identifies nothing to an operator reading target
+  # status - and every such device scrubs to the same string.
+  defp sanitize_target_name(name, id) do
+    scrubbed = scrub_target_name(name)
+
+    if meaningful_target_name?(scrubbed) do
+      scrubbed
+    else
+      id |> scrub_target_name() |> fallback_target_name(scrubbed)
+    end
+  end
+
+  defp meaningful_target_name?(value), do: String.match?(value, ~r/[A-Za-z0-9]/)
+
+  defp scrub_target_name(value) when is_binary(value) do
+    value
+    |> String.replace(~r/[^A-Za-z0-9_-]/, "_")
+    |> String.slice(0, @max_target_name_length)
+  end
+
+  defp scrub_target_name(_value), do: ""
+
+  defp fallback_target_name(from_id, last_resort) do
+    cond do
+      meaningful_target_name?(from_id) -> from_id
+      last_resort != "" -> last_resort
+      true -> "target"
+    end
+  end
+
+  # Sanitizing can map two distinct devices onto one name (`a.b` and `a_b` both
+  # become `a_b`), and the agent keys collectors, aggregators, and status by
+  # target name - so a collision silently drops one device's polling rather than
+  # erroring. The suffix is derived from the device uid so it stays stable
+  # across compiles instead of shifting with list position.
+  defp disambiguate_target_name(name, id) do
+    suffix = id |> to_string() |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
+
+    base = String.slice(name, 0, @max_target_name_length - 9)
+
+    base <> "_" <> String.slice(suffix, 0, 8)
   end
 
   defp sort_oids(oids) when is_list(oids) do

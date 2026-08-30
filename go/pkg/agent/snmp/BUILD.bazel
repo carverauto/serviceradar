@@ -34,6 +34,7 @@ go_test(
         "aggregator_test.go",
         "client_conversion_test.go",
         "collector_test.go",
+        "config_validate_for_agent_test.go",
         "service_deadlock_test.go",
         "service_test.go",
         "v3_client_test.go",
