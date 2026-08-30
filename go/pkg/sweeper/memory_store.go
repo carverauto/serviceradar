@@ -328,6 +328,7 @@ func (s *InMemoryStore) GetHostResults(_ context.Context, filter *models.ResultF
 
 func (s *InMemoryStore) processHostResult(r *models.Result, hostMap map[string]*models.HostResult) {
 	host := s.getOrCreateHost(r, hostMap)
+	s.recordSweepMode(host, r.Target.Mode)
 
 	if !r.Available {
 		if r.Target.Mode == models.ModeICMP {
@@ -451,6 +452,7 @@ func (*InMemoryStore) updateLastSweep(r *models.Result, lastSweep *time.Time) {
 
 func (s *InMemoryStore) updateHostAndPortResults(r *models.Result, hostMap map[string]*models.HostResult, portCounts map[int]int) {
 	host := s.getOrCreateHost(r, hostMap)
+	s.recordSweepMode(host, r.Target.Mode)
 
 	if r.Target.Mode == models.ModeICMP {
 		s.updateICMPStatus(host, r)
@@ -463,6 +465,20 @@ func (s *InMemoryStore) updateHostAndPortResults(r *models.Result, hostMap map[s
 			s.updateTCPPortResults(host, r, portCounts)
 		}
 	}
+}
+
+// recordSweepMode preserves the checks that were attempted for a host in the
+// summary reconstructed from raw results. In particular, a closed TCP port
+// has no PortResult, so without this marker a host scanned with ICMP+TCP would
+// be serialized as ICMP-only.
+func (*InMemoryStore) recordSweepMode(host *models.HostResult, mode models.SweepMode) {
+	for _, existing := range host.SweepModes {
+		if existing == mode {
+			return
+		}
+	}
+
+	host.SweepModes = append(host.SweepModes, mode)
 }
 
 func (*InMemoryStore) updateICMPStatus(host *models.HostResult, r *models.Result) {
