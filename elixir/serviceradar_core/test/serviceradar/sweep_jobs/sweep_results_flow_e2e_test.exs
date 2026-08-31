@@ -1999,7 +1999,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
       selected_group = reporter_group!(actor, unique_id, "headerless", [selected_agent_id])
 
-      assert {:ok, _} =
+      assert {:error, :conflicting_execution_reporter} =
                SweepResultsIngestor.ingest_results(
                  [available_result(unknown_device.ip)],
                  Ash.UUID.generate(),
@@ -2021,7 +2021,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
       blank_device = reporter_device!(actor, unique_id, "blank-auth", false)
 
-      assert {:ok, _} =
+      assert {:error, :conflicting_execution_reporter} =
                SweepResultsIngestor.ingest_results(
                  [available_result(blank_device.ip)],
                  Ash.UUID.generate(),
@@ -2057,7 +2057,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       claimed_execution = running_execution!(actor, group.id, claimed_agent)
       other_execution = running_execution!(actor, group.id, other_agent)
 
-      assert {:ok, _} =
+      assert {:error, :conflicting_execution_reporter} =
                SweepResultsIngestor.ingest_results([], Ash.UUID.generate(),
                  actor: actor,
                  sweep_group_id: group.id,
@@ -2068,7 +2068,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       assert Repo.get!(SweepGroupExecution, claimed_execution.id).status == :running
       assert Repo.get!(SweepGroupExecution, other_execution.id).status == :running
 
-      assert {:ok, _} =
+      assert {:error, :conflicting_execution_reporter} =
                SweepResultsIngestor.ingest_results([], Ash.UUID.generate(),
                  actor: actor,
                  sweep_group_id: group.id,
@@ -2144,7 +2144,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
       execution_id = Ash.UUID.generate()
 
-      assert {:ok, stats} =
+      assert {:error, :conflicting_execution_reporter} =
                SweepResultsIngestor.ingest_results(
                  Enum.map([alias_ip, deleted_ip, provisional_ip], &available_result/1),
                  execution_id,
@@ -2189,20 +2189,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                provisional_available: provisional.is_available,
                provisional_mapper_metadata?:
                  Map.has_key?(provisional.metadata || %{}, "sweep_mapper_promotion"),
+               execution: Repo.get(SweepGroupExecution, execution_id),
                host_result_count: length(host_result_snapshots(actor, execution_id)),
+               audit_count: execution_audit_count(execution_id),
                forensic_rows:
                  forensic_rows
                  |> Enum.map(fn {uid, row_execution_id, metadata} ->
                    {uid, row_execution_id, metadata["sweep_reporter_expectation"]}
                  end)
-                 |> Enum.sort(),
-               mapper_stats:
-                 Map.take(stats, [
-                   :mapper_dispatched,
-                   :mapper_failed,
-                   :mapper_skipped,
-                   :mapper_suppressed
-                 ])
+                 |> Enum.sort()
              } == %{
                alias_state: :detected,
                alias_sightings: 1,
@@ -2213,17 +2208,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                deleted_mapper_metadata?: false,
                provisional_available: false,
                provisional_mapper_metadata?: false,
-               host_result_count: 3,
+               execution: nil,
+               host_result_count: 0,
+               audit_count: 0,
                forensic_rows:
                  forensic_uids
-                 |> Enum.map(&{&1, execution_id, "unknown"})
-                 |> Enum.sort(),
-               mapper_stats: %{
-                 mapper_dispatched: 0,
-                 mapper_failed: 0,
-                 mapper_skipped: 0,
-                 mapper_suppressed: 0
-               }
+                 |> Enum.map(&{&1, nil, "unknown"})
+                 |> Enum.sort()
              }
 
       assert %DateTime{} = deleted_after.deleted_at
@@ -2729,6 +2720,70 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                host_results: host_results_before,
                audit_count: audit_count_before
              }
+    end
+
+    test "a body-only claim cannot create an execution before an authenticated retry", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      agent_id = "execution-body-first-#{unique_id}"
+      register_reporter!(actor, agent_id)
+
+      device = reporter_device!(actor, unique_id, "execution-body-first", false)
+      group = reporter_group!(actor, unique_id, "execution-body-first", [agent_id])
+      execution_id = Ash.UUID.generate()
+
+      result =
+        SweepResultsIngestor.ingest_results(
+          [available_result(device.ip)],
+          execution_id,
+          actor: actor,
+          sweep_group_id: group.id,
+          agent_id: agent_id,
+          config_version: "execution-body-first-#{unique_id}",
+          request_id: "request-body-first-#{unique_id}",
+          scanner_metrics: %{"duration_ms" => 99},
+          banner_grab_summary: %{"sweep_banner_grab_probes_total" => 99}
+        )
+
+      assert {:ok, forensic_row} =
+               DeviceAgentAvailability.get_by_device_agent(device.uid, agent_id, actor: actor)
+
+      assert %{
+               result: result,
+               forensic_execution_id: forensic_row.execution_id,
+               forensic_expectation: forensic_row.metadata["sweep_reporter_expectation"],
+               canonical_available: reload_device!(actor, device.uid).is_available,
+               execution: Repo.get(SweepGroupExecution, execution_id),
+               host_results: host_result_snapshots(actor, execution_id),
+               audit_count: execution_audit_count(execution_id)
+             } == %{
+               result: {:error, :conflicting_execution_reporter},
+               forensic_execution_id: nil,
+               forensic_expectation: "unknown",
+               canonical_available: false,
+               execution: nil,
+               host_results: [],
+               audit_count: 0
+             }
+
+      assert {:ok, _} =
+               SweepResultsIngestor.ingest_results(
+                 [available_result(device.ip)],
+                 execution_id,
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 config_version: "execution-authenticated-retry-#{unique_id}"
+               )
+
+      assert %{agent_id: ^agent_id, sweep_group_id: group_id} =
+               execution_snapshot(execution_id)
+
+      assert group_id == group.id
+      assert [_host_result] = host_result_snapshots(actor, execution_id)
+      assert reload_device!(actor, device.uid).is_available
     end
 
     test "an existing execution resolves an omitted direct group identity", %{actor: actor} do

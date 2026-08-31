@@ -2162,6 +2162,9 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       is_nil(reporter_context.group) ->
         {:error, :unresolved_sweep_group}
 
+      is_nil(reporter_context.authenticated_agent_id) ->
+        {:error, :conflicting_execution_reporter}
+
       true ->
         create_execution(
           execution_id,
@@ -2185,7 +2188,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     inserted_at = DateTime.truncate(now, :microsecond)
     hosts_total = expected_total_hosts || 0
     sweep_group_id = reporter_context.resolved_group_id
-    agent_id = reporter_context.reporter_agent_id
+    agent_id = reporter_context.authenticated_agent_id
 
     # DB connection's search_path determines the schema
     record = %{
@@ -2302,17 +2305,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     do: {:error, :unresolved_execution_identity}
 
   defp validate_inserted_or_winning_execution_owner(1, inserted_execution, reporter_context) do
-    cond do
-      inserted_execution.sweep_group_id != reporter_context.resolved_group_id ->
-        {:error, :conflicting_execution_group}
-
-      valid_reporter_uid(inserted_execution.agent_id) !=
-          valid_reporter_uid(reporter_context.reporter_agent_id) ->
-        {:error, :conflicting_execution_reporter}
-
-      true ->
-        :ok
-    end
+    validate_execution_owner(inserted_execution, reporter_context)
   end
 
   defp maybe_mark_superseded_executions(
