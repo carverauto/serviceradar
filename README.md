@@ -9,7 +9,7 @@
 # ServiceRadar
 
 <img width="1470" height="803" alt="Screenshot 2026-07-27 at 11 59 41 PM" src="https://github.com/user-attachments/assets/94d71c4d-1e8b-472a-9651-551825a2b41e" />
-
+<img width="1470" height="772" alt="Screenshot 2026-08-31 at 2 19 32 AM" src="https://github.com/user-attachments/assets/75d3da76-a162-4e4c-b0e4-b79090ebeb16" />
 #
 
 [![CNCF Landscape](https://img.shields.io/badge/CNCF%20Landscape-5699C6)](https://landscape.cncf.io/?item=observability-and-analysis--observability--serviceradar)
