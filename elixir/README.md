@@ -3,7 +3,7 @@
 How the Elixir tree is built and tested by Bazel, and what you have to do to add a package,
 a dependency, a test tier, or a NIF.
 
-This document covers local mechanics only. CI wiring lives in `.forgejo/workflows/` and the root
+This document covers local mechanics only. CI wiring lives in `.github/workflows/` and the root
 `buildbuddy.yaml` workflow.
 
 ## Contents

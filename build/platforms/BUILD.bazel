@@ -184,7 +184,7 @@ platform(
 # toolchain-based implementation. The rpm targets are simply
 # `target_compatible_with = ["@platforms//os:linux"]`, which //build/rbe:rbe_platform satisfies.
 #
-# Its only user was //.forgejo/workflows/release.yml, where `--platforms` OVERRODE the
+# Its only user was the release workflow, where `--platforms` OVERRODE the
 # rbe_platform that --config=ci sets, giving the packaging step a private configuration: every
 # binary shared with the container images was built twice per release, and the .rpm shipped a
 # DIFFERENT build of the agent than the image did. Verified before removal by building both
