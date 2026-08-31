@@ -161,6 +161,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
   end
 
   describe "log detail metadata rendering" do
+    @tag :web_ng_shared_fixture_db
     test "renders the effective canonical instant in the user's timezone", %{conn: conn} do
       user = operator_user_fixture()
 
@@ -193,7 +194,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
       assert has_element?(
                lv,
-               ~s(time#log-signal-display-widget-3-field-1-time[datetime="2026-08-30T18:00:00.000000Z"][data-user-time-zone="America/Chicago"])
+               ~s(time#log-signal-display-widget-3-field-1-time[datetime="2026-08-30T18:00:00.000000000Z"][data-user-time-zone="America/Chicago"])
              )
 
       render_click(lv, "copy_json", %{})
@@ -227,6 +228,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert stable_ids == stream_ids
     end
 
+    @tag :web_ng_shared_fixture_db
     test "keeps a source-only offset-less timestamp as raw fallback text", %{conn: conn} do
       user = operator_user_fixture()
 

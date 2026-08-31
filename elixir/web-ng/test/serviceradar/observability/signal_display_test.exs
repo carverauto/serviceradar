@@ -34,7 +34,9 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
 
     timeline = Enum.find(widgets, &(&1.type == :timeline))
     assert timeline.contract_index == 3
+
     assert %{format: "timestamp"} = Enum.find(timeline.fields, &(&1.label == "Event Time"))
+
     assert %{format: "unix_nano"} = Enum.find(timeline.fields, &(&1.label == "Observed"))
   end
 
@@ -127,6 +129,31 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
     assert {:ok, contract, :built_in} = SignalDisplay.resolve_contract_with_source(event)
     assert contract["id"] == "com.carverauto.falco.runtime_event.display"
     assert contract["version"] == "1.1.0"
+  end
+
+  test "classifies Falco's raw event time separately from its stored UTC time" do
+    raw_event_time = 1_788_112_800_123_456_789
+
+    event = %{
+      "log_provider" => "falco",
+      "log_name" => "falco.runtime",
+      "time" => "2026-08-30T18:00:00.123456Z",
+      "metadata" => %{
+        "security_signal" => %{
+          "source" => "falco",
+          "diagnostics" => %{"event" => %{"time" => raw_event_time}}
+        }
+      }
+    }
+
+    assert {:ok, widgets} = SignalDisplay.render_record(event)
+    timeline = Enum.find(widgets, &(&1.type == :timeline))
+
+    assert %{format: "unix_nano", value: "1788112800123456789"} =
+             Enum.find(timeline.fields, &(&1.label == "Event Time"))
+
+    assert %{format: "timestamp", value: "2026-08-30T18:00:00.123456Z"} =
+             Enum.find(timeline.fields, &(&1.label == "Observed"))
   end
 
   test "resolves and renders built-in Wasm plugin contract" do

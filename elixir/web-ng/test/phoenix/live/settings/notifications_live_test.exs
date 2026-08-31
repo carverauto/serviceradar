@@ -79,6 +79,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
   end
 
   describe "user timezone boundary" do
+    @tag :web_ng_shared_fixture_db
     test "persisted profile timezone reaches timestamp-bearing silence rows", %{conn: conn} do
       user = AccountsFixtures.user_fixture(%{role: :admin})
 

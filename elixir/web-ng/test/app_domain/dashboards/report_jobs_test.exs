@@ -138,6 +138,7 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
     assert delivery.recipient_count == 1
   end
 
+  @tag :web_ng_shared_fixture_db
   test "delivery worker sends email and records success", %{scope: scope, dashboard: dashboard} do
     schedule = schedule_fixture(scope, dashboard, next_due_at: DateTime.add(DateTime.utc_now(), 3600, :second))
     delivery = delivery_fixture(schedule, dashboard, recipients: ["noc@example.com"])

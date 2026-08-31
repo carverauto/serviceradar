@@ -73,6 +73,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
           aria-describedby="dashboard-events-range-instructions"
           data-range-buckets={@range_buckets_json}
           data-range-event="select_events_range"
+          data-timezone={@timezone}
           data-chart-width="640"
           data-chart-left-pad="36"
           data-chart-right-pad="24"

@@ -418,15 +418,36 @@ ex_unit_tests(
     deps = [":erlang_app"],
 )
 
-# The database-free unit target above deliberately excludes this file. Run it after the
-# ordinary serviceradar_core integration lanes, when serial_0 is quiescent but still exists,
-# so the guarded CI lifecycle gains coverage without provisioning another database or raising
-# the observer's peak connection budget. This target is manual because Bazel cannot express
-# its required ordering relative to the core lanes and fixture teardown.
+# The database-free unit target above deliberately excludes the tagged cases in these files.
+# Run them after the ordinary serviceradar_core integration lanes, when serial_0 is quiescent
+# but still exists, so the guarded CI lifecycle gains focused coverage without provisioning
+# another database or raising the observer's peak connection budget. This target is manual
+# because Bazel cannot express its required ordering relative to the core lanes and fixture
+# teardown. Its helper selects only `:web_ng_shared_fixture_db`; adding a source alone does not
+# silently opt every pre-existing case in that file into this lane.
 ex_unit_test(
     name = "networks_live_db_test",
     size = "enormous",
-    srcs = ["test/phoenix/live/settings/networks_live_test.exs"],
+    srcs = [
+        "test/app_domain/dashboards/report_jobs_test.exs",
+        "test/phoenix/controllers/api/api_endpoint_integration_test.exs",
+        "test/phoenix/live/alert_live/show_test.exs",
+        "test/phoenix/live/authored_dashboard_live_test.exs",
+        "test/phoenix/live/camera_analysis_worker_live_test.exs",
+        "test/phoenix/live/device_live_test.exs",
+        "test/phoenix/live/event_live/show_test.exs",
+        "test/phoenix/live/log_live/index_test.exs",
+        "test/phoenix/live/log_live/netflows_test.exs",
+        "test/phoenix/live/log_live/show_test.exs",
+        "test/phoenix/live/metric_live/timestamp_rendering_test.exs",
+        "test/phoenix/live/security_dashboard_routes_test.exs",
+        "test/phoenix/live/settings/networks_live_test.exs",
+        "test/phoenix/live/settings/notifications_live_test.exs",
+        "test/phoenix/live/trace_live/show_test.exs",
+        "test/phoenix/live/user_live/settings_test.exs",
+        "test/serviceradar/identity/timezone_migration_db_test.exs",
+        "test/serviceradar/identity/timezone_preference_test.exs",
+    ],
     data = glob(
         [
             "config/**",

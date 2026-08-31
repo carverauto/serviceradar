@@ -249,6 +249,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
   end
 
   describe "notification history" do
+    @tag :web_ng_shared_fixture_db
     test "renders trigger, lifecycle, and notification instants in the authenticated timezone", %{conn: conn} do
       user =
         then(operator_user_fixture(), fn user ->

@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
   setup do
     ensure_mikrotik_table!()
     :ok
@@ -154,11 +155,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
       |> Ash.Changeset.for_update(:complete, %{hosts_total: 99, hosts_available: 42})
       |> Ash.update(scope: scope)
 
-    {:ok, _lv, html} = live(conn, ~p"/settings/networks")
+    {:ok, lv, html} = live(conn, ~p"/settings/networks")
 
     assert html =~ group.name
     assert html =~ "Completed"
-    assert html =~ Calendar.strftime(execution.completed_at || execution.started_at, "%Y-%m-%d %H:%M")
+
+    last_run_at = execution.completed_at || execution.started_at
+
+    assert has_element?(
+             lv,
+             ~s(time#settings-sweep-group-#{group.id}-last-run-at[datetime="#{DateTime.to_iso8601(last_run_at)}"][data-user-time-zone="Etc/UTC"])
+           )
   end
 
   test "switches to profiles tab and lists profiles", %{conn: conn, scope: scope} do

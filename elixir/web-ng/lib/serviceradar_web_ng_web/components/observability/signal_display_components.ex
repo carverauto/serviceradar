@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
   import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1, user_time: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
+  @nanoseconds_per_second 1_000_000_000
+
   attr(:widgets, :list, required: true)
   attr(:id, :string, required: true)
   attr(:timezone, :string, required: true)
@@ -275,9 +277,16 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
        when is_binary(value) or is_struct(value, DateTime) or is_struct(value, NaiveDateTime), do: value
 
   defp temporal_value(%{format: "unix_nano", value: value}) do
-    with {:ok, unix_nano} <- parse_unix_nano(value),
-         {:ok, datetime} <- DateTime.from_unix(unix_nano, :nanosecond) do
+    with {:ok, unix_nano} <- parse_unix_time(value),
+         seconds = Integer.floor_div(unix_nano, @nanoseconds_per_second),
+         nanoseconds = Integer.mod(unix_nano, @nanoseconds_per_second),
+         {:ok, datetime} <- DateTime.from_unix(seconds, :second) do
       datetime
+      |> DateTime.to_iso8601()
+      |> String.replace_suffix(
+        "Z",
+        ".#{nanoseconds |> Integer.to_string() |> String.pad_leading(9, "0")}Z"
+      )
     else
       _ -> nil
     end
@@ -285,16 +294,16 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
 
   defp temporal_value(_field), do: nil
 
-  defp parse_unix_nano(value) when is_integer(value), do: {:ok, value}
+  defp parse_unix_time(value) when is_integer(value), do: {:ok, value}
 
-  defp parse_unix_nano(value) when is_binary(value) do
+  defp parse_unix_time(value) when is_binary(value) do
     case Integer.parse(value) do
-      {unix_nano, ""} -> {:ok, unix_nano}
+      {unix_time, ""} -> {:ok, unix_time}
       _ -> :error
     end
   end
 
-  defp parse_unix_nano(_value), do: :error
+  defp parse_unix_time(_value), do: :error
 
   defp json_temporal_format(key) do
     cond do

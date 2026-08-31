@@ -234,6 +234,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       %{conn: log_in_user(conn, user), user: user}
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders the searchable timezone form in the current responsive settings shell", %{conn: conn, user: user} do
       {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
@@ -248,6 +249,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert has_element?(lv, "#timezone-preview[data-user-time-zone='#{user.timezone}']")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "rejects an invalid timezone without changing the saved preference", %{conn: conn, user: user} do
       {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
@@ -261,6 +263,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert fresh_user(user.id).timezone == "Etc/UTC"
     end
 
+    @tag :web_ng_shared_fixture_db
     test "persists a valid timezone and refreshes only the scoped user", %{conn: conn, user: user} do
       {:ok, lv, _html} = live(conn, ~p"/settings/profile")
       prior_scope = :sys.get_state(lv.pid).socket.assigns.current_scope
@@ -282,6 +285,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert has_element?(lv, "#timezone-preview[data-user-time-zone='America/Chicago']")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "uses the persisted timezone on a fresh authenticated connection", %{conn: conn, user: user} do
       assert {:ok, updated} =
                User.update_timezone_preference(user, %{timezone: "America/Chicago"}, scope: scope_for(user))
@@ -291,6 +295,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert has_element?(lv, "#user_timezone[data-current-timezone='#{updated.timezone}']")
     end
 
+    @tag :web_ng_shared_fixture_db
     test "renders a persisted legacy timezone without allowing it to be saved again", %{conn: conn, user: user} do
       legacy_timezone = "Legacy/Removed"
 

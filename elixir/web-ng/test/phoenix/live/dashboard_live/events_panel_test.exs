@@ -32,6 +32,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventsPanelTest do
     assert Enum.count(status) == 1
     assert LazyHTML.attribute(status, "aria-live") == ["polite"]
     assert LazyHTML.attribute(selector, "data-range-event") == ["select_events_range"]
+    assert LazyHTML.attribute(selector, "data-timezone") == ["America/Chicago"]
     assert LazyHTML.attribute(selector, "data-testid") == ["security-events-chart"]
     assert LazyHTML.attribute(selector, "data-chart-width") == ["640"]
     assert LazyHTML.attribute(selector, "data-chart-left-pad") == ["36"]

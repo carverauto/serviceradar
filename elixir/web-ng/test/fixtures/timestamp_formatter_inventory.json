@@ -512,6 +512,14 @@
     "reason": "shared explicit-zone presentation contract"
   },
   {
+    "path": "lib/serviceradar_web_ng_web/components/observability/signal_display_components.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "a3832fe7494502f03c25bdbd16632951acaba2128095a8b7e7c029b68a6d101e",
+    "classification": "infrastructure",
+    "reason": "plugin display-contract unix-nanosecond adapter preserves exact canonical UTC metadata"
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/components/srql_components.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,

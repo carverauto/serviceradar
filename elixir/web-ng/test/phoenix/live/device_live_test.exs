@@ -651,6 +651,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert empty_html =~ "Newly launched actions appear here"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "northbound action history explains long-running progress" do
     html =
       render_component(&NorthboundActionComponents.northbound_action_history/1,
@@ -687,7 +688,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     next_poll_time =
       html
       |> LazyHTML.from_fragment()
-      |> LazyHTML.query("#northbound-action-018f2fd1-f0ff-7cf0-9dc0-000000000998-0-next-poll-at")
+      |> LazyHTML.query("#northbound-action-018f2fd1-f0ff-7cf0-9dc0-000000000998-next-poll-at")
 
     assert LazyHTML.attribute(next_poll_time, "datetime") == ["2026-05-17T00:17:32Z"]
     assert LazyHTML.attribute(next_poll_time, "data-user-time-zone") == ["America/Chicago"]

@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNG.TimezoneMigrationDbTest do
 
   alias ServiceRadar.Repo
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "adding the timezone column backfills existing rows and defaults new rows" do
     Repo.query!("""
     CREATE TEMPORARY TABLE user_timezone_migration_fixture (

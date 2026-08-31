@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponentsTest do
           },
           %{
             type: :timeline,
-            fields: [%{label: "Observed", value: "1788112800000000000", format: "unix_nano"}]
+            fields: [%{label: "Observed", value: "1788112800123456789", format: "unix_nano"}]
           },
           %{
             type: :json_section,
@@ -60,6 +60,7 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponentsTest do
     assert Enum.all?(ids, &String.starts_with?(&1, "signal-review-widget-"))
     assert LazyHTML.attribute(times, "data-user-time-zone") == List.duplicate("America/Chicago", 7)
     assert Enum.all?(LazyHTML.attribute(times, "datetime"), &String.starts_with?(&1, "2026-08-30T18:00:00"))
+    assert "2026-08-30T18:00:00.123456789Z" in LazyHTML.attribute(times, "datetime")
     assert html =~ "Note"
     assert html =~ "2026-08-30T18:00:00Z"
   end

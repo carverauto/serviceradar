@@ -52,6 +52,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     assert html =~ @device_uid
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders the event instant semantically in the authenticated timezone", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
 
@@ -96,6 +97,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     refute render(lv) =~ "2026-07-04T12:06:30Z"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders projected exhaustion semantically in the authenticated timezone", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/events/capacity-forecast-1")
 

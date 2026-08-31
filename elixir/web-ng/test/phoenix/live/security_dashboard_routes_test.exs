@@ -139,6 +139,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     refute dashboard_js =~ "Trivy Vulnerabilities"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "bundled dashboard routes load the package host with the saved display zone", %{
     conn: conn,
     user: user

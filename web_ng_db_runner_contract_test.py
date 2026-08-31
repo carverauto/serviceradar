@@ -10,6 +10,26 @@ WEB_BUILD = ROOT / "elixir/web-ng/BUILD.bazel"
 WEB_TEST_CONFIG = ROOT / "elixir/web-ng/config/test.exs"
 WORKFLOW = ROOT / "buildbuddy.yaml"
 TARGET = "//elixir/web-ng:networks_live_db_test"
+SHARED_FIXTURE_SOURCES = {
+    "test/app_domain/dashboards/report_jobs_test.exs",
+    "test/phoenix/controllers/api/api_endpoint_integration_test.exs",
+    "test/phoenix/live/alert_live/show_test.exs",
+    "test/phoenix/live/authored_dashboard_live_test.exs",
+    "test/phoenix/live/camera_analysis_worker_live_test.exs",
+    "test/phoenix/live/device_live_test.exs",
+    "test/phoenix/live/event_live/show_test.exs",
+    "test/phoenix/live/log_live/index_test.exs",
+    "test/phoenix/live/log_live/netflows_test.exs",
+    "test/phoenix/live/log_live/show_test.exs",
+    "test/phoenix/live/metric_live/timestamp_rendering_test.exs",
+    "test/phoenix/live/security_dashboard_routes_test.exs",
+    "test/phoenix/live/settings/networks_live_test.exs",
+    "test/phoenix/live/settings/notifications_live_test.exs",
+    "test/phoenix/live/trace_live/show_test.exs",
+    "test/phoenix/live/user_live/settings_test.exs",
+    "test/serviceradar/identity/timezone_migration_db_test.exs",
+    "test/serviceradar/identity/timezone_preference_test.exs",
+}
 
 
 def named_rule(source: str, kind: str, name: str) -> str:
@@ -43,12 +63,23 @@ class WebNgDbRunnerContractTest(unittest.TestCase):
     def test_networks_live_has_one_guarded_manual_db_target(self):
         build = WEB_BUILD.read_text(encoding="utf-8")
         rule = named_rule(build, "ex_unit_test", "networks_live_db_test")
+        srcs_match = re.search(
+            r"^    srcs = \[\n(?P<body>.*?)^    \],\n",
+            rule,
+            re.MULTILINE | re.DOTALL,
+        )
 
         self.assertEqual(build.count('name = "networks_live_db_test"'), 1)
-        self.assertIn(
-            'srcs = ["test/phoenix/live/settings/networks_live_test.exs"]', rule
+        self.assertIsNotNone(srcs_match)
+        self.assertEqual(
+            set(re.findall(r'^        "([^"]+)",$', srcs_match.group("body"), re.MULTILINE)),
+            SHARED_FIXTURE_SOURCES,
         )
+        self.assertIn('"test/db/networks_live_db_test_helper.exs"', rule)
         self.assertIn('"SERVICERADAR_REQUIRE_DB_TESTS": "1"', rule)
+        self.assertIn(
+            '"SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS": "600000"', rule
+        )
         self.assertIn('"SERVICERADAR_TEST_DB_SHARD": "serial_0"', rule)
         self.assertIn('"TEST_CNPG_POOL_SIZE": "2"', rule)
         self.assertIn('"integration_test"', rule)

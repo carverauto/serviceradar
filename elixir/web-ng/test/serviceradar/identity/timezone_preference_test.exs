@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNG.TimezonePreferenceTest do
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Accounts.Scope
 
+  @moduletag :web_ng_shared_fixture_db
+
   test "updates only the acting user's validated display timezone" do
     user = viewer_user_fixture()
     other_user = user_fixture()

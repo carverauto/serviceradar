@@ -86,6 +86,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     assert html =~ "/logs/11111111-2222-3333-4444-555555555555"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "uses the canonical observed instant for correlated logs with unzoned source timestamps", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
 
@@ -214,6 +215,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     refute has_element?(lv, "#trace-not-found")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "does not derive correlated-log bounds from an offset-less summary string", %{conn: conn} do
     :persistent_term.put({__MODULE__, :scenario}, :unzoned_summary)
 

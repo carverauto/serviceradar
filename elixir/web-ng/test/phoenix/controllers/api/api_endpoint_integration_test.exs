@@ -400,6 +400,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   # ==========================================================================
 
   describe "POST /api/query" do
+    @tag :web_ng_shared_fixture_db
     test "returns canonical UTC time payload values unchanged for a non-UTC user", ctx do
       owner =
         Ash.update!(ctx.owner, %{timezone: "America/Chicago"},

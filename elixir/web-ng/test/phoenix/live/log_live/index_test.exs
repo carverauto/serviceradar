@@ -143,6 +143,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     refute html =~ ">SEVER<"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "log signal rows render their selected canonical instants with unique user-time ids", %{conn: conn} do
     path = ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc"}}"
     {:ok, lv, _html} = live_following_redirect(conn, path)
@@ -168,6 +169,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     refute html =~ ~s(datetime="2026-08-30T12:45:56Z")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "trace and metric rows localize labels while metric pivots retain exact UTC bounds", %{conn: conn} do
     {:ok, traces, _html} = live(conn, ~p"/observability/traces")
 
@@ -201,6 +203,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
            }
   end
 
+  @tag :web_ng_shared_fixture_db
   test "event and alert rows use the shared user-time contract", %{conn: conn} do
     {:ok, events, _html} = live(conn, ~p"/observability/events")
     assert has_element?(events, ~s(#events time[datetime="2026-08-30T18:00:00Z"]))
@@ -209,6 +212,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert has_element?(alerts, ~s(#alerts time[datetime="2026-08-30T18:00:00Z"]))
   end
 
+  @tag :web_ng_shared_fixture_db
   test "identified trace metric and alert time ids remain attached after reordering", %{conn: conn} do
     on_exit(fn -> :persistent_term.erase({__MODULE__, :identified_signal_row_order}) end)
 
@@ -240,6 +244,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     end
   end
 
+  @tag :web_ng_shared_fixture_db
   test "identical id-less trace metric and alert rows get stable unique rendered time ids", %{conn: conn} do
     :persistent_term.put({__MODULE__, :duplicate_idless_signal_rows?}, true)
     on_exit(fn -> :persistent_term.erase({__MODULE__, :duplicate_idless_signal_rows?}) end)

@@ -161,6 +161,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
            end)
   end
 
+  @tag :web_ng_shared_fixture_db
   test "Flow Explorer rows and modal expose the same canonical instant in the saved zone",
        %{conn: conn} do
     Application.put_env(

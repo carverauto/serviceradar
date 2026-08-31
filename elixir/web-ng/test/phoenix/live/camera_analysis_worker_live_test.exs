@@ -32,6 +32,7 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLiveTest do
     %{conn: log_in_user(conn, user)}
   end
 
+  @tag :web_ng_shared_fixture_db
   test "renders the camera analysis worker operations page", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/observability/camera-relays/workers")
 

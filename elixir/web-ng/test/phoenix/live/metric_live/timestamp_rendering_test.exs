@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.MetricLive.TimestampRenderingTest do
 
   alias ServiceRadarWebNG.AccountsFixtures
 
+  @moduletag :web_ng_shared_fixture_db
+
   setup %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :operator})
 

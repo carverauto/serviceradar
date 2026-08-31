@@ -47,7 +47,7 @@
     {
       "type": "timeline",
       "fields": [
-        {"label": "Event Time", "path": "metadata.security_signal.diagnostics.event.time", "format": "timestamp"},
+        {"label": "Event Time", "path": "metadata.security_signal.diagnostics.event.time", "format": "unix_nano"},
         {"label": "Observed", "path": "time", "format": "timestamp"}
       ]
     },

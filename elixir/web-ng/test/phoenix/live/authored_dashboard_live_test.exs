@@ -637,6 +637,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
     assert get_resp_header(conn, "content-type") == ["text/csv; charset=utf-8"]
   end
 
+  @tag :web_ng_shared_fixture_db
   test "CSV export preserves canonical UTC values for a non-UTC dashboard owner", %{
     conn: conn,
     user: user

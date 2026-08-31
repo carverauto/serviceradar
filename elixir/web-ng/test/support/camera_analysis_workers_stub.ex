@@ -223,6 +223,10 @@ defmodule ServiceRadarWebNG.TestSupport.CameraAnalysisWorkersStub do
       )
 
     worker
+    |> Map.put(
+      :header_keys,
+      attrs |> Map.get(:headers, %{}) |> Map.keys() |> Enum.sort()
+    )
     |> Map.put(:active_assignment_count, Map.get(attrs, :active_assignment_count, 0))
     |> Map.put(:active_assignments, Map.get(attrs, :active_assignments, []))
     |> Map.put(:notification_audit_active, Map.get(attrs, :notification_audit_active, false))

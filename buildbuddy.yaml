@@ -249,8 +249,9 @@ actions:
           # test_tag_filters controls execution, not every top-level target Bazel builds from
           # //.... Keep build selection identical so packages and images stay out of this wave.
           bazel test $FLAGS --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
-          # web-ng's database-free unit allow-list excludes NetworksLive. Reuse the now-quiescent
-          # serial_0 database before cleanup; the manual target cannot be selected by the wildcard.
+          # web-ng's database-free unit allow-list excludes the focused shared-fixture DB cases.
+          # Reuse the now-quiescent serial_0 database before cleanup; the manual target cannot be
+          # selected by the wildcard.
           bazel test $FLAGS //elixir/web-ng:networks_live_db_test
 
       # Run all go race conditions tests (race on, pure off); --flaky_test_attempts=1 overrides the repo default of 2;
