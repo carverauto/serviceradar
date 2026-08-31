@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Credentials.CredentialUsageTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
