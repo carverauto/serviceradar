@@ -592,9 +592,10 @@ that the materializer reconciles every agent a scope admits *separately*, so a
 `gateway`- or `partition`-scoped rule would hand that same whole-instance job to
 each agent underneath it: every one of them would walk the same
 `/api/dcim/devices/` listing and emit another complete `snapshot_complete`
-snapshot under the same `source_instance`. One assignment per rule *per agent*
-is exactly the multiplication this profile has to avoid, so the manifest
-declares `scope_types: [agent]` and `IntegrationDescriptor` enforces it:
+snapshot under the same `source_instance`. One assignment per `(rule, agent)`
+pair is the intended emission; what has to be avoided is a rule that names
+*many* agents, so the manifest declares `scope_types: [agent]` and
+`IntegrationDescriptor` enforces it:
 `validate_single_cardinality_scope_types/4` rejects any profile that pairs a
 `target_cardinality: single` consumer with a wider scope list, and the rule form
 draws its scope options from that same list. Core does not elect a runner
@@ -654,7 +655,8 @@ credential reference then fails with a message naming both halves of the job --
 create a `vulncheck` API token credential at `/settings/networks/credentials`,
 then select it on the `vulncheck-kev` or `nist-nvd2` row at
 `/settings/security/vulnerability-feeds` -- rather than silently reading a token
-from the process environment. The message is recorded verbatim in the feed row's
+from the process environment. The message is recorded, inside the inspected
+error tuple, in the feed row's
 `last_error`.
 
 Attach the credential *before* upgrading if a deployment relies on the
