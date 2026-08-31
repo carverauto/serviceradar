@@ -113,18 +113,15 @@ ServiceRadar provides an official Helm chart for Kubernetes deployments, publish
 
 ```bash
 # Inspect chart metadata and default values
-helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version 1.2.32
-helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version 1.2.32 > values.yaml
+helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar
+helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar > values.yaml
 
-# Install a pinned release (recommended)
+# Install latest release
 helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
-  --version 1.2.32 \
-  -n serviceradar --create-namespace \
-  --set global.imageTag="v1.2.32"
+  -n serviceradar --create-namespace
 
 # Track mutable images (staging/dev): pulls :latest and forces re-pull
 helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
-  --version 1.2.32 \
   -n serviceradar --create-namespace \
   --set global.imageTag="latest" \
   --set global.imagePullPolicy="Always"
@@ -151,7 +148,7 @@ Verify a released or immutable image tag with:
 cosign verify \
   --experimental-oci11 \
   --key docs/cosign.pub \
-  registry.carverauto.dev/serviceradar/serviceradar-core-elx:v1.2.32
+  registry.carverauto.dev/serviceradar/serviceradar-core-elx:v1.4.49
 ```
 
 For build-specific images, prefer the immutable `sha-<commit>` tags:
@@ -178,13 +175,13 @@ cosign verify \
 ```
 
 Docker Compose notes:
-- Set `APP_TAG` in `.env` to pin release images (example: `APP_TAG=v1.2.32`).
+- Set `APP_TAG` in `.env` to pin release images (example: `APP_TAG=v1.4.49`).
 - Set `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` in `.env` to default to the dev overlay without `-f`.
 
 **Chart URL:** `oci://registry.carverauto.dev/serviceradar/charts/serviceradar`
 
 Notes:
-- [Chart](helm/serviceradar/Chart.yaml) versions are like `1.2.32`; ServiceRadar image tags are like `v1.2.32`.
+- [Chart](helm/serviceradar/Chart.yaml) versions are like `1.4.49`; ServiceRadar image tags are like `v1.4.49`.
 - If your cluster requires registry credentials, set `image.registryPullSecret` (default `registry-carverauto-dev-cred`).
 
 For ArgoCD deployments, use `registry.carverauto.dev/serviceradar/charts` as the repository URL (without the `oci://` prefix):
@@ -202,11 +199,11 @@ spec:
   source:
     repoURL: registry.carverauto.dev/serviceradar/charts
     chart: serviceradar
-    targetRevision: "1.2.32"
+    targetRevision: "1.4.49"
     helm:
       values: |
         global:
-          imageTag: "v1.2.32"
+          imageTag: "v1.4.49"
 ```
 
 ## Architecture
