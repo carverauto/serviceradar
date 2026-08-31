@@ -122,8 +122,11 @@ openssl s_client -connect 192.168.1.20:8006 </dev/null 2>/dev/null \
 
 #### Step 3: Trust the CA on the agent
 
-Trust for plugin HTTP is agent configuration, not rule configuration. Copy the CA from
-step 1 onto the edge agent that will reach the node, and add its absolute path to
+On 1.4.49 trust for plugin HTTP is agent configuration, not rule configuration. (Merged
+work lets a Proxmox rule carry the anchor itself, where it replaces the system pool for
+that request instead of extending it --
+[Credential Management: CA trust material](./credentials.md#ca-trust-material).) Copy the
+CA from step 1 onto the edge agent that will reach the node, and add its absolute path to
 `plugin_http_trusted_ca_files` in `agent.json`:
 
 ```json
@@ -171,21 +174,30 @@ against `https://192.168.1.20`. A PVE node on RFC1918 address space cannot obtai
 public certificate for its address at all. Use ACME if you also want a browser-trusted web
 UI; do not expect it to satisfy this constraint.
 
-:::caution Verified from the ServiceRadar source, not against a live PVE node
+:::caution What is verified here, and what you have to check yourself
 The ServiceRadar-side constraints above -- the IP-literal origin, the `verify`
 requirement, the grant-injection refusal, and the agent trust-file behaviour -- were read
 out of this repository and are exact.
 
-The Proxmox-side claims were not exercised against a live PVE node while writing this
-page, and the file layout and SAN contents vary across PVE versions. Treat these as
+One Proxmox-side claim has since been measured. On the ServiceRadar demo cluster the
+stock `pve-ssl.pem` does carry an `IP Address` SAN -- `pve02` reports
+`IP Address:10.0.0.3, DNS:pve02, DNS:pve02.localdomain` -- and with
+`/etc/pve/pve-root-ca.pem` pinned as the sole anchor, verifying by IP returns
+`Verify return code: 0 (ok)` on both `pve02` (`10.0.0.3`) and `pve03` (`10.0.0.4`);
+without the CA the same handshake fails `unable to get local issuer certificate`. So the
+normal case needs no re-issuance: step 3 is enough, and step 4 is for the exceptions.
+
+The remaining Proxmox-side claims were not exercised against a live PVE node, and the
+file layout and SAN contents vary across PVE versions. Treat these as
 "run the command and read the output", not as fact:
 
-- **Whether a stock `pve-ssl.pem` carries an `IP Address` SAN.** Proxmox generates node
-  certificates with SANs derived from the node's configuration at generation time, and on
-  many versions this does include the node's addresses -- but a node re-addressed after
-  certificate generation will not carry the new one, and this is precisely why step 2
-  says to inspect rather than assume. This is the single most important thing to check
-  before choosing between step 3 and step 4.
+- **Whether a re-addressed or custom-certificate node carries the right `IP Address`
+  SAN.** Proxmox generates node certificates with SANs derived from the node's
+  configuration at generation time, so a node re-addressed after certificate generation
+  will not carry the new address, and a node serving
+  `/etc/pve/local/pveproxy-ssl.pem` presents whatever that file contains. This is
+  precisely why step 2 says to inspect rather than assume, and it is the single most
+  important thing to check before choosing between step 3 and step 4.
 - **Whether regenerating certificates picks up a new address.** `pvecm updatecerts
   --force` regenerates node certificates from the cluster CA and is the obvious thing to
   try after a re-IP, but we have not confirmed the SAN list it produces. If you try it,
