@@ -121,6 +121,13 @@ defmodule ServiceRadar.TestSupportSandboxTest do
 
   @moduletag :integration
 
+  # Deadlines that gate on real database work rather than local message passing.
+  # Under RBE these tests share one remote Postgres, so a checkout handoff plus a
+  # query round-trip can exceed a second while nothing is wrong -- the flake showed
+  # the waiter exiting :normal just outside a 1s window. Sized to the 5s guard the
+  # holder already uses for "the connection was genuinely never released".
+  @db_wait_ms 5_000
+
   setup_all do
     TestSupport.start_core!(sandbox_owner?: false)
 
@@ -347,7 +354,7 @@ defmodule ServiceRadar.TestSupportSandboxTest do
         end)
 
       try do
-        assert_receive {:shared_connection_held, ^holder}, 1_000
+        assert_receive {:shared_connection_held, ^holder}, @db_wait_ms
 
         {waiter, waiter_ref} =
           spawn_monitor(fn ->
@@ -357,7 +364,7 @@ defmodule ServiceRadar.TestSupportSandboxTest do
 
         try do
           assert_receive {:waiting_query_started, ^waiter}, 1_000
-          await_ownership_proxy_queue!(1_000)
+          await_ownership_proxy_queue!(@db_wait_ms)
           refute_receive {:waiting_query_result, ^waiter, _result}, 0
 
           queued_at = System.monotonic_time(:millisecond)
@@ -367,9 +374,9 @@ defmodule ServiceRadar.TestSupportSandboxTest do
 
           send(holder, {:release_shared_connection, self()})
 
-          assert_receive {:waiting_query_result, ^waiter, {:ok, %{rows: [[42]]}}}, 1_000
-          assert_receive {:DOWN, ^waiter_ref, :process, ^waiter, :normal}, 1_000
-          assert_receive {:DOWN, ^holder_ref, :process, ^holder, :normal}, 1_000
+          assert_receive {:waiting_query_result, ^waiter, {:ok, %{rows: [[42]]}}}, @db_wait_ms
+          assert_receive {:DOWN, ^waiter_ref, :process, ^waiter, :normal}, @db_wait_ms
+          assert_receive {:DOWN, ^holder_ref, :process, ^holder, :normal}, @db_wait_ms
         after
           stop_test_process(waiter)
         end
