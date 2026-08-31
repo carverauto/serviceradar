@@ -52,17 +52,21 @@ describe("filterTimezoneOptions", () => {
   })
 
   it("intersects the server catalog with browser values without inventing a zone", () => {
+    const calls = []
     const intl = {
       supportedValuesOf: () => ["America/Chicago", "Asia/Tokyo"],
       DateTimeFormat: class {
         constructor(_locale, {timeZone}) {
+          calls.push(timeZone)
           if (!["Etc/UTC", "America/Chicago", "Europe/London"].includes(timeZone)) throw new RangeError("unsupported zone")
         }
       },
     }
 
-    expect(filterTimezoneOptions(["Europe/London", "Mars/Olympus", "America/Chicago"], "Europe/London", {intl}))
+    expect(filterTimezoneOptions(["Europe/London", "Mars/Olympus", "America/Chicago", "Asia/Tokyo"], "Europe/London", {intl}))
       .toEqual(["Etc/UTC", "America/Chicago", "Europe/London"])
+    expect(calls).toEqual(expect.arrayContaining(["America/Chicago", "Asia/Tokyo"]))
+    expect(calls).not.toContain("Europe/London")
   })
 
   it("retains a saved legacy timezone even when it is absent from the server catalog and browser rejects it", () => {
