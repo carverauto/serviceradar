@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialInventoryComponentsTest do
 
   @moduletag :db_free
 
-  test "one SNMP profile is one exact named edit link" do
+  test "one SNMP profile preserves profile and rule counts and exposes one exact named edit link" do
     document =
       render_inventory(
         usage_by_id: %{
@@ -19,9 +19,16 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialInventoryComponentsTest do
         }
       )
 
+    usage_cell = LazyHTML.query(document, "#credential-usage-credential-1")
+
+    assert usage_cell
+           |> LazyHTML.query("[data-role='credential-usage-counts']")
+           |> LazyHTML.text()
+           |> normalize_text() == "1 SNMP profile · 0 rules"
+
     link =
       LazyHTML.query(
-        document,
+        usage_cell,
         ~s(#credential-usage-credential-1 a[href="/settings/snmp/profile-1/edit"])
       )
 
@@ -45,7 +52,7 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialInventoryComponentsTest do
       )
 
     summary = LazyHTML.query(document, "#credential-usage-credential-1 summary")
-    assert summary |> LazyHTML.text() |> normalize_text() == "2 SNMP profiles"
+    assert summary |> LazyHTML.text() |> normalize_text() == "2 SNMP profiles · 0 rules"
 
     links = LazyHTML.query(document, "#credential-usage-credential-1 a")
 

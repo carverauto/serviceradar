@@ -92,6 +92,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert has_element?(lv, "#{row}[data-focused='true']", secret.name)
     assert has_element?(lv, row, "SNMP")
     assert has_element?(lv, row, "SNMPv3 user")
+    assert has_element?(lv, "#{row} [data-role='credential-usage-counts']", "1 SNMP profile · 0 rules")
 
     assert has_element?(
              lv,

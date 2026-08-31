@@ -147,11 +147,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
           <span class="text-sr-muted">Usage unavailable</span>
         <% :empty -> %>
           <span class="text-sr-muted">No consumers</span>
-        <% {:single, consumer} -> %>
+        <% {:single, summary, consumer} -> %>
+          <div data-role="credential-usage-counts" class="font-medium text-sr-ink">
+            {summary}
+          </div>
           <.consumer_entry consumer={consumer} single?={true} />
         <% {:multiple, summary, consumers, grant_count} -> %>
           <details>
-            <summary class="cursor-pointer font-medium text-sr-brand hover:text-sr-brand-strong">
+            <summary
+              data-role="credential-usage-counts"
+              class="cursor-pointer font-medium text-sr-brand hover:text-sr-brand-strong"
+            >
               {summary}
             </summary>
             <ul class="mt-2 min-w-64 space-y-1 rounded-sr-control border border-sr-line bg-sr-raised p-2 shadow-sr-raised">
@@ -385,7 +391,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
 
   defp usage_summary(%Result{consumers: [], live_grants: []}), do: :empty
 
-  defp usage_summary(%Result{consumers: [consumer], live_grants: []}), do: {:single, consumer}
+  defp usage_summary(%Result{consumers: [consumer], live_grants: []}) do
+    {:single, aggregate_usage_label([consumer], 0), consumer}
+  end
 
   defp usage_summary(%Result{consumers: consumers, live_grants: grants}) do
     {:multiple, aggregate_usage_label(consumers, length(grants)), consumers, length(grants)}
@@ -394,14 +402,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInv
   defp usage_summary(_usage), do: :unavailable
 
   defp aggregate_usage_label(consumers, grant_count) do
-    consumer_labels =
-      consumers
-      |> Enum.frequencies_by(& &1.kind)
+    counts = Enum.frequencies_by(consumers, & &1.kind)
+
+    {profile_and_rule_labels, remaining_counts} =
+      if Map.has_key?(counts, :snmp_profile) or Map.has_key?(counts, :credential_rule) do
+        {[
+           count_label(Map.get(counts, :snmp_profile, 0), "SNMP profile", "SNMP profiles"),
+           count_label(Map.get(counts, :credential_rule, 0), "rule", "rules")
+         ], Map.drop(counts, [:snmp_profile, :credential_rule])}
+      else
+        {[], counts}
+      end
+
+    other_consumer_labels =
+      remaining_counts
       |> Enum.sort_by(fn {kind, _count} -> to_string(kind) end)
       |> Enum.map(fn {kind, count} -> consumer_kind_label(kind, count) end)
 
     Enum.join(
-      consumer_labels ++ if(grant_count > 0, do: [count_label(grant_count, "active grant", "active grants")], else: []),
+      profile_and_rule_labels ++
+        other_consumer_labels ++
+        if(grant_count > 0, do: [count_label(grant_count, "active grant", "active grants")], else: []),
       " · "
     )
   end
