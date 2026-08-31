@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   attr(:selected_interfaces, :any, required: true)
   attr(:favorited_interfaces, :any, required: true)
   attr(:device_uid, :string, required: true)
+  attr(:timezone, :string, required: true)
   attr(:interface_metrics, :map, default: nil)
   attr(:loading, :boolean, default: false)
   attr(:metrics_loading, :boolean, default: false)
@@ -84,6 +85,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
       :if={!@loading && @interface_metrics}
       metrics={@interface_metrics}
       device_uid={@device_uid}
+      timezone={@timezone}
       snmp_polling_source={@snmp_polling_source}
     />
 
@@ -336,6 +338,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
   attr(:metrics, :map, required: true)
   attr(:device_uid, :string, required: true)
+  attr(:timezone, :string, required: true)
   attr(:snmp_polling_source, :map, default: nil)
 
   defp interface_metrics_section(assigns) do
@@ -423,7 +426,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
             module={panel.plugin}
             id={"interface-metrics-#{@device_uid}-#{panel.id}-#{idx}"}
             title={Map.get(panel.assigns, :interface_label, "Interface Metrics")}
-            panel_assigns={Map.put(panel.assigns, :compact, false)}
+            panel_assigns={
+              panel.assigns
+              |> Map.put(:compact, false)
+              |> Map.put(:timezone, @timezone)
+            }
           />
         <% end %>
       </div>

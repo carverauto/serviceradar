@@ -322,8 +322,20 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                         <.kv label="Parent Span ID" value={row.parent_span_id} mono />
                         <.kv label="Kind" value={span_kind_label(row.kind)} />
                         <.kv label="Status" value={span_status_detail(row)} />
-                        <.kv label="Start" value={format_ns_time(row.start_ns)} mono />
-                        <.kv label="End" value={format_ns_time(row.end_ns)} mono />
+                        <.time_kv
+                          id={"trace-span-#{row.span_id || "row-#{idx}"}-start-time"}
+                          label="Start"
+                          value={datetime_from_ns(row.start_ns)}
+                          fallback={format_ns_time(row.start_ns)}
+                          timezone={@current_scope.user.timezone}
+                        />
+                        <.time_kv
+                          id={"trace-span-#{row.span_id || "row-#{idx}"}-end-time"}
+                          label="End"
+                          value={datetime_from_ns(row.end_ns)}
+                          fallback={format_ns_time(row.end_ns)}
+                          timezone={@current_scope.user.timezone}
+                        />
                         <.kv label="Duration" value={format_duration_ms(row.duration_ms)} mono />
                         <.kv label="Service" value={row.service} />
                         <.kv
@@ -416,7 +428,17 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                     class={["transition-colors", log_path && "hover:bg-sr-subtle/40 cursor-pointer"]}
                     phx-click={log_path && JS.navigate(log_path)}
                   >
-                    <td class="whitespace-nowrap text-xs font-mono">{log_timestamp(log)}</td>
+                    <td class="whitespace-nowrap text-xs font-mono">
+                      <% timestamp = Map.get(log, "timestamp") %>
+                      <.user_time
+                        id={"trace-log-#{Map.get(log, "id") || "row-#{idx}"}-time"}
+                        value={timestamp}
+                        timezone={@current_scope.user.timezone}
+                        style={:full}
+                        fallback={log_timestamp(log)}
+                        class="font-mono text-xs"
+                      />
+                    </td>
                     <td>
                       <.ui_badge size="xs" variant={severity_badge_variant(log)}>
                         {log_severity(log)}
@@ -467,6 +489,28 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
     <div class="rounded-lg border border-sr-line bg-sr-surface p-3">
       <div class="text-[11px] uppercase tracking-wider text-sr-muted mb-1">{@label}</div>
       <div class={["text-sm break-all", @mono && "font-mono text-xs"]}>{format_value(@value)}</div>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :any, required: true
+  attr :fallback, :string, required: true
+  attr :timezone, :string, required: true
+
+  defp time_kv(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-sr-line bg-sr-surface p-3">
+      <div class="mb-1 text-[11px] uppercase tracking-wider text-sr-muted">{@label}</div>
+      <.user_time
+        id={@id}
+        value={@value}
+        timezone={@timezone}
+        style={:full}
+        fallback={@fallback}
+        class="break-all font-mono text-xs"
+      />
     </div>
     """
   end
@@ -932,6 +976,15 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   end
 
   defp format_ns_time(_ns), do: "—"
+
+  defp datetime_from_ns(ns) when is_integer(ns) do
+    case DateTime.from_unix(ns, :nanosecond) do
+      {:ok, dt} -> dt
+      _ -> nil
+    end
+  end
+
+  defp datetime_from_ns(_ns), do: nil
 
   defp format_duration_ms(nil), do: "—"
 

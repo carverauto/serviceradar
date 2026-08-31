@@ -15,7 +15,16 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
   @trace_id "abcdefabcdefabcdefabcdefabcdef12"
 
   setup %{conn: conn} do
-    user = AccountsFixtures.user_fixture(%{role: :operator})
+    user =
+      %{role: :operator}
+      |> AccountsFixtures.user_fixture()
+      |> then(fn user ->
+        Ash.update!(user, %{timezone: "America/Chicago"},
+          action: :update_timezone_preference,
+          actor: user
+        )
+      end)
+
     conn = log_in_user(conn, user)
 
     old = Application.get_env(:serviceradar_web_ng, :srql_module)
@@ -75,6 +84,29 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     html = render(lv)
     # Log rows navigate to the log detail route.
     assert html =~ "/logs/11111111-2222-3333-4444-555555555555"
+  end
+
+  test "renders span and correlated-log instants semantically in the authenticated timezone", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
+
+    lv
+    |> element("#trace-spans-row-0")
+    |> render_click()
+
+    assert has_element?(
+             lv,
+             ~s(time#trace-span-aaaaaaaaaaaaaaaa-start-time[datetime="2023-11-14T22:13:20.000000Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    assert has_element?(
+             lv,
+             ~s(time#trace-span-aaaaaaaaaaaaaaaa-end-time[datetime="2023-11-14T22:13:20.050000Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    assert has_element?(
+             lv,
+             ~s(time#trace-log-11111111-2222-3333-4444-555555555555-time[datetime="2023-11-14T22:13:20Z"][data-user-time-zone="America/Chicago"])
+           )
   end
 
   test "error span gets error styling and expands details", %{conn: conn} do

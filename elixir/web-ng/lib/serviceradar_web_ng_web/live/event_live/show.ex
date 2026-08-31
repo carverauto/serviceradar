@@ -293,7 +293,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
           <section class="flex min-h-0 min-w-0 flex-col overflow-hidden lg:border-l lg:border-sr-line">
             <.event_detail_header event={@event} event_id={@event_id} />
-            <.event_meta_strip event={@event} />
+            <.event_meta_strip event={@event} timezone={@current_scope.user.timezone} />
 
             <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
               <.event_message_hero event={@event} />
@@ -591,6 +591,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   attr :event, :map, required: true
+  attr :timezone, :string, required: true
 
   defp event_meta_strip(assigns) do
     event = assigns.event
@@ -604,7 +605,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
     facts =
       [
-        %{label: "Time", value: format_timestamp(event), mono?: true, href: nil},
+        %{label: "Time", value: event_timestamp_value(event), mono?: true, href: nil, time?: true},
         %{
           label: "Provider",
           value: provider,
@@ -659,8 +660,17 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
           {fact.label}
         </span>
+        <.user_time
+          :if={Map.get(fact, :time?, false)}
+          id="event-detail-time"
+          value={fact.value}
+          timezone={@timezone}
+          style={:full}
+          fallback={to_string(fact.value)}
+          class="font-mono text-[13px] tracking-tight"
+        />
         <.link
-          :if={is_binary(fact.href)}
+          :if={not Map.get(fact, :time?, false) and is_binary(fact.href)}
           navigate={fact.href}
           class={[
             "group inline-flex min-w-0 max-w-full items-center gap-1 truncate text-sm text-sr-brand transition-colors hover:text-sr-brand-strong hover:underline",
@@ -675,7 +685,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           />
         </.link>
         <span
-          :if={is_nil(fact.href)}
+          :if={not Map.get(fact, :time?, false) and is_nil(fact.href)}
           class={[
             "truncate font-sans text-sm text-sr-ink",
             fact.mono? && "font-mono text-[13px] tracking-tight"
@@ -1392,11 +1402,12 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp metric_name_filter(_), do: nil
 
-  defp anomaly_panel_assigns(panel, chart_focus) when is_map(panel) do
+  defp anomaly_panel_assigns(panel, chart_focus, timezone) when is_map(panel) do
     assigns =
       panel
       |> Map.get(:assigns, %{})
       |> Map.put(:compact, true)
+      |> Map.put(:timezone, timezone)
 
     if is_map(chart_focus) do
       Map.put(assigns, :chart_focus, chart_focus)
@@ -1405,7 +1416,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     end
   end
 
-  defp anomaly_panel_assigns(_panel, _chart_focus), do: %{compact: true}
+  defp anomaly_panel_assigns(_panel, _chart_focus, timezone), do: %{compact: true, timezone: timezone}
 
   defp anomaly_metric_time_range(ctx, event) do
     center = Map.get(ctx, :event_time) || event_time_from_event(event)
@@ -1650,7 +1661,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
               module={panel.plugin}
               id={"event-anomaly-metric-#{idx}"}
               title={Map.get(panel, :title) || "Metric series"}
-              panel_assigns={anomaly_panel_assigns(panel, @chart_focus)}
+              panel_assigns={anomaly_panel_assigns(panel, @chart_focus, @current_scope.user.timezone)}
             />
           <% end %>
         </div>
@@ -2441,14 +2452,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp valid_ip?(_), do: false
 
-  defp format_timestamp(event) do
-    ts =
-      Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-      _ -> ts || "—"
-    end
+  defp event_timestamp_value(event) do
+    Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
   end
 
   defp parse_timestamp(nil), do: :error

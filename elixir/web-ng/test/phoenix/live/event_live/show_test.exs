@@ -25,7 +25,14 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
       end
     end)
 
-    user = operator_user_fixture()
+    user =
+      then(operator_user_fixture(), fn user ->
+        Ash.update!(user, %{timezone: "America/Chicago"},
+          action: :update_timezone_preference,
+          actor: user
+        )
+      end)
+
     conn = log_in_user(conn, user)
 
     %{conn: conn}
@@ -43,6 +50,15 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     assert html =~ device.hostname
     assert html =~ "qemu:116"
     assert html =~ @device_uid
+  end
+
+  test "renders the event instant semantically in the authenticated timezone", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+    assert has_element?(
+             lv,
+             ~s(time#event-detail-time[datetime="2026-07-04T12:00:00Z"][data-user-time-zone="America/Chicago"])
+           )
   end
 
   test "still links by uid when the device cannot be resolved", %{conn: conn} do

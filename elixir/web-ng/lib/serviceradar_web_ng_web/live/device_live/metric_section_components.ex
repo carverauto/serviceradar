@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
 
   attr(:sections, :list, default: [])
   attr(:device_uid, :string, required: true)
+  attr(:timezone, :string, required: true)
   attr(:chart_focus, :any, default: nil)
   attr(:time_range, :string, default: "last_24h")
 
@@ -76,6 +77,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
               rows={Map.get(section, :rows, [])}
               columns={["process", "pid", "cpu_pct", "memory_pct"]}
               container={false}
+              timezone={@timezone}
               empty_message="No process metrics yet."
             />
           <% else %>
@@ -84,7 +86,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
                 module={panel.plugin}
                 id={"device-#{@device_uid}-#{section.key}-#{panel.id}-#{idx}"}
                 title={Map.get(panel, :title) || section.title}
-                panel_assigns={panel_assigns(panel, @chart_focus)}
+                panel_assigns={panel_assigns(panel, @chart_focus, @timezone)}
               />
             <% end %>
           <% end %>
@@ -139,9 +141,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
 
   defp percent_width(_), do: 0
 
-  defp panel_assigns(panel, chart_focus) do
+  defp panel_assigns(panel, chart_focus, timezone) do
     panel.assigns
     |> Map.put(:compact, true)
+    |> Map.put(:timezone, timezone)
     |> maybe_put_chart_focus(chart_focus)
   end
 

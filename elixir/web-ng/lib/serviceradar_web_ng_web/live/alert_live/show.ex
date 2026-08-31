@@ -285,8 +285,9 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
               snooze_duration={@snooze_duration}
               snooze_custom_minutes={@snooze_custom_minutes}
               can_manage?={@can_manage_alerts?}
+              timezone={@current_scope.user.timezone}
             />
-            <.alert_meta_strip alert={@alert} />
+            <.alert_meta_strip alert={@alert} timezone={@current_scope.user.timezone} />
 
             <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
               <.alert_message_hero alert={@alert} />
@@ -298,6 +299,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
                 deliveries={@deliveries}
                 counts={@delivery_counts}
                 error={@deliveries_error}
+                timezone={@current_scope.user.timezone}
               />
               <.related_links alert={@alert} />
               <.alert_raw_toggle alert={@alert} open?={@show_raw_json} />
@@ -668,6 +670,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   end
 
   attr :alert, :map, required: true
+  attr :timezone, :string, required: true
 
   defp alert_meta_strip(assigns) do
     device_uid = Map.get(assigns.alert, "device_uid")
@@ -677,7 +680,13 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     facts =
       Enum.reject(
         [
-          %{label: "Triggered", value: format_timestamp(assigns.alert), mono?: true, href: nil},
+          %{
+            label: "Triggered",
+            value: alert_timestamp_value(assigns.alert),
+            mono?: true,
+            href: nil,
+            time?: true
+          },
           %{label: "Status", value: status_label(Map.get(assigns.alert, "status")), mono?: false, href: nil},
           %{
             label: "Source",
@@ -720,8 +729,17 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
         <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
           {fact.label}
         </span>
+        <.user_time
+          :if={Map.get(fact, :time?, false)}
+          id="alert-triggered-time"
+          value={fact.value}
+          timezone={@timezone}
+          style={:full}
+          fallback={to_string(fact.value)}
+          class="font-mono text-[13px] tracking-tight"
+        />
         <.link
-          :if={is_binary(fact.href)}
+          :if={not Map.get(fact, :time?, false) and is_binary(fact.href)}
           navigate={fact.href}
           class={[
             "group inline-flex min-w-0 max-w-full items-center gap-1 truncate text-sm text-sr-brand transition-colors hover:text-sr-brand-strong hover:underline",
@@ -736,7 +754,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
           />
         </.link>
         <span
-          :if={is_nil(fact.href)}
+          :if={not Map.get(fact, :time?, false) and is_nil(fact.href)}
           class={[
             "truncate font-sans text-sm text-sr-ink",
             fact.mono? && "font-mono text-[13px] tracking-tight"
@@ -771,6 +789,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   attr :snooze_duration, :string, required: true
   attr :snooze_custom_minutes, :string, default: ""
   attr :can_manage?, :boolean, default: false
+  attr :timezone, :string, required: true
 
   defp alert_lifecycle_bar(assigns) do
     assigns =
@@ -798,7 +817,15 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
           mistaken for one.
         --%>
         <.ui_badge :if={@snoozed?} variant="warning" size="xs">
-          Snoozed until {@snooze_until}
+          Snoozed until
+          <.user_time
+            id="alert-snooze-until-time"
+            value={@snooze_until}
+            timezone={@timezone}
+            style={:full}
+            fallback="—"
+            class="font-mono text-[11px]"
+          />
         </.ui_badge>
 
         <div :if={@acknowledgement} class="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -807,7 +834,17 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
           </.ui_badge>
           <span class="truncate font-sans text-xs text-sr-muted">
             Acknowledged by <span class="text-sr-ink">{@acknowledgement.actor}</span>
-            <span :if={@acknowledgement.at}>on {@acknowledgement.at}</span>
+            <span :if={@acknowledgement.at} class="inline-flex items-center gap-1">
+              on
+              <.user_time
+                id="alert-acknowledged-time"
+                value={@acknowledgement.at}
+                timezone={@timezone}
+                style={:full}
+                fallback="—"
+                class="font-mono text-[11px]"
+              />
+            </span>
           </span>
         </div>
       </div>
@@ -931,7 +968,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
         variant: "info",
         title: "Acknowledged by a ServiceRadar user account",
         actor: display_actor(free_text, user_id),
-        at: format_any_time(at)
+        at: at
       }
     else
       %{
@@ -939,7 +976,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
         variant: "outline",
         title: "Acknowledged outside ServiceRadar, through a signed action link",
         actor: display_actor(free_text, nil),
-        at: format_any_time(at)
+        at: at
       }
     end
   end
@@ -952,7 +989,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
   defp display_actor(_free_text, _user_id), do: "unknown"
 
-  defp snooze_until_display(%{snooze_until: %DateTime{} = until}), do: format_any_time(until)
+  defp snooze_until_display(%{snooze_until: %DateTime{} = until}), do: until
   defp snooze_until_display(_alert), do: nil
 
   # -- notification history ---------------------------------------------------
@@ -961,6 +998,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   attr :deliveries, :list, default: []
   attr :counts, :map, required: true
   attr :error, :string, default: nil
+  attr :timezone, :string, required: true
 
   defp notification_history(assigns) do
     assigns = assign(assigns, :delivery_log_href, AlertActions.delivery_log_path(assigns.alert_id))
@@ -1024,7 +1062,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
           </thead>
           <tbody>
             <tr
-              :for={delivery <- @deliveries}
+              :for={{delivery, delivery_idx} <- Enum.with_index(@deliveries)}
               class={[
                 "align-top",
                 AlertActions.test_delivery?(delivery) && "bg-sr-subtle/30 italic"
@@ -1057,12 +1095,25 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
               </td>
               <td class="whitespace-nowrap text-xs text-sr-muted">
                 {delivery.attempt_count}/{delivery.max_attempts}
-                <div :if={delivery.next_attempt_at} class="text-[11px]">
-                  next {format_any_time(delivery.next_attempt_at)}
+                <div :if={delivery.next_attempt_at} class="inline-flex items-center gap-1 text-[11px]">
+                  next
+                  <.user_time
+                    id={"alert-delivery-#{delivery_time_key(delivery, delivery_idx)}-next-attempt-time"}
+                    value={delivery.next_attempt_at}
+                    timezone={@timezone}
+                    style={:full}
+                    fallback="—"
+                  />
                 </div>
               </td>
               <td class="whitespace-nowrap font-mono text-[11px] text-sr-muted">
-                {format_any_time(delivery_timestamp(delivery))}
+                <.user_time
+                  id={"alert-delivery-#{delivery_time_key(delivery, delivery_idx)}-recorded-time"}
+                  value={delivery_timestamp(delivery)}
+                  timezone={@timezone}
+                  style={:full}
+                  fallback="—"
+                />
               </td>
             </tr>
           </tbody>
@@ -1099,6 +1150,9 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       Map.get(delivery, :queued_at) || Map.get(delivery, :last_evaluated_at) ||
       Map.get(delivery, :inserted_at)
   end
+
+  defp delivery_time_key(%{id: id}, _idx) when is_binary(id), do: id
+  defp delivery_time_key(_delivery, idx), do: "row-#{idx}"
 
   # -- body panels ------------------------------------------------------------
 
@@ -1788,13 +1842,8 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     end
   end
 
-  defp format_timestamp(alert) do
-    ts = Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-      _ -> ts || "—"
-    end
+  defp alert_timestamp_value(alert) do
+    Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
   end
 
   defp format_time_short(alert) do

@@ -293,6 +293,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 sections={@metric_sections_to_render}
                 device_uid={@device_uid}
                 time_range={@sysmon_time_range}
+                timezone={@current_scope.user.timezone}
               />
 
               <.process_metrics_section
@@ -311,6 +312,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 device_uid={@device_uid}
                 device_display_name={@device_display_name}
                 metric_sections={@anomaly_capacity_detail_metric_sections}
+                timezone={@current_scope.user.timezone}
               />
 
               <%= for panel <- @panels do %>
@@ -321,7 +323,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                     module={panel.plugin}
                     id={"device-#{panel.id}"}
                     title={panel.title}
-                    panel_assigns={panel.assigns}
+                    panel_assigns={Map.put(panel.assigns, :timezone, @current_scope.user.timezone)}
                   />
                 <% end %>
               <% end %>
@@ -369,6 +371,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               selected_interfaces={@selected_interfaces}
               favorited_interfaces={@favorited_interfaces}
               device_uid={@device_uid}
+              timezone={@current_scope.user.timezone}
               interface_metrics={@interface_metrics}
               loading={
                 DeviceTabRuntime.tab_content_loading?(

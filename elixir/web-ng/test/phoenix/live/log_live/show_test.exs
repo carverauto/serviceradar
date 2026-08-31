@@ -190,6 +190,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
              )
 
       refute has_element?(lv, ~s(#log-detail-time[datetime="2026-08-30T17:00:00Z"]))
+
+      render_click(lv, "copy_json", %{})
+      assert_push_event(lv, "clipboard", %{text: copied_json})
+      copied = Jason.decode!(copied_json)
+
+      assert copied["observed_timestamp"] == "2026-08-30T18:00:00Z"
+      assert copied["timestamp"] == "2026-08-30T12:34:56"
+      refute copied_json =~ "America/Chicago"
     end
 
     test "renders resource attributes section when present", %{conn: conn} do

@@ -187,8 +187,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
       |> LazyHTML.query("a")
       |> LazyHTML.attribute("href")
 
-    query = href |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("q")
-    assert query =~ "time:[2026-08-30T17:00:00Z,2026-08-30T19:00:00Z]"
+    uri = URI.parse(href)
+
+    assert uri.path == "/observability/logs"
+
+    assert URI.decode_query(uri.query) == %{
+             "q" =>
+               ~s(in:logs trace_id:"aabbccddeeff00112233445566778899" time:[2026-08-30T17:00:00Z,2026-08-30T19:00:00Z] sort:timestamp:desc)
+           }
   end
 
   test "event and alert rows use the shared user-time contract", %{conn: conn} do
@@ -197,6 +203,38 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
     {:ok, alerts, _html} = live(conn, ~p"/observability/alerts")
     assert has_element?(alerts, ~s(#alerts time[datetime="2026-08-30T18:00:00Z"]))
+  end
+
+  test "identical id-less trace metric and alert rows get stable unique rendered time ids", %{conn: conn} do
+    :persistent_term.put({__MODULE__, :duplicate_idless_signal_rows?}, true)
+    on_exit(fn -> :persistent_term.erase({__MODULE__, :duplicate_idless_signal_rows?}) end)
+
+    for {path, table} <- [
+          {~p"/observability/traces", "traces"},
+          {~p"/observability/metrics", "metrics"},
+          {~p"/observability/alerts", "alerts"}
+        ] do
+      {:ok, lv, _html} = live(conn, path)
+
+      ids =
+        lv
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("##{table} time")
+        |> LazyHTML.attribute("id")
+
+      assert length(ids) == 2
+      assert ids == Enum.uniq(ids)
+
+      stable_ids =
+        lv
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("##{table} time")
+        |> LazyHTML.attribute("id")
+
+      assert stable_ids == ids
+    end
   end
 
   test "enabling live mode allows log-ingest refreshes", %{conn: conn} do
@@ -620,7 +658,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     end
 
     defp sample_metrics do
-      [
+      rows = [
         %{
           "timestamp" => "2026-08-30T18:00:00Z",
           "service_name" => "metrics-service",
@@ -639,10 +677,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "value" => 1234.0
         }
       ]
+
+      duplicate_idless_rows(rows, %{
+        "timestamp" => "2026-08-30T18:00:00Z",
+        "service_name" => "identical-metric",
+        "metric_type" => "gauge",
+        "metric_name" => "queue.depth",
+        "value" => 1.0
+      })
     end
 
     defp sample_traces do
-      [
+      rows = [
         %{
           "trace_id" => "aabbccddeeff00112233445566778899",
           "timestamp" => "2026-08-30T18:00:00Z",
@@ -661,6 +707,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "error_count" => 0
         }
       ]
+
+      duplicate_idless_rows(rows, %{
+        "timestamp" => "2026-08-30T18:00:00Z",
+        "root_service_name" => "identical-trace",
+        "root_span_name" => "id-less",
+        "duration_ms" => 1.0,
+        "span_count" => 1,
+        "error_count" => 0
+      })
     end
 
     defp maybe_sample_trace_summaries do
@@ -750,7 +805,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     end
 
     defp sample_alerts do
-      [
+      rows = [
         %{
           "id" => "alert-1",
           "triggered_at" => "2026-08-30T18:00:00Z",
@@ -759,6 +814,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "title" => "Alert"
         }
       ]
+
+      duplicate_idless_rows(rows, %{
+        "triggered_at" => "2026-08-30T18:00:00Z",
+        "severity" => "critical",
+        "status" => "pending",
+        "title" => "Identical id-less alert"
+      })
+    end
+
+    defp duplicate_idless_rows(rows, idless_row) do
+      if :persistent_term.get({IndexTest, :duplicate_idless_signal_rows?}, false) do
+        [idless_row, idless_row]
+      else
+        rows
+      end
     end
 
     defp pagination("cursor-page-2") do

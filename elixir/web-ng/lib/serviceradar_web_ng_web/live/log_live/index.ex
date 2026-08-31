@@ -4218,7 +4218,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <td class="whitespace-nowrap text-xs font-mono">
                 <% time = timestamp_meta(Map.get(trace, "timestamp")) %>
                 <.user_time
-                  id={"trace-time-#{signal_row_key(trace, ["trace_id", "span_id"])}"}
+                  id={"trace-time-#{@id}-row-#{idx}"}
                   value={time.value}
                   timezone={@timezone}
                   style={:full}
@@ -4404,7 +4404,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <td class="whitespace-nowrap text-xs font-mono">
                 <% time = timestamp_meta(Map.get(metric, "timestamp")) %>
                 <.user_time
-                  id={"metric-time-#{signal_row_key(metric, ["span_id", "trace_id"])}"}
+                  id={"metric-time-#{@id}-row-#{idx}"}
                   value={time.value}
                   timezone={@timezone}
                   style={:full}
@@ -4976,7 +4976,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               >
                 <% time = timestamp_meta(alert_timestamp(alert)) %>
                 <.user_time
-                  id={"alert-time-#{signal_row_key(alert, ["id", "alert_id"])}"}
+                  id={"alert-time-#{@id}-row-#{idx}"}
                   value={time.value}
                   timezone={@timezone}
                   style={:full}
@@ -7614,21 +7614,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp effective_log_timestamp(log) do
     Map.get(log, "observed_timestamp") || Map.get(log, "timestamp")
   end
-
-  defp signal_row_key(row, keys) do
-    source_key = Enum.find_value(keys, &present_string(Map.get(row, &1))) || "row"
-    safe_key = String.replace(source_key, ~r/[^A-Za-z0-9_-]/, "-")
-    "#{safe_key}-#{:erlang.phash2(row)}"
-  end
-
-  defp present_string(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      value -> value
-    end
-  end
-
-  defp present_string(_), do: nil
 
   defp extract_time_from_query(""), do: nil
 

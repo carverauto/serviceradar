@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   attr :device_display_name, :string, default: nil
   attr :metric_sections, :list, default: []
   attr :anomaly_filters, :map, default: %{}
+  attr :timezone, :string, required: true
 
   def anomaly_capacity_section(assigns) do
     assigns =
@@ -546,7 +547,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                 module={panel.plugin}
                 id={"anomaly-capacity-detail-#{section.key}-#{panel.id}-#{idx}"}
                 title={Map.get(panel, :title) || section.title}
-                panel_assigns={detail_panel_assigns(panel, @detail_chart_focus)}
+                panel_assigns={detail_panel_assigns(panel, @detail_chart_focus, @timezone)}
               />
             <% end %>
           </div>
@@ -627,9 +628,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
     end
   end
 
-  defp detail_panel_assigns(panel, chart_focus) do
+  defp detail_panel_assigns(panel, chart_focus, timezone) do
     panel.assigns
     |> Map.put(:compact, true)
+    |> Map.put(:timezone, timezone)
     |> maybe_put_detail_chart_focus(chart_focus)
   end
 

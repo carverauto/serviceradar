@@ -221,7 +221,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   attr(:sort_dir, :any, default: nil)
   attr(:sort_col, :string, default: nil)
   attr(:sort_event, :string, default: nil)
-  attr(:timezone, :string, default: "Etc/UTC")
+  attr(:timezone, :string, required: true)
 
   def srql_results_table(assigns) do
     columns = normalize_columns(assigns.columns, assigns.rows, assigns.max_columns)
@@ -293,7 +293,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                     <.srql_sparkline points={Map.get(row, "_sparkline")} />
                   <% else %>
                     <.srql_cell
-                      id={"srql-time-#{idx}-#{col_idx}"}
+                      id={"#{@id}-time-#{idx}-#{col_idx}"}
                       col={col}
                       value={Map.get(row, col)}
                       timezone={@timezone}
@@ -311,13 +311,12 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   attr(:col, :string, required: true)
   attr(:value, :any, default: nil)
-  attr(:id, :string, default: nil)
-  attr(:timezone, :string, default: "Etc/UTC")
+  attr(:id, :string, required: true)
+  attr(:timezone, :string, required: true)
 
   def srql_cell(assigns) do
     assigns =
       assigns
-      |> assign(:id, assigns.id || "srql-time-#{:erlang.phash2({assigns.col, assigns.value})}")
       |> assign(:col_key, assigns.col |> to_string() |> String.trim() |> String.downcase())
       |> assign(:formatted, format_cell(assigns.col, assigns.value))
 
@@ -332,6 +331,27 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
           fallback={iso}
           class="font-mono text-[11px]"
         />
+      <% {:composite_time, %{value: value, iso: iso, suffix: suffix, href: href, title: title}} -> %>
+        <span title={title} class="inline-flex items-center gap-1 font-mono text-[11px]">
+          <.user_time
+            id={@id}
+            value={value}
+            timezone={@timezone}
+            style={:full}
+            fallback={iso}
+          />
+          <span aria-hidden="true">·</span>
+          <a
+            :if={href}
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            class="text-sr-brand hover:underline"
+          >
+            {suffix}
+          </a>
+          <span :if={is_nil(href)}>{suffix}</span>
+        </span>
       <% {:link, %{href: href, label: label}} -> %>
         <a
           href={href}
@@ -805,20 +825,23 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   defp format_composite_parts(left, right, original) do
     case parse_iso8601(left) do
-      {:ok, dt, _iso} ->
-        format_composite_timestamp(dt, right, original)
+      {:ok, dt, iso} ->
+        format_composite_timestamp(dt, iso, right, original)
 
       _ ->
         {:text, %{value: original, title: original}}
     end
   end
 
-  defp format_composite_timestamp(dt, right, original) do
+  defp format_composite_timestamp(dt, iso, right, original) do
     label = if url?(right), do: url_label(right), else: right
 
-    {:text,
+    {:composite_time,
      %{
-       value: "#{Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")} · #{label}",
+       value: dt,
+       iso: iso,
+       suffix: label,
+       href: if(url?(right), do: right),
        title: original
      }}
   end
