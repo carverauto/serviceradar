@@ -25,14 +25,16 @@ Demo site available at https://demo.serviceradar.cloud login: `demo@serviceradar
 
 - **Distributed Architecture**: Multi-component design (Agent, Gateway, Core) for flexible edge deployments.
 - **WASM Plugin System**: Securely extend monitoring with custom checks in Go or Rust. Runs in a hardware-level sandbox with zero local dependencies and proxied networking.
-- **Discovery/Topology**: GPU-native topology engine capable of rendering millions of interactive nodes and edges at 60fps via [deck.gl], (https://deck.gl/), [Apache Arrow](https://arrow.apache.org/) for zero-copy streaming, and WASM-native logic layer. Mapping your network with SNMP/CDP/LLDP queries, and discover via ICMP and TCP sweep/scanning.
+- **Topology**: GPU-native topology engine capable of rendering millions of interactive nodes and edges at 60fps via [deck.gl], (https://deck.gl/), [Apache Arrow](https://arrow.apache.org/) for zero-copy streaming, and WASM-native logic layer. 
 - **Custom React Dashboards**: Build powerful, data-driven dashboards with the [Dashboard SDK](https://developer.serviceradar.cloud/docs/v2/dashboard-sdk). Dashboards run inside ServiceRadar, receive SRQL-backed data frames, and can be developed locally with hot module reloading before publishing.
 - **Causal Engine**: Real-time triage and isolation via [DeepCausality](https://github.com/deepcausality-rs) (Rust). Employs hybrid filtering and [roaring bitmaps](https://github.com/RoaringBitmap/roaring) to identify root causes and visually isolate an event's "blast radius" in microseconds.
+- **Anomaly Engine**: Anomaly Engine scores numeric time series at the edge (robust median/MAD spikes plus CUSUM drift) and in core (seasonal hour-of-week baselines, episode lifecycle, severity, and capacity runway). Findings are episode-bounded—open/update/clear with cooldowns and storm shedding—so operators get durable alerts instead of noisy per-sample alarms.
 - **SRQL**: intuitive key:value syntax for querying time-series and relational data.
 - **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, PGVector, and Apache AGE for relational, time-series, and graph topology data.
 - **Monitoring**: Monitor endpoints with ICMP/TCP checks, create composite service checks from multiple vantage points by deploying serviceradar-agent in edge/segmented networks.
 - **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), BGP ([BMP](https://github.com/carverauto/arancini)), and [NetFlow](https://github.com/mikemiles-dev/netflow_parser).
 - **Graph Network Mapper**: Discovery engine that maps interfaces and topology relationships via SNMP/LLDP/CDP.
+- **Notifications**: Notifications turn an alert into a page through routes, escalation policies, and channels (Slack, Discord, email, webhooks, plus declarative and Wasm providers). Every attempt—including silences and withheld sends—is written to the Delivery Log, with retry, failover, and escalation kept as three separate knobs.
 - **Ansible Automation**: Run AWX/AAP playbooks against devices in the inventory with live per-host run telemetry, projected to OCSF for the universal log viewer. AWX-sourced and git-sourced playbook catalogs coexist; cron-driven schedules ride the same launch pipeline. See [docs/ansible.md](./docs/docs/ansible.md).
 - **Security**: Hardened with mTLS, RBAC, and SSO integration. Build images, WASM plugins, and add-ons are signed. SBOMs ship with every build.
 
