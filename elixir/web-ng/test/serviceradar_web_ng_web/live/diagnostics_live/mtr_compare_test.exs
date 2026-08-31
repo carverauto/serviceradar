@@ -35,6 +35,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompareTest do
     assert html =~ "sr-mtr-metric-link"
     assert html =~ "q=in%3Amtr_traces"
     assert html =~ "traces, 0 reached, 0 failed"
+    assert html =~ "Destination Latency"
+    assert html =~ "Destination Loss"
+    refute html =~ "Last-Hop Latency"
+    refute html =~ "Avg Hop Loss"
   end
 
   test "same-hours preset labels elapsed-aligned daily comparison", %{conn: conn} do
@@ -70,6 +74,33 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompareTest do
     assert html =~ "Compare only agent-ui"
     assert html =~ "View Window A traces for agent-ui"
     assert html =~ "View Window B traces for agent-ui"
+  end
+
+  test "window cards render unavailable destination values and deltas as dashes", %{conn: conn} do
+    target = "203.0.113.77"
+
+    insert_mtr_trace!("agent-unavailable", target, ~U[2026-05-07 01:00:00Z],
+      target_reached: false,
+      total_hops: 2,
+      hops: [{"10.0.0.1", 900_000, 0.0}, {"10.0.0.2", 900_000, 0.0}]
+    )
+
+    insert_mtr_trace!("agent-unavailable", target, ~U[2026-05-06 01:00:00Z],
+      target_reached: true,
+      total_hops: 1,
+      hops: [{target, 10_000, 0.0}]
+    )
+
+    {:ok, view, _html} =
+      live(
+        conn,
+        ~p"/diagnostics/mtr/compare?mode=window&preset=custom&a_start=2026-05-07T00:00:00Z&a_end=2026-05-07T06:00:00Z&b_start=2026-05-06T00:00:00Z&b_end=2026-05-06T06:00:00Z&target=#{target}"
+      )
+
+    for card_id <- ["mtr-compare-destination-latency", "mtr-compare-destination-loss"] do
+      assert has_element?(view, "##{card_id} .sr-mtr-value", "-")
+      assert has_element?(view, "##{card_id} .sr-mtr-metric-delta", "-")
+    end
   end
 
   defp start_of_utc_day(%DateTime{} = dt) do

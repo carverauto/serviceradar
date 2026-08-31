@@ -292,6 +292,95 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     assert Enum.any?(comparison.a.timeline, &(&1["trace_count"] == 0))
   end
 
+  test "compare_windows weights destination metrics by destination probes and replies" do
+    window_a = %{label: "Current", start: ~U[2026-05-07 00:00:00Z], end: ~U[2026-05-07 06:00:00Z]}
+    window_b = %{label: "Baseline", start: ~U[2026-05-06 00:00:00Z], end: ~U[2026-05-06 06:00:00Z]}
+    target = "198.51.100.99"
+
+    insert_mtr_trace!("agent-weighted", target, ~U[2026-05-07 01:00:00Z],
+      target_reached: true,
+      total_hops: 2,
+      hops: [
+        {"10.0.0.1", 10_000, 0.0},
+        {target, 10_000, 0.0, 10, 10}
+      ]
+    )
+
+    insert_mtr_trace!("agent-weighted", target, ~U[2026-05-07 02:00:00Z],
+      target_reached: true,
+      total_hops: 2,
+      hops: [
+        {"10.0.0.2", 20_000, 0.0},
+        {target, 90_000, 50.0, 90, 45}
+      ]
+    )
+
+    insert_mtr_trace!("agent-weighted", target, ~U[2026-05-07 03:00:00Z],
+      target_reached: false,
+      total_hops: 2,
+      hops: [
+        {"10.0.0.3", 999_000, 0.0},
+        {"10.0.0.4", 999_000, 0.0}
+      ]
+    )
+
+    insert_mtr_trace!("agent-weighted", target, ~U[2026-05-06 01:00:00Z],
+      target_reached: true,
+      total_hops: 1,
+      hops: [{target, 20_000, 0.0, 10, 10}]
+    )
+
+    assert {:ok, comparison} =
+             MtrData.compare_windows(
+               window_a: window_a,
+               window_b: window_b,
+               target_filter: target
+             )
+
+    assert comparison.a.trace_count == 3
+    assert comparison.a.reached_count == 2
+    assert comparison.a.failed_count == 1
+    assert comparison.a.endpoint_sample_count == 2
+    assert comparison.a.avg_destination_us == 75_454.5
+    assert comparison.a.destination_loss_pct == 45.0
+    assert comparison.deltas.avg_destination_us == 55_454.5
+    assert comparison.deltas.destination_loss_pct == 45.0
+  end
+
+  test "compare_windows leaves destination metrics and deltas unavailable without terminal observations" do
+    window_a = %{label: "Current", start: ~U[2026-05-07 00:00:00Z], end: ~U[2026-05-07 06:00:00Z]}
+    window_b = %{label: "Baseline", start: ~U[2026-05-06 00:00:00Z], end: ~U[2026-05-06 06:00:00Z]}
+    target = "198.51.100.100"
+
+    insert_mtr_trace!("agent-empty-endpoint", target, ~U[2026-05-07 01:00:00Z],
+      target_reached: false,
+      total_hops: 2,
+      hops: [{"10.0.0.1", 900_000, 0.0}, {"10.0.0.2", 900_000, 0.0}]
+    )
+
+    insert_mtr_trace!("agent-empty-endpoint", target, ~U[2026-05-06 01:00:00Z],
+      target_reached: true,
+      total_hops: 1,
+      hops: [{target, 10_000, 0.0, 10, 10}]
+    )
+
+    assert {:ok, comparison} =
+             MtrData.compare_windows(
+               window_a: window_a,
+               window_b: window_b,
+               target_filter: target
+             )
+
+    assert comparison.a.trace_count == 1
+    assert comparison.a.reached_count == 0
+    assert comparison.a.failed_count == 1
+    assert comparison.a.endpoint_sample_count == 0
+    assert comparison.a.avg_destination_us == nil
+    assert comparison.a.destination_loss_pct == nil
+    assert comparison.deltas.avg_destination_us == nil
+    assert comparison.deltas.destination_loss_pct == nil
+  end
+
   test "compare_windows reports dominant route signatures and per-agent deltas" do
     window_a = %{label: "Current", start: ~U[2026-05-07 00:00:00Z], end: ~U[2026-05-07 06:00:00Z]}
     window_b = %{label: "Baseline", start: ~U[2026-05-06 00:00:00Z], end: ~U[2026-05-06 06:00:00Z]}

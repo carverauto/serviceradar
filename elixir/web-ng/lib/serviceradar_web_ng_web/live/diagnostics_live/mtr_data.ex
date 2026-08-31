@@ -500,31 +500,52 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       WHERE t.time >= $1 AND t.time < $2
       #{filter_clause}
     ),
-    last_hops AS (
-      SELECT DISTINCT ON (h.trace_id) h.trace_id, h.avg_us
-      FROM mtr_hops h
-      INNER JOIN selected_traces st ON st.id = h.trace_id
-      WHERE h.addr IS NOT NULL
-      ORDER BY h.trace_id, h.hop_number DESC
-    ),
-    hop_loss AS (
-      SELECT h.trace_id, AVG(h.loss_pct)::float AS avg_loss_pct
-      FROM mtr_hops h
-      INNER JOIN selected_traces st ON st.id = h.trace_id
-      GROUP BY h.trace_id
+    terminal_hops AS (
+      SELECT trace_id, sent, received, avg_us
+      FROM (
+        SELECT
+          h.trace_id,
+          h.sent,
+          h.received,
+          h.avg_us,
+          ROW_NUMBER() OVER (
+            PARTITION BY h.trace_id
+            ORDER BY h.time DESC, h.id DESC
+          ) AS terminal_rank
+        FROM mtr_hops h
+        INNER JOIN selected_traces st
+          ON st.id = h.trace_id
+          AND st.target_reached
+          AND h.hop_number = st.total_hops
+      ) terminal_candidates
+      WHERE terminal_rank = 1
     )
     SELECT
       COUNT(st.id)::bigint AS trace_count,
       COUNT(st.id) FILTER (WHERE st.target_reached)::bigint AS reached_count,
       COUNT(st.id) FILTER (WHERE NOT st.target_reached)::bigint AS failed_count,
       COALESCE(AVG(NULLIF(st.total_hops, 0)), 0)::float AS avg_hops,
-      COALESCE(AVG(NULLIF(lh.avg_us, 0)), 0)::float AS avg_last_hop_us,
-      COALESCE(AVG(hl.avg_loss_pct), 0)::float AS avg_loss_pct,
+      CASE
+        WHEN COALESCE(SUM(th.received) FILTER (WHERE th.received > 0 AND th.avg_us IS NOT NULL), 0) > 0
+        THEN (
+          SUM(th.avg_us::numeric * th.received::numeric) FILTER (WHERE th.received > 0 AND th.avg_us IS NOT NULL) /
+          SUM(th.received) FILTER (WHERE th.received > 0 AND th.avg_us IS NOT NULL)
+        )::float
+      END AS avg_destination_us,
+      CASE
+        WHEN COALESCE(SUM(th.sent) FILTER (WHERE th.sent > 0), 0) > 0
+        THEN (
+          100.0 * (
+            SUM(th.sent) FILTER (WHERE th.sent > 0) -
+            SUM(COALESCE(th.received, 0)) FILTER (WHERE th.sent > 0)
+          ) / SUM(th.sent) FILTER (WHERE th.sent > 0)
+        )::float
+      END AS destination_loss_pct,
+      COUNT(th.trace_id)::bigint AS endpoint_sample_count,
       COUNT(DISTINCT st.agent_id)::bigint AS agent_count,
       COUNT(DISTINCT COALESCE(NULLIF(st.target_ip, ''), st.target))::bigint AS target_count
     FROM selected_traces st
-    LEFT JOIN last_hops lh ON lh.trace_id = st.id
-    LEFT JOIN hop_loss hl ON hl.trace_id = st.id
+    LEFT JOIN terminal_hops th ON th.trace_id = st.id
     """
 
     case Repo.query(query, [window.start, window.end] ++ params) do
@@ -536,8 +557,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
              reached_count,
              failed_count,
              avg_hops,
-             avg_last_hop_us,
-             avg_loss_pct,
+             avg_destination_us,
+             destination_loss_pct,
+             endpoint_sample_count,
              agent_count,
              target_count
            ]
@@ -554,8 +576,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
            failed_count: failed_count || 0,
            success_rate: percent_float(reached_count || 0, trace_count || 0),
            avg_hops: round_float(avg_hops),
-           avg_last_hop_us: round_float(avg_last_hop_us),
-           avg_loss_pct: round_float(avg_loss_pct),
+           avg_destination_us: round_nullable_float(avg_destination_us),
+           destination_loss_pct: round_nullable_float(destination_loss_pct),
+           endpoint_sample_count: endpoint_sample_count || 0,
            agent_count: agent_count || 0,
            target_count: target_count || 0
          }}
@@ -784,8 +807,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       trace_count: (a.trace_count || 0) - (b.trace_count || 0),
       success_rate: round_float((a.success_rate || 0.0) - (b.success_rate || 0.0)),
       avg_hops: round_float((a.avg_hops || 0.0) - (b.avg_hops || 0.0)),
-      avg_last_hop_us: round_float((a.avg_last_hop_us || 0.0) - (b.avg_last_hop_us || 0.0)),
-      avg_loss_pct: round_float((a.avg_loss_pct || 0.0) - (b.avg_loss_pct || 0.0))
+      avg_destination_us: nullable_delta(a.avg_destination_us, b.avg_destination_us),
+      destination_loss_pct: nullable_delta(a.destination_loss_pct, b.destination_loss_pct)
     }
   end
 
@@ -807,6 +830,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   defp round_float(value) when is_integer(value), do: value * 1.0
   defp round_float(value) when is_float(value), do: Float.round(value, 1)
   defp round_float(_value), do: 0.0
+
+  defp round_nullable_float(value) when is_integer(value), do: value * 1.0
+  defp round_nullable_float(value) when is_float(value), do: Float.round(value, 1)
+  defp round_nullable_float(_value), do: nil
+
+  defp nullable_delta(a, b) when is_number(a) and is_number(b), do: round_nullable_float(a - b)
+  defp nullable_delta(_a, _b), do: nil
 
   defp build_trace_conditions(target_filter, agent_filter, device_uid, device_ip) do
     conditions = []
