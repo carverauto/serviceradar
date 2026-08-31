@@ -99,8 +99,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # device. It exists so AliasGuard can tell "another address of this chassis"
   # from "different hardware"; see Identity.InterfaceMacs.
   #
-  # Reuses primary_identity_interface?/1, so loopback, virtual, bridge and
-  # tunnel interfaces are excluded here exactly as they are for identity seeding.
+  # Reuses primary_identity_interface?/1, so loopback, virtual, bridge, tunnel
+  # and VRRP interfaces are excluded here exactly as they are for identity seeding.
   # InterfaceMacs additionally refuses locally-administered addresses and skips
   # values already registered, so a poll that discovers nothing new writes
   # nothing.
@@ -1909,9 +1909,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   # Deterministically ordered MAC evidence for a polled device: physical and
-  # aggregate interfaces only (loopback/virtual/bridge/tunnel interfaces are
-  # not identity evidence). The sorted-first entry is the primary identity
-  # seed, matching the historical deterministic-uid derivation.
+  # aggregate interfaces only (loopback/virtual/bridge/tunnel and VRRP
+  # interfaces are not identity evidence). The sorted-first entry is the primary
+  # identity seed, matching the historical deterministic-uid derivation.
   defp derive_identity_macs(device_ip, records) do
     records
     |> Enum.filter(&(&1.device_ip == device_ip))
@@ -1923,14 +1923,28 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp primary_identity_interface?(record) do
-    case String.downcase(to_string(record.interface_kind || "")) do
-      "loopback" -> false
-      "virtual" -> false
-      "bridge" -> false
-      "tunnel" -> false
-      _ -> true
-    end
+    not vrrp_interface?(record) and
+      case String.downcase(to_string(record.interface_kind || "")) do
+        "loopback" -> false
+        "virtual" -> false
+        "bridge" -> false
+        "tunnel" -> false
+        _ -> true
+      end
   end
+
+  defp vrrp_interface?(record) do
+    Enum.any?([record.if_name, record.if_descr], &vrrp_interface_label?/1)
+  end
+
+  defp vrrp_interface_label?(label) when is_binary(label) do
+    label
+    |> String.trim()
+    |> String.downcase()
+    |> String.starts_with?("vrrp")
+  end
+
+  defp vrrp_interface_label?(_label), do: false
 
   defp normalize_mac(nil), do: nil
   defp normalize_mac(mac), do: IdentityReconciler.normalize_mac(mac)

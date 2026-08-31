@@ -236,6 +236,63 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert hd(devices_after_second).uid == first_uid
   end
 
+  test "VRRP interface MAC cannot seed a first-sighting mapper device", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 18, 210, uniq)
+    vrrp_mac = "E2:44:AC:EB:E7:44"
+    normalized_vrrp_mac = IdentityReconciler.normalize_mac(vrrp_mac)
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    expected_uid =
+      IdentityReconciler.generate_deterministic_device_id(%{
+        agent_id: nil,
+        armis_id: nil,
+        integration_id: nil,
+        netbox_id: nil,
+        mac: nil,
+        ip: ip,
+        partition: "default"
+      })
+
+    payload =
+      Jason.encode!([
+        %{
+          "device_id" => "default:#{ip}",
+          "partition" => "default",
+          "device_ip" => ip,
+          "if_index" => 2,
+          "if_name" => "vrrp10",
+          "if_descr" => "vrrp10",
+          "if_type" => 6,
+          "if_phys_address" => vrrp_mac,
+          "timestamp" => ts
+        }
+      ])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    assert [device] = wait_for_devices_by_ip(actor, ip)
+    assert device.uid == expected_uid
+    assert device.mac == nil
+    assert device.metadata["identity_source"] == "mapper_ip_seed"
+
+    identifier_query =
+      Ash.Query.for_read(DeviceIdentifier, :lookup, %{
+        identifier_type: :mac,
+        identifier_value: normalized_vrrp_mac,
+        partition: "default"
+      })
+
+    assert {:ok, []} = Ash.read(identifier_query, actor: actor)
+
+    assert {:ok, interfaces} =
+             Interface
+             |> Ash.Query.filter(device_id == ^device.uid)
+             |> Ash.read(actor: actor)
+
+    assert Enum.any?(interfaces, &(&1.if_name == "vrrp10"))
+  end
+
   test "mapper reuses the existing deterministic device when interface MAC is seen on a new IP",
        %{
          actor: actor

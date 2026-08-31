@@ -17,12 +17,135 @@
 package mapper
 
 import (
+	"errors"
 	"fmt"
-
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/gosnmp/gosnmp"
 )
+
+const maxPrimaryMACLabelProbes = 16
+
+var errPrimaryMACLabelProbeLimit = errors.New("primary MAC interface label probe limit reached")
+
+type interfaceMACCandidate struct {
+	ifIndex int
+	ifName  string
+	ifDescr string
+	mac     string
+}
+
+type snmpMACReader interface {
+	Get(oids []string) (*gosnmp.SnmpPacket, error)
+	BulkWalk(rootOID string, walkFn gosnmp.WalkFunc) error
+	Walk(rootOID string, walkFn gosnmp.WalkFunc) error
+}
+
+type snmpVersionProvider interface {
+	SNMPVersion() gosnmp.SnmpVersion
+}
+
+func selectPrimaryMAC(candidates []interfaceMACCandidate) string {
+	ordered := append([]interfaceMACCandidate(nil), candidates...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return ordered[i].ifIndex < ordered[j].ifIndex
+	})
+
+	for _, candidate := range ordered {
+		if !usableHardwareMAC(candidate.mac) {
+			continue
+		}
+
+		if isVRRPInterfaceLabel(candidate.ifName) || isVRRPInterfaceLabel(candidate.ifDescr) {
+			continue
+		}
+
+		return candidate.mac
+	}
+
+	return ""
+}
+
+func isVRRPInterfaceLabel(label string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(label)), "vrrp")
+}
+
+func interfaceIndexFromOID(oid string) (int, bool) {
+	separator := strings.LastIndex(oid, ".")
+	if separator < 0 || separator == len(oid)-1 {
+		return 0, false
+	}
+
+	ifIndex, err := strconv.Atoi(oid[separator+1:])
+	if err != nil {
+		return 0, false
+	}
+
+	return ifIndex, true
+}
+
+func updateInterfaceMACCandidate(candidate *interfaceMACCandidate, pdu gosnmp.SnmpPDU) {
+	switch {
+	case matchesOIDPrefix(pdu.Name, oidIfPhysAddress):
+		candidate.mac = usableMACFromPDUValue(pdu.Value)
+	case matchesOIDPrefix(pdu.Name, oidIfDescr):
+		if value, ok := snmpStringValue(pdu); ok {
+			candidate.ifDescr = value
+		}
+	case matchesOIDPrefix(pdu.Name, oidIfName):
+		if value, ok := snmpStringValue(pdu); ok {
+			candidate.ifName = value
+		}
+	}
+}
+
+func interfaceMACCandidateAtIndex(
+	client snmpMACReader,
+	ifIndex int,
+	includeMAC bool,
+) (interfaceMACCandidate, error) {
+	candidate := interfaceMACCandidate{ifIndex: ifIndex}
+	oids := []string{
+		fmt.Sprintf("%s.%d", oidIfDescr, ifIndex),
+		fmt.Sprintf("%s.%d", oidIfName, ifIndex),
+	}
+	if includeMAC {
+		oids = append([]string{fmt.Sprintf("%s.%d", oidIfPhysAddress, ifIndex)}, oids...)
+	}
+
+	variables, err := fetchSystemVariables(client.Get, oids)
+	if err != nil {
+		return candidate, err
+	}
+
+	for _, pdu := range variables {
+		pduIndex, ok := interfaceIndexFromOID(pdu.Name)
+		if !ok || pduIndex != ifIndex {
+			continue
+		}
+
+		updateInterfaceMACCandidate(&candidate, pdu)
+	}
+
+	return candidate, nil
+}
+
+func walkInterfaceMACs(client snmpMACReader, walkFn gosnmp.WalkFunc) error {
+	version := gosnmp.Version2c
+	if provider, ok := client.(snmpVersionProvider); ok {
+		version = provider.SNMPVersion()
+	} else if concrete, ok := client.(*gosnmp.GoSNMP); ok {
+		version = concrete.Version
+	}
+
+	if version == gosnmp.Version1 {
+		return client.Walk(oidIfPhysAddress, walkFn)
+	}
+
+	return client.BulkWalk(oidIfPhysAddress, walkFn)
+}
 
 // processSNMPVariables processes SNMP variables and populates the device object
 func (e *DiscoveryEngine) processSNMPVariables(device *DiscoveredDevice, variables []gosnmp.SnmpPDU) bool {
@@ -186,37 +309,63 @@ func (*DiscoveryEngine) setBridgeMACValue(target *string, v gosnmp.SnmpPDU) bool
 }
 
 // getMACAddress tries to get the MAC address of a device using SNMP
-func (e *DiscoveryEngine) getMACAddress(client *gosnmp.GoSNMP, target, jobID string) string {
+func (e *DiscoveryEngine) getMACAddress(client snmpMACReader, target, jobID string) string {
 	// Try ifPhysAddress.1 (first interface). On Linux this is usually `lo`
 	// with an empty or all-zero MAC — do not treat that as the chassis ID
 	// or we skip the walk that would find eth0.
-	macOID := ".1.3.6.1.2.1.2.2.1.6.1"
-
-	result, err := client.Get([]string{macOID})
-	if err == nil && len(result.Variables) > 0 && result.Variables[0].Type == gosnmp.OctetString {
-		if mac := usableMACFromPDUValue(result.Variables[0].Value); mac != "" {
+	firstCandidate, firstCandidateErr := interfaceMACCandidateAtIndex(client, 1, true)
+	if firstCandidateErr == nil {
+		if mac := selectPrimaryMAC([]interfaceMACCandidate{firstCandidate}); mac != "" {
 			return mac
 		}
 	}
 
-	// If still empty, try walking ifPhysAddress table to find any MAC
-	var mac string
+	var (
+		mac         string
+		labelErr    error
+		labelProbes int
+	)
 
-	err = client.BulkWalk(oidIfPhysAddress, func(pdu gosnmp.SnmpPDU) error {
-		if pdu.Type == gosnmp.OctetString {
-			formattedMAC := usableMACFromPDUValue(pdu.Value)
-			if formattedMAC != "" {
-				mac = formattedMAC
-				return ErrFoundMACStoppingWalk
+	err := walkInterfaceMACs(client, func(pdu gosnmp.SnmpPDU) error {
+		formattedMAC := usableMACFromPDUValue(pdu.Value)
+		if formattedMAC == "" {
+			return nil
+		}
+
+		ifIndex, ok := interfaceIndexFromOID(pdu.Name)
+		if !ok {
+			return nil
+		}
+
+		if labelProbes >= maxPrimaryMACLabelProbes {
+			return errPrimaryMACLabelProbeLimit
+		}
+		labelProbes++
+
+		candidate, err := interfaceMACCandidateAtIndex(client, ifIndex, false)
+		if err != nil {
+			if labelErr == nil {
+				labelErr = err
 			}
+
+			return nil
+		}
+
+		candidate.mac = formattedMAC
+		mac = selectPrimaryMAC([]interfaceMACCandidate{candidate})
+		if mac != "" {
+			return ErrFoundMACStoppingWalk
 		}
 
 		return nil
 	})
 
-	if err != nil && !strings.Contains(err.Error(), "found MAC, stopping walk") {
+	if err != nil && !errors.Is(err, ErrFoundMACStoppingWalk) {
 		e.logger.Warn().Str("job_id", jobID).Str("target", target).Err(err).
 			Msg("Failed to walk ifPhysAddress for MAC")
+	} else if mac == "" && labelErr != nil {
+		e.logger.Warn().Str("job_id", jobID).Str("target", target).Err(labelErr).
+			Msg("Failed to resolve interface labels for MAC identity")
 	}
 
 	return mac
