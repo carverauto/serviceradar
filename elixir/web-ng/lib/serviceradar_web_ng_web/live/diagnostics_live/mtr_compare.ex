@@ -1284,11 +1284,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   defp format_percent(value) when is_integer(value) or is_float(value), do: "#{Float.round(value / 1, 1)}%"
   defp format_percent(_), do: "-"
 
+  defp format_us(value) when value == 0, do: "0.0ms"
   defp format_us(value) when is_integer(value), do: format_us(value * 1.0)
 
   defp format_us(value) when is_float(value) do
     cond do
-      value <= 0 -> "-"
+      value < 0 -> "-"
       value >= 1_000_000 -> "#{Float.round(value / 1_000_000, 1)}s"
       value >= 1_000 -> "#{Float.round(value / 1_000, 1)}ms"
       true -> "#{Float.round(value, 1)}us"
@@ -1300,7 +1301,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   defp format_delta(delta, "latency_us") when delta == 0, do: "0us"
 
   defp format_delta(delta, "latency_us") when is_integer(delta) or is_float(delta) do
-    sign = if delta > 0, do: "+", else: ""
+    sign = if delta > 0, do: "+", else: "-"
     formatted = delta |> abs() |> format_us()
     "#{sign}#{formatted}"
   end
