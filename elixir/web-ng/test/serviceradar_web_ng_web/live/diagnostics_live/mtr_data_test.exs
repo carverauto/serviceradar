@@ -211,8 +211,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
              "destination_sent" => 10,
              "destination_received" => 10,
              "destination_avg_us" => 30_000,
-             "destination_loss_pct" => 0.0
+             "destination_loss_pct" => silent_destination_loss_pct
            } = trace_by_id[silent_transit_id]
+
+    assert_in_delta(silent_destination_loss_pct, 0.0, 1.0e-10)
 
     assert %{
              "destination_sent" => 20,
