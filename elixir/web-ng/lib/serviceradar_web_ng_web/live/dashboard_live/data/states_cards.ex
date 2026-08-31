@@ -206,36 +206,44 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.StatesCards do
       end
 
       defp observability_metrics(flows, mtr, traces, services, sparklines) do
-        mtr_available? = to_int(mtr.path_count) > 0
+        mtr_available? = to_int(mtr.endpoint_sample_count) > 0
         flows_available? = to_int(flows.flow_count) > 0 or to_int(flows.bytes_total) > 0
         service_available? = to_int(services.total) > 0 or to_int(traces.total) > 0
 
         [
           %{
-            label: "Latency (Avg)",
-            value: if(mtr_available?, do: format_float(mtr.avg_latency_ms), else: "No MTR"),
+            label: "Destination Latency",
+            value: if(mtr_available?, do: format_float(mtr.avg_latency_ms), else: "No endpoint sample"),
             scale: if(mtr_available?, do: "ms", else: ""),
             available: mtr_available?,
             tone: metric_tone(mtr.avg_latency_ms, 150),
             sparkline: Map.get(sparklines, :latency, []),
-            axis_min: "0",
-            axis_mid: "75",
-            axis_max: "150",
+            axis_min: if(mtr_available?, do: "0", else: ""),
+            axis_mid: if(mtr_available?, do: "75", else: ""),
+            axis_max: if(mtr_available?, do: "150", else: ""),
             href: "/diagnostics/mtr",
-            aria_label: "Open MTR latency diagnostics"
+            aria_label: "Open MTR destination latency diagnostics"
           },
           %{
-            label: "Packet Loss",
-            value: if(mtr_available?, do: format_float(mtr.avg_loss_pct), else: "No MTR"),
+            label: "Destination Loss",
+            value: if(mtr_available?, do: format_float(mtr.avg_loss_pct), else: "No endpoint sample"),
             scale: if(mtr_available?, do: "%", else: ""),
             available: mtr_available?,
             tone: metric_tone(mtr.avg_loss_pct, 1),
             sparkline: Map.get(sparklines, :packet_loss, []),
-            axis_min: "0%",
-            axis_mid: packet_loss_axis_mid(Map.get(sparklines, :packet_loss, []), mtr.avg_loss_pct),
-            axis_max: packet_loss_axis_max(Map.get(sparklines, :packet_loss, []), mtr.avg_loss_pct),
+            axis_min: if(mtr_available?, do: "0%", else: ""),
+            axis_mid:
+              if(mtr_available?,
+                do: packet_loss_axis_mid(Map.get(sparklines, :packet_loss, []), mtr.avg_loss_pct),
+                else: ""
+              ),
+            axis_max:
+              if(mtr_available?,
+                do: packet_loss_axis_max(Map.get(sparklines, :packet_loss, []), mtr.avg_loss_pct),
+                else: ""
+              ),
             href: "/diagnostics/mtr",
-            aria_label: "Open packet loss diagnostics"
+            aria_label: "Open MTR destination loss diagnostics"
           },
           %{
             label: "Throughput",

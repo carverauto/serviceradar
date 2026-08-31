@@ -147,11 +147,37 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.ServiceSparklines do
 
       @sobelow_skip ["SQL.Query"]
       defp mtr_timeseries_sparkline(time_window, metric) do
-        if relation_exists?("platform.mtr_hops") do
-          value_expr =
+        if relation_exists?("platform.mtr_traces") and relation_exists?("platform.mtr_hops") do
+          {value_expr, denominator_expr} =
             case metric do
-              :latency_ms -> "COALESCE(AVG(NULLIF(h.avg_us, 0)), 0)::float8 / 1000.0"
-              :loss_pct -> "COALESCE(AVG(h.loss_pct), 0)::float8"
+              :latency_ms ->
+                {
+                  """
+                  SUM(h.avg_us::numeric * h.received::numeric)
+                    FILTER (WHERE h.avg_us IS NOT NULL AND h.received > 0) /
+                    NULLIF(
+                      SUM(h.received::numeric)
+                        FILTER (WHERE h.avg_us IS NOT NULL AND h.received > 0),
+                      0
+                    ) / 1000.0
+                  """,
+                  """
+                  SUM(h.received::numeric)
+                    FILTER (WHERE h.avg_us IS NOT NULL AND h.received > 0)
+                  """
+                }
+
+              :loss_pct ->
+                {
+                  """
+                  100.0 * (
+                    SUM(h.sent::numeric) FILTER (WHERE h.sent > 0) -
+                      SUM(h.received::numeric) FILTER (WHERE h.sent > 0)
+                  ) /
+                    NULLIF(SUM(h.sent::numeric) FILTER (WHERE h.sent > 0), 0)
+                  """,
+                  "SUM(h.sent::numeric) FILTER (WHERE h.sent > 0)"
+                }
             end
 
           sql = """
@@ -160,14 +186,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.ServiceSparklines do
             SELECT
               time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, h.time) AS bucket,
               #{value_expr} AS value
-            FROM (
-              SELECT DISTINCT ON (trace_id) time, avg_us, loss_pct
-              FROM mtr_hops
-              WHERE time >= $1
-                AND addr IS NOT NULL
-              ORDER BY trace_id, hop_number DESC
-            ) h
+            FROM mtr_traces t
+            INNER JOIN mtr_hops h
+              ON h.trace_id = t.id
+              AND t.target_reached
+              AND h.hop_number = t.total_hops
+            WHERE t.time >= $1
             GROUP BY 1
+            HAVING #{denominator_expr} > 0
             ORDER BY 1 DESC
             LIMIT $2
           ) recent

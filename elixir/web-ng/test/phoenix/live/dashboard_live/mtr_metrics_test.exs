@@ -1,0 +1,160 @@
+defmodule ServiceRadarWebNGWeb.DashboardLive.MtrMetricsTest do
+  use ServiceRadarWebNG.DataCase, async: false
+
+  alias ServiceRadarWebNGWeb.DashboardLive.Data
+
+  test "dashboard MTR metrics use reached terminal destinations with counter and reply weighting" do
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+
+    insert_mtr_trace!("dashboard-mtr-a", timestamp,
+      target_reached: true,
+      hops: [
+        {"10.0.0.1", 900_000, 10, 1},
+        {"198.51.100.10", 10_000, 10, 10}
+      ]
+    )
+
+    insert_mtr_trace!("dashboard-mtr-b", timestamp,
+      target_reached: true,
+      hops: [
+        {"10.0.0.2", 5_000, 20, 20},
+        {"198.51.100.20", 40_000, 20, 5}
+      ]
+    )
+
+    insert_mtr_trace!("dashboard-mtr-c", timestamp,
+      target_reached: false,
+      hops: [
+        {"10.0.0.3", 800_000, 30, 30},
+        {nil, 0, 30, 0}
+      ]
+    )
+
+    %{mtr_timeseries: summary} = Data.load_mtr("last_1h")
+    %{sparklines: sparklines} = Data.load_sparklines("last_1h")
+
+    assert summary.path_count == 3
+    assert summary.endpoint_sample_count == 2
+    assert_in_delta summary.avg_loss_pct, 50.0, 1.0e-10
+    assert_in_delta summary.avg_latency_ms, 20.0, 1.0e-10
+    assert summary.degraded_count == 2
+
+    assert [latency_ms] = sparklines.latency
+    assert [loss_pct] = sparklines.packet_loss
+    assert_in_delta latency_ms, 20.0, 1.0e-10
+    assert_in_delta loss_pct, 50.0, 1.0e-10
+  end
+
+  test "dashboard keeps path-only MTR data active while withholding endpoint cards" do
+    dashboard =
+      Data.derive(%{
+        mtr_timeseries: %{
+          path_count: 1,
+          endpoint_sample_count: 0,
+          avg_loss_pct: 0.0,
+          avg_latency_ms: 0.0,
+          degraded_count: 1
+        },
+        loaded: %{mtr: true}
+      })
+
+    assert dashboard.module_states.mtr == :active
+
+    metrics = Map.new(dashboard.observability_metrics, &{&1.label, &1})
+
+    assert %{value: "No endpoint sample", scale: "", axis_min: "", axis_mid: "", axis_max: ""} =
+             metrics["Destination Latency"]
+
+    assert %{value: "No endpoint sample", scale: "", axis_min: "", axis_mid: "", axis_max: ""} =
+             metrics["Destination Loss"]
+  end
+
+  test "dashboard excludes zero-probe destinations from loss weighting" do
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+
+    insert_mtr_trace!("dashboard-mtr-probed", timestamp,
+      target_reached: true,
+      hops: [{"198.51.100.30", 10_000, 10, 5}]
+    )
+
+    insert_mtr_trace!("dashboard-mtr-unprobed", timestamp,
+      target_reached: true,
+      hops: [{"198.51.100.31", 10_000, 0, 0}]
+    )
+
+    %{mtr_timeseries: summary} = Data.load_mtr("last_1h")
+    %{sparklines: sparklines} = Data.load_sparklines("last_1h")
+
+    assert summary.endpoint_sample_count == 2
+    assert_in_delta summary.avg_loss_pct, 50.0, 1.0e-10
+    assert [loss_pct] = sparklines.packet_loss
+    assert_in_delta loss_pct, 50.0, 1.0e-10
+  end
+
+  defp insert_mtr_trace!(agent_id, timestamp, opts) do
+    id = Ecto.UUID.generate()
+    db_id = dump_uuid!(id)
+    hops = Keyword.fetch!(opts, :hops)
+
+    ServiceRadar.Repo.insert_all("mtr_traces", [
+      %{
+        id: db_id,
+        time: timestamp,
+        agent_id: agent_id,
+        gateway_id: "gateway-test",
+        check_id: "check-#{id}",
+        check_name: "MTR dashboard metrics",
+        device_id: nil,
+        target: "198.51.100.254",
+        target_ip: "198.51.100.254",
+        target_reached: Keyword.fetch!(opts, :target_reached),
+        total_hops: length(hops),
+        protocol: "icmp",
+        ip_version: 4,
+        packet_size: 64,
+        partition: "default",
+        error: nil,
+        created_at: timestamp
+      }
+    ])
+
+    ServiceRadar.Repo.insert_all(
+      "mtr_hops",
+      hops
+      |> Enum.with_index(1)
+      |> Enum.map(fn {{addr, avg_us, sent, received}, hop_number} ->
+        %{
+          id: dump_uuid!(Ecto.UUID.generate()),
+          time: timestamp,
+          trace_id: db_id,
+          hop_number: hop_number,
+          addr: addr,
+          hostname: nil,
+          ecmp_addrs: [],
+          asn: nil,
+          asn_org: nil,
+          mpls_labels: %{},
+          sent: sent,
+          received: received,
+          loss_pct: if(sent > 0, do: 100.0 * (sent - received) / sent, else: 0.0),
+          last_us: avg_us,
+          avg_us: avg_us,
+          min_us: avg_us,
+          max_us: avg_us,
+          stddev_us: 0,
+          jitter_us: 0,
+          jitter_worst_us: 0,
+          jitter_interarrival_us: 0,
+          created_at: timestamp
+        }
+      end)
+    )
+  end
+
+  defp dump_uuid!(uuid) do
+    case Ecto.UUID.dump(uuid) do
+      {:ok, dumped} -> dumped
+      :error -> uuid
+    end
+  end
+end
