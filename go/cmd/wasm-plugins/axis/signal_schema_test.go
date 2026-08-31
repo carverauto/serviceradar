@@ -4,13 +4,15 @@ import (
 	"bufio"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
 func TestAxisSignalSchemaRefMatchesShippedPackageContract(t *testing.T) {
-	producerID, producerVersion, signal := readManifestSignal(t, "plugin.yaml", axisSignalSchemaID)
-	contract := readDisplayContract(t, signal["display_contract"])
+	manifestPath := signalSchemaTestFile(t, "plugin.yaml")
+	producerID, producerVersion, signal := readManifestSignal(t, manifestPath, axisSignalSchemaID)
+	contract := readDisplayContract(t, signalSchemaTestFile(t, signal["display_contract"]))
 	ref := axisSignalSchemaRef()
 
 	assertSignalRefMatchesPackage(t, ref.ProducerID, producerID, "producer id")
@@ -24,6 +26,28 @@ func TestAxisSignalSchemaRefMatchesShippedPackageContract(t *testing.T) {
 	assertSignalRefMatchesPackage(t, ref.SchemaVersion, contract["schema_version"], "contract schema version")
 	assertSignalRefMatchesPackage(t, ref.DisplayContractID, contract["id"], "contract id")
 	assertSignalRefMatchesPackage(t, ref.DisplayContractVersion, contract["version"], "contract version")
+}
+
+func signalSchemaTestFile(t *testing.T, relative string) string {
+	t.Helper()
+
+	candidates := []string{relative}
+	if testSrcDir := os.Getenv("TEST_SRCDIR"); testSrcDir != "" {
+		packagePath := filepath.Join("go", "cmd", "wasm-plugins", "axis", relative)
+		if workspace := os.Getenv("TEST_WORKSPACE"); workspace != "" {
+			candidates = append(candidates, filepath.Join(testSrcDir, workspace, packagePath))
+		}
+		candidates = append(candidates, filepath.Join(testSrcDir, packagePath))
+	}
+
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+
+	t.Fatalf("declared package file %q not found in candidates %q", relative, candidates)
+	return ""
 }
 
 func readManifestSignal(t *testing.T, path, schemaID string) (string, string, map[string]string) {
