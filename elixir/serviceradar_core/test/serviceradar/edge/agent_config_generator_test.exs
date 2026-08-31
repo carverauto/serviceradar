@@ -1472,6 +1472,10 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     } do
       agent_uid = "agent-specific-sweep-#{unique_id}"
 
+      # SweepGroup validates agent_ids against registered agents, so the group's
+      # agent has to exist before the group does.
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
       # Create agent-specific sweep group
       {:ok, _group} =
         SweepGroup
@@ -1525,6 +1529,9 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     } do
       assigned_agent_uid = "assigned-sweep-agent-#{unique_id}"
       other_agent_uid = "other-sweep-agent-#{unique_id}"
+
+      {:ok, _assigned} = create_connected_agent(actor, assigned_agent_uid)
+      {:ok, _other} = create_connected_agent(actor, other_agent_uid)
 
       {:ok, _group} =
         SweepGroup
