@@ -4,7 +4,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
 
   Publishing must be PIPELINED -- multiple outstanding un-acknowledged sequences at once -- rather
   than serializing every frame on one request and waiting for its PubAck. This is the accounting
-  that makes that safe: it bounds how much may be outstanding at any moment by frame count, by
+  that is meant to make that safe: it bounds how much may be ADMITTED at once by frame count, by
   bytes, and by a per-frame PubAck deadline.
 
   Pure data and functions: no I/O, no process, no clock. `now` and deadlines are passed in, so the
@@ -60,10 +60,22 @@ defmodule ServiceRadar.Edge.PublishWindow do
   Every gate here is on the RESERVATION, and by construction none of them can see whether the
   attempt they are superseding has already reached the wire. Closing it needs the retry to be
   fenced against the original attempt's owner -- which requires knowing whether that attempt
-  published, i.e. the PubAck correlation owed by tasks 3.4 and 3.5.
+  published.
 
-  Until then the hard-window requirement is NOT satisfied, and nothing in this module should be
-  read as claiming it is.
+  ## WHOSE OBLIGATION THIS IS
+
+  It is TASK 3.3's, and stating it as anyone else's was wrong. 3.3 requires the hard
+  frame/byte/PubAck-deadline window; 3.4 owns exact-byte and retained-memory binding; 3.5 owns
+  outcome-specific PubAck validation and prefix advancement. Correlation from 3.5 may help
+  RECOVERY, but it does not move the hard-window obligation out of 3.3.
+
+  Nor would correlation alone fence this: the absence of a PubAck cannot distinguish "never sent"
+  from "in flight", "delayed", or "acknowledged but the ack was lost". What 3.3's publisher
+  pipeline needs is fencing on the REQUEST itself -- its owner, its start, and its termination --
+  so a retry cannot be admitted until the previous attempt is known to have finished.
+
+  Until that exists the hard-window requirement is NOT satisfied, and nothing in this module
+  should be read as claiming it is.
 
   ## Transition policy, stated once
 
