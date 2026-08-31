@@ -7,9 +7,27 @@ defmodule ServiceRadar.TestSupport.CredentialIntegrationFixtures do
 
   @plugins_root Path.expand("../../../../go/cmd/wasm-plugins", __DIR__)
 
+  # Resolved at RUNTIME, following AddonConfigContractFixtures.repo_root/0. The
+  # compile-time constant is right under plain `mix`, which compiles in place,
+  # but under Bazel mix_app compiles in its own build tree and the test then
+  # runs in a sandbox holding only declared runfiles -- so the baked path points
+  # at a directory that exists on the host and not in the sandbox. The manifests
+  # are already declared inputs; only the path needed fixing.
+  @spec plugins_root() :: Path.t()
+  defp plugins_root do
+    [
+      System.get_env("SERVICERADAR_REPO_ROOT") &&
+        Path.join(System.get_env("SERVICERADAR_REPO_ROOT"), "go/cmd/wasm-plugins"),
+      @plugins_root,
+      Path.expand("../../go/cmd/wasm-plugins", File.cwd!())
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.find(@plugins_root, &File.dir?/1)
+  end
+
   @spec profile!(String.t(), String.t() | nil) :: map()
   def profile!(plugin_directory, provider \\ nil) do
-    path = Path.join([@plugins_root, plugin_directory, "plugin.yaml"])
+    path = Path.join([plugins_root(), plugin_directory, "plugin.yaml"])
     manifest = path |> File.read!() |> Manifest.from_yaml() |> unwrap_manifest!(path)
 
     case Enum.find(manifest.integrations["credential_profiles"], fn profile ->
@@ -65,7 +83,7 @@ defmodule ServiceRadar.TestSupport.CredentialIntegrationFixtures do
   """
   @spec raw_integrations!(String.t()) :: map()
   def raw_integrations!(plugin_directory) do
-    path = Path.join([@plugins_root, plugin_directory, "plugin.yaml"])
+    path = Path.join([plugins_root(), plugin_directory, "plugin.yaml"])
 
     case path |> File.read!() |> Manifest.parse_yaml_map() do
       {:ok, %{"integrations" => integrations}} -> integrations
