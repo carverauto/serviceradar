@@ -1471,7 +1471,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       unique_id: unique_id
     } do
       agent_uid = "agent-specific-sweep-#{unique_id}"
-      {:ok, _} = create_connected_agent(actor, agent_uid)
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
 
       # Create agent-specific sweep group
       {:ok, _group} =
@@ -1526,7 +1526,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     } do
       assigned_agent_uid = "assigned-sweep-agent-#{unique_id}"
       other_agent_uid = "other-sweep-agent-#{unique_id}"
-      {:ok, _} = create_connected_agent(actor, assigned_agent_uid)
+      {:ok, _agent} = create_connected_agent(actor, assigned_agent_uid)
 
       {:ok, _group} =
         SweepGroup

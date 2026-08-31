@@ -24,6 +24,18 @@ defmodule ServiceRadarWebNGWeb.LayoutsTopbarActionsTest do
     refute body_html =~ "dashboard-package-share-button"
   end
 
+  test "operations profile menu preserves native details open state across LiveView patches" do
+    html = render_component(&preview/1, %{})
+
+    assert html =~ ~s(id="ops-profile-menu")
+    assert html =~ ~s(phx-hook="DetailsState")
+
+    [_prefix, menu_html] = String.split(html, ~s(id="ops-profile-menu"), parts: 2)
+    [summary_html, _rest] = String.split(menu_html, "</summary>", parts: 2)
+
+    assert summary_html =~ "pointer-events-none"
+  end
+
   defp preview(assigns) do
     ~H"""
     <Layouts.app

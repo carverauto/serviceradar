@@ -30,7 +30,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "#ops-topbar")
     assert has_element?(view, "#ops-brand-logo")
     assert has_element?(view, ".sr-ops-brand-mark")
+    assert has_element?(view, "#ops-profile-menu[phx-hook='DetailsState']")
     assert has_element?(view, "#ops-profile-menu-toggle[aria-label='Open profile menu']")
+    assert has_element?(view, "#ops-profile-menu-toggle .pointer-events-none")
     assert has_element?(view, "#ops-profile-menu a[href='/settings/profile']", "Profile")
     refute has_element?(view, ".sr-ops-notification-dot")
   end

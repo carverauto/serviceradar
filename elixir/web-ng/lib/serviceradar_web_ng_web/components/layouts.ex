@@ -425,14 +425,18 @@ defmodule ServiceRadarWebNGWeb.Layouts do
             >
               <.icon name="hero-bell-alert" class="size-5" />
             </.link>
-            <details id="ops-profile-menu" class="group relative">
+            <details id="ops-profile-menu" phx-hook="DetailsState" class="group relative">
               <summary
                 id="ops-profile-menu-toggle"
                 class="sr-ops-avatar cursor-pointer list-none outline-none focus-visible:ring-2 focus-visible:ring-sr-focus [&::-webkit-details-marker]:hidden"
                 aria-label="Open profile menu"
                 title={profile_title(@current_scope)}
               >
-                <.icon name="hero-user-circle" class="size-6" />
+                <%!-- Nested SVG must not receive the click: a summary child that
+                     handles pointer events toggles <details> twice (open then close). --%>
+                <span class="pointer-events-none inline-flex items-center">
+                  <.icon name="hero-user-circle" class="size-6" />
+                </span>
               </summary>
               <ul class="sr-ops-profile-menu" role="menu">
                 <li role="none">
