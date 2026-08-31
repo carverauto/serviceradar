@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
     svg = LazyHTML.query(selector, "svg[data-range-svg]")
 
     assert LazyHTML.attribute(selector, "phx-hook") == ["NetflowTrafficTooltip"]
+    assert LazyHTML.attribute(selector, "data-timezone") == ["America/Chicago"]
     assert LazyHTML.attribute(selector, "data-range-event") == ["netflow_range_selected"]
     assert LazyHTML.attribute(selector, "role") == ["group"]
     assert LazyHTML.attribute(selector, "tabindex") == ["0"]
@@ -57,6 +58,52 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
     assert LazyHTML.text(LazyHTML.query(svg, "circle title")) =~
              "window: 2026-08-27T10:00:00Z → 2026-08-27T10:04:59.999999Z"
 
+    axis_times = LazyHTML.query(svg, "text[data-netflow-time='axis']")
+
+    assert LazyHTML.attribute(axis_times, "data-time-iso") == [
+             "2026-08-27T10:00:00Z",
+             "2026-08-27T10:05:00Z",
+             "2026-08-27T10:15:00Z"
+           ]
+
+    assert LazyHTML.attribute(axis_times, "data-time-fallback") == [
+             "2026-08-27T10:00:00Z",
+             "2026-08-27T10:05:00Z",
+             "2026-08-27T10:15:00Z"
+           ]
+
+    titles = LazyHTML.query(svg, "title[data-netflow-time='range-title']")
+
+    assert LazyHTML.attribute(titles, "data-time-start") == [
+             "2026-08-27T10:00:00Z",
+             "2026-08-27T10:05:00Z",
+             "2026-08-27T10:10:00Z"
+           ]
+
+    assert LazyHTML.attribute(titles, "data-time-end") == [
+             "2026-08-27T10:04:59.999999Z",
+             "2026-08-27T10:09:59.999999Z",
+             "2026-08-27T10:14:59.999999Z"
+           ]
+
+    assert LazyHTML.attribute(titles, "data-time-fallback") == [
+             "window: 2026-08-27T10:00:00Z → 2026-08-27T10:04:59.999999Z\nbytes: 100 B\navg rate: 3.0 bps",
+             "window: 2026-08-27T10:05:00Z → 2026-08-27T10:09:59.999999Z\nbytes: 200 B\navg rate: 5.0 bps",
+             "window: 2026-08-27T10:10:00Z → 2026-08-27T10:14:59.999999Z\nbytes: 300 B\navg rate: 8.0 bps"
+           ]
+
+    assert_semantic_window_endpoint(
+      selector,
+      "netflow-chart-window-start",
+      "2026-08-27T10:00:00Z"
+    )
+
+    assert_semantic_window_endpoint(
+      selector,
+      "netflow-chart-window-end",
+      "2026-08-27T10:15:00Z"
+    )
+
     assert decode_attribute(selector, "data-points") == [
              %{
                "bucket_seconds" => 300,
@@ -77,6 +124,38 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
                "end" => "2026-08-27T10:14:59.999999Z"
              }
            ]
+  end
+
+  test "changing only the saved zone changes display metadata without changing canonical chart inputs" do
+    chicago = render_timeseries(:lines, points(), "America/Chicago")
+    utc = render_timeseries(:lines, points(), "Etc/UTC")
+    chicago_root = LazyHTML.query(chicago, "#netflow-traffic-timeseries")
+    utc_root = LazyHTML.query(utc, "#netflow-traffic-timeseries")
+
+    assert LazyHTML.attribute(chicago_root, "data-timezone") == ["America/Chicago"]
+    assert LazyHTML.attribute(utc_root, "data-timezone") == ["Etc/UTC"]
+
+    for attribute <- ["data-points", "data-range-buckets", "data-range-event"] do
+      assert LazyHTML.attribute(chicago_root, attribute) == LazyHTML.attribute(utc_root, attribute)
+    end
+
+    chicago_svg = LazyHTML.query(chicago_root, "svg")
+    utc_svg = LazyHTML.query(utc_root, "svg")
+
+    for attribute <- ["phx-value-start", "phx-value-end"] do
+      assert LazyHTML.attribute(LazyHTML.query(chicago_svg, "circle"), attribute) ==
+               LazyHTML.attribute(LazyHTML.query(utc_svg, "circle"), attribute)
+    end
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(chicago_root, "#netflow-chart-window-start"),
+             "datetime"
+           ) == ["2026-08-27T10:00:00Z"]
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(utc_root, "#netflow-chart-window-start"),
+             "datetime"
+           ) == ["2026-08-27T10:00:00Z"]
   end
 
   test "Lines centers a singleton in both metadata and rendered geometry" do
@@ -144,13 +223,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
         mode: "ports",
         series_field: nil,
         range_intervals: intervals,
-        range_event: "netflow_range_selected"
+        range_event: "netflow_range_selected",
+        timezone: "America/Chicago"
       })
       |> LazyHTML.from_fragment()
 
     selector = LazyHTML.query(document, "#netflow-top-stacked")
 
     assert LazyHTML.attribute(selector, "phx-hook") == ["NetflowStackedAreaChart"]
+    assert LazyHTML.attribute(selector, "data-timezone") == ["America/Chicago"]
     assert LazyHTML.attribute(selector, "phx-update") == ["ignore"]
     assert LazyHTML.attribute(selector, "data-range-event") == ["netflow_range_selected"]
     assert selector |> LazyHTML.attribute("class") |> Enum.any?(&String.contains?(&1, "touch-pan-y"))
@@ -186,13 +267,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
         keys: ["web", "db"],
         colors: %{},
         mode: "protocols",
-        series_field: "protocol_group"
+        series_field: "protocol_group",
+        timezone: "America/Chicago"
       })
       |> LazyHTML.from_fragment()
 
     selector = LazyHTML.query(document, "#netflow-protocol-stacked")
 
     assert LazyHTML.attribute(selector, "phx-hook") == ["NetflowStackedAreaChart"]
+    assert LazyHTML.attribute(selector, "data-timezone") == ["America/Chicago"]
     assert LazyHTML.attribute(selector, "data-series-field") == ["protocol_group"]
     assert LazyHTML.attribute(selector, "data-range-event") == []
     assert LazyHTML.attribute(selector, "data-range-intervals") == []
@@ -331,14 +414,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
     end
   end
 
-  defp render_timeseries(mode, chart_points) do
+  defp render_timeseries(mode, chart_points, timezone \\ "America/Chicago") do
     (&Index.netflow_timeseries_chart/1)
     |> render_component(%{
       points: chart_points,
       compare_points: [],
       bucket_seconds: 300,
       compare_mode: "off",
-      mode: Atom.to_string(mode)
+      mode: Atom.to_string(mode),
+      timezone: timezone
     })
     |> LazyHTML.from_fragment()
   end
@@ -351,7 +435,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
           timeseries: %{bucket_seconds: 300, points: activity_base_points()},
           protocol_activity: protocol_activity(),
           app_activity: app_activity(),
-          graph_mode: "stacked"
+          graph_mode: "stacked",
+          timezone: "America/Chicago"
         },
         overrides
       )
@@ -363,6 +448,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
     selector = LazyHTML.query(document, "##{expected.id}")
 
     assert LazyHTML.attribute(selector, "phx-hook") == ["NetflowStackedAreaChart"]
+    assert LazyHTML.attribute(selector, "data-timezone") == ["America/Chicago"]
     assert LazyHTML.attribute(selector, "phx-update") == ["ignore"]
     assert LazyHTML.attribute(selector, "data-range-event") == ["netflow_range_selected"]
     assert LazyHTML.attribute(selector, "data-series-field") == [expected.series_field]
@@ -407,6 +493,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowChartRangeComponentsTest do
     |> LazyHTML.attribute(name)
     |> List.first()
     |> Jason.decode!()
+  end
+
+  defp assert_semantic_window_endpoint(root, id, instant) do
+    time = LazyHTML.query(root, "##{id}")
+
+    assert LazyHTML.tag(time) == ["time"]
+    assert LazyHTML.attribute(time, "datetime") == [instant]
+    assert LazyHTML.attribute(time, "data-user-time-iso") == [instant]
+    assert LazyHTML.attribute(time, "data-user-time-zone") == ["America/Chicago"]
+    assert LazyHTML.attribute(time, "data-user-time-style") == ["compact"]
   end
 
   defp one?(enumerable), do: match?([_], Enum.take(enumerable, 2))

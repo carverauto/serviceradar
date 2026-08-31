@@ -1,6 +1,34 @@
 import * as d3 from "d3"
 
 import {hoverPosition} from "../utils/chart_hover_geometry"
+import {axisUserTimeFormatter, formatUserTime} from "../utils/user_time"
+
+const DEFAULT_NETFLOW_TIME_ZONE = "Etc/UTC"
+
+export function netflowDisplayTimeZone(timeZone) {
+  return typeof timeZone === "string" && timeZone.trim() !== ""
+    ? timeZone
+    : DEFAULT_NETFLOW_TIME_ZONE
+}
+
+export function netflowAxisTimeFormatter(timeZone) {
+  return axisUserTimeFormatter({timeZone: netflowDisplayTimeZone(timeZone)})
+}
+
+export function netflowTooltipTimeLabel(canonical, timeZone) {
+  if (typeof canonical !== "string") return String(canonical || "")
+
+  return (
+    formatUserTime(canonical, {
+      timeZone: netflowDisplayTimeZone(timeZone),
+      style: "tooltip",
+    })?.text || canonical
+  )
+}
+
+export function netflowRangeSelectionStatus({start, end}, timeZone) {
+  return `Selected ${netflowTooltipTimeLabel(start, timeZone)} to ${netflowTooltipTimeLabel(end, timeZone)}`
+}
 
 export function parseJSON(value, fallback) {
   try {
@@ -82,7 +110,8 @@ export function attachTimeTooltip(el, opts) {
     const row = data[idx]
     if (!row) return
 
-    const timeLabel = row.t instanceof Date ? row.t.toISOString() : String(row.t || "")
+    const canonicalTime = row.t instanceof Date ? row.t.toISOString() : String(row.t || "")
+    const timeLabel = netflowTooltipTimeLabel(canonicalTime, opts.timeZone)
     const lines = keys
       .slice(0, 8)
       .map((k) => {

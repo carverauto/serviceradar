@@ -391,6 +391,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
           <div :if={@active_tab == "flows" and (@has_flows or @details_loading)}>
             <.flows_tab_content
+              timezone={@current_scope.user.timezone}
               flows={@device_flows}
               error={@flows_error}
               pagination={@flows_pagination}

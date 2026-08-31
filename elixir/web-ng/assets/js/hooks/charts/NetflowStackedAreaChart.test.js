@@ -214,6 +214,7 @@ function root() {
     rangeEvent: "netflow_range_selected",
     rangeIntervals: JSON.stringify(intervals),
     seriesField: "",
+    timezone: "America/Chicago",
     units: "Bps",
     zoomable: "false",
   }
@@ -337,6 +338,7 @@ describe("NetflowStackedAreaChart range geometry", () => {
       ["seriesField", "protocol_group"],
       ["rangeIntervals", "[]"],
       ["rangeEvent", "other_event"],
+      ["timezone", "Etc/UTC"],
       ["zoomable", "true"],
     ]) {
       const changed = root()
@@ -375,6 +377,15 @@ describe("NetflowStackedAreaChart production render helpers", () => {
     expect(seams.svg.querySelector(".legend")).not.toBeNull()
     seams.records.legendToggle("db")
     expect(args.onLegendToggle).toHaveBeenCalledWith("db")
+
+    const xAxisCall = seams.records.calls.find(
+      ({callback}) => typeof callback?.scale === "function" && callback.scale() === frame.x,
+    )
+    const axisFormatter = xAxisCall?.callback?.tickFormat()
+
+    expect(axisFormatter).toBeTypeOf("function")
+    expect(axisFormatter(new Date(intervals[0].start))).toContain("05:00")
+    expect(new Date(intervals[0].start).toISOString()).toBe("2026-08-27T10:00:00.000Z")
   })
 
   it("creates the real range overlay attributes and returns its current node", () => {
@@ -492,6 +503,10 @@ describe("NetflowStackedAreaChart lifecycle", () => {
         expect(seriesPath.node().getAttribute("cursor")).toBe("pointer")
         expect(seams.svg.querySelector(".legend")).not.toBeNull()
         expect(seams.attachTimeTooltip).toHaveBeenCalledOnce()
+        expect(seams.attachTimeTooltip).toHaveBeenLastCalledWith(
+          el,
+          expect.objectContaining({timeZone: "America/Chicago"}),
+        )
 
         seams.svg.dispatch(pointer("pointerdown", 44, 10))
         seams.svg.dispatch(pointer("pointerup", 50, 10))
@@ -682,6 +697,50 @@ describe("NetflowStackedAreaChart lifecycle", () => {
     }
   })
 
+  it("redraws for a zone-only update while preserving points and canonical range intervals", () => {
+    const oldResizeObserver = globalThis.ResizeObserver
+    globalThis.ResizeObserver = class {
+      disconnect = vi.fn()
+      observe = vi.fn()
+    }
+
+    try {
+      const el = root()
+      const canonicalPoints = el.dataset.points
+      const canonicalIntervals = el.dataset.rangeIntervals
+      const seams = renderSeams(el)
+      const ctx = {
+        el,
+        pushEvent: vi.fn(),
+        ...NetflowStackedAreaChart,
+        _attachTimeTooltip: seams.attachTimeTooltip,
+        _stackedRenderDependencies: seams.dependencies,
+      }
+
+      ctx.mounted()
+      expect(seams.dependencies.selectRoot).toHaveBeenCalledOnce()
+      expect(seams.attachTimeTooltip).toHaveBeenLastCalledWith(
+        el,
+        expect.objectContaining({timeZone: "America/Chicago"}),
+      )
+
+      el.dataset.timezone = "Etc/UTC"
+      ctx.updated()
+
+      expect(seams.dependencies.selectRoot).toHaveBeenCalledTimes(2)
+      expect(seams.attachTimeTooltip).toHaveBeenLastCalledWith(
+        el,
+        expect.objectContaining({timeZone: "Etc/UTC"}),
+      )
+      expect(el.dataset.points).toBe(canonicalPoints)
+      expect(el.dataset.rangeIntervals).toBe(canonicalIntervals)
+
+      ctx.destroyed()
+    } finally {
+      globalThis.ResizeObserver = oldResizeObserver
+    }
+  })
+
   it("commits forward, reverse, and keyboard ranges through one long-lived controller", () => {
     const el = root()
     const pushEvent = vi.fn()
@@ -827,6 +886,10 @@ describe("NetflowStackedAreaChart lifecycle", () => {
       expect(seams.dependencies.brushFactory).toHaveBeenCalledOnce()
       expect(seams.records.overlays).toHaveLength(0)
       expect(seams.attachTimeTooltip).toHaveBeenCalledOnce()
+      expect(seams.attachTimeTooltip).toHaveBeenLastCalledWith(
+        el,
+        expect.objectContaining({timeZone: "America/Chicago"}),
+      )
       expect(seams.svg.querySelector(".legend")).not.toBeNull()
       expect(seams.svg.querySelector(".brush")).not.toBeNull()
       expect(seams.svg.getAttribute("data-netflow-stacked-interaction")).toBe("brush")

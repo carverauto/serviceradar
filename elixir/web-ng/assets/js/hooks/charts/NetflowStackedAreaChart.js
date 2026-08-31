@@ -7,6 +7,9 @@ import {
   clearSVG as nfClearSVG,
   colorScale as nfColorScale,
   ensureSVG as nfEnsureSVG,
+  netflowAxisTimeFormatter,
+  netflowDisplayTimeZone,
+  netflowRangeSelectionStatus,
   normalizeTimeSeries as nfNormalizeTimeSeries,
   parseSeriesData as nfParseSeriesData,
   renderYGrid as nfRenderYGrid,
@@ -48,6 +51,7 @@ export function stackedChartFingerprint(el, dimensions) {
     dataset.seriesField || "",
     dataset.rangeIntervals || "",
     dataset.rangeEvent || "",
+    dataset.timezone || "",
     dataset.zoomable || "",
     Number(dimensions?.width || 0),
     Number(dimensions?.height || 0),
@@ -232,6 +236,7 @@ export default {
     this._tooltipCleanup = attachTimeTooltip(el, {
       data,
       keys: visibleKeys,
+      timeZone: netflowDisplayTimeZone(el.dataset.timezone),
       x,
       xOffset: m.left,
       plotLeft: m.left,
@@ -263,6 +268,7 @@ export default {
     }
 
     const buckets = rangeBucketsForScale(intervals, x, renderedTimes)
+    const timeZone = netflowDisplayTimeZone(this.el.dataset.timezone)
     this._rangeEmitter ||= ({start, end}) => this.pushEvent(this.el.dataset.rangeEvent, {start, end})
 
     const viewPointForEvent = (event, continuing = false) => {
@@ -285,10 +291,12 @@ export default {
       continuationXForEvent: (event) => viewPointForEvent(event, true),
       emit: this._rangeEmitter,
       eventKey: eventName,
+      formatStatus: (range) => netflowRangeSelectionStatus(range, timeZone),
       overlay,
       plotBounds: () => ({left: 0, right: plotWidth}),
       root: this.el,
       status,
+      statusKey: timeZone,
       svg,
       viewXForEvent: viewPointForEvent,
     }
@@ -403,7 +411,13 @@ export function renderStackedFrame(
 
   g.append("g")
     .attr("transform", `translate(0,${ih})`)
-    .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
+    .call(
+      d3
+        .axisBottom(x)
+        .ticks(5)
+        .tickFormat(netflowAxisTimeFormatter(el.dataset.timezone))
+        .tickSizeOuter(0),
+    )
     .call(nfStyleChartAxis)
 
   g.append("g")

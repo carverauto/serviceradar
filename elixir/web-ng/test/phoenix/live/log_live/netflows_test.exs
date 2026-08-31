@@ -10,6 +10,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
 
   setup %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :operator})
+
+    user =
+      Ash.update!(user, %{timezone: "America/Chicago"},
+        action: :update_timezone_preference,
+        actor: user
+      )
+
     conn = log_in_user(conn, user)
 
     Application.put_env(
@@ -50,13 +57,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     refute html =~ "time:[2026-08-28T17:38:00.000000Z,2026-08-28T17:41:59.999999Z]"
   end
 
-  test "/flows renders netflow visualize page", %{conn: conn} do
+  test "/flows redirects to the canonical NetFlow page with retained query bytes", %{conn: conn} do
     q = "in:flows time:last_24h"
 
-    # /flows is an HTTP redirect entry point into /observability?tab=netflows.
     assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/flows?#{%{q: q, limit: 50}}")
-    assert String.starts_with?(to, "/observability?")
-    assert to =~ "tab=netflows"
+    assert String.starts_with?(to, "/observability/netflows?")
+    assert URI.decode_query(URI.parse(to).query || "") == %{"q" => q, "limit" => "50"}
 
     {:ok, _lv, html} = live(conn, to)
     # Overview panels of the netflows tab.
@@ -80,7 +86,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
 
     q = "in:flows time:last_24h"
 
-    {:ok, _lv, html} = live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows"}}")
+    {:ok, _lv, html} = live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50}}")
 
     assert html =~ "Avg Bandwidth"
     assert html =~ "1.0 Kbps"
@@ -106,14 +112,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     assert {:error, {:redirect, %{to: _to}}} = live(conn, ~p"/flows?#{%{q: q, limit: 50}}")
 
     {:ok, lv, _html} =
-      live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", open_flow: "1"}}")
+      live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, open_flow: "1"}}")
 
     lv
     |> element(~s(button[phx-click="netflow_modal_filter"][phx-value-field="src_ip"]))
     |> render_click()
 
     path = assert_patch(lv)
-    assert String.starts_with?(path, "/observability?")
+    assert String.starts_with?(path, "/observability/netflows?")
   end
 
   test "/observability netflows open_flow=1 opens flow details and preserves explicit time window",
@@ -135,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
       ~s(in:flows time:last_24h src_endpoint_ip:192.168.1.134 dst_endpoint_ip:13.217.9.183 src_endpoint_port:57196 dst_endpoint_port:443 protocol_num:6 sort:time:desc limit:1)
 
     {:ok, _lv, html} =
-      live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", open_flow: "1"}}")
+      live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, open_flow: "1"}}")
 
     assert html =~ "Flow details"
     # dst port 443 resolves to the HTTPS service label.
@@ -155,7 +161,50 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
            end)
   end
 
+  test "Flow Explorer rows and modal expose the same canonical instant in the saved zone",
+       %{conn: conn} do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :srql_module,
+      ServiceRadarWebNGWeb.LogLive.NetflowsTest.RecordingSRQLStub
+    )
+
+    q = "in:flows time:last_24h sort:time:desc"
+
+    {:ok, lv, _html} =
+      live(
+        conn,
+        ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer", open_flow: "1"}}"
+      )
+
+    for {id, style} <- [
+          {"netflow-row-time-0", "compact"},
+          {"netflow-flow-detail-time", "full"}
+        ] do
+      assert has_element?(
+               lv,
+               ~s(time##{id}[datetime="2026-02-27T21:00:00Z"][data-user-time-iso="2026-02-27T21:00:00Z"][data-user-time-zone="America/Chicago"][data-user-time-style="#{style}"])
+             )
+    end
+
+    assert has_element?(
+             lv,
+             ~s(#netflow-row-time-0[phx-hook="UserTime"])
+           )
+
+    assert has_element?(
+             lv,
+             ~s(#netflow-flow-detail-time[phx-hook="UserTime"])
+           )
+  end
+
   test "flow details map renders a configured Local CIDR anchor", %{conn: conn} do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :srql_module,
+      ServiceRadarWebNGWeb.LogLive.NetflowsTest.RecordingSRQLStub
+    )
+
     NetflowLocalCidr
     |> Ash.Changeset.for_create(
       :create,
@@ -186,10 +235,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
       ~s(in:flows time:last_24h src_endpoint_ip:192.168.1.134 dst_endpoint_ip:13.217.9.183 src_endpoint_port:57196 dst_endpoint_port:443 protocol_num:6 sort:time:desc limit:1)
 
     {:ok, lv, _html} =
-      live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", open_flow: "1"}}")
+      live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, open_flow: "1"}}")
 
-    map_html = lv |> element(~s([phx-hook="MapboxFlowMap"])) |> render()
-    [markers_json] = Floki.attribute(map_html, "[phx-hook=MapboxFlowMap]", "data-markers")
+    map =
+      lv
+      |> element(~s([phx-hook="MapboxFlowMap"]))
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query(~s([phx-hook="MapboxFlowMap"]))
+
+    [markers_json] = LazyHTML.attribute(map, "data-markers")
 
     assert [source | _] = Jason.decode!(markers_json)
     assert source["label"] == "Source - 192.168.1.134 - Carver, MN"
@@ -208,7 +263,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     q = "in:flows time:last_24h"
 
     {:ok, lv, html} =
-      live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", view: "explorer"}}")
+      live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer"}}")
 
     assert html =~ "Prefix tag"
     assert has_element?(lv, ~s(form[phx-submit="netflow_prefix_tag_filter"] input[name="tag"]))
@@ -232,7 +287,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     q = "in:flows time:last_24h"
 
     {:ok, lv, html} =
-      live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", view: "explorer"}}")
+      live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer"}}")
 
     assert html =~ "netbox:tag:corp"
     assert html =~ "provider:cloudflare"
@@ -242,7 +297,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     {:ok, _lv, detail_html} =
       live(
         conn,
-        ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", view: "explorer", open_flow: "1"}}"
+        ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer", open_flow: "1"}}"
       )
 
     assert detail_html =~ "Flow details"
@@ -262,7 +317,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     q = "in:flows time:last_24h"
 
     {:ok, _lv, html} =
-      live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", view: "explorer"}}")
+      live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer"}}")
 
     refute html =~ "Filter flows with tag"
     refute html =~ "Prefix tag: "

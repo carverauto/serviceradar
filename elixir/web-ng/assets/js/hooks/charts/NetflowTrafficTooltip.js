@@ -1,10 +1,18 @@
-import {ensureTooltip as nfEnsureTooltip, parseJSON as nfParseJSON} from "../../netflow_charts/util"
+import {
+  ensureTooltip as nfEnsureTooltip,
+  netflowAxisTimeFormatter,
+  netflowDisplayTimeZone,
+  netflowRangeSelectionStatus,
+  netflowTooltipTimeLabel,
+  parseJSON as nfParseJSON,
+} from "../../netflow_charts/util"
 import {nfFormatRateValue} from "../../utils/formatters"
 import ChartRangeSelectionController from "./ChartRangeSelectionController"
 import {parseRangeBuckets} from "./chart_range_selection"
 
 export default {
   mounted() {
+    this._localizeTimeMarkers()
     this._bindTooltip()
     this._rangeEmitter = ({start, end}) => this.pushEvent(this._rangeEvent, {start, end})
     this.rangeController = new ChartRangeSelectionController(this._rangeOptions())
@@ -12,6 +20,7 @@ export default {
   },
   updated() {
     this._unbindTooltip()
+    this._localizeTimeMarkers()
     this._bindTooltip()
     this.rangeController.update(this._rangeOptions())
   },
@@ -26,6 +35,7 @@ export default {
     const el = this.el
     const tooltip = nfEnsureTooltip(el)
     const points = nfParseJSON(el.dataset.points || "[]", [])
+    const timeZone = netflowDisplayTimeZone(el.dataset.timezone)
 
     if (!Array.isArray(points) || points.length === 0) {
       tooltip.classList.add("hidden")
@@ -47,7 +57,7 @@ export default {
       const bps = (bytes * 8.0) / bucketSeconds
 
       tooltip.innerHTML = `
-        <div class="text-[10px] text-base-content/60 font-mono">${escapeHtml(point.start || "")} → ${escapeHtml(point.end || "")}</div>
+        <div class="text-[10px] text-base-content/60 font-mono">${escapeHtml(netflowTooltipTimeLabel(point.start || "", timeZone))} → ${escapeHtml(netflowTooltipTimeLabel(point.end || "", timeZone))}</div>
         <div class="mt-1 flex items-center justify-between gap-3">
           <span>Bytes</span><span class="font-mono">${escapeHtml(nfFormatRateValue("Bps", bytes))}</span>
         </div>
@@ -83,6 +93,10 @@ export default {
     } catch (_e) {}
     this._tooltipCleanup = null
   },
+  _localizeTimeMarkers() {
+    localizeAxisMarkers(this.el)
+    localizeRangeTitleMarkers(this.el)
+  },
   _bindClickArbiter() {
     this._clickArbiter = (event) => {
       if (!this.rangeController?.consumeChartClick()) return
@@ -103,6 +117,7 @@ export default {
     const serializedBuckets = root.dataset.rangeBuckets
     const eventName = root.dataset.rangeEvent
     const buckets = parseRangeBuckets(serializedBuckets)
+    const timeZone = netflowDisplayTimeZone(root.dataset.timezone)
     this._rangeEvent = eventName
 
     const viewBox = svg?.getAttribute("viewBox")?.trim().split(/\s+/).map(Number)
@@ -127,14 +142,47 @@ export default {
       continuationXForEvent: (event) => viewPoint(event, true),
       emit: typeof eventName === "string" && eventName.length > 0 ? this._rangeEmitter : null,
       eventKey: eventName,
+      formatStatus: (range) => netflowRangeSelectionStatus(range, timeZone),
       overlay,
       plotBounds: () => ({left: 0, right: viewWidth}),
       root,
       status,
+      statusKey: timeZone,
       svg,
       viewXForEvent: viewPoint,
     }
   },
+}
+
+function localizeAxisMarkers(root) {
+  const formatter = netflowAxisTimeFormatter(root.dataset.timezone)
+
+  for (const node of root.querySelectorAll("[data-netflow-time='axis']")) {
+    const fallback = node.getAttribute("data-time-fallback") || ""
+    const canonical = node.getAttribute("data-time-iso") || ""
+    node.textContent = fallback
+
+    const localized = formatter(canonical)
+    if (localized && localized !== canonical) node.textContent = localized
+  }
+}
+
+function localizeRangeTitleMarkers(root) {
+  const timeZone = netflowDisplayTimeZone(root.dataset.timezone)
+
+  for (const node of root.querySelectorAll("[data-netflow-time='range-title']")) {
+    const fallback = node.getAttribute("data-time-fallback") || ""
+    const start = node.getAttribute("data-time-start") || ""
+    const end = node.getAttribute("data-time-end") || ""
+    node.textContent = fallback
+
+    const localizedStart = netflowTooltipTimeLabel(start, timeZone)
+    const localizedEnd = netflowTooltipTimeLabel(end, timeZone)
+    if (localizedStart === start || localizedEnd === end) continue
+
+    const [_windowLine, ...remainingLines] = fallback.split("\n")
+    node.textContent = [`window: ${localizedStart} → ${localizedEnd}`, ...remainingLines].join("\n")
+  }
 }
 
 function escapeHtml(s) {

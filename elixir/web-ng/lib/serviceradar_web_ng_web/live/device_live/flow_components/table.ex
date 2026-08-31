@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
   attr(:limit, :integer, required: true)
   attr(:max_bytes, :any, required: true)
   attr(:max_packets, :any, required: true)
+  attr(:timezone, :string, required: true)
 
   def flow_table(assigns) do
     ~H"""
@@ -67,9 +68,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
                 </tr>
               </thead>
               <tbody>
-                <%= for flow <- @flows do %>
+                <%= for {flow, idx} <- Enum.with_index(@flows) do %>
                   <tr>
-                    <td class="font-mono">{format_timestamp(flow_time(flow))}</td>
+                    <td class="font-mono">
+                      <.user_time
+                        id={"device-flow-row-time-#{idx}"}
+                        value={flow_time(flow)}
+                        timezone={@timezone}
+                        style={:compact}
+                        fallback={format_timestamp(flow_time(flow))}
+                      />
+                    </td>
                     <td class="font-mono">
                       <% src_ip = flow_endpoint(flow, :src) %>
                       <% src_cc = Map.get(@geo_iso2_map, src_ip) %>
