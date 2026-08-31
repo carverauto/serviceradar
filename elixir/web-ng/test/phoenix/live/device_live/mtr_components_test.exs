@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponentsTest do
 
   @moduletag :db_free
 
-  test "tab summary uses recent attempts, probes, and replies instead of the paginated table" do
+  test "tab summary weights destination loss and RTT independently of missing RTT observations" do
     html =
       render_component(&MtrComponents.mtr_tab_content/1,
         device_uid: "sr:router-1",
@@ -23,15 +23,37 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponentsTest do
         ],
         recent_traces: [
           %{
-            "id" => "newer-reached",
+            "id" => "newer-reached-fast",
             "time" => ~U[2026-08-30 12:00:00Z],
             "target" => "198.51.100.10",
             "target_reached" => true,
             "total_hops" => 3,
             "protocol" => "icmp",
             "destination_sent" => 10,
-            "destination_received" => 4,
-            "destination_avg_us" => 12_500
+            "destination_received" => 5,
+            "destination_avg_us" => 10_000
+          },
+          %{
+            "id" => "newer-reached-slow",
+            "time" => ~U[2026-08-30 11:59:30Z],
+            "target" => "198.51.100.10",
+            "target_reached" => true,
+            "total_hops" => 4,
+            "protocol" => "icmp",
+            "destination_sent" => 4,
+            "destination_received" => 1,
+            "destination_avg_us" => 50_000
+          },
+          %{
+            "id" => "newer-reached-without-rtt",
+            "time" => ~U[2026-08-30 11:59:15Z],
+            "target" => "198.51.100.10",
+            "target_reached" => true,
+            "total_hops" => 5,
+            "protocol" => "icmp",
+            "destination_sent" => 6,
+            "destination_received" => 6,
+            "destination_avg_us" => nil
           },
           %{
             "id" => "newer-unreached",
@@ -55,12 +77,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponentsTest do
     assert html =~ ~s(id="device-mtr-destination-latency")
     assert html =~ ~s(id="device-mtr-destination-loss")
     assert html =~ ~s(id="device-mtr-recent-samples")
-    assert html =~ "50.0%"
-    assert html =~ "12.5ms"
-    assert html =~ "60.0%"
+    assert html =~ "75.0%"
+    assert html =~ "16.7ms"
+    assert html =~ "40.0%"
+    assert html =~ "Endpoint Samples"
+    assert html =~ ">3<"
+    assert html =~ "destination observations"
+  end
+
+  test "tab summary renders destination latency unavailable when no observation has RTT" do
+    html =
+      render_component(&MtrComponents.mtr_tab_content/1,
+        device_uid: "sr:router-1",
+        recent_traces: [
+          %{
+            "id" => "reached-without-rtt",
+            "time" => ~U[2026-08-30 12:00:00Z],
+            "target" => "198.51.100.10",
+            "target_reached" => true,
+            "total_hops" => 3,
+            "protocol" => "icmp",
+            "destination_sent" => 5,
+            "destination_received" => 5,
+            "destination_avg_us" => nil
+          }
+        ],
+        pending_jobs: [],
+        trends: %{hops: [], latency: []}
+      )
+
+    assert html =~ ~r/id="device-mtr-destination-latency"[^>]*>.*?>\s*.*?>\s*-\s*</s
+    assert html =~ "0.0%"
     assert html =~ "Endpoint Samples"
     assert html =~ ">1<"
-    assert html =~ "destination observations"
   end
 
   test "trace modal reports destination loss independently from lossy intermediate hops" do

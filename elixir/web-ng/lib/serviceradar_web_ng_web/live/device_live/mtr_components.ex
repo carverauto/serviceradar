@@ -149,7 +149,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             </div>
           </div>
         </div>
-        <div class="sr-mtr-subpanel p-3">
+        <div id="device-mtr-destination-latency-trend" class="sr-mtr-subpanel p-3">
           <div class="sr-mtr-muted text-xs mb-1">Destination Latency Trend</div>
           <.srql_sparkline points={@trends.latency} />
         </div>
@@ -520,25 +520,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
       |> Enum.reject(&(&1 <= 0))
       |> average_mtr_number()
 
-    {destination_sent, destination_received, weighted_rtt_us, endpoint_sample_count} =
-      Enum.reduce(traces, {0, 0, 0, 0}, fn trace, {sent, received, weighted_rtt, samples} ->
+    {destination_sent, destination_received, weighted_rtt_us, rtt_reply_count, endpoint_sample_count} =
+      Enum.reduce(traces, {0, 0, 0, 0, 0}, fn trace, {sent, received, weighted_rtt, rtt_replies, samples} ->
         sent_count = mtr_trace_metric(trace, "destination_sent")
         received_count = mtr_trace_metric(trace, "destination_received")
-        avg_us = mtr_trace_metric(trace, "destination_avg_us")
         samples = if mtr_destination_observation?(trace), do: samples + 1, else: samples
+
+        {weighted_rtt, rtt_replies} =
+          case mtr_trace_rtt_us(trace) do
+            nil -> {weighted_rtt, rtt_replies}
+            avg_us -> {weighted_rtt + avg_us * received_count, rtt_replies + received_count}
+          end
 
         {
           sent + sent_count,
           received + received_count,
-          weighted_rtt + avg_us * received_count,
+          weighted_rtt,
+          rtt_replies,
           samples
         }
       end)
 
     avg_latency_us =
-      case destination_received do
+      case rtt_reply_count do
         0 -> nil
-        _ -> round(weighted_rtt_us / destination_received)
+        _ -> round(weighted_rtt_us / rtt_reply_count)
       end
 
     destination_loss_pct =
@@ -598,6 +604,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   end
 
   defp mtr_trace_metric(_trace, _key), do: 0
+
+  defp mtr_trace_rtt_us(trace) when is_map(trace) do
+    case Map.get(trace, "destination_avg_us") do
+      value when is_integer(value) and value >= 0 -> value
+      value when is_float(value) and value >= 0 -> round(value)
+      _ -> nil
+    end
+  end
+
+  defp mtr_trace_rtt_us(_trace), do: nil
 
   defp mtr_destination_observation?(trace) when is_map(trace) do
     is_number(Map.get(trace, "destination_sent"))

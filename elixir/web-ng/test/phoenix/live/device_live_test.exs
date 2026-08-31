@@ -4659,6 +4659,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert has_element?(view, "#device-mtr-destination-latency")
     assert has_element?(view, "#device-mtr-destination-loss")
     assert has_element?(view, "#device-mtr-recent-samples")
+    assert has_element?(view, "#device-mtr-destination-latency-trend polyline[points^='0,60 8,60']")
     assert html =~ "100.0%"
     assert html =~ "10.0ms"
     assert html =~ "50"
