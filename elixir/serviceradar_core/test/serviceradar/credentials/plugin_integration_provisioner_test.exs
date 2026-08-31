@@ -2,6 +2,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Credentials.PluginIntegrationProvisioner
+  alias ServiceRadar.Plugins.PluginAssignment
 
   defmodule AssignmentStore do
     @moduledoc false
@@ -296,6 +297,13 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
                  schedule_store: ScheduleStore
                )
     end
+  end
+
+  test "lists existing policy assignments through PluginAssignment.all_partitions_for_policy" do
+    action = Ash.Resource.Info.action(PluginAssignment, :all_partitions_for_policy)
+
+    assert action.type == :read
+    assert Enum.any?(action.arguments, &(&1.name == :policy_id))
   end
 
   defp integration_profile(overrides \\ %{}) do
