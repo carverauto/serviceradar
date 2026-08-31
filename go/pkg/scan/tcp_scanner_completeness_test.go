@@ -18,9 +18,10 @@ package scan
 
 import (
 	"context"
+	"hash/fnv"
+	"io"
 	"net"
 	"strconv"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,17 +32,17 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
 
-// loopbackSeq picks distinct 127.x.y.z addresses so parallel tests in this
-// package cannot steal a just-released "closed" port on 127.0.0.1.
-var loopbackSeq atomic.Uint32
-
 func uniqueLoopbackHost(t *testing.T, ctx context.Context) string {
 	t.Helper()
 
+	h := fnv.New32a()
+	_, _ = io.WriteString(h, t.Name())
+	seed := h.Sum32()
+
 	lc := net.ListenConfig{}
 
-	for range 16 {
-		n := loopbackSeq.Add(1)
+	for i := range 16 {
+		n := seed + uint32(i)*7919
 		host := net.IPv4(127, byte(2+(n/65534)%53), byte(n/256), byte(1+n%254)).String()
 
 		ln, err := lc.Listen(ctx, "tcp", net.JoinHostPort(host, "0"))
