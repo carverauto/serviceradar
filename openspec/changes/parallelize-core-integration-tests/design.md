@@ -451,9 +451,12 @@ without charging every pull request.
 check, local database `TestRunner`, credential scoping, and outcome-bearing teardown as the PR
 lifecycle. It triggers:
 
-- on pushes to `staging`;
-- nightly through a BuildBuddy `schedule` cron; and
-- on release tags.
+- on pushes to `staging`; and
+- nightly through a BuildBuddy `schedule` cron.
+
+It does **not** trigger on `v*` tags. Tagging the chore commit while the
+staging merge uses a different SHA queued a second 50GB job that never started
+(`queued=true`, invocation not found) while publication polled the tag SHA.
 
 The action runs only the focused heavy provision and test targets, not all eight PR shards. The
 stable action name and classic GitHub commit-status context are
@@ -472,17 +475,20 @@ The release workflow already resolves the immutable tag commit. After Bazelisk a
 remote configuration are available, but before Cosign, ORAS, artifact builds, or publication, it
 runs a Bazel-owned Python qualifier. The executable receives the exact release SHA, repository,
 fetched `origin/staging` ref, and GitHub token environment-variable name. It invokes `gh api`
-without a shell, polls GitHub's commit status API for context `LargeIngestionGate` on that exact
-SHA, and accepts only `success` whose parsed URL has HTTPS scheme, host exactly
-`carverauto.buildbuddy.io`, and a nonempty `/invocation/<id>` path. Classic statuses are append-only,
-so each poll filters the exact context, orders matching records by creation time and status id, and
-evaluates only the newest record. An older success cannot mask a newer pending, error, or failure.
-The workflow waits at most 30 minutes for a tag-triggered action that is still pending or not yet
-visible, and fails closed on timeout, API error, malformed data, error, or failure.
+without a shell, polls GitHub's commit status API for context `LargeIngestionGate` on that SHA
+and on first-parent descendants of it on `origin/staging` whose git tree SHA matches (the
+merge commit of an ancestry-preserving release merge). It accepts only `success` whose parsed
+URL has HTTPS scheme, host exactly `carverauto.buildbuddy.io`, and a nonempty `/invocation/<id>`
+path. Classic statuses are append-only, so each poll filters the exact context, orders matching
+records by creation time and status id, and evaluates only the newest record per SHA. An older
+success cannot mask a newer pending, error, or failure on the same SHA. A pending or failed
+status on the tag SHA does not fail qualification while a same-tree staging descendant is still
+missing or pending. The workflow waits at most 90 minutes and fails closed on timeout, API
+error, malformed data, or every candidate being terminal-failed.
 
-One current successful status for the exact SHA is sufficient whether produced by the `staging` push,
-nightly schedule, or tag trigger; the policy proves the tested source revision, not which event
-started the run. The implementation commit adds a permanent
+One current successful status for the tag SHA or a same-tree staging descendant is sufficient;
+the policy proves the tested source tree, not which event started the run. Tag origin/staging
+only after that status is already success so publication does not sit on a phantom queued job. The implementation commit adds a permanent
 `build/ci/large_ingestion_gate_contract.v1` marker in the same tree as the target, action, and
 qualifier. The qualifier requires the release commit to be an ancestor of the fetched base, the
 base tree to contain the exact v1 marker, and exactly one marker-addition commit on

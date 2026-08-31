@@ -311,8 +311,6 @@ actions:
       push:
         branches:
           - "staging"
-        tags:
-          - "v*"
       schedule:
         crons:
           - "0 2 * * *"

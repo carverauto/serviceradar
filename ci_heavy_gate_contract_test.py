@@ -1376,18 +1376,14 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             '      push:\n'
             '        branches:\n'
             '          - "staging"\n'
-            '        tags:\n'
-            '          - "v*"\n'
             '      schedule:\n'
             '        crons:\n'
             '          - "0 2 * * *"\n',
             header,
         )
         self.assertNotIn("pull_request:", header)
-        branches = header[header.index("branches:") : header.index("tags:")]
-        tags = header[header.index("tags:") : header.index("schedule:")]
-        self.assertNotIn('"v*"', branches)
-        self.assertIn('"v*"', tags)
+        self.assertNotIn("tags:", header)
+        self.assertNotIn('"v*"', header)
 
     def test_large_ingestion_gate_copies_runner_fixture_and_credential_scope(self):
         action = named_action("LargeIngestionGate")
@@ -2090,7 +2086,7 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
             --commit "${RELEASE_COMMIT}" \\
             --base-ref origin/staging \\
             --token-env GH_TOKEN \\
-            --timeout-seconds 1800 \\
+            --timeout-seconds 5400 \\
             --poll-seconds 15 \\
             --target-url-prefix https://carverauto.buildbuddy.io/invocation/
 
@@ -2152,6 +2148,9 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
             "test_exact_argv_slurp_shape_token_isolation_and_shell_false",
             "test_home_local_bin_is_prepended_when_home_is_set",
             "test_missing_and_pending_timeout_at_fake_1800_second_deadline",
+            "test_same_tree_merge_success_qualifies_while_tag_sha_is_still_pending",
+            "test_tag_sha_failure_does_not_fail_while_merge_sha_is_pending",
+            "test_later_different_tree_descendant_is_ignored",
         ):
             self.assertIn(evidence, tests)
 
@@ -2162,6 +2161,10 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
 
         self.assertIn("has_large_ingestion_target(target)", library)
         self.assertIn("has_large_ingestion_action(action)", library)
+        self.assertIn("def qualification_commits(", library)
+        self.assertIn("def tree_sha(self, commit: str) -> str:", library)
+        self.assertIn("def first_parent_history(", library)
+        self.assertIn("status_factory=lambda sha: GhStatusClient(", cli)
         self.assertIn("tokenize.tokenize", library)
         self.assertNotIn("TARGET_DECLARATION", library)
         self.assertNotIn("ACTION_DECLARATION", library)
@@ -2185,6 +2188,7 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
             "test_successful_ambiguous_revision_warning_fails_closed",
             "test_url_rejects_raw_whitespace_or_controls_before_parsing",
             "test_nonfinite_timeout_and_poll_are_rejected_with_sanitized_cli_errors",
+            "test_tree_sha_and_first_parent_history_argv",
         ):
             self.assertIn(regression, tests)
 
@@ -2226,7 +2230,7 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
             '--commit "${RELEASE_COMMIT}"',
             "--base-ref origin/staging",
             "--token-env GH_TOKEN",
-            "--timeout-seconds 1800",
+            "--timeout-seconds 5400",
             "--poll-seconds 15",
             "--target-url-prefix https://carverauto.buildbuddy.io/invocation/",
         )
