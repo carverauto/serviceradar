@@ -49,7 +49,7 @@ defmodule ServiceRadar.Identity.User do
   @display_name_fields [:display_name]
   @email_fields [:email]
   @role_fields [:role]
-  @role_profile_fields [:role_profile_id]
+  @role_profile_fields [:role_profile_id, :role_profile_source]
   @auth_lookup_actions [:by_email, :authenticate]
   @self_service_actions [
     :update,
@@ -427,6 +427,21 @@ defmodule ServiceRadar.Identity.User do
       allow_nil? true
       public? true
       description "Role profile assignment for RBAC"
+    end
+
+    attribute :role_profile_source, :atom do
+      allow_nil? false
+      public? true
+      default :manual
+      constraints one_of: [:manual, :idp]
+
+      description """
+      Who assigned `role_profile_id`. Removing a user from an identity-provider
+      group must revoke what that group granted, and that is only safe to do if
+      an IdP-granted profile can be told apart from one an operator assigned by
+      hand -- otherwise revocation would also wipe manual assignments from users
+      who have no mapping at all.
+      """
     end
 
     attribute :status, :atom do

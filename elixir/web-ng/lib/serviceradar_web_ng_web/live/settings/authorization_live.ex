@@ -9,7 +9,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
     authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Identity.AuthorizationSettings
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.RoleMapping
+  alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Identity.UserGroup
   alias ServiceRadarWebNG.AdminApi
+  alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
   alias ServiceRadarWebNGWeb.SettingsComponents
 
   @impl true
@@ -28,12 +33,41 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
      |> assign(:settings, settings)
      |> assign(:form, to_form(settings_form(settings), as: :settings))
      |> assign(:json_error, nil)
+     |> assign(:dry_run_claims, "")
+     |> assign(:dry_run_result, nil)
+     |> assign(:dry_run_error, nil)
+     |> assign(:role_profiles, list_role_profiles(scope))
+     |> assign(:user_groups, list_user_groups(scope))
+     |> assign(:groups_scope_warning, groups_scope_warning(settings))
      |> maybe_put_flash(settings_flash)}
   end
 
   @impl true
   def handle_event("validate", %{"settings" => params}, socket) do
     {:noreply, assign(socket, :form, to_form(params, as: :settings))}
+  end
+
+  # A mapping can be checked without attempting a sign-in. Before this, the only
+  # way to find out why a mapping did or did not apply was to log in as somebody
+  # and see what happened.
+  def handle_event("dry_run", %{"dry_run" => %{"claims" => claims_json}}, socket) do
+    socket = assign(socket, :dry_run_claims, claims_json)
+
+    case decode_claims(claims_json) do
+      {:ok, claims} ->
+        resolution = RoleMapping.resolve(claims, actor: scope_actor(socket.assigns.current_scope))
+
+        {:noreply,
+         socket
+         |> assign(:dry_run_result, resolution)
+         |> assign(:dry_run_error, nil)}
+
+      {:error, message} ->
+        {:noreply,
+         socket
+         |> assign(:dry_run_result, nil)
+         |> assign(:dry_run_error, message)}
+    end
   end
 
   def handle_event("save", %{"settings" => params}, socket) do
@@ -130,16 +164,116 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
                     <div class="text-xs text-error mt-2">{@json_error}</div>
                   <% else %>
                     <div class="text-xs text-sr-muted mt-2">
-                      Provide a JSON array of mapping objects (e.g. group to role).
+                      A JSON array of mapping objects. Each must grant at least one of <code>role</code>,
+                      <code>role_profile_id</code>
+                      or <code>user_group_id</code>.
+                      When several mappings match, profiles and groups union and the
+                      highest matched role wins.
                     </div>
                   <% end %>
+
+                  <div
+                    :if={@groups_scope_warning}
+                    class="mt-2 rounded-xl border border-warning/30 bg-warning/5 p-3 text-xs text-sr-muted"
+                  >
+                    {@groups_scope_warning}
+                  </div>
                 </div>
+
+                <%!--
+                  The editor is raw JSON, so ids have to be pasted. Listing them
+                  here is what keeps that from being a hunt through another page.
+                --%>
+                <details class="rounded-xl border border-sr-line p-3">
+                  <summary class="cursor-pointer text-xs font-medium text-sr-ink">
+                    Available role profiles and user groups
+                  </summary>
+                  <div class="mt-3 grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <div class="text-xs font-medium text-sr-ink">Role profiles</div>
+                      <ul class="mt-1 space-y-1">
+                        <li :for={profile <- @role_profiles} class="text-xs text-sr-muted">
+                          <span class="font-medium">{profile.name}</span>
+                          <code class="ml-1 select-all">{profile.id}</code>
+                        </li>
+                        <li :if={@role_profiles == []} class="text-xs text-sr-muted">
+                          None defined.
+                        </li>
+                      </ul>
+                    </div>
+                    <div>
+                      <div class="text-xs font-medium text-sr-ink">User groups</div>
+                      <ul class="mt-1 space-y-1">
+                        <li :for={group <- @user_groups} class="text-xs text-sr-muted">
+                          <span class="font-medium">{group.name}</span>
+                          <code class="ml-1 select-all">{group.id}</code>
+                        </li>
+                        <li :if={@user_groups == []} class="text-xs text-sr-muted">None defined.</li>
+                      </ul>
+                    </div>
+                  </div>
+                </details>
               </div>
 
               <div class="mt-6">
                 <.ui_button type="submit" size="sm" variant="primary">Save Settings</.ui_button>
               </div>
             </.form>
+
+            <div class="mt-8 border-t border-sr-line pt-6">
+              <div class="text-sm font-semibold text-sr-ink">Test a claim set</div>
+              <p class="mt-1 text-xs text-sr-muted">
+                Paste the claims an identity provider would send and see exactly what they
+                would grant, without signing anyone in.
+              </p>
+
+              <form phx-submit="dry_run" class="mt-3 space-y-3">
+                <textarea
+                  name="dry_run[claims]"
+                  placeholder={~s({"email": "user@example.com", "groups": ["SR-Plugin-Authors"]})}
+                  class={ui_field_class(class: "w-full min-h-[120px] py-2.5 font-mono")}
+                ><%= @dry_run_claims %></textarea>
+                <.ui_button type="submit" size="sm" variant="ghost">Resolve</.ui_button>
+              </form>
+
+              <div
+                :if={@dry_run_error}
+                class="mt-3 rounded-xl border border-error/30 bg-error/5 p-3 text-xs text-error"
+              >
+                {@dry_run_error}
+              </div>
+
+              <div
+                :if={@dry_run_result}
+                class="mt-3 space-y-2 rounded-xl border border-sr-line p-3 text-xs"
+              >
+                <div>
+                  <span class="text-sr-muted">Resolved role:</span>
+                  <span class="font-medium text-sr-ink">{@dry_run_result.role}</span>
+                  <span :if={@dry_run_result.matched == []} class="text-sr-muted">
+                    (no mapping matched; this is the configured default)
+                  </span>
+                </div>
+                <div :if={@dry_run_result.role_profile_ids != []}>
+                  <span class="text-sr-muted">Role profiles:</span>
+                  <code>{Enum.join(@dry_run_result.role_profile_ids, ", ")}</code>
+                </div>
+                <div :if={@dry_run_result.user_group_ids != []}>
+                  <span class="text-sr-muted">User groups:</span>
+                  <code>{Enum.join(@dry_run_result.user_group_ids, ", ")}</code>
+                </div>
+                <div>
+                  <span class="text-sr-muted">Matched mappings:</span>
+                  <span :if={@dry_run_result.matched == []} class="text-sr-ink">none</span>
+                  <ul :if={@dry_run_result.matched != []} class="mt-1 space-y-1">
+                    <li :for={mapping <- @dry_run_result.matched} class="text-sr-ink">
+                      <code>{Map.get(mapping, "source")}</code>
+                      = <code>{Map.get(mapping, "value")}</code>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
           </section>
 
           <section class="space-y-4">
@@ -196,6 +330,55 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   defp normalize_role("operator"), do: {:ok, :operator}
   defp normalize_role("admin"), do: {:ok, :admin}
   defp normalize_role(_), do: {:error, :invalid_role}
+
+  defp decode_claims(""), do: {:error, "Paste a JSON object of claims"}
+
+  defp decode_claims(json) when is_binary(json) do
+    case Jason.decode(json) do
+      {:ok, claims} when is_map(claims) -> {:ok, claims}
+      {:ok, _other} -> {:error, "Claims must be a JSON object"}
+      {:error, error} -> {:error, "Invalid JSON: " <> Exception.message(error)}
+    end
+  end
+
+  defp decode_claims(_json), do: {:error, "Paste a JSON object of claims"}
+
+  defp scope_actor(%{user: user}) when not is_nil(user), do: user
+  defp scope_actor(_scope), do: SystemActor.system(:authorization_settings_dry_run)
+
+  defp list_role_profiles(scope) do
+    case Ash.read(RoleProfile, actor: scope_actor(scope)) do
+      {:ok, profiles} -> Enum.sort_by(profiles, & &1.name)
+      {:error, _reason} -> []
+    end
+  end
+
+  defp list_user_groups(scope) do
+    case Ash.read(UserGroup, actor: scope_actor(scope)) do
+      {:ok, groups} -> Enum.sort_by(groups, & &1.name)
+      {:error, _reason} -> []
+    end
+  end
+
+  # A `groups` mapping with the groups scope unrequested silently matches
+  # nothing and falls through to the default role, which looks like a broken
+  # mapping rather than a missing scope.
+  defp groups_scope_warning(settings) do
+    mappings = Map.get(settings, :role_mappings) || []
+    uses_groups? = Enum.any?(mappings, &(Map.get(&1, "source") == "groups"))
+
+    if uses_groups? and not groups_scope_requested?() do
+      "One or more mappings match on group claims, but the configured OIDC scopes do not " <>
+        "request \"groups\". Those mappings will never match. Add the scope in " <>
+        "Settings -> Authentication."
+    end
+  end
+
+  defp groups_scope_requested? do
+    Enum.any?(OIDCStrategy.scopes(), &(&1 in ["groups", "roles"]))
+  rescue
+    _error -> true
+  end
 
   defp decode_role_mappings(nil), do: {:ok, []}
   defp decode_role_mappings(""), do: {:ok, []}
