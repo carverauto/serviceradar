@@ -153,6 +153,88 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     assert coverage.latest_time
   end
 
+  test "list_traces exposes only reached terminal destination observations and trends" do
+    target = "destination-window.example"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    silent_transit_id =
+      insert_mtr_trace!("agent-destination", target, DateTime.add(now, -1, :second),
+        target_reached: true,
+        total_hops: 3,
+        hops: [
+          {"10.0.0.1", 10_000, 0.0},
+          {"*", 0, 100.0, 10, 0},
+          {target, 30_000, 0.0, 10, 10}
+        ]
+      )
+
+    partial_destination_id =
+      insert_mtr_trace!("agent-destination", target, now,
+        target_reached: true,
+        total_hops: 2,
+        hops: [
+          {"10.0.0.1", 8_000, 0.0},
+          {target, 40_000, 12.5, 20, 5}
+        ]
+      )
+
+    unreached_id =
+      insert_mtr_trace!("agent-destination", target, DateTime.add(now, -2, :second),
+        target_reached: false,
+        total_hops: 3,
+        hops: [
+          {"10.0.0.1", 11_000, 0.0},
+          {"10.0.0.2", 900_000, 0.0},
+          {"*", 0, 100.0, 10, 0}
+        ]
+      )
+
+    for_result =
+      for offset <- 3..50 do
+        insert_mtr_trace!("agent-destination", target, DateTime.add(now, -offset, :second),
+          target_reached: true,
+          total_hops: 1,
+          hops: [{target, 5_000, 0.0}]
+        )
+      end
+
+    oldest_id = List.last(for_result)
+
+    assert {:ok, traces} = MtrData.list_traces(target_filter: target)
+    assert length(traces) == 50
+
+    trace_by_id = Map.new(traces, &{&1["id"], &1})
+
+    refute Map.has_key?(trace_by_id, oldest_id)
+
+    assert %{
+             "destination_sent" => 10,
+             "destination_received" => 10,
+             "destination_avg_us" => 30_000,
+             "destination_loss_pct" => 0.0
+           } = trace_by_id[silent_transit_id]
+
+    assert %{
+             "destination_sent" => 20,
+             "destination_received" => 5,
+             "destination_avg_us" => 40_000,
+             "destination_loss_pct" => 75.0
+           } = trace_by_id[partial_destination_id]
+
+    assert %{
+             "destination_sent" => nil,
+             "destination_received" => nil,
+             "destination_avg_us" => nil,
+             "destination_loss_pct" => nil
+           } = trace_by_id[unreached_id]
+
+    trends = MtrData.build_trends(traces)
+    unreached_time = trace_by_id[unreached_id]["time"]
+
+    assert {unreached_time, 0} in trends.latency
+    refute {unreached_time, 900_000} in trends.latency
+  end
+
   test "compare_windows handles partial elapsed windows and uneven samples" do
     window_a = %{label: "Today so far", start: ~U[2026-05-07 00:00:00Z], end: ~U[2026-05-07 09:30:00Z]}
     window_b = %{label: "Yesterday same hours", start: ~U[2026-05-06 00:00:00Z], end: ~U[2026-05-06 09:30:00Z]}
@@ -395,7 +477,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     rows =
       hops
       |> Enum.with_index(1)
-      |> Enum.map(fn {{addr, avg_us, loss_pct}, hop_number} ->
+      |> Enum.map(fn {hop, hop_number} ->
+        {addr, avg_us, loss_pct, sent, received} = normalize_hop(hop)
+
         %{
           id: dump_uuid!(Ecto.UUID.generate()),
           time: timestamp,
@@ -407,8 +491,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
           asn: nil,
           asn_org: nil,
           mpls_labels: %{},
-          sent: 10,
-          received: if(loss_pct >= 100.0, do: 0, else: 10),
+          sent: sent,
+          received: received,
           loss_pct: loss_pct,
           last_us: avg_us,
           avg_us: avg_us,
@@ -428,6 +512,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
 
   defp normalize_hop_addr("*"), do: nil
   defp normalize_hop_addr(addr), do: addr
+
+  defp normalize_hop({addr, avg_us, loss_pct}) do
+    {addr, avg_us, loss_pct, 10, if(loss_pct >= 100.0, do: 0, else: 10)}
+  end
+
+  defp normalize_hop({addr, avg_us, loss_pct, sent, received}) do
+    {addr, avg_us, loss_pct, sent, received}
+  end
 
   defp dump_uuid!(uuid) do
     case Ecto.UUID.dump(uuid) do

@@ -57,12 +57,29 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     {where_clause, params} = build_trace_where(target_filter, agent_filter, device_uid, device_ip)
 
     query = """
-    SELECT id::text AS id, time, agent_id, check_id, check_name, device_id, target, target_ip,
-           target_reached, total_hops, protocol, ip_version, error
-    FROM mtr_traces
-    #{where_clause}
-    ORDER BY time DESC
-    LIMIT $#{length(params) + 1}
+    WITH selected_traces AS (
+      SELECT id, time, agent_id, check_id, check_name, device_id, target, target_ip,
+             target_reached, total_hops, protocol, ip_version, error
+      FROM mtr_traces
+      #{where_clause}
+      ORDER BY time DESC
+      LIMIT $#{length(params) + 1}
+    )
+    SELECT st.id::text AS id, st.time, st.agent_id, st.check_id, st.check_name, st.device_id,
+           st.target, st.target_ip, st.target_reached, st.total_hops, st.protocol, st.ip_version,
+           st.error, destination.sent AS destination_sent,
+           destination.received AS destination_received,
+           destination.avg_us AS destination_avg_us,
+             CASE
+             WHEN destination.sent > 0 THEN
+               (100.0 * (destination.sent - destination.received) / destination.sent)::float
+           END AS destination_loss_pct
+    FROM selected_traces st
+    LEFT JOIN mtr_hops destination
+      ON destination.trace_id = st.id
+      AND st.target_reached
+      AND destination.hop_number = st.total_hops
+    ORDER BY st.time DESC
     """
 
     case Repo.query(query, params ++ [limit]) do
@@ -245,7 +262,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
         {trace["time"], trace["total_hops"] || 0}
       end)
 
-    latency = load_last_hop_latencies(sorted)
+    latency =
+      Enum.map(sorted, fn trace ->
+        {trace["time"], trace["destination_avg_us"] || 0}
+      end)
 
     %{hops: hops, latency: latency}
   end
@@ -820,61 +840,6 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
     {conditions, params}
   end
-
-  defp load_last_hop_latencies([]), do: []
-
-  defp load_last_hop_latencies(traces) do
-    trace_ids = valid_trace_ids(traces)
-
-    case trace_ids do
-      [] ->
-        []
-
-      _ ->
-        latency_map = fetch_last_hop_latency_map(trace_ids)
-
-        Enum.map(traces, fn trace ->
-          {trace["time"], Map.get(latency_map, trace["id"], 0)}
-        end)
-    end
-  end
-
-  defp valid_trace_ids(traces) do
-    traces
-    |> Enum.map(& &1["id"])
-    |> Enum.reject(&(is_nil(&1) or &1 == ""))
-    |> Enum.filter(&uuid?/1)
-  end
-
-  @sobelow_skip ["SQL.Query"]
-  defp fetch_last_hop_latency_map(trace_ids) do
-    placeholders = Enum.map_join(1..length(trace_ids), ", ", fn i -> "$#{i}" end)
-
-    query = """
-    SELECT DISTINCT ON (trace_id) trace_id::text, avg_us
-    FROM mtr_hops
-    WHERE trace_id::text IN (#{placeholders})
-      AND addr IS NOT NULL
-    ORDER BY trace_id, hop_number DESC
-    """
-
-    case Repo.query(query, trace_ids) do
-      {:ok, %{rows: rows}} ->
-        Map.new(rows, fn [trace_id, avg_us] -> {trace_id, avg_us || 0} end)
-
-      {:error, _reason} ->
-        %{}
-    end
-  end
-
-  defp uuid?(value) when is_binary(value) do
-    case Ecto.UUID.cast(value) do
-      {:ok, _uuid} -> true
-      :error -> false
-    end
-  end
-
-  defp uuid?(_value), do: false
 
   defp read_all(query, scope) do
     case Ash.read(query, scope: scope) do
