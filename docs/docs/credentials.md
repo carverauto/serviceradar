@@ -15,9 +15,9 @@ Secret, or a config file. The one remaining exception is the agent's SNMP file
 path, documented under [SNMP](#snmp).
 
 :::note Not everything on this page has shipped yet
-The current release is **1.4.49**. Three mechanisms described below are merged
+The current release is **1.4.49**. Four mechanisms described below are merged
 work that has not appeared in a release yet, and each one is marked in place
-with a `:::caution Not in 1.4.49` box:
+with a `:::caution` box:
 
 - the TLS Policy control rendering for UniFi Protect and Axis
   ([TLS policy](#tls-policy))
@@ -25,6 +25,8 @@ with a `:::caution Not in 1.4.49` box:
   ([CA trust material](#ca-trust-material))
 - the `netbox` credential profile and its `inventory_sync` purpose
   ([NetBox](#netbox))
+- removal of the VulnCheck environment-variable fallback
+  ([VulnCheck](#vulncheck))
 
 Two mechanisms this page originally listed as unreleased have shipped since, in
 **1.4.48**: `allowed_networks` on the UniFi Protect, Axis, OpenText and AWX
@@ -286,7 +288,7 @@ Three properties of that client decide every question below:
 
 Restart the agent after changing the bundle.
 
-:::caution Not in 1.4.49
+:::caution Not in 1.4.46
 **`ca_bundle_pem` and `server_cert_fingerprint` on a credential rule.** Merged
 work adds two optional, mutually exclusive columns to a rule:
 
@@ -301,90 +303,18 @@ are stored in the clear: a CA certificate and a fingerprint are trust anchors,
 not authenticators, so an operator can read back what a rule trusts and the
 values never go through the credential broker.
 
-`ca_bundle_pem` is wired end to end, and only for Proxmox:
-
-- **The form.** The rule form draws a **CA bundle (PEM)** textarea and a
-  **Server certificate fingerprint** input wherever it draws the TLS Policy
-  control.
-- **The manifest.** `go/cmd/wasm-plugins/proxmox/plugin.yaml` (version `0.1.7`)
-  adds `ca_bundle_pem` as `$source: rule, field: ca_bundle_pem` with
-  `omit_if_blank: true` to all three of its consumers: `inventory_enrichment`,
-  and both `console_access` consumers. No other shipped manifest references
-  either field.
-- **The agent.** The bundle travels on the Proxmox host-authority binding beside
-  `insecure_skip_verify`, not on the guest-controlled HTTP payload, so a plugin
-  cannot nominate its own anchor. It is in the host-authority secret-key list, so
-  it is stripped before the guest sees the params. When a Proxmox binding carries
-  one, the agent verifies that request against it.
-
-**Pinned roots replace the system trust store for that request; they do not
-extend it.** This is the opposite of `plugin_http_trusted_ca_files` above, and it
-is deliberate: a rule that pins a private CA is asking for that anchor, and
-keeping the public roots alongside it would still accept any publicly-trusted
-certificate for the same origin -- weaker than what the operator configured. A
-bundle that fails to parse on the agent leaves the client unchanged, so
-verification falls back to the system pool and fails closed at the handshake
-rather than silently trusting nothing.
-
-`server_cert_fingerprint` is validated, stored and editable, and nothing consumes
-it: no manifest references it and no agent path reads it. Setting one records an
-intent. For every provider other than Proxmox, and for both fields on 1.4.49,
-`plugin_http_trusted_ca_files` above is still the only thing that changes what
-the agent trusts.
+Scope of what has landed, stated precisely so nobody plans against more than
+exists: the change adds the rule columns, their validation, the migration, and
+permission for a manifest params template to reference them as
+`$source: rule, field: ca_bundle_pem` / `field: server_cert_fingerprint`. It does
+**not** add a form control on the Credential Rules page, no shipped plugin
+manifest references either field yet, and the agent's plugin HTTP client does not
+read them. Setting one on a rule therefore records an intent; it does not by
+itself change what the agent trusts. Until a manifest and the agent transport
+consume them, use `plugin_http_trusted_ca_files` above.
 
 First release containing the columns: `<first-release>`.
 :::
-
-**Fetching a Proxmox cluster CA.** Proxmox signs every node certificate with a
-cluster CA that lives in the replicated `/etc/pve` filesystem, so any node in the
-cluster serves the same copy:
-
-```bash
-ssh root@<pve-node> cat /etc/pve/pve-root-ca.pem
-```
-
-That file is a public certificate. It is what goes into the rule's **CA bundle
-(PEM)** box, or into `plugin_http_trusted_ca_files` on the agent. Do not copy
-`/etc/pve/pve-root-ca.key`, which is the CA private key.
-
-Read the SAN list of the certificate the node actually serves before deciding
-anything:
-
-```bash
-ssh root@<pve-node> openssl x509 -in /etc/pve/local/pve-ssl.pem -noout -ext subjectAltName
-```
-
-PVE issues node certificates with an IP SAN. On the ServiceRadar demo cluster,
-`pve02` reports:
-
-```text
-IP Address:10.0.0.3, DNS:pve02, DNS:pve02.localdomain
-```
-
-That is the whole reason this works. With `/etc/pve/pve-root-ca.pem` pinned as
-the sole anchor and the handshake made against the IP literal ServiceRadar
-dials, verification returns `Verify return code: 0 (ok)` on both `pve02`
-(`10.0.0.3`) and `pve03` (`10.0.0.4`); without the CA the same handshake fails
-`unable to get local issuer certificate`. Check it from any host that can reach
-the node:
-
-```bash
-openssl s_client -connect 10.0.0.3:8006 -CAfile ./pve-root-ca.pem </dev/null 2>/dev/null \
-  | grep 'Verify return code'
-```
-
-**So no certificate re-issuance is needed in the normal case.** Pin the cluster
-CA and the stock node certificate verifies by IP.
-
-Read the SAN output rather than assuming it, because the exception is real and
-was not measured: a node re-addressed after its certificate was generated, or a
-node serving a custom certificate (`/etc/pve/local/pveproxy-ssl.pem`, which is
-what a client sees when it exists), can present a certificate with no
-`IP Address` entry, or with one that is not the address the agent uses. A
-certificate whose SANs are only `DNS` entries cannot verify against
-`https://<ip>:8006` no matter which CA signed it, and no trust material fixes
-that -- the certificate has to be reissued with the address in its SAN list. See
-[Proxmox: When the SAN has no IP address](./proxmox.md#step-4-when-the-san-has-no-ip-address).
 
 ### Allowed ports
 
@@ -625,7 +555,7 @@ provider on this page. What the manifest declares:
 | Provider / label | `netbox` / `NetBox`, `supports_rules: true` |
 | Auth method | one: `api_token` ("API token"), credential kind `api_token`, a single required secret `api_token` password field, TLS policies `verify` and `skip_verify` |
 | Purpose | `inventory_sync` |
-| Scope types | `agent`, `gateway`, `partition` |
+| Scope types | `agent`, and nothing else |
 | Rule controls | allowed ports, controller host, target query, transport |
 | Rule defaults | target query `in:devices sort:uid:asc limit:1`, scope type `agent`, allowed ports `443, 8443`, TLS policy `verify` |
 | Provisioning | `target_policy`, consumer `netbox-inventory` declared `target_cardinality: single`, grant type `netbox_api_token` resolved at the control plane with a 300 second TTL |
@@ -642,17 +572,36 @@ BASE_PATH deployment (`https://tools.example.com/netbox`) can be expressed.
 `insecure_skip_verify` is derived from the rule's TLS policy being
 `skip_verify`, and `page_size` / `timeout_ms` default to `100` / `30000`.
 
-Three things to know before planning against it.
+Four things to know before planning against it.
 
 **The target set is only a delivery gate.** A NetBox instance is the rule's
 controller host, not a resolved device: the sync walks the instance named by the
 rule and ignores `inputs[].items[]`. The consumer is declared
-`target_cardinality: single`, so the planner emits exactly one un-chunked
-assignment per rule per agent, and a target set too large for one payload is an
-error naming the target query rather than a split. The default is a query that
-resolves one stable device for that reason, `in:devices sort:uid:asc limit:1`;
-narrow it to the NetBox host's own device record (for example
-`in:devices ip:10.0.0.5`) when you want the targets to name the instance.
+`target_cardinality: single`, so the planner never chunks it: however many
+devices the query matches, they arrive as one un-chunked assignment, and a
+target set too large for one payload is an error telling you to narrow the
+target query rather than a split into several assignments that would each
+re-walk the whole instance. The default is a query that resolves one stable
+device for that reason, `in:devices sort:uid:asc limit:1`; narrow it to the
+NetBox host's own device record (for example `in:devices ip:10.0.0.5`) when you
+want the targets to name the instance.
+
+**The scope is `agent`, and the profile may not offer anything else.** Not
+chunking the targets is only half of "one sync per instance". The other half is
+that the materializer reconciles every agent a scope admits *separately*, so a
+`gateway`- or `partition`-scoped rule would hand that same whole-instance job to
+each agent underneath it: every one of them would walk the same
+`/api/dcim/devices/` listing and emit another complete `snapshot_complete`
+snapshot under the same `source_instance`. One assignment per rule *per agent*
+is exactly the multiplication this profile has to avoid, so the manifest
+declares `scope_types: [agent]` and `IntegrationDescriptor` enforces it:
+`validate_single_cardinality_scope_types/4` rejects any profile that pairs a
+`target_cardinality: single` consumer with a wider scope list, and the rule form
+draws its scope options from that same list. Core does not elect a runner
+instead, because whether an agent can reach the NetBox host is an operator fact.
+A rule that carries a wider scope anyway -- written before that validation, or
+by something other than the rule form -- is skipped rather than delivered, and
+the reconcile reports it as `single_target_rule_not_agent_scoped`.
 
 **Give each NetBox rule a distinct target query.** Two `netbox` rules matching
 the same devices in the same scope are a [priority](#priority) conflict and only
@@ -690,9 +639,31 @@ there is no plugin package and no rule.
    (`/settings/security/vulnerability-feeds`) -> pick the credential in the feed's
    credential select.
 
-There is no environment-variable fallback. A feed with no credential reference
-fails with a message pointing here rather than silently reading a token from the
-process environment.
+On 1.4.49 the credential reference is the *primary* source, not the only one.
+When no VulnCheck-backed feed row carries one, core falls back to the
+`VULNCHECK_API_TOKEN` environment variable, then to
+`SERVICERADAR_VULNCHECK_TOKEN`, then to the `:vulncheck_token` application
+setting. A deployment that sets one of those keeps working with the feed's
+credential select left empty.
+
+:::caution Not in 1.4.49
+**The environment fallback is removed.** Merged work deletes all three fallbacks
+from `ServiceRadar.Inventory.AdvisoryFeeds.Config.vulncheck_token/1`, leaving a
+VulnCheck-backed feed row's `credential_ref` as the only source. A feed with no
+credential reference then fails with a message naming both halves of the job --
+create a `vulncheck` API token credential at `/settings/networks/credentials`,
+then select it on the `vulncheck-kev` or `nist-nvd2` row at
+`/settings/security/vulnerability-feeds` -- rather than silently reading a token
+from the process environment. The message is recorded verbatim in the feed row's
+`last_error`.
+
+Attach the credential *before* upgrading if a deployment relies on the
+environment variable today: after the upgrade the variable is read by nothing,
+and the feed fails until a credential is selected. The Compose stack no longer
+passes `VULNCHECK_API_TOKEN` for the same reason.
+
+First release containing the removal: `<first-release>`.
+:::
 
 ### SNMP
 
