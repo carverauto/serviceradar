@@ -288,7 +288,7 @@ Three properties of that client decide every question below:
 
 Restart the agent after changing the bundle.
 
-:::caution Not in 1.4.46
+:::caution Not in 1.4.49
 **`ca_bundle_pem` and `server_cert_fingerprint` on a credential rule.** A rule
 carries two optional, mutually exclusive columns:
 
