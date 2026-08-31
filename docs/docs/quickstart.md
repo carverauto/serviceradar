@@ -28,7 +28,7 @@ you do **not** generate CA material or hand-configure mTLS.
 ## 2. Sign in and (optionally) connect SSO
 
 1. Open the web UI. Docker Compose and Helm bootstrap an admin account for you — use those generated credentials for the first login.
-2. Optionally configure **Settings → Authentication** for Direct SSO or Gateway Proxy when you are ready. See [Authentication](./auth-configuration.md).
+2. Optionally configure **Settings → Authentication** for Direct SSO or Gateway Proxy when you are ready. See [Authentication](./auth-configuration.md). Map IdP groups under **Settings → Authorization**; see [Group Permission Mapping](./group-permission-mapping.md).
 3. If this instance should send email (alert channels, dashboard reports,
    password reset), configure SMTP under **Settings -> Mail**. See
    [Outbound Mail](./outbound-mail.md). Do not put the mailbox password in

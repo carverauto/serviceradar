@@ -108,7 +108,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellHook do
   # `:suppressed` (page renders its own metrics) or a list of `%{title, value}`
   # cards resolved from view → parent-group → category.
   defp maybe_load_stats(socket, view) do
-    assign(socket, :settings_stats, StatusCards.for_view(view))
+    assign(socket, :settings_stats, StatusCards.for_view(view, socket.assigns[:current_scope]))
   end
 
   defp uri_path(uri) when is_binary(uri) do

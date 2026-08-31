@@ -209,27 +209,34 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
 
       category_ids = Enum.map(Catalog.visible_categories(scope), & &1.id)
 
-      # Network Services and Edge Ops have no ungated views, so an empty scope
-      # sees neither. (System stays visible via the ungated personal pages.)
+      # Every System / Network / Edge view is permission-gated (Profile is
+      # nav-hidden), so an empty scope sees no settings category at all.
+      refute :system in category_ids
       refute :network_services in category_ids
       refute :edge_ops in category_ids
 
+      assert Catalog.visible_views(scope, :system) == []
       assert Catalog.visible_views(scope, :network_services) == []
       assert Catalog.visible_views(scope, :edge_ops) == []
     end
 
-    test "an authenticated scope always sees ungated personal views (orphan rescue)" do
-      # `API Credentials` (and `Profile`, though nav-hidden) are per-user pages
-      # with no permission gate, so System is minimally visible even to a scope
-      # with no RBAC permissions.
-      scope = %Scope{permissions: MapSet.new([])}
+    test "API credentials and MCP sessions are gated on their catalog keys" do
+      empty = %Scope{permissions: MapSet.new([])}
+      empty_ids = empty |> Catalog.visible_views(:system) |> Enum.map(& &1.id)
 
-      ids = scope |> Catalog.visible_views(:system) |> Enum.map(& &1.id)
-      assert :api_credentials in ids
-      refute :profile in ids, "profile is hidden_from_nav and must not appear in nav lists"
-      refute :auth_users in ids, "gated System views stay hidden for an empty scope"
+      refute :api_credentials in empty_ids
+      refute :mcp_sessions in empty_ids
+      refute :profile in empty_ids, "profile is hidden_from_nav and must not appear in nav lists"
 
-      assert Enum.any?(Catalog.visible_categories(scope), &(&1.id == :system))
+      creds = %Scope{permissions: MapSet.new(["settings.api_credentials.manage"])}
+      assert :api_credentials in Enum.map(Catalog.visible_views(creds, :system), & &1.id)
+      assert Enum.any?(Catalog.visible_categories(creds), &(&1.id == :system))
+
+      mcp = %Scope{permissions: MapSet.new(["settings.mcp.manage"])}
+
+      if ServiceRadarWebNGWeb.FeatureFlags.mcp_enabled?() do
+        assert :mcp_sessions in Enum.map(Catalog.visible_views(mcp, :system), & &1.id)
+      end
     end
 
     test "each category is reachable by some permission set" do
@@ -262,6 +269,24 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       group_ids = scope |> Catalog.nav_tree(:network_services) |> Enum.map(& &1.group.id)
       assert :net_discovery in group_ids
       assert :net_services in group_ids
+    end
+
+    test "Settings Rules is hidden from rule viewers who cannot author them" do
+      # observability.rules.view is the product-surface permission (alert/rule
+      # definitions on device pages). The Settings -> Alerts -> Rules editor
+      # requires create or update; a custom profile such as demo that only
+      # grants view must not see the Alerts settings group at all.
+      viewer = %Scope{permissions: MapSet.new(["observability.rules.view"])}
+      refute :rules in Enum.map(Catalog.visible_views(viewer, :system), & &1.id)
+
+      refute Enum.any?(Catalog.nav_tree(viewer, :system), fn group ->
+               group.group.id == :sys_alerts
+             end)
+
+      for permission <- ["observability.rules.update", "observability.rules.create"] do
+        scope = %Scope{permissions: MapSet.new([permission])}
+        assert :rules in Enum.map(Catalog.visible_views(scope, :system), & &1.id)
+      end
     end
 
     test "an edge admin sees Edge Ops views" do
@@ -304,6 +329,22 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       assert :cluster_status in ids
       assert Catalog.view(:cluster_status).parent_group == :sys_cluster
       assert Enum.any?(Catalog.visible_categories(scope), &(&1.id == :system))
+    end
+
+    test "Authorization is gated on settings.auth.manage, not settings.view" do
+      assert Catalog.view(:authorization_mappings).permission == "settings.auth.manage"
+
+      operator = %Scope{permissions: MapSet.new(["settings.view"])}
+      operator_ids = operator |> Catalog.visible_views(:system) |> Enum.map(& &1.id)
+      refute :authorization_mappings in operator_ids
+      refute :auth_users in operator_ids
+      refute :authentication in operator_ids
+
+      admin = %Scope{permissions: MapSet.new(["settings.auth.manage"])}
+      admin_ids = admin |> Catalog.visible_views(:system) |> Enum.map(& &1.id)
+      assert :authorization_mappings in admin_ids
+      assert :auth_users in admin_ids
+      assert :authentication in admin_ids
     end
 
     test "palette_index/1 only includes permitted views and is well-shaped" do

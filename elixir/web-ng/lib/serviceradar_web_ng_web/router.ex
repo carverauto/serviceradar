@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Router do
   alias ServiceRadarWebNGWeb.Plugs.LockoutCheck
   alias ServiceRadarWebNGWeb.Plugs.McpAshContext
   alias ServiceRadarWebNGWeb.Plugs.McpEnabled
+  alias ServiceRadarWebNGWeb.Plugs.McpRequirePermission
   alias ServiceRadarWebNGWeb.Plugs.McpRequireUser
   alias ServiceRadarWebNGWeb.Plugs.McpSessionAudit
   alias ServiceRadarWebNGWeb.Plugs.McpWwwAuthenticate
@@ -163,6 +164,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(ApiAuth)
     plug(McpRequireUser)
     plug(RequireOauthScope, scope: "mcp")
+    plug(McpRequirePermission)
     plug(RateLimit, bucket: :mcp, subject: :ip_and_actor, response_mode: :json)
     plug(McpAshContext)
   end
@@ -1203,6 +1205,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/auth/users", Settings.AuthUsersLive, :index)
       live("/settings/auth/users/:id", Settings.AuthUserLive.Show, :show)
       live("/settings/auth/rbac", Settings.RbacLive, :index)
+      live("/settings/auth/authorization", Settings.AuthorizationLive, :index)
 
       # Ansible settings (controllers, repositories, and retention)
       live("/settings/ansible", Settings.AnsibleLive, :index)

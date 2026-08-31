@@ -4,9 +4,11 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.Server do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Identity.McpOAuthCode
   alias ServiceRadar.Identity.McpOAuthGrant
   alias ServiceRadar.Identity.McpOAuthRefreshToken
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Mcp.OAuth
@@ -36,6 +38,14 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.Server do
   @spec complete_authorization(User.t(), map(), map()) ::
           {:ok, McpOAuthGrant.t(), String.t()} | {:error, term()}
   def complete_authorization(%User{} = user, request, idp) when is_map(request) and is_map(idp) do
+    if RBAC.has_permission?(user, Constants.mcp_manage_permission()) do
+      do_complete_authorization(user, request, idp)
+    else
+      {:error, :forbidden}
+    end
+  end
+
+  defp do_complete_authorization(user, request, idp) do
     attrs =
       idp
       |> Map.take([:auth_method, :idp_iss, :idp_sid, :idp_refresh_token])

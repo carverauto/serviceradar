@@ -10,9 +10,13 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Identity.OAuthClient
   alias ServiceRadar.Identity.OAuthClient.Credentials
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
+
+  @api_credentials_permission Constants.api_credentials_manage_permission()
 
   on_mount {ServiceRadarWebNGWeb.UserAuth, :require_sudo_mode}
 
@@ -471,21 +475,28 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
 
   @impl true
   def mount(_params, _session, socket) do
-    user = socket.assigns.current_scope.user
+    scope = socket.assigns.current_scope
 
-    socket =
-      socket
-      |> assign(:clients, load_clients(user))
-      |> assign(:show_create_modal, false)
-      |> assign(:show_secret_modal, false)
-      |> assign(:show_revoke_modal, false)
-      |> assign(:create_form, to_form(%{"name" => "", "description" => "", "scopes" => ["read"]}))
-      |> assign(:new_client, nil)
-      |> assign(:new_secret, nil)
-      |> assign(:client_to_revoke, nil)
-      |> assign(:base_url, get_base_url())
+    if RBAC.can?(scope, @api_credentials_permission) do
+      user = scope.user
 
-    {:ok, socket}
+      {:ok,
+       socket
+       |> assign(:clients, load_clients(user))
+       |> assign(:show_create_modal, false)
+       |> assign(:show_secret_modal, false)
+       |> assign(:show_revoke_modal, false)
+       |> assign(:create_form, to_form(%{"name" => "", "description" => "", "scopes" => ["read"]}))
+       |> assign(:new_client, nil)
+       |> assign(:new_secret, nil)
+       |> assign(:client_to_revoke, nil)
+       |> assign(:base_url, get_base_url())}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to manage API credentials.")
+       |> push_navigate(to: ~p"/dashboard")}
+    end
   end
 
   @impl true

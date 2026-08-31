@@ -5,10 +5,12 @@ defmodule ServiceRadarWebNGWeb.OAuthConsentLive do
 
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Identity.Constants
   alias ServiceRadarWebNG.Mcp.OAuth.Audit
   alias ServiceRadarWebNG.Mcp.OAuth.IdP
   alias ServiceRadarWebNG.Mcp.OAuth.RedirectURI
   alias ServiceRadarWebNG.Mcp.OAuth.Server
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.FeatureFlags
 
   @impl true
@@ -19,6 +21,12 @@ defmodule ServiceRadarWebNGWeb.OAuthConsentLive do
 
       is_nil(socket.assigns[:current_scope]) or is_nil(socket.assigns.current_scope.user) ->
         {:ok, redirect(socket, to: ~p"/users/log-in?return_to=/oauth/consent")}
+
+      not RBAC.can?(socket.assigns.current_scope, Constants.mcp_manage_permission()) ->
+        {:ok,
+         socket
+         |> put_flash(:error, "You don't have permission to authorize MCP clients.")
+         |> redirect(to: ~p"/dashboard")}
 
       true ->
         request = session["mcp_oauth_request"]

@@ -647,6 +647,24 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @all_roles
         },
         %{
+          key: "settings.api_credentials.manage",
+          section: "settings",
+          resource: "settings.api_credentials",
+          action: "manage",
+          label: "Manage API credentials",
+          description: "Create and revoke personal OAuth API clients from Settings",
+          default_roles: @all_roles
+        },
+        %{
+          key: "settings.mcp.manage",
+          section: "settings",
+          resource: "settings.mcp",
+          action: "manage",
+          label: "Use MCP",
+          description: "Authorize native MCP clients, call the MCP server, and revoke MCP grants",
+          default_roles: @all_roles
+        },
+        %{
           key: "settings.rbac.manage",
           section: "settings",
           resource: "settings.rbac",

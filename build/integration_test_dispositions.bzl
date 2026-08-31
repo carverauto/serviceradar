@@ -41,6 +41,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/identity/alias_events_link_local_test.exs",
     "test/serviceradar/identity/auth_settings_secret_test.exs",
     "test/serviceradar/identity/authorization_settings_validation_test.exs",
+    "test/serviceradar/identity/idp_group_permission_mapping_db_test.exs",
     "test/serviceradar/infrastructure/agent_health_test.exs",
     "test/serviceradar/infrastructure/agent_test.exs",
     "test/serviceradar/infrastructure/state_machine_test.exs",

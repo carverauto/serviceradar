@@ -9,9 +9,10 @@ user can see and do. Every user is assigned a **role**, and every role grants a
 set of **permissions** drawn from a fixed permission catalog. Administrators can
 also create **custom role profiles** that grant a tailored subset of permissions.
 
-This page is for operators and administrators who manage who can do what. For
-how users sign in (local passwords, OIDC, SAML), see
-[Authentication](./auth-configuration.md).
+This page is for operators and administrators who manage who can do what. For how users sign in (local passwords, OIDC, SAML), see
+[Authentication](./auth-configuration.md). For mapping identity-provider
+groups onto these roles and profiles, see
+[Group Permission Mapping](./group-permission-mapping.md).
 
 ## The four built-in roles
 
@@ -43,7 +44,7 @@ The catalog covers these areas:
 | **Devices** | Viewing, creating, updating, bulk-editing, importing/exporting, and deleting devices; opening device consoles; all SSH/RDP/app/TCP remote-access actions, recordings, and file transfers. |
 | **Services** | Viewing, creating, updating, deleting, and running service checks. |
 | **Observability** | Viewing logs, metrics, traces, events, NetFlow, and alerts; creating/updating/deleting observability rules; acknowledging and resolving alerts. |
-| **Settings** | Viewing settings; managing users and auth; managing RBAC; managing networks, NetFlow, integrations, credentials, outbound mail (`settings.mail.manage`), SNMP/Sysmon profiles, [visibility profiles](./visibility-profiles.md), jobs, plugins, edge packages, remote-access host keys and targets; viewing and managing the audit/security state. See [Outbound Mail](./outbound-mail.md). |
+| **Settings** | Viewing settings; managing users and auth; changing own local password; managing personal API credentials and MCP access; managing RBAC; managing networks, NetFlow, integrations, credentials, outbound mail (`settings.mail.manage`), SNMP/Sysmon profiles, [visibility profiles](./visibility-profiles.md), jobs, plugins, edge packages, remote-access host keys and targets; viewing and managing the audit/security state. See [Outbound Mail](./outbound-mail.md). |
 | **Plugins** | Viewing, staging, approving, and assigning plugin packages. |
 | **Ansible** | Viewing/managing AWX controllers and playbook repositories; viewing canonical operation history; launching reviewed playbooks; authorizing operation cancellation. Reserved schedule keys expose no workflow. |
 | **Northbound Actions** | Viewing, managing, launching, and cancelling provider-neutral northbound actions; managing event handlers. |
@@ -65,7 +66,13 @@ As a rule of thumb:
 When the built-in roles do not match a team's needs, an administrator can create
 a **custom role profile**: a named bundle of specific permission keys. A user
 assigned a custom profile receives exactly the permissions the profile lists,
-instead of the defaults of a built-in role.
+instead of the defaults of a built-in role. Built-in Viewer/Operator/Admin
+still get personal API credentials (`settings.api_credentials.manage`) and MCP
+(`settings.mcp.manage`) because those default to every role; omit them on a
+custom profile (the `demo` profile should) to hide **Settings -> API
+Credentials**, **MCP Sessions**, and to refuse `/mcp` and MCP OAuth consent.
+Omit `plugins.view` on the same profile to hide **Dashboard Packages** and the
+Edge Ops add-on catalog.
 
 The four built-in roles also exist as system role profiles (`Admin`,
 `Operator`, `Helpdesk`, `Viewer`). System profiles cannot be edited or deleted;
@@ -103,11 +110,17 @@ A create or update request supplies a `name`, an optional `description`, and a
 `permissions` array of permission keys (for example `devices.view`,
 `services.run`). Use the `catalog` endpoint to discover valid keys.
 
+A user can hold **both**: a built-in role (the rung) and a role profile (a
+named extra permission set). Mapping an IdP group onto a profile does **not**
+require putting that profile in the default-role dropdown. That dropdown is
+only the four built-in rungs. See
+[Group Permission Mapping](./group-permission-mapping.md).
+
 ## How roles are assigned to users
 
-Each user record carries either a built-in role or a reference to a custom role
-profile. Assign or change a user's role from **Settings → Auth → Users** by
-opening the user and selecting the desired role or profile.
+Each user record carries a built-in role and, optionally, a role profile.
+Assign or change those from **Settings → Auth → Users**, or let SSO apply them
+from **Settings → Authorization** mappings on each sign-in.
 
 When a user's role or profile changes — or a profile's permission list is
 edited — ServiceRadar invalidates the affected RBAC caches so the new

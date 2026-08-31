@@ -83,6 +83,27 @@ defmodule ServiceRadarWebNGWeb.McpTest do
     assert json_response(conn, 403)["error"] == "insufficient_scope"
   end
 
+  test "a live token is 403 after settings.mcp.manage is revoked", %{owner: owner} do
+    {:ok, client, secret} =
+      Credentials.create_client(owner.id,
+        name: "MCP Revoked #{System.unique_integer([:positive])}",
+        scopes: ["read", "mcp"],
+        actor: owner
+      )
+
+    token = mint_token(client, secret)
+
+    _restricted = restrict_user(owner, ["devices.view"])
+
+    conn =
+      mcp_conn()
+      |> put_req_header("authorization", "Bearer #{token}")
+      |> post("/mcp", initialize_body())
+
+    assert conn.status == 403
+    assert json_response(conn, 403)["error"] == "forbidden"
+  end
+
   test "mcp+read token can initialize and list the v1 tools", %{client: client, secret: secret} do
     conn = post(authed(client, secret), "/mcp", initialize_body())
     body = json_response(conn, 200)
@@ -136,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.McpTest do
   end
 
   test "execute_srql is forbidden without devices.view", %{owner: owner} do
-    user = restrict_user(viewer_user_fixture(), ["observability.logs.view"])
+    user = restrict_user(viewer_user_fixture(), ["observability.logs.view", "settings.mcp.manage"])
 
     {:ok, client, secret} =
       Credentials.create_client(user.id,

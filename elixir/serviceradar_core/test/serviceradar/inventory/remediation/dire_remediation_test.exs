@@ -758,9 +758,11 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
   end
 
   defp manifest_path(tag) do
+    # Manifest.open/2 uses [:exclusive]; unique_integer repeats across BEAM
+    # restarts on reused RBE /tmp and collides with leftover files.
     Path.join(
       System.tmp_dir!(),
-      "dire_remediation_test_#{tag}_#{System.unique_integer([:positive])}.ndjson"
+      "dire_remediation_test_#{tag}_#{Ecto.UUID.generate()}.ndjson"
     )
   end
 
