@@ -215,6 +215,32 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
       assert persisted.role == :operator
     end
+
+    test "upgrades an existing viewer's role when a group mapping grants a higher one", %{
+      actor: actor
+    } do
+      settings!([mapping("helpdesk-team", %{"role" => "helpdesk"})], actor)
+
+      {:ok, existing} =
+        User.provision_sso_user(
+          %{
+            email: "promoted@example.com",
+            display_name: "Mapped User",
+            external_id: "oidc|promoted",
+            role: :viewer,
+            provider: :oidc
+          },
+          actor: actor
+        )
+
+      assert existing.role == :viewer
+
+      {:ok, user} = sign_in("promoted@example.com", "oidc|promoted", ["helpdesk-team"], actor)
+
+      assert user.id == existing.id
+      assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
+      assert persisted.role == :helpdesk
+    end
   end
 
   defp mapping(value, grant) do
@@ -252,6 +278,27 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
   end
 
   defp sign_in(email, external_id, groups, actor) do
+    # Mapping tests are about what happens on an existing SSO user, not JIT.
+    # Pre-provision so a missing AuthSettings row (sso_auto_provision off)
+    # cannot hide a broken apply_role_mapping/3 behind {:error, :no_local_account}.
+    case SSOProvisioning.find_user_by_external_id(external_id, actor) do
+      {:ok, _user} ->
+        :ok
+
+      {:error, :not_found} ->
+        {:ok, _user} =
+          User.provision_sso_user(
+            %{
+              email: email,
+              display_name: "Mapped User",
+              external_id: external_id,
+              role: :viewer,
+              provider: :oidc
+            },
+            actor: actor
+          )
+    end
+
     SSOProvisioning.find_or_create_user(
       %{email: email, name: "Mapped User", external_id: external_id},
       %{"sub" => external_id, "email" => email, "groups" => groups},

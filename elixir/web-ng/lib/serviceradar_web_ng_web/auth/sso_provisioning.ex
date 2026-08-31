@@ -212,7 +212,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
         {:ok, user}
 
       true ->
-        User.update_role(user, role, actor: actor)
+        User.update_role(user, %{role: role}, actor: actor)
     end
   end
 
