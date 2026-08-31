@@ -524,6 +524,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
       Enum.reduce(traces, {0, 0, 0, 0, 0}, fn trace, {sent, received, weighted_rtt, rtt_replies, samples} ->
         sent_count = mtr_trace_metric(trace, "destination_sent")
         received_count = mtr_trace_metric(trace, "destination_received")
+        loss_received_count = if sent_count > 0, do: received_count, else: 0
         samples = if mtr_destination_observation?(trace), do: samples + 1, else: samples
 
         {weighted_rtt, rtt_replies} =
@@ -534,7 +535,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
 
         {
           sent + sent_count,
-          received + received_count,
+          received + loss_received_count,
           weighted_rtt,
           rtt_replies,
           samples
@@ -641,7 +642,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   defp positive_ratio(value, total), do: min(1.0, max(value / total, 0.0))
 
   defp format_us_mtr(nil), do: "-"
-  defp format_us_mtr(0), do: "-"
+  defp format_us_mtr(0), do: "0.0ms"
 
   defp format_us_mtr(us) when is_integer(us) do
     cond do
@@ -695,7 +696,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   defp destination_loss_pct(trace, hops) do
     with true <- mtr_trace_reached?(trace),
          total_hops when total_hops > 0 <- mtr_trace_total_hops(trace),
-         hop when is_map(hop) <- Enum.find(hops, &(mtr_hop_number(&1) == total_hops)),
+         hop when is_map(hop) <- latest_mtr_hop(hops, total_hops),
          sent when sent > 0 <- mtr_hop_metric(hop, "sent") do
       received = mtr_hop_metric(hop, "received")
       Float.round(100.0 * (sent - received) / sent, 1)
@@ -703,6 +704,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
       _ -> nil
     end
   end
+
+  defp latest_mtr_hop(hops, hop_number) do
+    hops
+    |> Enum.filter(&(mtr_hop_number(&1) == hop_number))
+    |> case do
+      [] -> nil
+      terminal_hops -> Enum.max_by(terminal_hops, &mtr_hop_recency_key/1)
+    end
+  end
+
+  defp mtr_hop_recency_key(hop) do
+    {mtr_hop_time_key(Map.get(hop, "time")), Map.get(hop, "id") || ""}
+  end
+
+  defp mtr_hop_time_key(%DateTime{} = value), do: DateTime.to_unix(value, :microsecond)
+
+  defp mtr_hop_time_key(%NaiveDateTime{} = value) do
+    NaiveDateTime.diff(value, ~N[1970-01-01 00:00:00], :microsecond)
+  end
+
+  defp mtr_hop_time_key(_value), do: -1
 
   defp mtr_hop_number(hop) when is_map(hop) do
     case Map.get(hop, "hop_number") do

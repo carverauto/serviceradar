@@ -238,6 +238,77 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     refute Enum.any?(trends.latency, fn {time, _latency} -> time == unreached_time end)
   end
 
+  test "list_traces returns a fixed deterministic window with one latest terminal sample per trace" do
+    target = "fixed-device-window.example"
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+    trace_ids = Enum.map(1..51, &fixture_uuid/1)
+
+    Enum.each(trace_ids, fn trace_id ->
+      insert_mtr_trace!("agent-fixed-window", target, timestamp,
+        id: trace_id,
+        target_reached: true,
+        total_hops: 1
+      )
+    end)
+
+    latest_trace_id = List.last(trace_ids)
+    latest_hop_time = DateTime.add(timestamp, 1, :second)
+
+    insert_mtr_hop!(latest_trace_id, timestamp, 1, {target, 90_000, 100.0, 10, 0}, id: fixture_uuid(902))
+
+    insert_mtr_hop!(latest_trace_id, latest_hop_time, 1, {target, 40_000, 80.0, 10, 2}, id: fixture_uuid(900))
+
+    selected_hop_id = fixture_uuid(901)
+
+    insert_mtr_hop!(latest_trace_id, latest_hop_time, 1, {target, 0, 0.0, 7, 7}, id: selected_hop_id)
+
+    assert {:ok, traces} = MtrData.list_traces(target_filter: target, limit: 50)
+
+    expected_ids = trace_ids |> Enum.drop(1) |> Enum.reverse()
+
+    assert ^expected_ids = Enum.map(traces, & &1["id"])
+    assert length(traces) == 50
+    assert Enum.uniq_by(traces, & &1["id"]) == traces
+
+    assert %{
+             "id" => ^latest_trace_id,
+             "destination_sent" => 7,
+             "destination_received" => 7,
+             "destination_avg_us" => 0,
+             "destination_loss_pct" => selected_loss_pct
+           } = hd(traces)
+
+    assert_in_delta(selected_loss_pct, 0.0, 1.0e-10)
+  end
+
+  test "get_trace_detail preserves duplicate hops in deterministic diagnostic order" do
+    target = "raw-terminal-duplicates.example"
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+
+    trace_id =
+      insert_mtr_trace!("agent-raw-hops", target, timestamp,
+        target_reached: true,
+        total_hops: 1
+      )
+
+    older_hop_id = fixture_uuid(912)
+    newer_low_id = fixture_uuid(910)
+    newer_high_id = fixture_uuid(911)
+    latest_hop_time = DateTime.add(timestamp, 1, :second)
+
+    insert_mtr_hop!(trace_id, timestamp, 1, {target, 90_000, 100.0, 10, 0}, id: older_hop_id)
+
+    insert_mtr_hop!(trace_id, latest_hop_time, 1, {target, 40_000, 80.0, 10, 2}, id: newer_low_id)
+
+    insert_mtr_hop!(trace_id, latest_hop_time, 1, {target, 10_000, 0.0, 10, 10}, id: newer_high_id)
+
+    assert {:ok, %{"id" => ^trace_id}, hops} = MtrData.get_trace_detail(%{}, trace_id)
+
+    assert Enum.map(hops, & &1["id"]) == [newer_high_id, newer_low_id, older_hop_id]
+    assert Enum.all?(Enum.take(hops, 2), &(DateTime.compare(&1["time"], latest_hop_time) == :eq))
+    assert DateTime.compare(List.last(hops)["time"], timestamp) == :eq
+  end
+
   test "compare_windows handles partial elapsed windows and uneven samples" do
     window_a = %{label: "Today so far", start: ~U[2026-05-07 00:00:00Z], end: ~U[2026-05-07 09:30:00Z]}
     window_b = %{label: "Yesterday same hours", start: ~U[2026-05-06 00:00:00Z], end: ~U[2026-05-06 09:30:00Z]}
@@ -528,7 +599,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
   end
 
   defp insert_mtr_trace!(agent_id, target_ip, timestamp, opts \\ []) do
-    id = Ecto.UUID.generate()
+    id = Keyword.get(opts, :id, Ecto.UUID.generate())
     db_id = dump_uuid!(id)
     target_reached = Keyword.get(opts, :target_reached, true)
     total_hops = Keyword.get(opts, :total_hops, opts |> Keyword.get(:hops, []) |> length())
@@ -602,6 +673,40 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     :ok
   end
 
+  defp insert_mtr_hop!(trace_id, timestamp, hop_number, hop, opts) do
+    id = Keyword.get(opts, :id, Ecto.UUID.generate())
+    {addr, avg_us, loss_pct, sent, received} = normalize_hop(hop)
+
+    ServiceRadar.Repo.insert_all("mtr_hops", [
+      %{
+        id: dump_uuid!(id),
+        time: timestamp,
+        trace_id: dump_uuid!(trace_id),
+        hop_number: hop_number,
+        addr: normalize_hop_addr(addr),
+        hostname: nil,
+        ecmp_addrs: [],
+        asn: nil,
+        asn_org: nil,
+        mpls_labels: %{},
+        sent: sent,
+        received: received,
+        loss_pct: loss_pct,
+        last_us: avg_us,
+        avg_us: avg_us,
+        min_us: avg_us,
+        max_us: avg_us,
+        stddev_us: 0,
+        jitter_us: 0,
+        jitter_worst_us: 0,
+        jitter_interarrival_us: 0,
+        created_at: timestamp
+      }
+    ])
+
+    id
+  end
+
   defp normalize_hop_addr("*"), do: nil
   defp normalize_hop_addr(addr), do: addr
 
@@ -611,6 +716,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
 
   defp normalize_hop({addr, avg_us, loss_pct, sent, received}) do
     {addr, avg_us, loss_pct, sent, received}
+  end
+
+  defp fixture_uuid(sequence) do
+    suffix = sequence |> Integer.to_string(16) |> String.downcase() |> String.pad_leading(12, "0")
+    "00000000-0000-0000-0000-#{suffix}"
   end
 
   defp dump_uuid!(uuid) do

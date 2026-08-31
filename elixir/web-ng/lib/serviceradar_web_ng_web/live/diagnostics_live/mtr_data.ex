@@ -62,8 +62,24 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
              target_reached, total_hops, protocol, ip_version, error
       FROM mtr_traces
       #{where_clause}
-      ORDER BY time DESC
+      ORDER BY time DESC, id DESC
       LIMIT $#{length(params) + 1}
+    ),
+    terminal_hops AS (
+      SELECT trace_id, sent, received, avg_us
+      FROM (
+        SELECT h.trace_id, h.sent, h.received, h.avg_us,
+               ROW_NUMBER() OVER (
+                 PARTITION BY h.trace_id
+                 ORDER BY h.time DESC, h.id DESC
+               ) AS terminal_rank
+        FROM mtr_hops h
+        INNER JOIN selected_traces st
+          ON st.id = h.trace_id
+          AND st.target_reached
+          AND h.hop_number = st.total_hops
+      ) ranked_terminal_hops
+      WHERE terminal_rank = 1
     )
     SELECT st.id::text AS id, st.time, st.agent_id, st.check_id, st.check_name, st.device_id,
            st.target, st.target_ip, st.target_reached, st.total_hops, st.protocol, st.ip_version,
@@ -75,11 +91,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
                (100.0 * (destination.sent - destination.received) / destination.sent)::float
            END AS destination_loss_pct
     FROM selected_traces st
-    LEFT JOIN mtr_hops destination
-      ON destination.trace_id = st.id
-      AND st.target_reached
-      AND destination.hop_number = st.total_hops
-    ORDER BY st.time DESC
+    LEFT JOIN terminal_hops destination ON destination.trace_id = st.id
+    ORDER BY st.time DESC, st.id DESC
     """
 
     case Repo.query(query, params ++ [limit]) do
@@ -318,13 +331,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       """
 
       hops_query = """
-      SELECT hop_number, addr, hostname, ecmp_addrs, asn, asn_org,
+      SELECT id::text AS id, time, hop_number, addr, hostname, ecmp_addrs, asn, asn_org,
              mpls_labels, sent, received, loss_pct,
              last_us, avg_us, min_us, max_us, stddev_us,
              jitter_us, jitter_worst_us, jitter_interarrival_us
       FROM mtr_hops
       WHERE trace_id::text = $1
-      ORDER BY hop_number ASC
+      ORDER BY hop_number ASC, time DESC, id DESC
       """
 
       with {:ok, %{rows: [trace_row], columns: trace_cols}} <- Repo.query(trace_query, [trace_id]),

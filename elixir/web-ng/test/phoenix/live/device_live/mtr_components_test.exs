@@ -112,6 +112,66 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponentsTest do
     assert html =~ ">1<"
   end
 
+  test "tab summary excludes replies from zero-attempt rows when accumulating destination loss" do
+    html =
+      render_component(&MtrComponents.mtr_tab_content/1,
+        device_uid: "sr:router-1",
+        recent_traces: [
+          %{
+            "id" => "valid-destination",
+            "time" => ~U[2026-08-30 12:00:00Z],
+            "target" => "198.51.100.10",
+            "target_reached" => true,
+            "total_hops" => 3,
+            "protocol" => "icmp",
+            "destination_sent" => 10,
+            "destination_received" => 5,
+            "destination_avg_us" => 10_000
+          },
+          %{
+            "id" => "malformed-zero-attempts",
+            "time" => ~U[2026-08-30 11:59:00Z],
+            "target" => "198.51.100.10",
+            "target_reached" => true,
+            "total_hops" => 3,
+            "protocol" => "icmp",
+            "destination_sent" => 0,
+            "destination_received" => 100,
+            "destination_avg_us" => 20_000
+          }
+        ],
+        pending_jobs: [],
+        trends: %{hops: [], latency: []}
+      )
+
+    assert html =~
+             ~r/id="device-mtr-destination-loss"[^>]*>.*?<div[^>]*>\s*50\.0%\s*<\/div>/s
+  end
+
+  test "tab summary renders a measured zero destination RTT as zero milliseconds" do
+    html =
+      render_component(&MtrComponents.mtr_tab_content/1,
+        device_uid: "sr:router-1",
+        recent_traces: [
+          %{
+            "id" => "zero-rtt",
+            "time" => ~U[2026-08-30 12:00:00Z],
+            "target" => "198.51.100.10",
+            "target_reached" => true,
+            "total_hops" => 3,
+            "protocol" => "icmp",
+            "destination_sent" => 5,
+            "destination_received" => 5,
+            "destination_avg_us" => 0
+          }
+        ],
+        pending_jobs: [],
+        trends: %{hops: [], latency: []}
+      )
+
+    assert html =~ ~r/id="device-mtr-destination-latency"[^>]*>.*?0\.0ms/s
+  end
+
   test "trace modal reports destination loss independently from lossy intermediate hops" do
     html =
       render_component(&MtrComponents.mtr_trace_modal/1,
@@ -149,6 +209,58 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponentsTest do
     assert html =~ "Max Hop Loss"
     assert html =~ "100.0%"
     assert html =~ "Peak Hop Avg RTT"
+  end
+
+  test "trace modal selects the newest terminal duplicate by hop time and id" do
+    html =
+      render_component(&MtrComponents.mtr_trace_modal/1,
+        show: true,
+        trace: %{
+          "target" => "198.51.100.10",
+          "agent_id" => "agent-1",
+          "protocol" => "icmp",
+          "time" => ~U[2026-08-30 12:00:00Z],
+          "target_reached" => true,
+          "total_hops" => 2
+        },
+        hops: [
+          %{
+            "id" => "00000000-0000-0000-0000-000000000001",
+            "time" => ~U[2026-08-30 12:00:01Z],
+            "hop_number" => 2,
+            "addr" => "newer-low-id.example",
+            "sent" => 10,
+            "received" => 0,
+            "loss_pct" => 100.0,
+            "avg_us" => 20_000
+          },
+          %{
+            "id" => "ffffffff-ffff-ffff-ffff-ffffffffffff",
+            "time" => ~U[2026-08-30 12:00:00Z],
+            "hop_number" => 2,
+            "addr" => "older-high-id.example",
+            "sent" => 10,
+            "received" => 0,
+            "loss_pct" => 100.0,
+            "avg_us" => 30_000
+          },
+          %{
+            "id" => "00000000-0000-0000-0000-000000000002",
+            "time" => ~U[2026-08-30 12:00:01Z],
+            "hop_number" => 2,
+            "addr" => "newer-high-id.example",
+            "sent" => 10,
+            "received" => 10,
+            "loss_pct" => 0.0,
+            "avg_us" => 10_000
+          }
+        ]
+      )
+
+    assert html =~ ~r/Destination Loss<\/div>\s*<div[^>]*>\s*0\.0%/s
+    assert html =~ "newer-low-id.example"
+    assert html =~ "older-high-id.example"
+    assert html =~ "newer-high-id.example"
   end
 
   test "trace modal renders unavailable destination loss as a dash" do
