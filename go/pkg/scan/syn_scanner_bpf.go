@@ -21,6 +21,7 @@ package scan
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"syscall"
@@ -29,6 +30,8 @@ import (
 )
 
 const packetFanoutGroupIDMask = 0xFFFF
+
+var errInvalidFanoutGroup = errors.New("invalid packet fanout group ID")
 
 // BPF + Fanout
 // TODO: double-tag (QinQ) variant or an auxdata-aware approach
