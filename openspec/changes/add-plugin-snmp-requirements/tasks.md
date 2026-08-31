@@ -124,14 +124,41 @@ table, ASCII-only docs.
   made public so the warning cannot drift from the resolver.
 - [x] 5.4 LiveView tests for the badge and the no-credential warning.
 
+## 5b. Known gap: a plugin cannot alert on its own declared OID
+
+- [ ] 5b.1 Decide how an `alert_rules:` entry references a metric produced by
+  the same package's `snmp_requirements:`.
+
+  The catalog namespaces every materialized OID name by `plugin_id`
+  (`snmp_requirement_catalog.ex`), and that namespaced name is what reaches
+  `timeseries_metrics.metric_name` - `parseSNMPMetricName/1` only splits on
+  `::`, so it passes the name through unchanged. A manifest author writes
+  `service_port` but the metric is `clearpass-policy-manager_service_port`,
+  and the manifest has no way to spell "the namespaced form of the OID I
+  declared".
+
+  So a rule can only match by hardcoding the post-namespacing string, which
+  duplicates the catalog's naming rule in every manifest and breaks silently if
+  it ever changes. Surfaced by fjb-network-monitor#32's `service-stopped` rule,
+  which watches `clearpass.service.up` - a metric the REST plugin declares but
+  can never emit, because its only source endpoint is 404 on every ClearPass in
+  the estate (fjb-network-monitor#36).
+
+  Options, none chosen: hardcode the namespaced name; add a manifest-relative
+  reference core resolves at materialization; or stop namespacing and handle
+  OID-name collisions another way.
+
 ## 6. Customer-repo follow-up (does not land in this repo)
 
-- [ ] 6.1 Add `snmp_requirements:` to `plugins/clearpass-policy-manager/
+- [x] 6.1 Add `snmp_requirements:` to `plugins/clearpass-policy-manager/
   plugin.yaml`, sourced from the verified OID map in
-  `config/snmp-clearpass.example.json`.
-- [ ] 6.2 Confirm the ClearPass string OIDs (node version, node role, service
+  `config/snmp-clearpass.example.json`. Landed as Example-Airline-Org/
+  fjb-network-monitor#35, verified by running the real file through
+  `Manifest.from_yaml/1` and `SNMPRequirementCatalog.sync_package/2`.
+- [ ] 6.2 (blocked: needs a live environment with the package approved)
+  Confirm the ClearPass string OIDs (node version, node role, service
   names) land in `device_snmp_facts` against the right device, since these are
   the values that have nowhere to go today.
-- [ ] 6.3 Reconcile against live data once approved: confirm the template
+- [ ] 6.3 (blocked: same) Reconcile against live data once approved: confirm the template
   materializes, the profile is disabled, and enabling it with a bound
   credential produces rows.
