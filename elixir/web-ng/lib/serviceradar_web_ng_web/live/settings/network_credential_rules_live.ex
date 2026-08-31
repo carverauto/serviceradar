@@ -18,11 +18,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   alias ServiceRadar.Plugins.IntegrationCatalog
   alias ServiceRadar.Plugins.ProducerSchedule
   alias ServiceRadar.Plugins.SRQLInputResolver
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.PluginConfigForm
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
+  require Logger
 
   @current_path "/settings/networks/credentials"
   @tls_policies ~w(verify skip_verify)a
@@ -34,10 +36,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     if can_manage?(scope) do
       {:ok,
        socket
-       |> assign(:page_title, "Credential Rules")
+       |> assign(:page_title, "Credentials and Rules")
        |> assign(:current_path, @current_path)
        |> assign(:rules, [])
        |> assign(:secrets, [])
+       |> assign(:focused_credential_id, nil)
+       |> assign(:credential_rule_usage_counts, %{})
+       |> assign(:snmp_profile_usage_counts, %{})
        |> assign(:secret_options, [])
        |> assign(:secret_names, %{})
        |> assign(:integration_profiles, %{})
@@ -226,6 +231,110 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
+  attr :loading?, :boolean, required: true
+  attr :secrets, :list, required: true
+  attr :focused_credential_id, :any, default: nil
+  attr :integration_profiles, :map, required: true
+  attr :credential_rule_usage_counts, :map, required: true
+  attr :snmp_profile_usage_counts, :any, required: true
+
+  def credential_inventory_table(assigns) do
+    ~H"""
+    <section id="reusable-credentials" class="space-y-2 scroll-mt-24">
+      <div>
+        <h2 class="text-base font-semibold">Reusable Credentials</h2>
+        <p class="mt-1 text-sm text-sr-muted">
+          Shared credential metadata plus SNMP profile and credential-rule usage counts.
+          Secret values are never shown.
+        </p>
+      </div>
+
+      <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
+        <div class="sr-ui-table-shell">
+          <table class={ui_table_class(size: "sm")}>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Provider</th>
+                <th>Type</th>
+                <th>Authentication</th>
+                <th>Public identity</th>
+                <th>Storage</th>
+                <th>Rotation</th>
+                <th>SNMP profiles / Rules</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :if={@loading?}>
+                <td colspan="8" class="py-8 text-center text-sm text-sr-muted">
+                  Loading reusable credentials.
+                </td>
+              </tr>
+              <tr :if={!@loading? and @secrets == []}>
+                <td colspan="8" class="py-8 text-center text-sm text-sr-muted">
+                  No reusable credentials found.
+                </td>
+              </tr>
+              <%= for secret <- @secrets do %>
+                <tr
+                  id={credential_dom_id(secret.id)}
+                  phx-hook="CredentialDeepLinkFocus"
+                  data-focused={
+                    if credential_focused?(secret.id, @focused_credential_id),
+                      do: "true",
+                      else: "false"
+                  }
+                  aria-current={
+                    if credential_focused?(secret.id, @focused_credential_id),
+                      do: "true",
+                      else: nil
+                  }
+                  tabindex="-1"
+                  class={[
+                    "scroll-mt-24",
+                    credential_focused?(secret.id, @focused_credential_id) &&
+                      "bg-sr-brand/10 ring-1 ring-inset ring-sr-brand/30"
+                  ]}
+                >
+                  <td>
+                    <div class="font-medium">{secret.name}</div>
+                    <div
+                      :if={secret.description not in [nil, ""]}
+                      class="mt-0.5 max-w-72 truncate text-xs text-sr-muted"
+                    >
+                      {secret.description}
+                    </div>
+                  </td>
+                  <td>{credential_provider_label(secret, @integration_profiles)}</td>
+                  <td>{credential_kind_label(secret.credential_kind)}</td>
+                  <td>{credential_auth_method_label(secret, @integration_profiles)}</td>
+                  <td>{credential_public_identity(secret)}</td>
+                  <td>{credential_source_label(secret.source_type)}</td>
+                  <td>
+                    <span class={[
+                      "badge badge-sm",
+                      credential_rotation_badge_class(secret.rotation_state)
+                    ]}>
+                      {credential_rotation_label(secret.rotation_state)}
+                    </span>
+                  </td>
+                  <td class="whitespace-nowrap">
+                    {credential_usage_label(
+                      secret,
+                      @credential_rule_usage_counts,
+                      @snmp_profile_usage_counts
+                    )}
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+    """
+  end
+
   @impl true
   def render(assigns) do
     assigns =
@@ -249,14 +358,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
         <section class="space-y-4">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 class="text-xl font-semibold">Credential Rules</h1>
+              <h1 class="text-xl font-semibold">Credentials and Rules</h1>
               <p class="mt-1 text-sm text-sr-muted">
-                Scoped rules bind encrypted credentials to eligible targets and consumers without
-                placing secret material in plugin assignment forms. Available providers and
-                credential fields come from approved integration descriptors and core-owned
-                protocols (SNMP, VulnCheck). For UniFi Protect, create the API key here, then
-                assign the camera plugin to a covered agent. For VulnCheck, create the API token
-                here, then select it on Vulnerability Feeds.
+                Reusable credentials hold encrypted authentication material. Credential rules
+                decide where that material may be applied. Profiles such as SNMP can reference a
+                reusable credential directly, so a credential may be in use even when it has no
+                credential rule.
               </p>
             </div>
             <div class="flex flex-wrap gap-2">
@@ -298,6 +405,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 </:item>
               </.ui_dropdown>
             </div>
+          </div>
+
+          <.credential_inventory_table
+            loading?={@loading?}
+            secrets={@secrets}
+            focused_credential_id={@focused_credential_id}
+            integration_profiles={@integration_profiles}
+            credential_rule_usage_counts={@credential_rule_usage_counts}
+            snmp_profile_usage_counts={@snmp_profile_usage_counts}
+          />
+
+          <div id="credential-rules" class="space-y-1 pt-2 scroll-mt-24">
+            <h2 class="text-base font-semibold">Credential Rules</h2>
+            <p class="text-sm text-sr-muted">
+              Scoped rules bind a reusable credential to eligible targets and consumers.
+            </p>
           </div>
 
           <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
@@ -1116,7 +1239,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp load_page(socket, params) do
-    socket = reload_page_data(socket)
+    socket =
+      socket
+      |> assign(:focused_credential_id, focused_credential_id(params["credential_id"]))
+      |> reload_page_data()
 
     case socket.assigns.form_mode do
       :new ->
@@ -1141,6 +1267,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     secrets = load_secrets(scope)
     agents = load_agents(scope)
     integration_schedules = load_integration_schedules(scope, integration_profiles)
+    credential_rule_usage_counts = Enum.frequencies_by(rules, & &1.secret_id)
+    snmp_profile_usage_counts = load_snmp_profile_usage_counts(scope)
 
     secret_names = Map.new(secrets, &{&1.id, secret_label(&1)})
 
@@ -1149,6 +1277,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> assign(:secrets, secrets)
     |> assign(:secret_options, Enum.map(secrets, &{secret_label(&1), &1.id}))
     |> assign(:secret_names, secret_names)
+    |> assign(:credential_rule_usage_counts, credential_rule_usage_counts)
+    |> assign(:snmp_profile_usage_counts, snmp_profile_usage_counts)
     |> assign(:integration_profiles, integration_profiles)
     |> assign(:integration_schedules, integration_schedules)
     |> assign(:agent_options, agent_options(agents))
@@ -1329,6 +1459,31 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       _ -> []
     end
   end
+
+  defp load_snmp_profile_usage_counts(scope) do
+    result =
+      SNMPProfile
+      |> Ash.Query.for_read(:read, %{}, scope: scope)
+      |> Ash.Query.filter(not is_nil(credential_secret_id))
+      |> Ash.Query.select([:id, :credential_secret_id])
+      |> Ash.read(scope: scope)
+
+    case result do
+      {:error, reason} ->
+        Logger.warning("Failed to load SNMP profile credential usage: #{inspect(reason)}")
+
+      _result ->
+        :ok
+    end
+
+    snmp_profile_usage_counts(result)
+  end
+
+  @doc false
+  def snmp_profile_usage_counts({:ok, profiles}) when is_list(profiles),
+    do: Enum.frequencies_by(profiles, & &1.credential_secret_id)
+
+  def snmp_profile_usage_counts({:error, _reason}), do: :unavailable
 
   defp load_agents(scope) do
     Agent
@@ -2337,6 +2492,98 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     [secret.provider, secret.name, format_atom(secret.credential_kind)]
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join(" / ")
+  end
+
+  defp focused_credential_id(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      id -> id
+    end
+  end
+
+  defp focused_credential_id(_value), do: nil
+
+  defp credential_dom_id(id), do: "credential-secret-#{id}"
+
+  defp credential_focused?(_secret_id, focused_id) when focused_id in [nil, ""], do: false
+
+  defp credential_focused?(secret_id, focused_id), do: to_string(secret_id) == to_string(focused_id)
+
+  defp credential_provider_label(secret, integration_profiles) do
+    case Map.get(integration_profiles, to_string(secret.provider)) do
+      %{"label" => label} when is_binary(label) and label != "" -> label
+      _ -> to_string(secret.provider)
+    end
+  end
+
+  defp credential_auth_method_label(secret, integration_profiles) do
+    auth_method =
+      secret
+      |> Map.get(:metadata, %{})
+      |> normalize_metadata()
+      |> Map.get("auth_method")
+
+    profile = Map.get(integration_profiles, to_string(secret.provider))
+
+    case credential_method_descriptor(profile, auth_method) do
+      %{"label" => label} when is_binary(label) and label != "" -> label
+      _ -> credential_auth_method_fallback(auth_method)
+    end
+  end
+
+  defp credential_auth_method_fallback(value) when value in [nil, ""], do: "—"
+  defp credential_auth_method_fallback("api_token"), do: "API token"
+  defp credential_auth_method_fallback("v3"), do: "SNMPv3 user"
+  defp credential_auth_method_fallback("community"), do: "Community string"
+  defp credential_auth_method_fallback(value), do: humanize_credential_value(value)
+
+  defp credential_kind_label(:api_token), do: "API token"
+  defp credential_kind_label(:snmp), do: "SNMP"
+  defp credential_kind_label(value), do: humanize_credential_value(value)
+
+  defp credential_public_identity(%{username: username}) when is_binary(username) and username != "", do: username
+
+  defp credential_public_identity(%{credential_kind: :ssh_private_key, public_fingerprint: fingerprint})
+       when is_binary(fingerprint) and fingerprint != "", do: fingerprint
+
+  defp credential_public_identity(_secret), do: "—"
+
+  defp credential_source_label(:internal_encrypted), do: "Encrypted here"
+  defp credential_source_label(:external_reference), do: "External reference"
+  defp credential_source_label(value), do: humanize_credential_value(value)
+
+  defp credential_rotation_label(value), do: humanize_credential_value(value)
+
+  defp credential_rotation_badge_class(:active), do: "badge-success"
+  defp credential_rotation_badge_class(:rotation_due), do: "badge-warning"
+  defp credential_rotation_badge_class(:rotation_failed), do: "badge-error"
+  defp credential_rotation_badge_class(:rotating), do: "badge-info"
+  defp credential_rotation_badge_class(_value), do: "badge-ghost"
+
+  defp credential_usage_label(secret, rule_counts, :unavailable) do
+    rule_count = Map.get(rule_counts, secret.id, 0)
+
+    "SNMP usage unavailable · " <> usage_count_label(rule_count, "rule", "rules")
+  end
+
+  defp credential_usage_label(secret, rule_counts, snmp_profile_counts) do
+    profile_count = Map.get(snmp_profile_counts, secret.id, 0)
+    rule_count = Map.get(rule_counts, secret.id, 0)
+
+    "#{usage_count_label(profile_count, "SNMP profile", "SNMP profiles")} · " <>
+      usage_count_label(rule_count, "rule", "rules")
+  end
+
+  defp usage_count_label(1, singular, _plural), do: "1 #{singular}"
+  defp usage_count_label(count, _singular, plural), do: "#{count} #{plural}"
+
+  defp humanize_credential_value(nil), do: "—"
+
+  defp humanize_credential_value(value) do
+    value
+    |> to_string()
+    |> String.replace("_", " ")
+    |> String.capitalize()
   end
 
   defp can_manage?(scope), do: RBAC.can?(scope, "settings.credentials.manage")

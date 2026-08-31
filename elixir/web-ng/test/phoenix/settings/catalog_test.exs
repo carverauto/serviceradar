@@ -18,6 +18,14 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
   @moduletag :db_free
 
   describe "structural validation (the gate)" do
+    test "credential management copy covers both reusable credentials and rules" do
+      credential_management = Catalog.view(:credential_rules)
+
+      assert credential_management.title == "Credentials and Rules"
+      assert credential_management.description =~ "reusable credentials"
+      assert credential_management.description =~ "scoped rules"
+    end
+
     test "Ansible copy exposes only supported settings workflows" do
       ansible = Catalog.view(:ansible)
 

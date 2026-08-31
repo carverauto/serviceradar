@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.Components.SettingsComponentsTest do
 
   @moduletag :db_free
 
-  test "credential manager sees credential rules in the network settings subnav" do
+  test "credential manager sees credentials and rules in the network settings subnav" do
     scope = %Scope{permissions: MapSet.new(["settings.credentials.manage"])}
 
     top_tabs = SettingsComponents.settings_tabs("/settings/networks/credentials", scope)
@@ -28,7 +28,8 @@ defmodule ServiceRadarWebNGWeb.Components.SettingsComponentsTest do
       )
 
     assert Enum.any?(top_tabs, &(&1.label == "Discovery" and &1.active))
-    assert html =~ "Credential Rules"
+    assert html =~ "Credentials and Rules"
+    refute html =~ ">Credential Rules<"
     refute html =~ "Sweep Profiles"
   end
 

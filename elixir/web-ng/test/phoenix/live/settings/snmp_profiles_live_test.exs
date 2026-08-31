@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
@@ -219,8 +220,46 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
 
       assert has_element?(lv, "select[name='form[credential_secret_id]']")
       assert html =~ "Store on this profile"
+      refute has_element?(lv, "#snmp-profile-reusable-credential-link")
       # Nothing selected, so the profile-local fields are still the ones to fill in.
       assert has_element?(lv, "input[name='form[community]']")
+    end
+
+    test "an edit form links directly to its reusable credential", %{conn: conn, scope: scope} do
+      unique = System.unique_integer([:positive])
+
+      {:ok, secret} =
+        NetworkCredentialSecret
+        |> Ash.Changeset.for_create(:create, %{
+          name: "SNMP v3 #{unique}",
+          provider: "snmp",
+          credential_kind: :snmp,
+          username: "snmp-operator",
+          secret_payload: Jason.encode!(%{"username" => "snmp-operator"}),
+          metadata: %{"auth_method" => "v3"}
+        })
+        |> Ash.create(scope: scope)
+
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Linked Credential #{unique}",
+          version: :v3,
+          credential_secret_id: secret.id
+        })
+        |> Ash.create(scope: scope)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/snmp/#{profile.id}/edit")
+
+      href =
+        "/settings/networks/credentials?credential_id=#{secret.id}" <>
+          "#credential-secret-#{secret.id}"
+
+      assert has_element?(
+               lv,
+               ~s(#snmp-profile-reusable-credential-link[href="#{href}"]),
+               "View reusable credential"
+             )
     end
 
     test "blank selection persists as nil rather than failing to cast", %{
