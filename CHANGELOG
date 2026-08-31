@@ -1,14 +1,54 @@
-# ServiceRadar v1.4.49
+# ServiceRadar v1.4.50
 
-Plugins can come from a third-party catalog with its own signing
-key, a package can declare SNMP OIDs that the native checker
-collects as device facts (including strings), and SNMPv3 plus
-OAuth2 client-credentials work from credential rules. OpenText
-NOM setup no longer fights the assignment form. Also: dashboard
-Share lives in the topbar, failed TCP sweeps stay visible, and
-raw SYN scanners no longer share a fanout group.
+IdP groups can map to role profiles and user groups, and those
+grants go away when membership does. Sweep groups can target a
+selected agent subset instead of all-or-one. Plugin SNMP shows
+where a profile came from, and a version bump no longer collides
+on the display name. Also: VRRP MACs stop stealing device
+identity, MTR headlines report the destination, and the dashboard
+profile menu stays open.
 
 ## Whats New
+
+**1.4.50**
+- Identity: an IdP group mapping can name a role profile or a
+  user group as well as a role, and every matching mapping
+  contributes — profiles and groups union, highest declared
+  privilege wins. Grants recorded from a mapping are revoked
+  when the group membership behind them goes away. Settings ->
+  Authorization has a dry-run resolver. (PR #4207)
+- Sweep: a group can target selected agents instead of
+  all-or-one. Assignments are canonical `agent_ids` with a
+  scalar compatibility bridge for mixed-version Helm rollouts.
+  The picker is searchable and keyset-paginated. (PR #4183)
+- Plugins: SNMP rows materialized from a package are keyed on
+  `plugin_id`, so approving a new version no longer misses the
+  previous version's profiles and collides on the display name.
+  Provenance is on facts (`snmp_profile_id`) and in Settings
+  (list + Custom tab), including after the package is removed.
+  Missing credentials are warned. (PR #4178, #4175, #4177)
+- Inventory: VRRP interface MACs are not used as primary
+  device identity. CORE-1's `vrrp10` MAC had been forking a
+  second device. (PR #4181)
+- MTR: destination loss and latency come from reached
+  terminal-hop observations, not a noisy transit hop. Path
+  reachability, endpoint availability, and per-hop diagnostics
+  stay separate. (PR #4216)
+- Web UI: Settings -> Credentials and Rules shows reusable
+  credential inventory separately from assignment rules, so
+  an SNMPv3 profile that references `snmp-v3` no longer looks
+  unconfigured. (PR #4180)
+- Web UI: the dashboard profile menu stays open across
+  LiveView remorphs. (PR #4210)
+- MCP: an omitted MCP limit no longer swallows the SRQL
+  query limit. (PR #4174)
+- Docs: Visibility Profiles operator page; Validation Runs is
+  vendor-neutral; credentials guide matches what 1.4.49
+  actually ships. (PR #4179, #4211, #4213)
+- Schema: `20260830120000` (sweep group agent_ids),
+  `20260830140000` (`role_profile_source`),
+  `20260830150000` (`user_group_membership` source).
+  `migrations.expectedVersion` is `20260830150000`.
 
 **1.4.49**
 - Plugins: catalog sources become `plugin_repositories` rows
