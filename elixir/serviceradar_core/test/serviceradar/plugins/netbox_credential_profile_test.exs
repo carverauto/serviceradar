@@ -29,6 +29,15 @@ defmodule ServiceRadar.Plugins.NetboxCredentialProfileTest do
     assert CredentialIntegration.single_target_cardinality?(consumer)
   end
 
+  test "the profile offers an agent scope and nothing wider", %{profile: profile} do
+    # A gateway- or partition-scoped rule is in scope for every agent under it,
+    # and the materializer reconciles each agent separately, so a single
+    # NetBox instance would be walked once per agent -- each walk emitting
+    # another complete snapshot under the same source_instance. The rule form
+    # renders its scope options from this list.
+    assert profile["scope_types"] == ["agent"]
+  end
+
   test "the default target query resolves and stays bounded", %{profile: profile} do
     query = get_in(profile, ["rule_defaults", "target_query"])
 

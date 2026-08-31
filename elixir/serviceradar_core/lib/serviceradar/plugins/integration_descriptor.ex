@@ -61,7 +61,8 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
   # from the rule's controller host and one run covers the whole instance.
   # Chunking such a consumer runs the same whole-instance job once per chunk.
   # The planner therefore emits exactly one un-chunked assignment per
-  # (rule, agent) for these.
+  # (rule, agent) for these, and `validate_single_cardinality_scope_types/4`
+  # below keeps the (rule, agent) pair from multiplying across agents.
   @allowed_target_cardinalities ~w(per_target single)
   @allowed_resolution_locations ~w(control_plane agent hybrid)
   @allowed_tls_policies ~w(verify skip_verify)
@@ -249,6 +250,8 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
         errors
       )
 
+    errors = validate_single_cardinality_scope_types(provisioning, scope_types, path, errors)
+
     case errors do
       [] ->
         {:ok,
@@ -276,6 +279,32 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
 
   defp validate_profile(_value, index, _schedule_by_id),
     do: {:error, ["integrations.credential_profiles[#{index}] must be a map"]}
+
+  # A rule carries one scope, shared by every purpose it feeds, and the
+  # materializer reconciles each agent that scope admits separately. A
+  # `single` consumer does the rule's whole job in one run, so a gateway- or
+  # partition-scoped rule delivers that whole job once per agent under the
+  # scope: for NetBox, one complete /api/dcim/devices/ walk and one complete
+  # DeviceDiscovery snapshot per agent, all claiming the same source_instance.
+  # Only an agent scope names a single runner, so a profile with such a
+  # consumer may not offer the operator anything else -- the rule form renders
+  # its scope options from this list and validates the submitted value against
+  # it, so a widened list is a widened form.
+  defp validate_single_cardinality_scope_types(provisioning, scope_types, path, errors) do
+    consumers = provisioning |> Map.get("consumers") |> List.wrap()
+
+    single? =
+      Enum.any?(consumers, &(is_map(&1) and Map.get(&1, "target_cardinality") == "single"))
+
+    if single? and scope_types != ["agent"] do
+      [
+        ~s(#{path}.scope_types must be ["agent"] when a consumer declares target_cardinality: single)
+        | errors
+      ]
+    else
+      errors
+    end
+  end
 
   defp validate_auth_methods(values, path, errors) when is_list(values) and values != [] do
     values

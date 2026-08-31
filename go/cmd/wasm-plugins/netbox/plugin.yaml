@@ -1,6 +1,6 @@
 id: netbox-inventory
 name: NetBox Inventory Sync
-version: 0.3.0
+version: 0.4.0
 description: >
   Scheduled assignment that walks one or more NetBox instances' device
   inventories (/api/dcim/devices/ with DRF pagination) and emits
@@ -64,10 +64,16 @@ integrations:
             field: api_token
       purposes:
         - inventory_sync
+      # Agent only, and core enforces it: the inventory_sync consumer below is
+      # target_cardinality: single, so one run covers the whole instance. A
+      # gateway- or partition-scoped rule is in scope for every agent under it
+      # and the materializer reconciles each one separately, so the same
+      # instance would be walked once per agent and every walk would emit
+      # another complete DeviceDiscovery snapshot under the same
+      # source_instance. Which agent can reach the NetBox host is an operator
+      # fact, so the rule names it.
       scope_types:
         - agent
-        - gateway
-        - partition
       rule_defaults:
         auth_method: api_token
         purposes:

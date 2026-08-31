@@ -204,6 +204,32 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert opts[:chunk_size] == 25
   end
 
+  test "a single-cardinality rule is delivered only to the agent its scope names" do
+    # `single` means one run covers the whole instance, and this reconcile runs
+    # once per agent. A gateway scope is in scope for every agent under the
+    # gateway, so without the owner check the same instance is synced once per
+    # agent -- each run emitting another complete snapshot under one
+    # source_instance. Chunk collapsing does not help: those are separate
+    # (rule, agent) pairs, and per-agent retraction leaves every one enabled.
+    rule = credential_rule(%{scope_type: :gateway, scope_value: "gateway-1"})
+
+    assert {:ok, summary} = materialize([rule], profile: single_cardinality_profile())
+
+    assert summary.skips == %{single_target_rule_not_agent_scoped: 1}
+    assert summary.desired_assignments == 0
+    refute_receive {:reconcile, _policy, _input_defs, _opts}
+  end
+
+  test "a per_target rule still fans out across the agents its scope covers" do
+    rule = credential_rule(%{scope_type: :gateway, scope_value: "gateway-1"})
+
+    assert {:ok, summary} = materialize([rule])
+
+    assert summary.skips == %{}
+    assert_receive {:reconcile, _policy, _input_defs, opts}
+    assert opts[:target_agent_uid] == "agent-a"
+  end
+
   defp materialize(rules, opts \\ []) do
     purpose = Keyword.get(opts, :purpose, "device_inventory")
     package = Keyword.get(opts, :package, %{id: "pkg-example"})

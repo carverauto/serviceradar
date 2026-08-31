@@ -90,6 +90,14 @@ differently here than they do for a per-device integration:
 - **Controller host** is the NetBox instance. It becomes `base_url`, so set the
   full origin (`https://netbox.example.com`), or a `base_url` metadata value
   when the deployment uses a BASE_PATH prefix.
+- **Scope** is agent, and only agent. One run of the sync covers the whole
+  instance, so the rule has to name the single agent that runs it. A gateway or
+  partition scope would be in scope for every agent underneath it, and each one
+  would walk the same instance and emit another complete snapshot under the
+  same `source_instance`. Core does not pick an agent for you, because whether
+  an agent can reach the NetBox host is not something core knows. The rule form
+  offers no other scope; a rule that somehow carries one is not delivered, and
+  the reconcile reports it as `single_target_rule_not_agent_scoped`.
 - **Target query** is only a delivery gate. The sync walks the instance named
   by the rule and ignores the resolved targets, so a rule produces exactly one
   assignment and one complete snapshot per run regardless of how many devices
