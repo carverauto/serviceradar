@@ -306,6 +306,22 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       assert Enum.any?(Catalog.visible_categories(scope), &(&1.id == :system))
     end
 
+    test "Authorization is gated on settings.auth.manage, not settings.view" do
+      assert Catalog.view(:authorization_mappings).permission == "settings.auth.manage"
+
+      operator = %Scope{permissions: MapSet.new(["settings.view"])}
+      operator_ids = operator |> Catalog.visible_views(:system) |> Enum.map(& &1.id)
+      refute :authorization_mappings in operator_ids
+      refute :auth_users in operator_ids
+      refute :authentication in operator_ids
+
+      admin = %Scope{permissions: MapSet.new(["settings.auth.manage"])}
+      admin_ids = admin |> Catalog.visible_views(:system) |> Enum.map(& &1.id)
+      assert :authorization_mappings in admin_ids
+      assert :auth_users in admin_ids
+      assert :authentication in admin_ids
+    end
+
     test "palette_index/1 only includes permitted views and is well-shaped" do
       scope = %Scope{permissions: MapSet.new(["settings.audit.view"])}
       index = Catalog.palette_index(scope)

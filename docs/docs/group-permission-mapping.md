@@ -10,6 +10,22 @@ They are configured in **Settings -> Authorization** and applied on every SSO
 sign-in, so directory changes take effect the next time a user signs in rather
 than when an operator remembers to mirror them.
 
+## Creating Accounts On First SSO Login
+
+By default an identity-provider user with no local ServiceRadar account is
+denied. That is the safe default: SSO success at the IdP is not enough to mint
+an account.
+
+Turn on **Create accounts on first SSO login** in **Settings -> Authorization**
+(the same switch as **Settings -> Authentication -> Auto-provision Accounts**)
+when you want the first successful SSO sign-in to create the local account.
+The new account gets the configured default role unless a mapping grants a
+higher role, a role profile, or a user group.
+
+Use this for a first production SSO cutover when you do not want to pre-create
+dozens of local users. Gate who can authenticate at the IdP (app assignment /
+group) so that only people you intend to onboard can complete the login.
+
 ## What A Mapping Can Grant
 
 A mapping matches on a claim and grants one or more of:

@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
     authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Identity.AuthorizationSettings
 
-  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.UserGroup
@@ -17,29 +17,40 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
   alias ServiceRadarWebNGWeb.Settings.Shell
 
+  @auth_manage_permission "settings.auth.manage"
+
   @impl true
   def mount(_params, _session, socket) do
-    socket = assign(socket, :page_title, "Authorization Settings")
     scope = socket.assigns.current_scope
 
-    {settings, settings_flash} =
-      case get_or_create_settings(scope) do
-        {:ok, settings} -> {settings, nil}
-        {:error, error} -> {%{default_role: :viewer, role_mappings: []}, format_ash_error(error)}
-      end
+    if ServiceRadarWebNG.RBAC.can?(scope, @auth_manage_permission) do
+      socket = assign(socket, :page_title, "Authorization Settings")
+      sso_auto_provision = sso_auto_provision?(scope)
 
-    {:ok,
-     socket
-     |> assign(:settings, settings)
-     |> assign(:form, to_form(settings_form(settings), as: :settings))
-     |> assign(:json_error, nil)
-     |> assign(:dry_run_claims, "")
-     |> assign(:dry_run_result, nil)
-     |> assign(:dry_run_error, nil)
-     |> assign(:role_profiles, list_role_profiles(scope))
-     |> assign(:user_groups, list_user_groups(scope))
-     |> assign(:groups_claim_notices, groups_claim_notices(settings))
-     |> maybe_put_flash(settings_flash)}
+      {settings, settings_flash} =
+        case get_or_create_settings(scope) do
+          {:ok, settings} -> {settings, nil}
+          {:error, error} -> {%{default_role: :viewer, role_mappings: []}, format_ash_error(error)}
+        end
+
+      {:ok,
+       socket
+       |> assign(:settings, settings)
+       |> assign(:form, to_form(settings_form(settings, sso_auto_provision), as: :settings))
+       |> assign(:json_error, nil)
+       |> assign(:dry_run_claims, "")
+       |> assign(:dry_run_result, nil)
+       |> assign(:dry_run_error, nil)
+       |> assign(:role_profiles, list_role_profiles(scope))
+       |> assign(:user_groups, list_user_groups(scope))
+       |> assign(:groups_claim_notices, groups_claim_notices(settings))
+       |> maybe_put_flash(settings_flash)}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to access Settings.")
+       |> push_navigate(to: ~p"/dashboard")}
+    end
   end
 
   @impl true
@@ -53,32 +64,40 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   def handle_event("dry_run", %{"dry_run" => %{"claims" => claims_json}}, socket) do
     socket = assign(socket, :dry_run_claims, claims_json)
 
-    case decode_claims(claims_json) do
-      {:ok, claims} ->
-        resolution = RoleMapping.resolve(claims, actor: scope_actor(socket.assigns.current_scope))
+    with %{user: actor} when not is_nil(actor) <- socket.assigns.current_scope,
+         {:ok, claims} <- decode_claims(claims_json) do
+      resolution = RoleMapping.resolve(claims, actor: actor)
 
-        {:noreply,
-         socket
-         |> assign(:dry_run_result, resolution)
-         |> assign(:dry_run_error, nil)}
-
+      {:noreply,
+       socket
+       |> assign(:dry_run_result, resolution)
+       |> assign(:dry_run_error, nil)}
+    else
       {:error, message} ->
         {:noreply,
          socket
          |> assign(:dry_run_result, nil)
          |> assign(:dry_run_error, message)}
+
+      _unauthenticated ->
+        {:noreply,
+         socket
+         |> assign(:dry_run_result, nil)
+         |> assign(:dry_run_error, "Not authorized")}
     end
   end
 
   def handle_event("save", %{"settings" => params}, socket) do
     scope = socket.assigns.current_scope
+    sso_auto_provision = truthy?(params["sso_auto_provision"])
 
     with {:ok, attrs} <- normalize_attrs(params),
+         {:ok, _auth_settings} <- persist_sso_auto_provision(scope, sso_auto_provision),
          {:ok, updated} <- AdminApi.update_authorization_settings(scope, attrs) do
       {:noreply,
        socket
        |> assign(:settings, updated)
-       |> assign(:form, to_form(settings_form(updated), as: :settings))
+       |> assign(:form, to_form(settings_form(updated, sso_auto_provision), as: :settings))
        |> assign(:groups_claim_notices, groups_claim_notices(updated))
        |> assign(:json_error, nil)
        |> put_flash(:info, "Authorization settings updated")}
@@ -96,7 +115,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
 
   @impl true
   def event_mapping do
-    Map.merge(Permit.Phoenix.LiveView.default_event_mapping(), %{"save" => :update, "validate" => :read})
+    Map.merge(Permit.Phoenix.LiveView.default_event_mapping(), %{
+      "save" => :update,
+      "validate" => :read,
+      "dry_run" => :read
+    })
   end
 
   @impl true
@@ -108,8 +131,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   def handle_unauthorized(_action, socket) do
     socket =
       socket
-      |> put_flash(:error, "Admin access required")
-      |> push_navigate(to: ~p"/settings/profile")
+      |> put_flash(:error, "You don't have permission to access Settings.")
+      |> push_navigate(to: ~p"/dashboard")
 
     {:halt, socket}
   end
@@ -139,6 +162,34 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
 
             <.form for={@form} id="authorization-form" phx-change="validate" phx-submit="save">
               <div class="space-y-4">
+                <div class="rounded-xl border border-sr-line p-4">
+                  <label class="flex items-start justify-between gap-4">
+                    <div>
+                      <div class="text-sm font-semibold text-sr-ink">
+                        Create accounts on first SSO login
+                      </div>
+                      <p class="mt-1 text-xs text-sr-muted">
+                        If an identity-provider user has no local account, create one instead of
+                        denying sign-in. The account gets the default role below unless a mapping
+                        grants more. Same switch as <.link
+                          navigate={~p"/settings/authentication"}
+                          class="text-sr-brand hover:underline"
+                        >
+                          Authentication
+                        </.link>.
+                      </p>
+                    </div>
+                    <input type="hidden" name="settings[sso_auto_provision]" value="false" />
+                    <input
+                      type="checkbox"
+                      name="settings[sso_auto_provision]"
+                      value="true"
+                      checked={@form[:sso_auto_provision].value in [true, "true"]}
+                      class={ui_toggle_class(class: "toggle-warning")}
+                    />
+                  </label>
+                </div>
+
                 <.input
                   field={@form[:default_role]}
                   type="select"
@@ -311,6 +362,41 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
     AdminApi.get_authorization_settings(scope)
   end
 
+  defp sso_auto_provision?(scope) do
+    case scope do
+      %{user: user} when not is_nil(user) ->
+        case AuthSettings.get_settings(actor: user) do
+          {:ok, %{sso_auto_provision: true}} -> true
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp persist_sso_auto_provision(scope, enabled) when is_boolean(enabled) do
+    user = scope.user
+
+    case AuthSettings.get_settings(actor: user) do
+      {:ok, %{sso_auto_provision: ^enabled} = settings} ->
+        {:ok, settings}
+
+      {:ok, %{} = settings} ->
+        AuthSettings.update(settings, %{sso_auto_provision: enabled}, actor: user)
+
+      {:ok, nil} ->
+        {:error, :auth_settings_unavailable}
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp truthy?(value) when value in [true, "true", "on", "1"], do: true
+  defp truthy?(values) when is_list(values), do: Enum.any?(values, &truthy?/1)
+  defp truthy?(_value), do: false
+
   defp normalize_attrs(params) do
     with {:ok, default_role} <- normalize_role(params["default_role"]),
          {:ok, role_mappings} <- decode_role_mappings(params["role_mappings"]) do
@@ -349,18 +435,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
 
   defp decode_claims(_json), do: {:error, "Paste a JSON object of claims"}
 
-  defp scope_actor(%{user: user}) when not is_nil(user), do: user
-  defp scope_actor(_scope), do: SystemActor.system(:authorization_settings_dry_run)
-
   defp list_role_profiles(scope) do
-    case Ash.read(RoleProfile, actor: scope_actor(scope)) do
+    case Ash.read(RoleProfile, scope: scope) do
       {:ok, profiles} -> Enum.sort_by(profiles, & &1.name)
       {:error, _reason} -> []
     end
   end
 
   defp list_user_groups(scope) do
-    case Ash.read(UserGroup, actor: scope_actor(scope)) do
+    case Ash.read(UserGroup, scope: scope) do
       {:ok, groups} -> Enum.sort_by(groups, & &1.name)
       {:error, _reason} -> []
     end
@@ -411,10 +494,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
     end
   end
 
-  defp settings_form(settings) do
+  defp settings_form(settings, sso_auto_provision) do
     %{
       "default_role" => Atom.to_string(settings.default_role || :viewer),
-      "role_mappings" => Jason.encode!(settings.role_mappings || [], pretty: true)
+      "role_mappings" => Jason.encode!(settings.role_mappings || [], pretty: true),
+      "sso_auto_provision" => sso_auto_provision
     }
   end
 
@@ -438,6 +522,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
 
     "HTTP #{status}: #{message}"
   end
+
+  defp format_ash_error(:auth_settings_unavailable), do: "Authentication settings are not configured"
 
   defp format_ash_error(_), do: "Unexpected error"
 end

@@ -314,8 +314,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     </svg>
                     <span>
                       Any user who authenticates via your IdP will have a local account
-                      created automatically on first login. Only enable this if every IdP
-                      identity should be granted access.
+                      created automatically on first login. They receive the default role
+                      from
+                      <.link
+                        navigate={~p"/settings/auth/authorization"}
+                        class="text-sr-brand hover:underline"
+                      >
+                        Authorization
+                      </.link>
+                      unless a mapping grants more. Only enable this if every IdP identity
+                      that can sign in should be granted access.
                     </span>
                   </div>
                 <% else %>

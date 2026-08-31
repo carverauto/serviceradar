@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLiveTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthorizationSettings
+  alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadarWebNG.AshTestHelpers
 
   defp settings!(mappings) do
@@ -70,6 +71,66 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLiveTest do
 
       assert html =~ "Invalid JSON"
       refute html =~ "Resolved role"
+    end
+  end
+
+  describe "RBAC" do
+    test "redirects viewers without settings.auth.manage", %{conn: conn} do
+      user = AshTestHelpers.viewer_user_fixture()
+      conn = log_in_user(conn, user)
+
+      assert {:error, {:live_redirect, %{to: "/dashboard"} = info}} =
+               live(conn, ~p"/settings/auth/authorization")
+
+      assert is_map(info.flash)
+    end
+
+    test "redirects operators without settings.auth.manage", %{conn: conn} do
+      user = AshTestHelpers.operator_user_fixture()
+      conn = log_in_user(conn, user)
+
+      assert {:error, {:live_redirect, %{to: "/dashboard"} = info}} =
+               live(conn, ~p"/settings/auth/authorization")
+
+      assert is_map(info.flash)
+    end
+
+    test "allows admins with settings.auth.manage", %{conn: conn} do
+      user = AshTestHelpers.admin_user_fixture()
+      conn = log_in_user(conn, user)
+
+      {:ok, _lv, html} = live(conn, ~p"/settings/auth/authorization")
+      assert html =~ "Authorization"
+      assert html =~ "Default built-in role"
+      assert html =~ "Create accounts on first SSO login"
+    end
+  end
+
+  describe "SSO auto-provision" do
+    test "persists sso_auto_provision onto AuthSettings", %{conn: conn} do
+      admin = AshTestHelpers.admin_user_fixture()
+      actor = SystemActor.system(:authorization_live_test)
+
+      {:ok, _settings} =
+        case AuthSettings.get_settings(actor: actor) do
+          {:ok, nil} -> AuthSettings.create(%{sso_auto_provision: false}, actor: actor)
+          {:ok, existing} -> AuthSettings.update(existing, %{sso_auto_provision: false}, actor: actor)
+          {:error, _} -> AuthSettings.create(%{sso_auto_provision: false}, actor: actor)
+        end
+
+      {:ok, live, html} =
+        conn |> log_in_user(admin) |> live(~p"/settings/auth/authorization")
+
+      assert html =~ "Create accounts on first SSO login"
+
+      html =
+        live
+        |> form("#authorization-form", settings: %{sso_auto_provision: "true"})
+        |> render_submit()
+
+      assert html =~ "Authorization settings updated"
+      {:ok, settings} = AuthSettings.get_settings(actor: actor)
+      assert settings.sso_auto_provision == true
     end
   end
 
