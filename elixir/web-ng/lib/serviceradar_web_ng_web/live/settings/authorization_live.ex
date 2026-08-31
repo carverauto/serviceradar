@@ -15,7 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   alias ServiceRadar.Identity.UserGroup
   alias ServiceRadarWebNG.AdminApi
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
-  alias ServiceRadarWebNGWeb.SettingsComponents
+  alias ServiceRadarWebNGWeb.Settings.Shell
 
   @impl true
   def mount(_params, _session, socket) do
@@ -38,7 +38,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
      |> assign(:dry_run_error, nil)
      |> assign(:role_profiles, list_role_profiles(scope))
      |> assign(:user_groups, list_user_groups(scope))
-     |> assign(:groups_scope_warning, groups_scope_warning(settings))
+     |> assign(:groups_claim_notices, groups_claim_notices(settings))
      |> maybe_put_flash(settings_flash)}
   end
 
@@ -79,6 +79,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
        socket
        |> assign(:settings, updated)
        |> assign(:form, to_form(settings_form(updated), as: :settings))
+       |> assign(:groups_claim_notices, groups_claim_notices(updated))
        |> assign(:json_error, nil)
        |> put_flash(:info, "Authorization settings updated")}
     else
@@ -117,22 +118,20 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope}>
-      <SettingsComponents.settings_shell current_path="/settings/auth/authorization">
-        <div class="space-y-4">
-          <SettingsComponents.settings_nav
-            current_path="/settings/auth/authorization"
-            current_scope={@current_scope}
-          />
-          <SettingsComponents.auth_nav
-            current_path="/settings/auth/authorization"
-            current_scope={@current_scope}
-          />
-        </div>
-
+      <Shell.settings_chrome
+        current_path="/settings/auth/authorization"
+        current_scope={@current_scope}
+        active_view={@settings_active_view}
+        active_category={@settings_active_category}
+        breadcrumbs={@settings_breadcrumbs}
+        nav_tree={@settings_nav_tree}
+        palette={@settings_palette}
+        stats={@settings_stats}
+      >
         <div class="grid gap-6 lg:grid-cols-[1fr,1fr]">
           <section class="space-y-4">
             <div>
-              <h1 class="text-xl font-semibold">Authorization</h1>
+              <h1 class="text-2xl font-semibold text-sr-ink">Authorization</h1>
               <p class="text-sm text-sr-muted">
                 Control default roles and IdP role mapping behavior.
               </p>
@@ -143,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
                 <.input
                   field={@form[:default_role]}
                   type="select"
-                  label="Default Role"
+                  label="Default built-in role"
                   options={[
                     {"viewer", "viewer"},
                     {"helpdesk", "helpdesk"},
@@ -151,6 +150,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
                     {"admin", "admin"}
                   ]}
                 />
+                <p class="text-xs text-sr-muted -mt-2">
+                  Only the four built-in roles. Named sets such as <code>demo</code>
+                  are role profiles — grant them with <code>role_profile_id</code>
+                  in a mapping, not from this dropdown.
+                </p>
 
                 <div>
                   <label class="flex items-center justify-between gap-2">
@@ -173,10 +177,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
                   <% end %>
 
                   <div
-                    :if={@groups_scope_warning}
+                    :for={notice <- @groups_claim_notices}
                     class="mt-2 rounded-xl border border-warning/30 bg-warning/5 p-3 text-xs text-sr-muted"
                   >
-                    {@groups_scope_warning}
+                    {notice}
                   </div>
                 </div>
 
@@ -284,19 +288,20 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
               </p>
               <pre class="mt-3 rounded-lg bg-sr-subtle/60 p-3 text-xs" phx-no-curly-interpolation>
                 [
-                  {"source": "groups", "value": "Network Ops", "role": "operator"},
-                  {"source": "email_domain", "value": "example.com", "role": "admin"}
+                  {"source": "groups", "value": "7c2f5b8e-1d4a-4f6b-9c3e-2a8d5f1b6e40", "role_profile_id": "PROFILE_UUID"},
+                  {"source": "groups", "value": "Network Ops", "role": "operator"}
                 ]
               </pre>
               <p class="text-xs text-sr-muted mt-3">
-                Precedence is <span class="font-medium">first match</span>: the first mapping whose
-                claim matches a user wins, so list the most privileged roles first (admin-first) to
-                avoid a broader rule shadowing a narrower one.
+                Every matching mapping contributes: profiles and groups union, and the
+                highest matched role wins. Mapping order does not matter. Entra's
+                <code>groups</code>
+                claim is group object IDs by default, not display names.
               </p>
             </div>
           </section>
         </div>
-      </SettingsComponents.settings_shell>
+      </Shell.settings_chrome>
     </Layouts.app>
     """
   end
@@ -360,17 +365,32 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
     end
   end
 
-  # A `groups` mapping with the groups scope unrequested silently matches
-  # nothing and falls through to the default role, which looks like a broken
-  # mapping rather than a missing scope.
-  defp groups_scope_warning(settings) do
+  # Groups mappings fail closed when the claim never arrives. Authentik and
+  # similar providers emit it only if the `groups` scope is requested. Entra
+  # does not have a groups scope at all — membership is added under Token
+  # configuration and the claim is object IDs. Treating those as the same
+  # problem made Entra look unconfigured when it was working as designed.
+  defp groups_claim_notices(settings) do
     mappings = Map.get(settings, :role_mappings) || []
     uses_groups? = Enum.any?(mappings, &(Map.get(&1, "source") == "groups"))
 
-    if uses_groups? and not groups_scope_requested?() do
-      "One or more mappings match on group claims, but the configured OIDC scopes do not " <>
-        "request \"groups\". Those mappings will never match. Add the scope in " <>
-        "Settings -> Authentication."
+    if uses_groups? do
+      entra =
+        "Microsoft Entra emits a groups claim only after Token configuration adds it; " <>
+          "there is no groups scope. The claim contains group object IDs by default, " <>
+          "not display names. Users in ~150+ groups hit overage and send no groups claim."
+
+      scope =
+        if groups_scope_requested?() do
+          nil
+        else
+          "Authentik and similar providers need the groups scope under Settings -> " <>
+            "Authentication; without it those mappings will never match."
+        end
+
+      Enum.reject([scope, entra], &is_nil/1)
+    else
+      []
     end
   end
 

@@ -92,10 +92,12 @@ Entra does not send group membership by default. In the app registration, under
 assigned to the application" keeps the claim small, which matters -- see
 overage below.
 
-Also confirm the `groups` scope is included in the configured OIDC scopes in
-ServiceRadar. If a `groups`-source mapping exists while the scope is missing,
-the mapping matches nothing; **Settings -> Authorization** warns when it detects
-this, because an unscoped mapping looks identical to a broken one.
+Entra does **not** have a `groups` OIDC scope. Membership is added under
+**Token configuration -> groups claim**, and then the ID token (and optionally
+the access token) carries a `groups` claim. Requesting `scope=groups` is an
+Authentik/Keycloak convention; Entra ignores it. If a `groups`-source mapping
+exists, **Settings -> Authorization** warns about both cases: a missing
+Authentik-style scope, and Entra's object-ID / overage behaviour.
 
 ### The Claim Carries Object IDs, Not Names
 
