@@ -65,8 +65,9 @@ defmodule ServiceRadar.Plugins.DisplayContract do
     "table" => ~w(type title path columns)
   }
 
-  @allowed_field_keys ~w(label path tone)
-  @allowed_column_keys ~w(label path)
+  @allowed_field_keys ~w(label path tone format)
+  @allowed_column_keys ~w(label path format)
+  @allowed_temporal_formats ~w(timestamp unix_nano)
 
   # The nine keys `ServiceRadar.Plugins.Manifest` refuses on an action. A display
   # contract must not become a way around that rejection.
@@ -508,9 +509,13 @@ defmodule ServiceRadar.Plugins.DisplayContract do
       end
 
     {tone, errors} = optional_label(field, "tone", prefix, errors)
+    {format, errors} = optional_temporal_format(field, prefix, errors)
 
     if errors == [] do
-      {:ok, put_present(%{"label" => label, "path" => path}, "tone", tone)}
+      {:ok,
+       %{"label" => label, "path" => path}
+       |> put_present("tone", tone)
+       |> put_present("format", format)}
     else
       {:error, Enum.reverse(errors)}
     end
@@ -550,14 +555,33 @@ defmodule ServiceRadar.Plugins.DisplayContract do
         :error -> {nil, ["#{prefix}.path must be a valid path" | errors]}
       end
 
+    {format, errors} = optional_temporal_format(column, prefix, errors)
+
     if errors == [] do
-      {:ok, %{"label" => label, "path" => path}}
+      {:ok, put_present(%{"label" => label, "path" => path}, "format", format)}
     else
       {:error, Enum.reverse(errors)}
     end
   end
 
   defp column(_column, prefix), do: {:error, ["#{prefix} must be a map"]}
+
+  defp optional_temporal_format(map, prefix, errors) do
+    case Map.get(map, "format") do
+      nil ->
+        {nil, errors}
+
+      format when format in @allowed_temporal_formats ->
+        {format, errors}
+
+      _ ->
+        {nil,
+         [
+           "#{prefix}.format must be one of #{Enum.join(@allowed_temporal_formats, ", ")}"
+           | errors
+         ]}
+    end
+  end
 
   # --- primitives ----------------------------------------------------------
 

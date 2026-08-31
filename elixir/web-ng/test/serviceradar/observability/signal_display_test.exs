@@ -30,6 +30,11 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
     assert Enum.any?(widgets, &(&1.type == :facts))
     assert [%{type: :summary} = summary | _] = widgets
     assert summary.title == "suspicious.example"
+
+    timeline = Enum.find(widgets, &(&1.type == :timeline))
+    assert timeline.contract_index == 3
+    assert %{format: "timestamp"} = Enum.find(timeline.fields, &(&1.label == "Event Time"))
+    assert %{format: "unix_nano"} = Enum.find(timeline.fields, &(&1.label == "Observed"))
   end
 
   test "renders current PowerDNS producer version" do

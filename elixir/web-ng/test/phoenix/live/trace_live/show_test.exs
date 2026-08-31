@@ -86,7 +86,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     assert html =~ "/logs/11111111-2222-3333-4444-555555555555"
   end
 
-  test "renders span and correlated-log instants semantically in the authenticated timezone", %{conn: conn} do
+  test "uses the canonical observed instant for correlated logs with unzoned source timestamps", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
 
     lv
@@ -107,6 +107,13 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
              lv,
              ~s(time#trace-log-11111111-2222-3333-4444-555555555555-time[datetime="2023-11-14T22:13:20Z"][data-user-time-zone="America/Chicago"])
            )
+
+    refute has_element?(
+             lv,
+             ~s(time#trace-log-11111111-2222-3333-4444-555555555555-time[datetime="2023-11-14T16:13:20Z"])
+           )
+
+    refute render(lv) =~ "2023-11-14T16:13:20Z"
   end
 
   test "error span gets error styling and expands details", %{conn: conn} do
@@ -373,7 +380,8 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
       [
         %{
           "id" => "11111111-2222-3333-4444-555555555555",
-          "timestamp" => "2023-11-14T22:13:20Z",
+          "timestamp" => "2023-11-14T16:13:20",
+          "observed_timestamp" => "2023-11-14T22:13:20Z",
           "severity_text" => "ERROR",
           "service_name" => "core-elx",
           "body" => "query exploded",

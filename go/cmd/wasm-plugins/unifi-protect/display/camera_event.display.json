@@ -23,7 +23,7 @@
     {
       "type": "facts",
       "fields": [
-        { "label": "Time", "path": "time" },
+        { "label": "Time", "path": "time", "format": "timestamp" },
         { "label": "Camera", "path": "device.name" },
         { "label": "Camera ID", "path": "device.uid" },
         { "label": "MAC", "path": "device.mac" }
@@ -32,8 +32,8 @@
     {
       "type": "timeline",
       "fields": [
-        { "label": "Event time", "path": "time" },
-        { "label": "Logged time", "path": "metadata.logged_time" }
+        { "label": "Event time", "path": "time", "format": "timestamp" },
+        { "label": "Logged time", "path": "metadata.logged_time", "format": "timestamp" }
       ]
     },
     {

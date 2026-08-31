@@ -191,6 +191,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
       refute has_element?(lv, ~s(#log-detail-time[datetime="2026-08-30T17:00:00Z"]))
 
+      assert has_element?(
+               lv,
+               ~s(time#log-signal-display-widget-3-field-1-time[datetime="2026-08-30T18:00:00.000000Z"][data-user-time-zone="America/Chicago"])
+             )
+
       render_click(lv, "copy_json", %{})
       assert_push_event(lv, "clipboard", %{text: copied_json})
       copied = Jason.decode!(copied_json)
@@ -469,11 +474,24 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       "id" => "550e8400-e29b-41d4-a716-446655440099",
       "timestamp" => "2026-08-30T12:34:56",
       "observed_timestamp" => "2026-08-30T18:00:00Z",
+      "time" => "2026-08-30T18:00:00Z",
       "severity_text" => "INFO",
       "service_name" => "syslog",
       "body" => "syslog effective timestamp",
       "source" => "syslog",
-      "attributes" => %{"source_timestamp" => "Aug 30 12:34:56"}
+      "attributes" => %{"source_timestamp" => "Aug 30 12:34:56"},
+      "query" => %{"hostname" => "example.test"},
+      "metadata" => %{
+        "service_radar" => %{
+          "observed_time_unix_nano" => 1_788_112_800_000_000_000,
+          "signal_schema" => %{
+            "producer_id" => "powerdns",
+            "producer_version" => "0.1.1",
+            "schema_id" => "com.carverauto.powerdns.dns_activity",
+            "schema_version" => "1.0.0"
+          }
+        }
+      }
     }
 
     def query(query), do: query(query, %{})

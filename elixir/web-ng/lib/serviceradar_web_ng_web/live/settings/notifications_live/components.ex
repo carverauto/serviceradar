@@ -195,8 +195,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
                       {Presentation.truncate(channel.last_error, 300)}
                     </p>
                     <.contract_view
+                      id={"channel-#{channel.id}-health-contract"}
                       view={Contracts.channel_health_view(channel, channel_provider(channel))}
                       class="mt-2 max-w-xs"
+                      timezone="Etc/UTC"
                     />
                   </details>
                 </td>
@@ -2362,6 +2364,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
             </div>
           </dl>
           <.contract_view
+            id={"delivery-#{@selected.delivery.id}-contract"}
             view={
               Contracts.delivery_view(
                 @selected.delivery.result_summary,
@@ -2370,6 +2373,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
             }
             class="mt-3"
             only_contract={true}
+            timezone="Etc/UTC"
           />
         </div>
 
@@ -2432,6 +2436,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
   # would be two contracts wearing one name.
 
   attr :view, :map, required: true
+  attr :id, :string, required: true
+  attr :timezone, :string, required: true
   attr :class, :string, default: nil
 
   attr :only_contract, :boolean,
@@ -2444,7 +2450,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
     ~H"""
     <div :if={render_contract_view?(@view, @only_contract)} class={@class}>
       <div class="space-y-3">
-        <.signal_display_widget :for={widget <- @view.widgets} widget={widget} />
+        <.signal_display_widget
+          :for={{widget, widget_index} <- Enum.with_index(@view.widgets)}
+          id={"#{@id}-widget-#{widget_index}"}
+          widget={widget}
+          timezone={@timezone}
+        />
       </div>
       <p :for={diagnostic <- @view.diagnostics} class="mt-1 text-xs text-warning">
         {diagnostic}

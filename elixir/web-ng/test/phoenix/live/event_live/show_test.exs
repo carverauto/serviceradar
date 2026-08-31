@@ -64,6 +64,33 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
              lv,
              ~s(#event-stream time[datetime="2026-07-04T12:00:00Z"][data-user-time-zone="America/Chicago"])
            )
+
+    assert has_element?(
+             lv,
+             ~s(time#event-additional-updated-at-time[datetime="2026-07-04T12:30:00Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    for {key, instant} <- [
+          event_time: "2026-07-04T12:01:00Z",
+          observed_at: "2026-07-04T12:02:00Z",
+          created_at: "2026-07-04T12:03:00Z",
+          expires_at: "2026-07-04T12:04:00Z",
+          timestamp: "2026-07-04T12:07:00Z"
+        ] do
+      id = key |> to_string() |> String.replace("_", "-")
+
+      assert has_element?(
+               lv,
+               ~s(time#event-context-#{id}-time[datetime="#{instant}"][data-user-time-zone="America/Chicago"])
+             )
+    end
+
+    assert has_element?(
+             lv,
+             ~s(time#event-signal-display-widget-3-field-1-time[datetime="2026-07-04T12:05:00Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    refute has_element?(lv, "#event-context-note-time")
   end
 
   test "renders projected exhaustion semantically in the authenticated timezone", %{conn: conn} do
@@ -159,9 +186,29 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
       %{
         "id" => "00000000-0000-0000-0000-0000000009a1",
         "time" => "2026-07-04T12:00:00Z",
+        "updated_at" => "2026-07-04T12:30:00Z",
         "severity" => "Critical",
         "log_provider" => "serviceradar-plugin",
         "message" => "Proxmox guest memory bottleneck 95%",
+        "raw_data" => %{
+          "event_time" => "2026-07-04T12:01:00Z",
+          "observed_at" => "2026-07-04T12:02:00Z",
+          "created_at" => "2026-07-04T12:03:00Z",
+          "expires_at" => "2026-07-04T12:04:00Z",
+          "timestamp" => "2026-07-04T12:07:00Z",
+          "note" => "2026-07-04T12:06:00Z"
+        },
+        "metadata" => %{
+          "logged_time" => "2026-07-04T12:05:00Z",
+          "service_radar" => %{
+            "signal_schema" => %{
+              "producer_id" => "proxmox-inventory",
+              "producer_version" => "0.1.1",
+              "schema_id" => "com.carverauto.proxmox.resource_event",
+              "schema_version" => "1.0.0"
+            }
+          }
+        },
         "unmapped" => %{
           "condition_key" => "proxmox:guest_memory:#{@device_uid}:qemu:116"
         }

@@ -272,7 +272,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
             <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
               <.log_message_hero log={@log} body_mode={@body_mode} />
-              <.signal_display_panel :if={is_list(@signal_display)} widgets={@signal_display} />
+              <.signal_display_panel
+                :if={is_list(@signal_display)}
+                id="log-signal-display"
+                widgets={@signal_display}
+                timezone={@current_scope.user.timezone}
+              />
             </div>
           </section>
         </div>

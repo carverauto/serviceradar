@@ -429,7 +429,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                     phx-click={log_path && JS.navigate(log_path)}
                   >
                     <td class="whitespace-nowrap text-xs font-mono">
-                      <% timestamp = Map.get(log, "timestamp") %>
+                      <% timestamp = effective_log_timestamp(log) %>
                       <.user_time
                         id={"trace-log-#{Map.get(log, "id") || "row-#{idx}"}-time"}
                         value={timestamp}
@@ -874,10 +874,16 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   end
 
   defp log_timestamp(log) do
-    case parse_timestamp(Map.get(log, "timestamp")) do
+    timestamp = effective_log_timestamp(log)
+
+    case parse_timestamp(timestamp) do
       {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> Map.get(log, "timestamp") || "—"
+      _ -> timestamp || "—"
     end
+  end
+
+  defp effective_log_timestamp(log) do
+    Map.get(log, "observed_timestamp") || Map.get(log, "timestamp")
   end
 
   defp log_severity(log) do

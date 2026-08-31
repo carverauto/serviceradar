@@ -23,7 +23,7 @@
     {
       "type": "facts",
       "fields": [
-        { "label": "Time", "path": "time" },
+        { "label": "Time", "path": "time", "format": "timestamp" },
         { "label": "Condition", "path": "unmapped.condition_key" },
         { "label": "Message", "path": "message" }
       ]
@@ -31,8 +31,8 @@
     {
       "type": "timeline",
       "fields": [
-        { "label": "Event time", "path": "time" },
-        { "label": "Logged time", "path": "metadata.logged_time" }
+        { "label": "Event time", "path": "time", "format": "timestamp" },
+        { "label": "Logged time", "path": "metadata.logged_time", "format": "timestamp" }
       ]
     },
     {

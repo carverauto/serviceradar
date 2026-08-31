@@ -191,4 +191,28 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     assert html =~ "collector-a"
     refute html =~ "2026-08-30 18:00:00 UTC"
   end
+
+  test "category visualization renders ISO keys semantically in the explicit timezone" do
+    html =
+      render_component(&SRQLComponents.srql_auto_viz/1,
+        id: "review-categories",
+        timezone: "America/Chicago",
+        viz:
+          {:categories,
+           %{
+             label: "bucket",
+             value: "count",
+             items: [{"2026-08-30T18:00:00Z", 2}, {"ordinary", 1}]
+           }}
+      )
+
+    document = LazyHTML.from_fragment(html)
+    times = LazyHTML.query(document, "time")
+
+    assert LazyHTML.attribute(times, "id") == ["review-categories-time-0"]
+    assert LazyHTML.attribute(times, "datetime") == ["2026-08-30T18:00:00Z"]
+    assert LazyHTML.attribute(times, "data-user-time-zone") == ["America/Chicago"]
+    assert html =~ "ordinary"
+    refute html =~ "2026-08-30 18:00:00 UTC"
+  end
 end

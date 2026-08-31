@@ -6,6 +6,7 @@ defmodule ServiceRadar.Plugins.DisplayContractTest do
   @repo_root Path.expand("../../../../..", __DIR__)
 
   @first_party_contracts [
+    "addons/anomaly-addon/display/detection_finding.display.json",
     "addons/powerdns/display/dns_activity.display.json",
     "go/cmd/wasm-plugins/axis/display/event_log_activity.display.json",
     "go/cmd/wasm-plugins/unifi-protect/display/camera_event.display.json",
@@ -48,6 +49,40 @@ defmodule ServiceRadar.Plugins.DisplayContractTest do
       assert contract["surface"] == "signal"
       assert DisplayContract.key(contract) == "com.example.thing.display@1.0.0"
       assert DisplayContract.signal_binding(contract) == {"com.example.thing", "2.1.0"}
+    end
+
+    test "normalizes explicit timestamp and unix-nanosecond field formats" do
+      contract =
+        Map.put(@valid, "widgets", [
+          %{
+            "type" => "timeline",
+            "fields" => [
+              %{"label" => "Event time", "path" => "time", "format" => "timestamp"},
+              %{"label" => "Observed", "path" => "observed", "format" => "unix_nano"}
+            ]
+          }
+        ])
+
+      assert {:ok, normalized} = DisplayContract.validate(contract)
+
+      assert get_in(normalized, ["widgets", Access.at(0), "fields", Access.at(0), "format"]) ==
+               "timestamp"
+
+      assert get_in(normalized, ["widgets", Access.at(0), "fields", Access.at(1), "format"]) ==
+               "unix_nano"
+    end
+
+    test "rejects unknown temporal formats" do
+      contract =
+        Map.put(@valid, "widgets", [
+          %{
+            "type" => "facts",
+            "fields" => [%{"label" => "When", "path" => "time", "format" => "guess"}]
+          }
+        ])
+
+      assert {:error, errors} = DisplayContract.validate(contract)
+      assert Enum.any?(errors, &(&1 =~ "format must be one of timestamp, unix_nano"))
     end
 
     test "accepts a JSON string as well as a decoded map" do

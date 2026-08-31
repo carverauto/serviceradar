@@ -35,8 +35,8 @@
     {
       "type": "timeline",
       "fields": [
-        {"label": "Event Time", "path": "time"},
-        {"label": "Observed (unix nano)", "path": "anomaly.observed_at_unix_nano"}
+        {"label": "Event Time", "path": "time", "format": "timestamp"},
+        {"label": "Observed (unix nano)", "path": "anomaly.observed_at_unix_nano", "format": "unix_nano"}
       ]
     },
     {

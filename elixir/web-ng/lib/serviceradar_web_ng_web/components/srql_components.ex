@@ -374,6 +374,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   end
 
   attr(:viz, :any, default: :none)
+  attr(:id, :string, required: true)
+  attr(:timezone, :string, required: true)
 
   def srql_auto_viz(assigns) do
     ~H"""
@@ -392,7 +394,12 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       </div>
 
       <.timeseries_viz :if={match?({:timeseries, _}, @viz)} viz={@viz} />
-      <.categories_viz :if={match?({:categories, _}, @viz)} viz={@viz} />
+      <.categories_viz
+        :if={match?({:categories, _}, @viz)}
+        id={@id}
+        viz={@viz}
+        timezone={@timezone}
+      />
     </.ui_panel>
     """
   end
@@ -431,6 +438,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   defp timeseries_viz(assigns), do: assigns |> assign(:viz, :none) |> timeseries_viz()
 
   attr(:viz, :any, required: true)
+  attr(:id, :string, required: true)
+  attr(:timezone, :string, required: true)
 
   defp categories_viz(%{viz: {:categories, %{label: label, value: value, items: items}}} = assigns) do
     max_v =
@@ -453,10 +462,20 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       </div>
 
       <div class="flex flex-col gap-2">
-        <%= for {k, v} <- @items do %>
+        <%= for {{k, v}, item_index} <- Enum.with_index(@items) do %>
           <% v_num = to_number(v) %>
           <div class="flex items-center gap-3">
-            <div class="w-48 truncate text-sm" title={to_string(k)}>{format_category_label(k)}</div>
+            <div class="w-48 truncate text-sm" title={to_string(k)}>
+              <.user_time
+                :if={category_time_value(k)}
+                id={"#{@id}-time-#{item_index}"}
+                value={category_time_value(k)}
+                timezone={@timezone}
+                style={:full}
+                fallback={to_string(k)}
+              />
+              <span :if={is_nil(category_time_value(k))}>{format_category_label(k)}</span>
+            </div>
             <div class="flex-1">
               <div class="h-2 rounded-full bg-sr-subtle overflow-hidden">
                 <div
@@ -953,20 +972,23 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   defp format_category_label(value) when is_binary(value) do
     value = String.trim(value)
 
-    cond do
-      match?({:ok, _, _}, parse_iso8601(value)) ->
-        {:ok, dt, _iso} = parse_iso8601(value)
-        Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-
-      url?(value) ->
-        url_label(value)
-
-      true ->
-        value
+    if url?(value) do
+      url_label(value)
+    else
+      value
     end
   end
 
   defp format_category_label(value), do: to_string(value)
+
+  defp category_time_value(value) when is_binary(value) do
+    case parse_iso8601(String.trim(value)) do
+      {:ok, _datetime, canonical} -> canonical
+      _ -> nil
+    end
+  end
+
+  defp category_time_value(_value), do: nil
 
   defp srql_completions, do: Catalog.completion_tokens()
 

@@ -41,8 +41,8 @@
     {
       "type": "timeline",
       "fields": [
-        {"label": "Event Time", "path": "time"},
-        {"label": "Observed", "path": "metadata.service_radar.observed_time_unix_nano"}
+        {"label": "Event Time", "path": "time", "format": "timestamp"},
+        {"label": "Observed", "path": "metadata.service_radar.observed_time_unix_nano", "format": "unix_nano"}
       ]
     },
     {
