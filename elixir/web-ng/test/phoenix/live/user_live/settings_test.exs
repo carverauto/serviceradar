@@ -87,22 +87,19 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert html =~ "managed by your identity provider"
     end
 
-    test "topbar exposes a Profile / API docs / Logout dropdown", %{conn: conn} do
-      {:ok, _lv, html} =
+    test "topbar exposes a Profile / API docs / Logout menu", %{conn: conn} do
+      {:ok, lv, _html} =
         conn
         |> log_in_user(user_fixture(%{role: :operator}))
         |> live(~p"/settings/profile")
 
-      # The topbar avatar is now a daisyUI dropdown (dropdown-end) with three
-      # actions: Profile (LiveView nav), API docs (Swagger UI, new tab), Logout
-      # (reusing the existing delete session route).
-      assert html =~ "dropdown dropdown-end"
-      assert html =~ ~s(href="/api/v2/swaggerui")
-      assert html =~ ~s(target="_blank")
-      assert html =~ "API docs"
-      assert html =~ ~s(href="/settings/profile")
-      assert html =~ ~s(href="/users/log-out")
-      assert html =~ ~s(data-method="delete")
+      # The canonical details-based profile menu keeps the three actions: Profile
+      # (LiveView nav), API docs (Swagger UI, new tab), and the delete logout route.
+      assert has_element?(lv, "#ops-profile-menu")
+      assert has_element?(lv, "#ops-profile-menu-toggle")
+      assert has_element?(lv, "#ops-profile-menu a[href='/api/v2/swaggerui'][target='_blank']")
+      assert has_element?(lv, "#ops-profile-menu a[href='/settings/profile']")
+      assert has_element?(lv, "#ops-profile-menu a[href='/users/log-out'][data-method='delete']")
     end
 
     test "the users status strip links the API-keys card to API Credentials", %{conn: conn} do
@@ -140,7 +137,10 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       result =
         lv
         |> form("#email_form", %{
-          "user" => %{"email" => new_email}
+          "user" => %{
+            "email" => new_email,
+            "current_password" => valid_user_password()
+          }
         })
         |> render_submit()
 
