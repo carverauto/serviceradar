@@ -19,7 +19,7 @@
 
 ServiceRadar is a distributed network monitoring system designed for infrastructure and services in hard-to-reach places or constrained environments. It provides real-time monitoring of internal services with cloud-based alerting to ensure you stay informed even during network or power outages.
 
-Demo site available at https://demo.serviceradar.cloud login: `demo@localhost` password: `serviceradar`
+Demo site available at https://demo.serviceradar.cloud login: `demo@serviceradar.cloud` password: `serviceradar`
 
 ## Features
 
