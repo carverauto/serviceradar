@@ -42,6 +42,7 @@ const sidebars: SidebarsConfig = {
         },
         {type: 'doc', id: 'auth-configuration', label: 'Authentication'},
         {type: 'doc', id: 'rbac-and-roles', label: 'Roles & Permissions'},
+        {type: 'doc', id: 'group-permission-mapping', label: 'Group Permission Mapping'},
       ],
     },
     {

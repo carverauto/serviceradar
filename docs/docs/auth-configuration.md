@@ -90,6 +90,11 @@ Claim mappings apply to OIDC, SAML, and Gateway Proxy to map identity claims int
 
 Dot-notation is supported for nested claims (example: `user.email`).
 
+These mappings populate user fields. To turn identity-provider **group**
+membership into ServiceRadar roles, permission sets, and group membership --
+including how grants are revoked when a user leaves a group, and the Microsoft
+Entra specifics -- see [Group Permission Mapping](group-permission-mapping.md).
+
 ## Hostname And Redirects
 
 SSO redirect URIs and SAML metadata are built from the configured web-ng base URL.
