@@ -167,12 +167,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponents do
                   checked={MapSet.member?(@state.draft, agent.uid)}
                   phx-click="agent_picker_toggle"
                   phx-value-uid={agent.uid}
-                  aria-label={"Select #{agent_label(agent)}"}
+                  aria-label={"Select #{agent_accessible_label(agent)}"}
                 />
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-sm font-medium text-sr-ink">{agent_label(agent)}</span>
                   <span class="block truncate font-mono text-xs text-sr-muted">{agent.uid}</span>
                   <span class="mt-1 flex flex-wrap gap-1">
+                    <.ui_badge size="xs" variant="ghost">
+                      Partition {agent_partition(agent)}
+                    </.ui_badge>
                     <.ui_badge size="xs" variant="ghost">{agent_status(agent)}</.ui_badge>
                     <.ui_badge
                       :for={capability <- agent_capabilities(agent)}
@@ -250,6 +253,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponents do
                     <div class="truncate text-sm font-medium text-sr-ink">
                       {agent_label(row.agent)}
                     </div>
+                    <div class="truncate font-mono text-xs text-sr-muted">{row.agent.uid}</div>
+                    <div class="mt-1 flex flex-wrap gap-1">
+                      <.ui_badge size="xs" variant="ghost">
+                        Partition {agent_partition(row.agent)}
+                      </.ui_badge>
+                      <.ui_badge size="xs" variant="ghost">{agent_status(row.agent)}</.ui_badge>
+                      <.ui_badge
+                        :for={capability <- agent_capabilities(row.agent)}
+                        size="xs"
+                        variant="ghost"
+                      >
+                        {capability}
+                      </.ui_badge>
+                    </div>
                   <% else %>
                     <div class="font-mono text-sm text-sr-ink">{row.uid}</div>
                     <div class="text-xs text-sr-muted">Unavailable</div>
@@ -322,6 +339,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponents do
   end
 
   defp agent_status(agent), do: agent |> Map.get(:status, :unknown) |> to_string()
+
+  defp agent_accessible_label(agent) do
+    "#{agent_label(agent)}, UID #{Map.get(agent, :uid, "unknown")}, status #{agent_status(agent)}"
+  end
+
+  defp agent_partition(%{gateway: %{partition_id: partition_id}}) when is_binary(partition_id) and partition_id != "" do
+    case Ecto.UUID.cast(partition_id) do
+      {:ok, uuid} -> uuid
+      :error -> partition_id
+    end
+  end
+
+  defp agent_partition(_agent), do: "unassigned"
 
   defp agent_capabilities(agent) do
     agent

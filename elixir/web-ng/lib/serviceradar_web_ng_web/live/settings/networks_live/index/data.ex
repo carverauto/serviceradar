@@ -23,6 +23,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
     end
   end
 
+  def load_sweep_groups_with_summary_agents(scope) do
+    groups = load_sweep_groups(scope)
+    {groups, load_sweep_group_summary_agents(scope, groups)}
+  end
+
+  def load_sweep_group_summary_agents(scope, groups) when is_list(groups) do
+    groups
+    |> Enum.flat_map(fn
+      %{agent_ids: [uid]} when is_binary(uid) -> [uid]
+      _group -> []
+    end)
+    |> Enum.uniq()
+    |> Enum.chunk_every(AgentPicker.page_size())
+    |> Enum.reduce(%{}, fn uids, agents_by_uid ->
+      case load_agents_by_uids(scope, uids) do
+        {:ok, agents} -> Map.merge(agents_by_uid, Map.new(agents, &{&1.uid, &1}))
+        {:error, _reason} -> agents_by_uid
+      end
+    end)
+  end
+
   def load_sweep_group(scope, id) do
     case Ash.get(SweepGroup, id,
            scope: scope,
@@ -92,6 +113,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
     Agent
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(uid in ^bounded_uids)
+    |> Ash.Query.load(gateway: [:partition_id])
     |> Ash.read(scope: scope)
     |> case do
       {:ok, agents} -> {:ok, Enum.take(agents, AgentPicker.page_size())}

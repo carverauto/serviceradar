@@ -684,6 +684,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
 
   # Group Detail View
   attr :group, :map, required: true
+  attr :summary_agents, :map, default: %{}
 
   def group_detail(assigns) do
     ~H"""
@@ -732,7 +733,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           </div>
           <div>
             <div class="text-xs text-sr-muted uppercase">Scanner agents</div>
-            <div class="mt-1">{agent_assignment_summary(@group.agent_ids)}</div>
+            <div id="sweep-group-assignment-summary" class="mt-1">
+              {agent_assignment_summary(@group.agent_ids, @summary_agents)}
+            </div>
           </div>
           <div>
             <div class="text-xs text-sr-muted uppercase">Last Run</div>
@@ -948,11 +951,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
     end
   end
 
-  def agent_assignment_summary(agent_ids) do
+  def agent_assignment_summary(agent_ids, summary_agents \\ %{}) do
     case Enum.filter(agent_ids || [], &is_binary/1) do
-      [] -> "All"
-      [uid] -> uid
-      ids -> "#{length(ids)} selected"
+      [] ->
+        "All agents"
+
+      [uid] ->
+        case Map.get(summary_agents, uid) do
+          nil -> "#{uid} (Unavailable)"
+          agent -> agent_display_name(agent)
+        end
+
+      ids ->
+        "#{length(ids)} selected"
     end
   end
 end

@@ -31,6 +31,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     can_manage_networks = can_manage_networks?(scope)
 
     if can_manage_networks do
+      sweep_groups = load_sweep_groups(scope)
+
+      sweep_group_summary_agents =
+        if connected?(socket) and socket.assigns.live_action == :index do
+          load_sweep_group_summary_agents(scope, sweep_groups)
+        else
+          %{}
+        end
+
       if connected?(socket) do
         SweepPubSub.subscribe()
         AgentCommandsPubSub.subscribe()
@@ -42,7 +51,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:page_title, "Network Sweeps")
         |> assign(:current_path, "/settings/networks")
         |> assign(:active_tab, :groups)
-        |> assign(:sweep_groups, load_sweep_groups(scope))
+        |> assign(:sweep_groups, sweep_groups)
+        |> assign(:sweep_group_summary_agents, sweep_group_summary_agents)
         |> assign(:sweep_profiles, load_sweep_profiles(scope))
         |> assign(:running_executions, load_running_executions(scope))
         |> assign(:recent_executions, load_recent_executions(scope))

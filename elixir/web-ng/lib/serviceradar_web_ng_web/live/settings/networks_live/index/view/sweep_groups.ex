@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.CommandStatus
 
   attr :groups, :list, required: true
+  attr :summary_agents, :map, default: %{}
   attr :sweep_command_statuses, :map, default: %{}
   attr :can_manage_networks, :boolean, default: false
 
@@ -80,8 +81,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
                 <td class="text-xs">
                   {group.partition}
                 </td>
-                <td class="text-xs text-sr-muted">
-                  {agent_assignment_summary(group.agent_ids)}
+                <td
+                  class="text-xs text-sr-muted"
+                  data-sweep-group-assignment={group.id}
+                >
+                  {agent_assignment_summary(group.agent_ids, @summary_agents)}
                 </td>
                 <td class="text-xs text-sr-muted">
                   {format_last_run(group_last_run_at(group))}

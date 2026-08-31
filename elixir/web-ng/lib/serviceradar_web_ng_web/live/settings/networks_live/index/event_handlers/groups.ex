@@ -36,10 +36,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups 
              |> Ash.update(scope: scope) do
           {:ok, _updated} ->
             flash_message = sweep_group_toggle_message(action)
+            {groups, summary_agents} = load_sweep_groups_with_summary_agents(scope)
 
             {:noreply,
              socket
-             |> assign(:sweep_groups, load_sweep_groups(scope))
+             |> assign(:sweep_groups, groups)
+             |> assign(:sweep_group_summary_agents, summary_agents)
              |> put_flash(:info, flash_message)}
 
           {:error, _} ->
@@ -58,9 +60,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups 
       group ->
         case Ash.destroy(group, scope: scope) do
           :ok ->
+            {groups, summary_agents} = load_sweep_groups_with_summary_agents(scope)
+
             {:noreply,
              socket
-             |> assign(:sweep_groups, load_sweep_groups(scope))
+             |> assign(:sweep_groups, groups)
+             |> assign(:sweep_group_summary_agents, summary_agents)
              |> put_flash(:info, "Sweep group deleted")}
 
           {:error, _} ->
@@ -76,9 +81,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups 
          {:ok, group} <- fetch_sweep_group(scope, id) do
       case Ash.update(group, %{}, action: :run_now, scope: scope) do
         {:ok, _updated} ->
+          {groups, summary_agents} = load_sweep_groups_with_summary_agents(scope)
+
           {:noreply,
            socket
-           |> assign(:sweep_groups, load_sweep_groups(scope))
+           |> assign(:sweep_groups, groups)
+           |> assign(:sweep_group_summary_agents, summary_agents)
            |> put_flash(:info, "Sweep dispatch started")}
 
         {:error, reason} ->

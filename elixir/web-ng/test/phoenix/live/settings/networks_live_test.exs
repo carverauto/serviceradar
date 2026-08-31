@@ -329,6 +329,51 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     refute has_element?(view, "input[name='form[agent_ids][]'][value='#{beta.uid}']")
   end
 
+  test "agent picker rows expose complete visible and accessible agent metadata", %{conn: conn} do
+    partition = partition_fixture()
+    gateway = gateway_fixture(%{partition_id: partition.id})
+    unique = System.unique_integer([:positive])
+
+    agent =
+      agent_fixture(gateway, %{
+        uid: "metadata-picker-#{unique}",
+        name: "Metadata picker #{unique}",
+        capabilities: ["sweep"]
+      })
+
+    {:ok, view, _html} = live(conn, ~p"/settings/networks/groups/new")
+    view |> element("#sweep-agent-picker-trigger") |> render_click()
+
+    view
+    |> element("#sweep-agent-picker-search")
+    |> render_keyup(%{"value" => agent.uid})
+
+    assert has_element?(
+             view,
+             "input[phx-click='agent_picker_toggle'][phx-value-uid='#{agent.uid}']" <>
+               "[aria-label='Select #{agent.name}, UID #{agent.uid}, status connecting']"
+           )
+
+    browse_row = render(element(view, "[data-agent-picker-uid='#{agent.uid}']"))
+    assert browse_row =~ agent.name
+    assert browse_row =~ agent.uid
+    assert browse_row =~ "Partition #{partition.id}"
+    assert browse_row =~ "connecting"
+    assert browse_row =~ "sweep"
+
+    view
+    |> element("input[phx-click='agent_picker_toggle'][phx-value-uid='#{agent.uid}']")
+    |> render_click()
+
+    view |> element("#sweep-agent-picker-selected-tab") |> render_click()
+    selected_row = render(element(view, "[data-agent-picker-uid='#{agent.uid}']"))
+    assert selected_row =~ agent.name
+    assert selected_row =~ agent.uid
+    assert selected_row =~ "Partition #{partition.id}"
+    assert selected_row =~ "connecting"
+    assert selected_row =~ "sweep"
+  end
+
   test "save injects committed IDs, ignores crafted hidden IDs, and rejects selected-empty mode", %{
     conn: conn,
     scope: scope
@@ -454,6 +499,57 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
       end)
 
     refute Enum.any?(multiple_queries, &agent_query?/1)
+  end
+
+  test "list and detail summaries resolve singleton names and mark stale UIDs unavailable", %{
+    conn: conn
+  } do
+    gateway = gateway_fixture()
+    unique = System.unique_integer([:positive])
+    first = agent_fixture(gateway, %{uid: "list-summary-one-#{unique}", name: "List summary one #{unique}"})
+    second = agent_fixture(gateway, %{uid: "list-summary-two-#{unique}", name: "List summary two #{unique}"})
+    stale_uid = "list-summary-stale-#{unique}"
+
+    first_id = insert_sweep_group!("List singleton one #{unique}", [first.uid])
+    second_id = insert_sweep_group!("List singleton two #{unique}", [second.uid])
+    stale_id = insert_sweep_group!("List stale #{unique}", [stale_uid])
+    all_id = insert_sweep_group!("List all #{unique}", [])
+    multiple_id = insert_sweep_group!("List multiple #{unique}", [first.uid, second.uid])
+
+    list_queries =
+      capture_repo_queries(fn ->
+        {:ok, list_view, _html} = live(conn, ~p"/settings/networks")
+
+        assert has_element?(
+                 list_view,
+                 "[data-sweep-group-assignment='#{first_id}']",
+                 first.name
+               )
+
+        assert has_element?(
+                 list_view,
+                 "[data-sweep-group-assignment='#{second_id}']",
+                 second.name
+               )
+
+        stale_summary =
+          render(element(list_view, "[data-sweep-group-assignment='#{stale_id}']"))
+
+        assert stale_summary =~ stale_uid
+        assert stale_summary =~ "Unavailable"
+        assert has_element?(list_view, "[data-sweep-group-assignment='#{all_id}']", "All agents")
+        assert has_element?(list_view, "[data-sweep-group-assignment='#{multiple_id}']", "2 selected")
+      end)
+
+    assert Enum.count(list_queries, &agent_query?/1) == 1
+
+    {:ok, known_detail, _html} = live(conn, ~p"/settings/networks/groups/#{first_id}")
+    assert has_element?(known_detail, "#sweep-group-assignment-summary", first.name)
+
+    {:ok, stale_detail, _html} = live(conn, ~p"/settings/networks/groups/#{stale_id}")
+    stale_detail_summary = render(element(stale_detail, "#sweep-group-assignment-summary"))
+    assert stale_detail_summary =~ stale_uid
+    assert stale_detail_summary =~ "Unavailable"
   end
 
   test "selected view renders a stale UID as unavailable and allows removing it", %{conn: conn} do
@@ -793,7 +889,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     %{rows: [[id]]} =
       SQL.query!(
         ServiceRadar.Repo,
-        "INSERT INTO platform.sweep_groups (name, agent_ids) VALUES ($1, $2::text[]) RETURNING id",
+        "INSERT INTO platform.sweep_groups (name, agent_ids) VALUES ($1, $2::text[]) RETURNING id::text",
         [name, agent_ids]
       )
 

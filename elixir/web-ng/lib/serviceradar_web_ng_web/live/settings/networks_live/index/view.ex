@@ -74,7 +74,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
               />
             <% else %>
               <%= if @show_form == :show_group do %>
-                <.group_detail group={@selected_group} />
+                <.group_detail
+                  group={@selected_group}
+                  summary_agents={@sweep_group_summary_agents}
+                />
               <% else %>
                 <Navigation.render
                   active_tab={@active_tab}
@@ -87,6 +90,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                   <% :groups -> %>
                     <SweepGroups.render
                       groups={@sweep_groups}
+                      summary_agents={@sweep_group_summary_agents}
                       sweep_command_statuses={@sweep_command_statuses}
                       can_manage_networks={@can_manage_networks}
                     />

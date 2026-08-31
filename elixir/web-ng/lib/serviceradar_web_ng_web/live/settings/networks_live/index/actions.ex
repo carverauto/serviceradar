@@ -163,11 +163,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
         |> push_navigate(to: ~p"/settings/networks")
 
       group ->
+        scope = socket.assigns.current_scope
+
+        summary_agents =
+          if connected?(socket), do: load_sweep_group_summary_agents(scope, [group]), else: %{}
+
         socket
         |> assign(:page_title, group.name)
         |> assign(:current_path, "/settings/networks")
         |> assign(:show_form, :show_group)
         |> assign(:selected_group, group)
+        |> assign(:sweep_group_summary_agents, summary_agents)
     end
   end
 
