@@ -112,6 +112,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: agent_id,
                authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-#{unique_id}"
              )
 
@@ -215,6 +216,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: agent_id,
                authenticated_agent_id: agent_id,
+               authenticated_partition_id: "default",
                request_id: request_id,
                banner_grab_summary: %{
                  "sweep_banner_grab_probes_total" => 12,
@@ -335,6 +337,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: agent_id,
                authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-aggregate-#{unique_id}"
              )
 
@@ -420,6 +423,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: secondary_agent_id,
                authenticated_agent_id: secondary_agent_id,
+               authenticated_partition_id: "default",
                config_version: "secondary-#{unique_id}"
              )
 
@@ -458,6 +462,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: primary_agent_id,
                authenticated_agent_id: primary_agent_id,
+               authenticated_partition_id: "default",
                config_version: "primary-#{unique_id}"
              )
 
@@ -529,6 +534,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: agent_id,
                authenticated_agent_id: agent_id,
+               authenticated_partition_id: "default",
                config_version: "first-failure-#{unique_id}"
              )
 
@@ -544,6 +550,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: agent_id,
                authenticated_agent_id: agent_id,
+               authenticated_partition_id: "default",
                config_version: "second-failure-#{unique_id}"
              )
 
@@ -605,6 +612,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: primary_agent_id,
                authenticated_agent_id: primary_agent_id,
+               authenticated_partition_id: "default",
                config_version: "available-#{unique_id}"
              )
 
@@ -622,6 +630,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  sweep_group_id: group.id,
                  agent_id: secondary_agent_id,
                  authenticated_agent_id: secondary_agent_id,
+                 authenticated_partition_id: "default",
                  config_version: "failed-#{attempt}-#{unique_id}"
                )
     end
@@ -698,6 +707,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: reachable_agent_id,
                authenticated_agent_id: reachable_agent_id,
+               authenticated_partition_id: "default",
                config_version: "available-#{unique_id}"
              )
 
@@ -715,6 +725,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  sweep_group_id: group.id,
                  agent_id: unreachable_agent_id,
                  authenticated_agent_id: unreachable_agent_id,
+                 authenticated_partition_id: "default",
                  config_version: "failed-alias-#{attempt}-#{unique_id}"
                )
     end
@@ -777,6 +788,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: agent_id,
                authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-create-#{unique_id}"
              )
 
@@ -866,6 +878,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: agent_id,
                authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-duplicate-active-ip-#{unique_id}"
              )
 
@@ -934,6 +947,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: agent_id,
                authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-restore-deleted-#{unique_id}"
              )
 
@@ -1016,6 +1030,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: agent_id,
                authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-changed-ip-#{unique_id}"
              )
 
@@ -1453,6 +1468,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  sweep_group_id: group.id,
                  agent_id: agent_id,
                  authenticated_agent_id: agent_id,
+                 authenticated_partition_id: isolation_partition,
                  config_version: "hash-isolation-#{attempt}-#{unique_id}"
                )
     end
@@ -1721,6 +1737,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: agent_id,
                authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-skip-#{unique_id}",
                mapper_promotion_opts: [
                  dispatcher: fn _job, _opts ->
@@ -1803,6 +1820,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                    sweep_group_id: group.id,
                    agent_id: agent_a,
                    authenticated_agent_id: agent_a,
+                   authenticated_partition_id: "default",
                    config_version: "all-agents-a-#{unique_id}"
                  )
 
@@ -1814,6 +1832,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                    sweep_group_id: group.id,
                    agent_id: agent_b,
                    authenticated_agent_id: agent_b,
+                   authenticated_partition_id: "default",
                    config_version: "all-agents-b-#{unique_id}"
                  )
       end)
@@ -1865,6 +1884,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                sweep_group_id: group.id,
                agent_id: agent_a,
                authenticated_agent_id: agent_a,
+               authenticated_partition_id: "default",
                config_version: "all-agents-a-pinned-#{unique_id}"
              )
 
@@ -2045,6 +2065,93 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                Ash.get(SweepGroup, selected_group.id, actor: actor)
 
       assert is_nil(selected_group_after_unknown.last_run_at)
+    end
+
+    test "All keeps a cross-partition authenticated reporter forensic-only", %{actor: actor} do
+      unique_id = Ash.UUID.generate()
+      reporter_agent_id = "cross-partition-all-reporter-#{unique_id}"
+
+      device = reporter_device!(actor, unique_id, "cross-partition-all", false)
+      group = reporter_group!(actor, unique_id, "cross-partition-all", [])
+
+      log =
+        CaptureLog.capture_log(fn ->
+          assert {:ok, _} =
+                   ingest_report(
+                     actor,
+                     group.id,
+                     reporter_agent_id,
+                     available_result(device.ip),
+                     authenticated_partition_id: "other-partition"
+                   )
+        end)
+
+      assert log =~ "ANOMALOUS SWEEP ASSIGNMENT"
+      assert log =~ group.id
+      assert log =~ reporter_agent_id
+      refute reload_device!(actor, device.uid).is_available
+
+      assert {:ok, forensic_row} =
+               DeviceAgentAvailability.get_by_device_agent(device.uid, reporter_agent_id,
+                 actor: actor
+               )
+
+      assert forensic_row.is_available
+      assert forensic_row.sweep_group_id == group.id
+      assert forensic_row.metadata["sweep_reporter_expectation"] == "unexpected"
+      assert forensic_row.metadata["sweep_resolved_group_id"] == group.id
+
+      assert {:ok, group_after_report} = Ash.get(SweepGroup, group.id, actor: actor)
+      assert is_nil(group_after_report.last_run_at)
+    end
+
+    test "All keeps reporters without a canonical authenticated partition forensic-only", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      group = reporter_group!(actor, unique_id, "missing-authenticated-partition", [])
+
+      for {suffix, partition_opts} <- [
+            {"missing", []},
+            {"blank", [authenticated_partition_id: "  "]}
+          ] do
+        reporter_agent_id = "#{suffix}-partition-all-reporter-#{unique_id}"
+        device = reporter_device!(actor, unique_id, "#{suffix}-partition-all", false)
+        execution_id = Ash.UUID.generate()
+
+        opts =
+          Keyword.merge(
+            [
+              actor: actor,
+              sweep_group_id: group.id,
+              agent_id: reporter_agent_id,
+              authenticated_agent_id: reporter_agent_id,
+              config_version: "#{suffix}-partition-#{unique_id}"
+            ],
+            partition_opts
+          )
+
+        assert {:ok, _} =
+                 SweepResultsIngestor.ingest_results(
+                   [available_result(device.ip)],
+                   execution_id,
+                   opts
+                 )
+
+        refute reload_device!(actor, device.uid).is_available
+
+        assert {:ok, forensic_row} =
+                 DeviceAgentAvailability.get_by_device_agent(device.uid, reporter_agent_id,
+                   actor: actor
+                 )
+
+        assert forensic_row.is_available
+        assert forensic_row.metadata["sweep_reporter_expectation"] == "unknown"
+        assert forensic_row.metadata["sweep_resolved_group_id"] == group.id
+      end
+
+      assert {:ok, group_after_reports} = Ash.get(SweepGroup, group.id, actor: actor)
+      assert is_nil(group_after_reports.last_run_at)
     end
 
     test "unknown reporters cannot supersede running group executions", %{actor: actor} do
@@ -3057,6 +3164,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  sweep_group_id: group.id,
                  agent_id: agent_id,
                  authenticated_agent_id: agent_id,
+                 authenticated_partition_id: "default",
                  config_version: "hash-#{unique_id}"
                )
 
@@ -3066,6 +3174,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  sweep_group_id: nil,
                  agent_id: agent_id,
                  authenticated_agent_id: agent_id,
+                 authenticated_partition_id: "default",
                  config_version: "hash-#{unique_id}"
                )
 
@@ -3140,12 +3249,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
   defp ingest_report(actor, group_id, agent_id, result, opts \\ []) do
     execution_id = Keyword.get(opts, :execution_id, Ash.UUID.generate())
+    authenticated_partition_id = Keyword.get(opts, :authenticated_partition_id, "default")
 
     SweepResultsIngestor.ingest_results([result], execution_id,
       actor: actor,
       sweep_group_id: group_id,
       agent_id: agent_id,
       authenticated_agent_id: agent_id,
+      authenticated_partition_id: authenticated_partition_id,
       config_version: "reporter-policy-#{execution_id}"
     )
   end

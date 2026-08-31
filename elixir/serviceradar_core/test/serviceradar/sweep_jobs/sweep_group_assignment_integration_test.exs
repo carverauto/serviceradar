@@ -81,10 +81,21 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
     actor: actor,
     suffix: suffix
   } do
-    assert {:error, %Invalid{errors: errors}} =
-             create_group("Missing #{suffix}", %{agent_ids: ["agent-missing-#{suffix}"]}, actor)
+    first_missing = "agent-missing-a-#{suffix}"
+    later_missing = "agent-missing-z-#{suffix}"
 
-    assert Enum.any?(errors, &(&1.field == :agent_ids))
+    assert {:error, %Invalid{errors: errors}} =
+             create_group(
+               "Missing #{suffix}",
+               %{agent_ids: [later_missing, first_missing]},
+               actor
+             )
+
+    assert Enum.any?(
+             errors,
+             &(&1.field == :agent_ids and
+                 &1.message == "agent '#{first_missing}' not found")
+           )
   end
 
   test "an unresolved legacy member survives an unrelated update", %{actor: actor, suffix: suffix} do
@@ -128,6 +139,44 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
     assert group.agent_ids == [agent.uid]
   end
 
+  test "one query validates a 1,000-agent newly selected set", %{
+    actor: actor,
+    suffix: suffix
+  } do
+    agent_ids =
+      for index <- 1..1_000, do: "agent-batch-#{suffix}-#{index}"
+
+    assert {1_000, nil} =
+             Repo.insert_all(
+               "ocsf_agents",
+               Enum.map(agent_ids, &%{uid: &1}),
+               prefix: "platform"
+             )
+
+    handler_id = {__MODULE__, :agent_query_count, suffix}
+    test_pid = self()
+    telemetry_event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+
+    :telemetry.attach(
+      handler_id,
+      telemetry_event,
+      fn _event, _measurements, metadata, %{test_pid: test_pid} ->
+        if String.contains?(metadata.query, "ocsf_agents") do
+          send(test_pid, :agent_lookup_query)
+        end
+      end,
+      %{test_pid: test_pid}
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert {:ok, group} =
+             create_group("Batch #{suffix}", %{agent_ids: Enum.reverse(agent_ids)}, actor)
+
+    assert group.agent_ids == Enum.sort(agent_ids)
+    assert drain_agent_lookup_query_count(0) == 1
+  end
+
   defp create_group(name, attrs, actor) do
     SweepGroup
     |> Ash.Changeset.for_create(
@@ -151,5 +200,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroupAssignmentIntegrationTest do
     group
     |> Ash.Changeset.for_update(:update, attrs, actor: actor)
     |> Ash.update()
+  end
+
+  defp drain_agent_lookup_query_count(count) do
+    receive do
+      :agent_lookup_query -> drain_agent_lookup_query_count(count + 1)
+    after
+      0 -> count
+    end
   end
 end

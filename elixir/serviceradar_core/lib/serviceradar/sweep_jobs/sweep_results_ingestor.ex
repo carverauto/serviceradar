@@ -94,6 +94,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   - `:sweep_group_id` - The sweep group UUID (required to create execution if missing)
   - `:agent_id` - Reporter UID claimed by the legacy/body payload (forensic only)
   - `:authenticated_agent_id` - Reporter UID established by the trusted gateway
+  - `:authenticated_partition_id` - Reporter partition established by the trusted gateway
   - `:config_version` - Config version hash for the execution
   - `:scanner_metrics` - Scanner performance metrics from the agent
   - `:banner_grab_summary` - Phase-level banner-grab counters from the agent
@@ -109,6 +110,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     sweep_group_id = Keyword.get(opts, :sweep_group_id)
     reported_agent_id = Keyword.get(opts, :agent_id)
     authenticated_agent_id = Keyword.get(opts, :authenticated_agent_id)
+    authenticated_partition_id = Keyword.get(opts, :authenticated_partition_id)
     config_version = Keyword.get(opts, :config_version)
     scanner_metrics = Keyword.get(opts, :scanner_metrics)
     banner_grab_summary = Keyword.get(opts, :banner_grab_summary)
@@ -124,7 +126,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         execution_id,
         sweep_group_id,
         reported_agent_id,
-        authenticated_agent_id
+        authenticated_agent_id,
+        authenticated_partition_id
       )
 
     log_reporter_context(reporter_context, execution_id)
@@ -191,7 +194,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          execution_id,
          supplied_group_id,
          reported_agent_id,
-         authenticated_agent_id
+         authenticated_agent_id,
+         authenticated_partition_id
        ) do
     execution_result = load_execution_identity(execution_id)
     execution = execution_from_result(execution_result)
@@ -203,6 +207,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     group_result = load_sweep_group(resolved_group_id)
     group = group_from_result(group_result)
     authenticated_agent_id = valid_reporter_uid(authenticated_agent_id)
+    authenticated_partition_id = valid_partition_id(authenticated_partition_id)
     reported_agent_id = forensic_reporter_uid(reported_agent_id)
     reporter_agent_id = authenticated_agent_id || valid_reporter_uid(reported_agent_id)
 
@@ -213,11 +218,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         group_result,
         group,
         group_identity_consistent?,
-        authenticated_agent_id
+        authenticated_agent_id,
+        authenticated_partition_id
       )
 
     %{
       authenticated_agent_id: authenticated_agent_id,
+      authenticated_partition_id: authenticated_partition_id,
       execution: execution,
       expectation: expectation,
       expectation_reason: expectation_reason,
@@ -280,7 +287,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
          group_result,
          group,
          group_identity_consistent?,
-         authenticated_agent_id
+         authenticated_agent_id,
+         authenticated_partition_id
        ) do
     cond do
       is_nil(authenticated_agent_id) ->
@@ -298,8 +306,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       not execution_reporter_consistent?(execution, authenticated_agent_id) ->
         {:unknown, :conflicting_execution_reporter}
 
-      group.agent_ids == [] ->
+      group.agent_ids == [] and is_nil(authenticated_partition_id) ->
+        {:unknown, :missing_authenticated_partition}
+
+      group.agent_ids == [] and authenticated_partition_id == group.partition ->
         {:expected, :partition_assignment}
+
+      group.agent_ids == [] ->
+        {:unexpected, :outside_partition_assignment}
 
       is_list(group.agent_ids) and authenticated_agent_id in group.agent_ids ->
         {:expected, :selected_assignment}
@@ -329,6 +343,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp valid_reporter_uid(_value), do: nil
+
+  defp valid_partition_id(value) when is_binary(value) do
+    if value != "" and String.trim(value) == value, do: value
+  end
+
+  defp valid_partition_id(_value), do: nil
 
   defp forensic_reporter_uid(value) when is_binary(value) do
     if String.trim(value) != "", do: value
