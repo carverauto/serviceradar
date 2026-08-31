@@ -170,8 +170,10 @@ assignment row holds a secret reference rather than the value -- see
   New Source** configures the legacy/prefix path and does **not** drive this
   plugin; the plugin is driven by its assignment parameters.
 - Prefix and IPAM tag import (for NetFlow prefix tagging) is described next
-  and tracked in `add-flow-prefix-tag-enrichment` / forgejo #4641; moving that
-  fetch into a plugin is #4650.
+  and tracked in `add-flow-prefix-tag-enrichment` /
+  [GitHub #3527](https://github.com/carverauto/serviceradar/issues/3527);
+  moving that fetch into a plugin is
+  [GitHub #3528](https://github.com/carverauto/serviceradar/issues/3528).
 
 ---
 

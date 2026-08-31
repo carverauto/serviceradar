@@ -66,7 +66,7 @@ ServiceRadar provides pre-built multi-architecture (amd64/arm64) container image
 - **Core Service (Elixir)**: `registry.carverauto.dev/serviceradar/serviceradar-core-elx:latest`
 - **Certificate Generator**: `registry.carverauto.dev/serviceradar/serviceradar-cert-generator:latest`
 
-Images are published to Harbor from the current Forgejo-based release workflow.
+Images are published to Harbor from the GitHub Actions release workflow.
 
 ### Image Versioning
 

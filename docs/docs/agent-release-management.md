@@ -27,7 +27,7 @@ Before using release management in production:
 Use the authenticated release-management page:
 
 - Open `/settings/agents/releases`.
-- For production releases, prefer `Import Repository Release`. The page automatically loads the latest five repository releases for the selected GitHub repo or your configured Forgejo host, and lets operators import a ready release with one click when the configured manifest and signature assets are present.
+- For production releases, prefer `Import Repository Release`. The page automatically loads the latest five repository releases for the selected GitHub repo, and lets operators import a ready release with one click when the configured manifest and signature assets are present.
 - The published-release list also shows only the latest five releases. Older artifacts can remain protected in object storage when referenced by active or paused rollouts, but they are intentionally not shown as primary operator choices.
 - If the desired release is older than the recent list or uses a custom tag workflow, use the specific-tag import field and point it at the repo-hosted release tag plus the signed manifest asset and signature asset names.
 - For developer and local validation workflows, keep using `Publish Release Manually` and enter the semantic version, release notes, manifest signature, artifact URL, SHA256 digest, OS, architecture, and artifact format directly.
@@ -50,7 +50,7 @@ The current implementation expects the manifest signature field to contain the E
 
 Security guardrails:
 
-- Repository import only trusts GitHub-owned release hosts and your configured (pinned) Forgejo host.
+- Repository import only trusts GitHub-owned release hosts.
 - Import and mirroring reject non-HTTPS, loopback, link-local, private-network, and unresolved destinations.
 - Provider auth tokens are not forwarded to untrusted asset hosts.
 
@@ -125,7 +125,7 @@ Agent activation uses a separate updater and a stable package-managed launcher.
 Runtime behavior:
 
 - The agent stages the verified payload under the mutable runtime root.
-- The rollout command points the agent at an authenticated HTTPS download path on `agent-gateway`, not at the original GitHub/Forgejo/Harbor host.
+- The rollout command points the agent at an authenticated HTTPS download path on `agent-gateway`, not at the original GitHub or Harbor host.
 - `agent-gateway` resolves the authorized rollout target, fetches the mirrored object from internal storage, and streams it back to the agent.
 - The updater switches the `current` symlink atomically to the new versioned payload.
 - The service restarts against the new runtime.
