@@ -17,7 +17,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.ActiveScans do
     ~H"""
     <div class="space-y-4">
       <!-- Statistics Cards -->
-      <.scan_statistics running={@running} recent={@recent} />
+      <.scan_statistics running={@running} recent={@recent} groups={@groups} />
 
       <.ui_panel>
         <:header>

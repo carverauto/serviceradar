@@ -6,12 +6,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
   # Statistics Cards Component
   attr :running, :list, required: true
   attr :recent, :list, required: true
+  attr :groups, :list, required: true
 
   def scan_statistics(assigns) do
     # Calculate stats from recent executions
     completed_recent = Enum.filter(assigns.recent, &(&1.status == :completed))
 
     latest_completed = latest_execution(completed_recent)
+    latest_group_name = execution_group_name(latest_completed, assigns.groups)
 
     total_hosts = if latest_completed, do: latest_completed.hosts_total || 0, else: 0
     available_hosts = if latest_completed, do: latest_completed.hosts_available || 0, else: 0
@@ -32,6 +34,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
       |> assign(:completed_count, length(completed_recent))
       |> assign(:aggregate_metrics, aggregate_metrics)
       |> assign(:latest_completed, latest_completed)
+      |> assign(:latest_group_name, latest_group_name)
 
     ~H"""
     <div class="space-y-4">
@@ -44,11 +47,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
             <span :if={length(@running) > 0} class="size-2 rounded-full bg-success animate-pulse"></span>
           </div>
         </div>
-        <div class="bg-sr-subtle/50 rounded-lg p-4">
-          <div class="text-xs text-sr-muted uppercase tracking-wide">Hosts Scanned</div>
-          <div class="text-2xl font-bold mt-1">{@total_hosts}</div>
+        <div id="active-scans-latest-execution" class="bg-sr-subtle/50 rounded-lg p-4">
+          <div class="text-xs text-sr-muted uppercase tracking-wide">Latest Execution</div>
+          <div class="text-2xl font-bold mt-1">{format_number(@total_hosts)} hosts</div>
           <div class="text-xs text-sr-muted">
-            {@available_hosts} available
+            <%= if @latest_group_name do %>
+              {@latest_group_name} •
+            <% end %>
+            {format_number(@available_hosts)} available
             <%= if @latest_completed do %>
               • {format_last_run(@latest_completed.completed_at || @latest_completed.updated_at)}
             <% end %>
@@ -630,6 +636,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
 
   defp latest_execution(executions) do
     Enum.max_by(executions, &latest_execution_time/1, fn -> nil end)
+  end
+
+  defp execution_group_name(nil, _groups), do: nil
+
+  defp execution_group_name(execution, groups) do
+    case Enum.find(groups, &(Map.get(&1, :id) == Map.get(execution, :sweep_group_id))) do
+      nil -> nil
+      group -> Map.get(group, :name)
+    end
   end
 
   defp latest_execution_time(execution) do
