@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   attr(:device_uid, :string, required: true)
   attr(:fallback_target, :string, default: nil)
   attr(:traces, :list, default: [])
+  attr(:recent_traces, :list, default: [])
   attr(:pending_jobs, :list, default: [])
   attr(:trends, :map, default: %{hops: [], latency: []})
   attr(:total_count, :integer, default: 0)
@@ -17,8 +18,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   attr(:page_size, :integer, default: 50)
 
   def mtr_tab_content(assigns) do
-    dashboard = mtr_trace_dashboard(assigns.traces, assigns.pending_jobs, assigns.trends)
-    recent_trace_bars = recent_mtr_trace_bars(assigns.traces)
+    dashboard = mtr_trace_dashboard(assigns.recent_traces, assigns.pending_jobs)
+    recent_trace_bars = recent_mtr_trace_bars(assigns.recent_traces)
 
     assigns =
       assigns
@@ -39,12 +40,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
         </div>
       </div>
 
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 min-[1800px]:grid-cols-6">
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 min-[1800px]:grid-cols-8">
         <div class="sr-mtr-card p-4">
           <div class="sr-mtr-label">Pending Jobs</div>
           <div class="sr-mtr-value mt-2 text-3xl">{@mtr_dashboard.pending_count}</div>
         </div>
-        <div class="sr-mtr-card p-4">
+        <div id="device-mtr-reachability" class="sr-mtr-card p-4">
           <div class="flex items-center justify-between gap-4">
             <div class="min-w-0">
               <div class="sr-mtr-label">Reachability</div>
@@ -70,11 +71,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
           </div>
           <div class="sr-mtr-value mt-2 text-3xl">{@mtr_dashboard.avg_hops}</div>
         </div>
-        <div class="sr-mtr-card p-4">
+        <div id="device-mtr-destination-latency" class="sr-mtr-card p-4">
           <div class="sr-mtr-label">
-            Avg Last-Hop Latency
+            Destination Latency
           </div>
           <div class="sr-mtr-value mt-2 text-3xl">{@mtr_dashboard.avg_latency_label}</div>
+        </div>
+        <div id="device-mtr-destination-loss" class="sr-mtr-card p-4">
+          <div class="sr-mtr-label">Destination Loss</div>
+          <div class={[
+            "mt-2 text-3xl font-semibold tabular-nums",
+            loss_class_for_modal(@mtr_dashboard.destination_loss_pct)
+          ]}>
+            {format_pct_mtr(@mtr_dashboard.destination_loss_pct)}
+          </div>
+        </div>
+        <div class="sr-mtr-card p-4">
+          <div class="sr-mtr-label">Endpoint Samples</div>
+          <div class="sr-mtr-value mt-2 text-3xl">{@mtr_dashboard.endpoint_sample_count}</div>
+          <div class="sr-mtr-muted text-sm">destination observations</div>
         </div>
         <div class="sr-mtr-card p-4">
           <div class="sr-mtr-label">
@@ -105,6 +120,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
           </div>
           <div
             class="sr-mtr-outcome-strip mt-4"
+            id="device-mtr-recent-samples"
             role="list"
             aria-label="Recent MTR trace outcomes"
           >
@@ -133,8 +149,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             </div>
           </div>
         </div>
-        <div class="sr-mtr-subpanel p-3">
-          <div class="sr-mtr-muted text-xs mb-1">Last Hop Latency Trend</div>
+        <div id="device-mtr-destination-latency-trend" class="sr-mtr-subpanel p-3">
+          <div class="sr-mtr-muted text-xs mb-1">Destination Latency Trend</div>
           <.srql_sparkline points={@trends.latency} />
         </div>
       </div>
@@ -261,7 +277,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   attr(:hops, :list, default: [])
 
   def mtr_trace_modal(assigns) do
-    assigns = assign(assigns, :hop_dashboard, mtr_hop_dashboard(assigns.hops))
+    assigns = assign(assigns, :hop_dashboard, mtr_hop_dashboard(assigns.trace, assigns.hops))
 
     ~H"""
     <%= if @show and @trace do %>
@@ -320,22 +336,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
               <div class="sr-mtr-value mt-2 text-2xl tabular-nums">{@hop_dashboard.hop_count}</div>
             </div>
             <div class="sr-mtr-card p-4">
-              <div class="sr-mtr-label">Avg Loss</div>
+              <div class="sr-mtr-label">Destination Loss</div>
               <div class={[
                 "mt-2 text-2xl font-semibold tabular-nums",
-                loss_class_for_modal(@hop_dashboard.avg_loss_pct)
+                loss_class_for_modal(@hop_dashboard.destination_loss_pct)
               ]}>
-                {format_pct_mtr(@hop_dashboard.avg_loss_pct)}
+                {format_pct_mtr(@hop_dashboard.destination_loss_pct)}
               </div>
             </div>
             <div class="sr-mtr-card p-4">
-              <div class="sr-mtr-label">Peak Avg RTT</div>
+              <div class="sr-mtr-label">Peak Hop Avg RTT</div>
               <div class="sr-mtr-value mt-2 text-2xl tabular-nums">
                 {format_us_mtr(@hop_dashboard.max_avg_us)}
               </div>
             </div>
             <div class="sr-mtr-card p-4">
-              <div class="sr-mtr-label">Most Lossy Hop</div>
+              <div class="sr-mtr-label">Max Hop Loss</div>
               <div class="sr-mtr-value mt-2 text-2xl tabular-nums">
                 {format_pct_mtr(@hop_dashboard.max_loss_pct)}
               </div>
@@ -491,7 +507,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   defp pending_status_variant(:running), do: "warning"
   defp pending_status_variant(_), do: "ghost"
 
-  defp mtr_trace_dashboard(traces, pending_jobs, trends) do
+  defp mtr_trace_dashboard(traces, pending_jobs) do
     traces = List.wrap(traces)
     pending_jobs = List.wrap(pending_jobs)
     reached_count = Enum.count(traces, &mtr_trace_reached?/1)
@@ -504,21 +520,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
       |> Enum.reject(&(&1 <= 0))
       |> average_mtr_number()
 
-    avg_latency_us =
-      trends
-      |> Map.get(:latency, [])
-      |> Enum.map(fn
-        {_time, us} when is_integer(us) -> us
-        {_time, us} when is_float(us) -> trunc(us)
-        _ -> 0
+    {destination_sent, destination_received, weighted_rtt_us, rtt_reply_count, endpoint_sample_count} =
+      Enum.reduce(traces, {0, 0, 0, 0, 0}, fn trace, {sent, received, weighted_rtt, rtt_replies, samples} ->
+        sent_count = mtr_trace_metric(trace, "destination_sent")
+        received_count = mtr_trace_metric(trace, "destination_received")
+        loss_received_count = if sent_count > 0, do: received_count, else: 0
+        samples = if mtr_destination_observation?(trace), do: samples + 1, else: samples
+
+        {weighted_rtt, rtt_replies} =
+          case mtr_trace_rtt_us(trace) do
+            nil -> {weighted_rtt, rtt_replies}
+            avg_us -> {weighted_rtt + avg_us * received_count, rtt_replies + received_count}
+          end
+
+        {
+          sent + sent_count,
+          received + loss_received_count,
+          weighted_rtt,
+          rtt_replies,
+          samples
+        }
       end)
-      |> Enum.reject(&(&1 <= 0))
-      |> average_mtr_number()
-      |> trunc()
+
+    avg_latency_us =
+      case rtt_reply_count do
+        0 -> nil
+        _ -> round(weighted_rtt_us / rtt_reply_count)
+      end
+
+    destination_loss_pct =
+      case destination_sent do
+        0 -> nil
+        _ -> Float.round(100.0 * (destination_sent - destination_received) / destination_sent, 1)
+      end
 
     success_rate =
-      trace_count
-      |> positive_ratio(reached_count)
+      reached_count
+      |> positive_ratio(trace_count)
       |> Kernel.*(100)
       |> Float.round(1)
 
@@ -529,7 +567,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
       failed_count: failed_count,
       success_rate: success_rate,
       avg_hops: Float.round(avg_hops, 1),
-      avg_latency_label: format_us_mtr(avg_latency_us)
+      avg_latency_label: format_us_mtr(avg_latency_us),
+      destination_loss_pct: destination_loss_pct,
+      endpoint_sample_count: endpoint_sample_count
     }
   end
 
@@ -556,6 +596,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
 
   defp mtr_trace_total_hops(_trace), do: 0
 
+  defp mtr_trace_metric(trace, key) when is_map(trace) do
+    case Map.get(trace, key) do
+      value when is_integer(value) and value > 0 -> value
+      value when is_float(value) and value > 0 -> round(value)
+      _ -> 0
+    end
+  end
+
+  defp mtr_trace_metric(_trace, _key), do: 0
+
+  defp mtr_trace_rtt_us(trace) when is_map(trace) do
+    case Map.get(trace, "destination_avg_us") do
+      value when is_integer(value) and value >= 0 -> value
+      value when is_float(value) and value >= 0 -> round(value)
+      _ -> nil
+    end
+  end
+
+  defp mtr_trace_rtt_us(_trace), do: nil
+
+  defp mtr_destination_observation?(trace) when is_map(trace) do
+    is_number(Map.get(trace, "destination_sent"))
+  end
+
+  defp mtr_destination_observation?(_trace), do: false
+
   defp mtr_radial_value(value) when is_number(value) do
     value
     |> round()
@@ -576,7 +642,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   defp positive_ratio(value, total), do: min(1.0, max(value / total, 0.0))
 
   defp format_us_mtr(nil), do: "-"
-  defp format_us_mtr(0), do: "-"
+  defp format_us_mtr(0), do: "0.0ms"
 
   defp format_us_mtr(us) when is_integer(us) do
     cond do
@@ -597,7 +663,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   defp loss_class_for_modal(pct) when is_number(pct) and pct >= 10, do: "text-warning"
   defp loss_class_for_modal(_), do: ""
 
-  defp mtr_hop_dashboard(hops) do
+  defp mtr_hop_dashboard(trace, hops) do
     hops = List.wrap(hops)
 
     avg_loss_pct =
@@ -622,9 +688,63 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
       hop_count: length(hops),
       avg_loss_pct: Float.round(avg_loss_pct, 1),
       max_avg_us: max_avg_us,
-      max_loss_pct: max_loss_pct
+      max_loss_pct: max_loss_pct,
+      destination_loss_pct: destination_loss_pct(trace, hops)
     }
   end
+
+  defp destination_loss_pct(trace, hops) do
+    with true <- mtr_trace_reached?(trace),
+         total_hops when total_hops > 0 <- mtr_trace_total_hops(trace),
+         hop when is_map(hop) <- latest_mtr_hop(hops, total_hops),
+         sent when sent > 0 <- mtr_hop_metric(hop, "sent") do
+      received = mtr_hop_metric(hop, "received")
+      Float.round(100.0 * (sent - received) / sent, 1)
+    else
+      _ -> nil
+    end
+  end
+
+  defp latest_mtr_hop(hops, hop_number) do
+    hops
+    |> Enum.filter(&(mtr_hop_number(&1) == hop_number))
+    |> case do
+      [] -> nil
+      terminal_hops -> Enum.max_by(terminal_hops, &mtr_hop_recency_key/1)
+    end
+  end
+
+  defp mtr_hop_recency_key(hop) do
+    {mtr_hop_time_key(Map.get(hop, "time")), Map.get(hop, "id") || ""}
+  end
+
+  defp mtr_hop_time_key(%DateTime{} = value), do: DateTime.to_unix(value, :microsecond)
+
+  defp mtr_hop_time_key(%NaiveDateTime{} = value) do
+    NaiveDateTime.diff(value, ~N[1970-01-01 00:00:00], :microsecond)
+  end
+
+  defp mtr_hop_time_key(_value), do: -1
+
+  defp mtr_hop_number(hop) when is_map(hop) do
+    case Map.get(hop, "hop_number") do
+      value when is_integer(value) -> value
+      value when is_float(value) -> round(value)
+      _ -> 0
+    end
+  end
+
+  defp mtr_hop_number(_hop), do: 0
+
+  defp mtr_hop_metric(hop, key) when is_map(hop) do
+    case Map.get(hop, key) do
+      value when is_integer(value) and value >= 0 -> value
+      value when is_float(value) and value >= 0 -> round(value)
+      _ -> 0
+    end
+  end
+
+  defp mtr_hop_metric(_hop, _key), do: 0
 
   defp hop_avg_us(hop) when is_map(hop) do
     case hop["avg_us"] do

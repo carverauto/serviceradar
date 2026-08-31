@@ -598,20 +598,22 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           b_path={diagnostics_window_path(@state, :b)}
         />
         <.compare_metric_card
-          label="Last-Hop Latency"
-          a_value={format_us(@comparison.a.avg_last_hop_us)}
-          b_value={format_us(@comparison.b.avg_last_hop_us)}
-          delta={@comparison.deltas.avg_last_hop_us}
+          id="mtr-compare-destination-latency"
+          label="Destination Latency"
+          a_value={format_us(@comparison.a.avg_destination_us)}
+          b_value={format_us(@comparison.b.avg_destination_us)}
+          delta={@comparison.deltas.avg_destination_us}
           unit="latency_us"
           higher_is_better={false}
           a_path={diagnostics_window_path(@state, :a)}
           b_path={diagnostics_window_path(@state, :b)}
         />
         <.compare_metric_card
-          label="Avg Hop Loss"
-          a_value={format_percent(@comparison.a.avg_loss_pct)}
-          b_value={format_percent(@comparison.b.avg_loss_pct)}
-          delta={@comparison.deltas.avg_loss_pct}
+          id="mtr-compare-destination-loss"
+          label="Destination Loss"
+          a_value={format_percent(@comparison.a.destination_loss_pct)}
+          b_value={format_percent(@comparison.b.destination_loss_pct)}
+          delta={@comparison.deltas.destination_loss_pct}
           unit="points"
           higher_is_better={false}
           a_path={diagnostics_window_path(@state, :a)}
@@ -720,6 +722,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   end
 
   attr(:label, :string, required: true)
+  attr(:id, :string, default: nil)
   attr(:a_value, :any, required: true)
   attr(:b_value, :any, required: true)
   attr(:delta, :any, required: true)
@@ -730,7 +733,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
   defp compare_metric_card(assigns) do
     ~H"""
-    <div class="sr-mtr-card p-4">
+    <div id={@id} class="sr-mtr-card p-4">
       <div class="sr-mtr-label">{@label}</div>
       <div class="mt-3 grid grid-cols-2 gap-3">
         <.link
@@ -750,7 +753,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           <div class="sr-mtr-value text-2xl">{@b_value}</div>
         </.link>
       </div>
-      <.ui_badge size="sm" variant={delta_badge_variant(@delta, @higher_is_better)} class="mt-3">
+      <.ui_badge
+        size="sm"
+        variant={delta_badge_variant(@delta, @higher_is_better)}
+        class="mt-3 sr-mtr-metric-delta"
+      >
         {format_delta(@delta, @unit)}
       </.ui_badge>
     </div>
@@ -1275,13 +1282,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   end
 
   defp format_percent(value) when is_integer(value) or is_float(value), do: "#{Float.round(value / 1, 1)}%"
-  defp format_percent(_), do: "0.0%"
+  defp format_percent(_), do: "-"
 
+  defp format_us(value) when value == 0, do: "0.0ms"
   defp format_us(value) when is_integer(value), do: format_us(value * 1.0)
 
   defp format_us(value) when is_float(value) do
     cond do
-      value <= 0 -> "-"
+      value < 0 -> "-"
       value >= 1_000_000 -> "#{Float.round(value / 1_000_000, 1)}s"
       value >= 1_000 -> "#{Float.round(value / 1_000, 1)}ms"
       true -> "#{Float.round(value, 1)}us"
@@ -1293,7 +1301,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   defp format_delta(delta, "latency_us") when delta == 0, do: "0us"
 
   defp format_delta(delta, "latency_us") when is_integer(delta) or is_float(delta) do
-    sign = if delta > 0, do: "+", else: ""
+    sign = if delta > 0, do: "+", else: "-"
     formatted = delta |> abs() |> format_us()
     "#{sign}#{formatted}"
   end
@@ -1305,8 +1313,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     "#{sign}#{value}#{suffix}"
   end
 
-  defp format_delta(_, "latency_us"), do: "0us"
-  defp format_delta(_, unit), do: "0 #{unit}"
+  defp format_delta(_, _unit), do: "-"
 
   defp delta_badge_variant(delta, higher_is_better) when is_number(delta) do
     cond do
