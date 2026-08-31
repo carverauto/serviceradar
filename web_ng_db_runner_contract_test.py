@@ -66,14 +66,53 @@ class WebNgDbRunnerContractTest(unittest.TestCase):
         self.assertIn(
             '"//elixir/serviceradar_core:test/db/fixture_config.exs"', rule
         )
+        self.assertIn(
+            '"//elixir/serviceradar_core:config/test_database_guard.exs"', rule
+        )
 
     def test_web_test_config_consumes_the_guarded_url_without_downgrading_tls(self):
         config = WEB_TEST_CONFIG.read_text(encoding="utf-8")
 
-        self.assertIn('System.get_env("SERVICERADAR_TEST_DATABASE_URL")', config)
-        self.assertIn('System.get_env("SERVICERADAR_TEST_DATABASE_CA_CERT")', config)
+        url_getter = 'System.get_env("SERVICERADAR_TEST_DATABASE_URL")'
+        ca_getter = 'System.get_env("SERVICERADAR_TEST_DATABASE_CA_CERT")'
+        guard_call = (
+            "ServiceRadar.DB.TestDatabaseGuard.validate!(guarded_database_url"
+        )
+        repo_url = "[url: guarded_database_url]"
+
+        self.assertIn(url_getter, config)
+        self.assertIn(ca_getter, config)
         self.assertIn(
             'System.get_env("SERVICERADAR_TEST_DATABASE_SERVER_NAME")', config
+        )
+        self.assertIn(
+            "guarded web-ng database tests require "
+            "SERVICERADAR_TEST_DATABASE_CA_CERT",
+            config,
+        )
+        self.assertIn(
+            "guarded web-ng database tests require "
+            "SERVICERADAR_TEST_DATABASE_SERVER_NAME",
+            config,
+        )
+        self.assertIn(guard_call, config)
+        self.assertIn('ssl_mode: "verify-full"', config)
+        self.assertIn("ca_configured?: guarded_ca_certs != []", config)
+        self.assertIn(repo_url, config)
+        self.assertLess(config.index(guard_call), config.index(repo_url))
+        self.assertIn(
+            "cnpg_verify_peer = guarded_database? or "
+            "cnpg_ssl_mode in ~w(verify-ca verify-full)",
+            config,
+        )
+        self.assertIn("Keyword.put(opts, :cacerts, guarded_ca_certs)", config)
+        self.assertIn(
+            'if (guarded_database? or cnpg_ssl_mode == "verify-full") and\n'
+            '         cnpg_tls_server_name != "" do',
+            config,
+        )
+        self.assertNotIn(
+            'if cnpg_verify_peer and cnpg_tls_server_name != "" do', config
         )
         self.assertIn("server_name_indication", config)
         self.assertIn("customize_hostname_check", config)

@@ -404,6 +404,7 @@ ex_unit_test(
         "//build:elixir_test_config_loader.exs",
         "//build:run_id_file",
         "//config/environments:ci_binpb",
+        "//elixir/serviceradar_core:config/test_database_guard.exs",
         "//elixir/serviceradar_core:test/db/fixture_config.exs",
         "//elixir/serviceradar_core:test/db/integration_env.exs",
         "//elixir/serviceradar_core:test/db/integration_env_config.exs",

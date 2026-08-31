@@ -36,6 +36,17 @@ if guarded_database? and
   raise "guarded web-ng database tests require SERVICERADAR_TEST_DATABASE_SERVER_NAME"
 end
 
+if guarded_database? do
+  Code.require_file(Path.expand("../../serviceradar_core/config/test_database_guard.exs", __DIR__))
+
+  ServiceRadar.DB.TestDatabaseGuard.validate!(guarded_database_url,
+    tls_server_name: guarded_tls_server_name,
+    ssl_mode: "verify-full",
+    ca_configured?: guarded_ca_certs != [],
+    template_lifecycle?: false
+  )
+end
+
 cnpg_ssl_mode = System.get_env("CNPG_SSL_MODE", "disable")
 cnpg_ssl_enabled = guarded_database? or cnpg_ssl_mode != "disable"
 cnpg_hostname = System.get_env("CNPG_HOST", "localhost")
@@ -89,7 +100,8 @@ cnpg_ssl_opts =
     end
   end)
   |> then(fn opts ->
-    if cnpg_verify_peer and cnpg_tls_server_name != "" do
+    if (guarded_database? or cnpg_ssl_mode == "verify-full") and
+         cnpg_tls_server_name != "" do
       opts
       |> Keyword.put(:server_name_indication, String.to_charlist(cnpg_tls_server_name))
       |> Keyword.put(:customize_hostname_check,
