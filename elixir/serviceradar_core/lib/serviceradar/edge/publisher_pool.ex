@@ -55,8 +55,9 @@ defmodule ServiceRadar.Edge.PublisherPool do
   NOT wired: publication is still one synchronous request per record. The window bounds how many
   may be ADMITTED at once, which bounds concurrent admissions but NOT concurrent publications --
   see `PublishWindow`'s "what this does not yet bound" -- and the asynchronous
-  pipelining and the PubAck correlation that make out-of-order settlement possible are tasks 3.4
-  and 3.5. This module also does not bind byte credits to encoded frame size.
+  pipelining that would make out-of-order settlement possible is also TASK 3.3's -- along with the
+  hard window itself and the recording of out-of-order PubAcks. 3.4 owns exact-byte and retained-
+  memory binding; 3.5 owns outcome-specific PubAck validation and prefix advancement. This module also does not bind byte credits to encoded frame size.
 
   """
 

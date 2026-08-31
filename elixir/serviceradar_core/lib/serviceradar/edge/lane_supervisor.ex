@@ -26,7 +26,8 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   What is closed today is the reporting: `JetStreamPublisher` refuses to report a publish durable
   when the accounting that authorised it did not survive: it returns a RETRYABLE error instead of
   reporting the record delivered. Nothing at this layer republishes -- there is no production
-  caller -- so what is established is that the source sequence stays unresolved.
+  caller -- so what is established is only the RETURN VALUE. Withholding progress for that
+  source sequence is the future caller's obligation; nothing here advances or withholds it.
 
   What is NOT closed is the transient over-admission itself, and that obligation belongs to TASK
   3.3, which requires the hard window. It is not 3.4's (exact-byte and memory binding) nor 3.5's
@@ -36,9 +37,9 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   3.3's publisher pipeline still needs.
 
   The conservative direction is to lose an in-flight publish rather than orphan its accounting:
-  the record simply stays unresolved. Reconstructing reservations for requests whose replies may
-  still arrive would need to know whether those requests completed, which nothing here can
-  determine.
+  the publish is reported as retryable rather than durable, leaving the decision about progress to
+  the caller. Reconstructing reservations for requests whose replies may still arrive would need to
+  know whether those requests completed, which nothing here can determine.
 
   ## What this does NOT cover: an ordinary reconnect
 

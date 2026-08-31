@@ -229,7 +229,9 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
       # The publish reached the broker, but the accounting that authorised it did not survive to
       # record the fact -- the lane restarted, or this reservation was superseded. Reporting it
       # durable would be reporting a fact nothing can account for, so a RETRYABLE error is
-      # returned instead and the source sequence stays unresolved.
+      # returned instead. This function does not resolve or withhold a source sequence -- it has
+      # no such state; withholding progress on a retryable error is the future caller's
+      # obligation.
       #
       # Stated carefully, because a looser version of this comment claimed more: this function
       # returns an error, it does not itself republish -- there is no production caller yet. And
@@ -427,8 +429,8 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
         end
 
       _ ->
-        # A body we cannot parse is NOT proof the record is poison. It is an unresolved
-        # publication, so the source sequence stays withheld.
+        # A body we cannot parse is NOT proof the record is poison. It is classified RETRYABLE,
+        # which is what tells a caller to withhold progress; this function holds no such state.
         {:error, :systemic}
     end
   end
@@ -511,7 +513,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
       :misrouted
     else
       # Everything else -- including a size refusal by description, which has the same
-      # server-vs-stream ambiguity as err_code 10054 -- stays unresolved rather than terminal.
+      # server-vs-stream ambiguity as err_code 10054 -- is classified RETRYABLE, not terminal.
       :systemic
     end
   end

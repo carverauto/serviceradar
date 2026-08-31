@@ -745,6 +745,24 @@
   asynchronous publishes under hard outstanding frame/byte/PubAck-deadline
   windows rather than serializing every frame on one request; record out-of-
   order PubAcks and expose only the contiguous resolved edge prefix.
+  CLOSURE CRITERIA, because bounded RESERVATIONS are not the hard window and an
+  earlier pass nearly checked this task on that basis. Reservations, attempt
+  phases, and per-lane pools are landed; what remains is 3.3's own, NOT 3.4's
+  (exact-byte/retained-memory binding) and NOT 3.5's (outcome-specific PubAck
+  validation and prefix advancement). This task MAY NOT be checked until BOTH
+  hold, each covered by a scenario under `ingestion-routing`'s "Backpressure and
+  fairness are bounded at every hop":
+  (i) RESTART OVERLAP -- a lane restart MUST NOT reopen capacity an in-flight
+  request still occupies, so old and replacement requests together cannot exceed
+  the grant. Eventual supervisor restart of a sibling does not satisfy this:
+  restarts are ordered but not instantaneous, and a request may complete inside
+  that interval.
+  (ii) POST-HANDOFF FENCING -- once a reservation is handed to a caller, a retry
+  MUST NOT be admitted until the previous attempt is fenced by its REQUEST (owner,
+  start, termination). A passed deadline or an absent PubAck is NOT sufficient
+  evidence: neither distinguishes "never sent" from "in flight", "delayed", or
+  "acknowledged with the acknowledgement lost". Correlation from 3.5 may assist
+  RECOVERY but does not discharge this obligation.
 - [ ] 3.4 Bounded-decode and verify the bounded binary record against the mTLS
   session, grant, registry, route, cost, size, and digest, but publish the exact
   `EdgeDeliveryFrameV1.record_bytes` unchanged to JetStream, never the delivery
