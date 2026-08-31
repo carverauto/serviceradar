@@ -474,12 +474,18 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":4})}})
       Process.put(:kill_pool_during_request, pools[:bulk])
 
-      assert {:ok, %{seq: 4}} =
+      # NOT reported durable. The publish reached the broker, but the accounting that authorised
+      # it is gone, so progress is withheld and the record is republished -- Nats-Msg-Id
+      # deduplicates the copy. Reporting {:ok, ack} here would report a fact nothing can account
+      # for.
+      assert {:error, :systemic} =
                JetStreamPublisher.publish_record(publication(),
                  connection: FakeConn,
                  pools: pools
                ),
-             "settlement against a dead pool escaped as an exit instead of being reported"
+             "a publish whose accounting was destroyed was reported durable"
+
+      assert JetStreamPublisher.retryable?(:systemic)
 
       Process.delete(:kill_pool_during_request)
       refute Process.alive?(pools[:bulk])

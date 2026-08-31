@@ -38,6 +38,19 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
     end)
   end
 
+  # Waits until the suspended pool has actually RECEIVED the call, instead of assuming a sleep was
+  # long enough. A fixed sleep here proves nothing: if the message had not arrived yet, the test
+  # would exercise a different interleaving than the one it claims to.
+  defp await_queued(pool, n) do
+    assert eventually(fn ->
+             match?(
+               {:message_queue_len, len} when len >= n,
+               Process.info(pool, :message_queue_len)
+             )
+           end),
+           "the call never reached the suspended pool"
+  end
+
   defp eventually(fun, tries \\ 200)
   defp eventually(_fun, 0), do: false
 
@@ -65,6 +78,7 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
 
       :sys.suspend(p)
       task = Task.async(fn -> PublisherPool.admit(p, k(1), 50, 60_000) end)
+      await_queued(p, 1)
       assert {:error, :pool_timeout} = Task.await(task, 5_000)
       :sys.resume(p)
 
@@ -88,11 +102,15 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
 
       :sys.suspend(p)
       task = Task.async(fn -> PublisherPool.admit(p, k(1), 50, 60_000) end)
+      await_queued(p, 1)
       assert {:error, :pool_timeout} = Task.await(task, 5_000)
       :sys.resume(p)
 
-      # Still charged: the record was never resolved, so its credits must not come back.
-      Process.sleep(50)
+      # Still charged: the record was never resolved, so its credits must not come back. Waited on
+      # the pool draining the revocation, not on a fixed sleep.
+      assert eventually(fn ->
+               match?({:message_queue_len, 0}, Process.info(p, :message_queue_len))
+             end)
 
       assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p),
              "revoking a retry released a reservation that was still unresolved"
@@ -112,7 +130,7 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
       :sys.suspend(p)
       caller = spawn(fn -> PublisherPool.admit(p, k(1), 50, 60_000) end)
       ref = Process.monitor(caller)
-      Process.sleep(20)
+      await_queued(p, 1)
       Process.exit(caller, :kill)
       assert_receive {:DOWN, ^ref, :process, ^caller, _}
       :sys.resume(p)
@@ -151,6 +169,14 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
       assert map_size(pending) === 0,
              "pending admissions accumulated across retries: #{map_size(pending)}"
 
+      # MONITORS TOO. Each admission monitors its caller until the handoff is confirmed; a leak
+      # there grows outside the frame bound just as pending entries would, and is invisible to a
+      # check that only looks at the map.
+      {:monitors, monitors} = Process.info(p, :monitors)
+
+      assert monitors === [],
+             "monitors leaked across retries: #{length(monitors)}"
+
       # NOT VACUOUS, but not by racing the confirmation: an admission is confirmed by a cast from
       # the same process, so by the time this test can observe anything the entry is already gone.
       # What proves the map is really used is that REVOCATION works at all -- it can only find an
@@ -178,18 +204,29 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
       # lane silently shortened every ack window, and could report a frame expired before its
       # request had even been sent.
       p = pool(1, 100)
+      ack_window = 30_000
 
       :sys.suspend(p)
-      task = Task.async(fn -> PublisherPool.admit(p, k(1), 50, 200) end)
+      task = Task.async(fn -> PublisherPool.admit(p, k(1), 50, ack_window) end)
+      await_queued(p, 1)
 
-      # Queued for far longer than the 200ms ack window the caller asked for.
-      Process.sleep(400)
+      # Queued for longer than the queue delay this test injects. The ack window is deliberately
+      # LARGE relative to it: what is being measured is whether the queue delay is DEDUCTED, and a
+      # window only slightly larger than the delay would make a correct implementation fail
+      # whenever scheduling ran slow.
+      Process.sleep(300)
       :sys.resume(p)
       assert {:ok, _res} = Task.await(task, 5_000)
 
-      # Stamped before the call, this reservation would already be expired on arrival.
-      assert PublisherPool.expired(p) === [],
-             "the ack interval was consumed by time spent waiting for the pool"
+      # Stamped before the call, 300ms of the window would already be gone. That is invisible with
+      # a 30s window, so the assertion is on the RECORDED deadline instead of on expiry.
+      assert %{outstanding_frames: 1} = PublisherPool.capacity(p)
+
+      [{_key, {_bytes, deadline, _attempt}}] = Map.to_list(:sys.get_state(p).window.outstanding)
+      remaining = deadline - System.monotonic_time(:millisecond)
+
+      assert remaining > ack_window - 200,
+             "the ack interval was charged for time spent queued: #{ack_window - remaining}ms gone"
     end
   end
 end

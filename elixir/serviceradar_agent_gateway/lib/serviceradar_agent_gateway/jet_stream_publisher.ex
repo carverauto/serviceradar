@@ -222,8 +222,23 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # to its resolved route and does not yet compute audit/quarantine/security-quarantine routing;
   # that mapping is task 3.5 and supplies the outcome when it lands.
   defp settle({:ok, _ack} = result, pool, reservation) do
-    pool_call(fn -> PublisherPool.settle(pool, reservation, :primary_publication) end)
-    result
+    case pool_call(fn -> PublisherPool.settle(pool, reservation, :primary_publication) end) do
+      :ok ->
+        result
+
+      # The publish reached the broker, but the accounting that authorised it did not survive to
+      # record the fact -- the lane restarted, or this reservation was superseded. Reporting it
+      # durable would be reporting a fact we can no longer account for, so progress is withheld
+      # and the record is republished; `Nats-Msg-Id` deduplicates the copy.
+      #
+      # This does NOT close the hole underneath it. A replacement pool starts with its full grant
+      # while this publish may still be broker-ambiguous, so the lane can briefly exceed its
+      # bound. Closing THAT needs to know whether the in-flight publish landed, which is the
+      # PubAck correlation owed by tasks 3.4 and 3.5.
+      {:error, reason} ->
+        Logger.warning("publish could not be accounted for: #{inspect(reason)}")
+        {:error, :systemic}
+    end
   end
 
   defp settle({:error, :poison} = result, pool, reservation) do
