@@ -43,7 +43,7 @@
 ## Verification Evidence
 
 - 2026-08-31: `mix format --check-formatted`, `git diff --check`, JSON validation, and `openspec validate add-user-timezone-preferences --strict` passed after the final UI audit fixes.
-- 2026-08-31: focused browser timestamp/range tests passed in BuildBuddy invocation `16a9d518-c419-47be-8594-72f3aca13b8f`; the final combined timestamp, God View, Phoenix component, and signal-display regression set passed in `39f71a15-fe17-462f-ae07-2150bc383a5a`. The production `//elixir/web-ng/assets:god_view_elk_scene_bundle` target also built successfully.
+- 2026-08-31: focused browser timestamp/range tests passed in BuildBuddy invocation `16a9d518-c419-47be-8594-72f3aca13b8f`; the final combined timestamp, God View, Phoenix component, and signal-display regression set passed in `39f71a15-fe17-462f-ae07-2150bc383a5a`. The production `//elixir/web-ng/assets:god_view_elk_scene_bundle` target also built successfully. The independent-review follow-up for parent-template timezone forwarding passed in `c96c0a9d-4f45-4dd1-9111-7cc8f0114dcf`.
 - 2026-08-31: the guarded shared-fixture selection ran exactly 56 DB-backed cases with 0 failures and 272 excluded cases. Its disposable database was dropped, and an independent `pg_database` query found 0 remaining `codex_tz3555%` databases.
 - 2026-08-31: the DB-runner and formatter-inventory guards passed in BuildBuddy invocation `2406c32d-2e90-4afd-8271-b94691812306`.
 - 2026-08-31: the repository `make test` contract passed all 210 test targets at feature commit `0f2e56d7f5` in BuildBuddy invocation `b0a2e2c4-5612-4752-9047-dff2a2b66ce3` against current `origin/staging` (`12f9edfe34cd4c43c45057d64ef1e9cf37fa18d9`).
