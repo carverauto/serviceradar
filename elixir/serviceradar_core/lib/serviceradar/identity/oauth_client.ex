@@ -48,7 +48,8 @@ defmodule ServiceRadar.Identity.OAuthClient do
   alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
-  @api_credentials_check {ActorHasPermission, permission: Constants.api_credentials_manage_permission()}
+  @api_credentials_check {ActorHasPermission,
+                          permission: Constants.api_credentials_manage_permission()}
 
   @client_create_fields [:name, :description, :scopes, :expires_at, :user_id]
   @client_update_fields [:name, :description, :expires_at]

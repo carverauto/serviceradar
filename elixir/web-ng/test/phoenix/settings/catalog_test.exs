@@ -271,6 +271,24 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       assert :net_services in group_ids
     end
 
+    test "Settings Rules is hidden from rule viewers who cannot author them" do
+      # observability.rules.view is the product-surface permission (alert/rule
+      # definitions on device pages). The Settings -> Alerts -> Rules editor
+      # requires create or update; a custom profile such as demo that only
+      # grants view must not see the Alerts settings group at all.
+      viewer = %Scope{permissions: MapSet.new(["observability.rules.view"])}
+      refute :rules in Enum.map(Catalog.visible_views(viewer, :system), & &1.id)
+
+      refute Enum.any?(Catalog.nav_tree(viewer, :system), fn group ->
+               group.group.id == :sys_alerts
+             end)
+
+      for permission <- ["observability.rules.update", "observability.rules.create"] do
+        scope = %Scope{permissions: MapSet.new([permission])}
+        assert :rules in Enum.map(Catalog.visible_views(scope, :system), & &1.id)
+      end
+    end
+
     test "an edge admin sees Edge Ops views" do
       scope = %Scope{permissions: MapSet.new(["settings.edge.manage"])}
       ids = scope |> Catalog.visible_views(:edge_ops) |> Enum.map(& &1.id)

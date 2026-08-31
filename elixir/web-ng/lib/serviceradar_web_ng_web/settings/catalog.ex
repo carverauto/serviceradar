@@ -592,7 +592,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       icon: "hero-funnel",
       route: "/settings/rules",
       live_view: ServiceRadarWebNGWeb.Settings.RulesLive.Index,
-      permission: "observability.rules.view",
+      permission: ["observability.rules.update", "observability.rules.create"],
       order: 320,
       has_own_stats: false,
       feature_flag: nil,

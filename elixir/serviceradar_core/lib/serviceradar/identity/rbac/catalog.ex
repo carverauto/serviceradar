@@ -661,8 +661,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           resource: "settings.mcp",
           action: "manage",
           label: "Use MCP",
-          description:
-            "Authorize native MCP clients, call the MCP server, and revoke MCP grants",
+          description: "Authorize native MCP clients, call the MCP server, and revoke MCP grants",
           default_roles: @all_roles
         },
         %{
