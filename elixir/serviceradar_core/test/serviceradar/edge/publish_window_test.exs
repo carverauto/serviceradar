@@ -848,26 +848,29 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert {:error, :not_outstanding} = PublishWindow.settle(w1, fresh, @primary)
     end
 
-    test "abandon releases only the EXACT attempt that was never handed over" do
+    test "abandon refuses a CONFIRMED attempt" do
+      # INVERTED, because the previous version of this test enshrined a bug: it activated the
+      # attempt and then asserted abandonment SUCCEEDED. In a one-credit window that means
+      # activate A, abandon A, admit B -- while A may already be publishing, so one grant covers
+      # two publications.
       w = admit!(window(), 1, 100, 500)
 
-      assert {:ok, released} = PublishWindow.abandon(w, r(1))
+      assert {:error, :not_outstanding} = PublishWindow.abandon(w, r(1))
+      assert PublishWindow.outstanding_frames(w) === 1
+    end
+
+    test "abandon releases only the PROVISIONAL attempt it names" do
+      w = window()
+      {:ok, w, provisional} = PublishWindow.admit(w, k(1), 100, 500)
+
+      # Token-bound: a superseded attempt cannot release whatever holds the key now.
+      assert {:error, :not_outstanding} = PublishWindow.abandon(w, {k(1), 1})
+
+      assert {:ok, released} = PublishWindow.abandon(w, provisional)
       assert PublishWindow.outstanding_frames(released) === 0
       assert PublishWindow.outstanding_bytes(released) === 0
 
-      # Token-bound: a superseded attempt cannot release whatever holds the key now. Without this
-      # a revocation arriving late released a reservation that had since been re-armed.
-      {:ok, ended} = PublishWindow.attempt_failed(w, r(1))
-      {rearmed, current} = admit_active!(ended, k(1), 100, 900)
-
-      assert {:error, :not_outstanding} = PublishWindow.abandon(rearmed, r(1))
-      assert PublishWindow.outstanding_frames(rearmed) === 1
-
-      # NOT VACUOUS: the CURRENT attempt's handle does release it.
-      assert {:ok, gone} = PublishWindow.abandon(rearmed, current)
-      assert PublishWindow.outstanding_frames(gone) === 0
-
-      assert {:error, :not_outstanding} = PublishWindow.abandon(released, r(1))
+      assert {:error, :not_outstanding} = PublishWindow.abandon(released, provisional)
     end
   end
 

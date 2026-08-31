@@ -210,23 +210,64 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
       task = Task.async(fn -> PublisherPool.admit(p, k(1), 50, ack_window) end)
       await_queued(p, 1)
 
-      # Queued for longer than the queue delay this test injects. The ack window is deliberately
-      # LARGE relative to it: what is being measured is whether the queue delay is DEDUCTED, and a
-      # window only slightly larger than the delay would make a correct implementation fail
-      # whenever scheduling ran slow.
       Process.sleep(300)
+
+      # A DETERMINISTIC lower bound. The pool cannot admit before this instant, so a deadline it
+      # stamps itself is necessarily at least `resumed_at + ack_window`. The previous version
+      # allowed a 200ms scheduling budget, which could fail correct code on a slow VM and pass
+      # incorrect code on a fast one.
+      resumed_at = System.monotonic_time(:millisecond)
       :sys.resume(p)
       assert {:ok, _res} = Task.await(task, 5_000)
 
-      # Stamped before the call, 300ms of the window would already be gone. That is invisible with
-      # a 30s window, so the assertion is on the RECORDED deadline instead of on expiry.
       assert %{outstanding_frames: 1} = PublisherPool.capacity(p)
 
       [{_key, {_bytes, deadline, _attempt}}] = Map.to_list(:sys.get_state(p).window.outstanding)
-      remaining = deadline - System.monotonic_time(:millisecond)
 
-      assert remaining > ack_window - 200,
-             "the ack interval was charged for time spent queued: #{ack_window - remaining}ms gone"
+      assert deadline >= resumed_at + ack_window,
+             "the ack interval was charged for time queued: deadline is " <>
+               "#{resumed_at + ack_window - deadline}ms before admission + window"
+    end
+  end
+
+  describe "the pool does not activate at admission" do
+    setup do
+      with_call_timeout(5_000)
+      :ok
+    end
+
+    test "an admission is PROVISIONAL in the pool's own state until confirmed" do
+      # Calls the server directly, bypassing PublisherPool.admit/4 -- that function confirms the
+      # handoff for you, so through it the provisional phase is never observable. This is what
+      # makes premature activation in admit_reply/5 visible: a pure-window test cannot see it,
+      # because the window is only ever asked to activate BY the pool.
+      p = pool(2, 200)
+
+      assert {:ok, {key, token}} =
+               GenServer.call(p, {:admit, k(1), 50, 60_000, make_ref()}, 5_000)
+
+      assert %{^key => {50, _deadline, attempt}} = :sys.get_state(p).window.outstanding
+
+      assert attempt === {:pending, token},
+             "the pool activated the attempt at admission: #{inspect(attempt)}"
+
+      # While provisional it is inert, so nothing can take the slot from the caller that is about
+      # to receive it.
+      assert PublisherPool.expired(p) === []
+      assert {:error, :not_outstanding} = PublisherPool.attempt_failed(p, {key, token})
+      assert {:error, :attempt_in_flight} = PublisherPool.admit(p, k(1), 50, 60_000)
+
+      # NOT VACUOUS: the ordinary client path, which DOES confirm, leaves an ACTIVE attempt -- so
+      # the assertion above is about the phase and not about a field that is always :pending.
+      assert {:ok, {key2, token2}} = PublisherPool.admit(p, k(2), 50, 60_000)
+
+      assert eventually(fn ->
+               match?(
+                 {_bytes, _deadline, {:active, ^token2}},
+                 :sys.get_state(p).window.outstanding[key2]
+               )
+             end),
+             "the confirmed handoff never activated"
     end
   end
 end
