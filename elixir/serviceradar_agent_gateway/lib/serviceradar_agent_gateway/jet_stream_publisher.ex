@@ -240,8 +240,9 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
       #
       # This also does NOT close the hole underneath it. A replacement pool starts with its full
       # grant while this publish may still be broker-ambiguous, so the lane can briefly exceed its
-      # bound. Closing THAT needs to know whether the in-flight publish landed, which is the
-      # PubAck correlation owed by tasks 3.4 and 3.5.
+      # bound. That is TASK 3.3's hard-window obligation, not 3.4's or 3.5's, and correlation
+      # alone would not fence it -- the absence of a PubAck cannot tell "never sent" from "in
+      # flight" or "acked, ack lost". See PublishWindow's "what this does not yet bound".
       {:error, reason} ->
         Logger.warning("publish could not be accounted for: #{inspect(reason)}")
         {:error, :systemic}

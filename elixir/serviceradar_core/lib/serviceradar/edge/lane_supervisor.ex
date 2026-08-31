@@ -24,15 +24,21 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   bound.
 
   What is closed today is the reporting: `JetStreamPublisher` refuses to report a publish durable
-  when the accounting that authorised it did not survive, so a record in that window is withheld
-  and republished rather than recorded as delivered. What is NOT closed is the transient
-  over-admission itself. Closing it requires knowing whether the in-flight publish landed --
-  PubAck correlation and recovery, owed by tasks 3.4 and 3.5 -- or a generation the broker itself
-  would honour, which JetStream does not offer for a local credit bound.
+  when the accounting that authorised it did not survive: it returns a RETRYABLE error instead of
+  reporting the record delivered. Nothing at this layer republishes -- there is no production
+  caller -- so what is established is that the source sequence stays unresolved.
+
+  What is NOT closed is the transient over-admission itself, and that obligation belongs to TASK
+  3.3, which requires the hard window. It is not 3.4's (exact-byte and memory binding) nor 3.5's
+  (outcome-specific PubAck validation and prefix advancement). Correlation may assist recovery,
+  but it cannot by itself fence this: no PubAck cannot distinguish "never sent" from "in flight"
+  or "acked but the ack was lost". Fencing on the request -- owner, start, termination -- is what
+  3.3's publisher pipeline still needs.
 
   The conservative direction is to lose an in-flight publish rather than orphan its accounting:
-  the record stays unresolved and is offered again. Reconstructing reservations for requests whose
-  replies may still arrive needs the PubAck correlation that tasks 3.4 and 3.5 own.
+  the record simply stays unresolved. Reconstructing reservations for requests whose replies may
+  still arrive would need to know whether those requests completed, which nothing here can
+  determine.
 
   ## What this does NOT cover: an ordinary reconnect
 
@@ -43,7 +49,8 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
 
   That is the behaviour we want, and it is deliberate rather than incidental. A reconnect does not
   make the records go away: their reservations should stay charged, because each one is still owed
-  a republish on the same slot. What a reconnect does is fail the requests that were in flight,
+  a republish on the same slot when one is offered. What a reconnect does is fail the requests
+  that were in flight,
   and the publisher reports each of those with `PublishWindow.attempt_failed/2` -- keeping the
   credits, ending the attempt, and letting the retry re-admit.
 

@@ -212,10 +212,17 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
 
       Process.sleep(300)
 
-      # A DETERMINISTIC lower bound. The pool cannot admit before this instant, so a deadline it
-      # stamps itself is necessarily at least `resumed_at + ack_window`. The previous version
-      # allowed a 200ms scheduling budget, which could fail correct code on a slow VM and pass
-      # incorrect code on a fast one.
+      # The pool cannot admit before this instant, so a deadline it stamps itself is necessarily
+      # at least `resumed_at + ack_window`. That replaces a 200ms scheduling budget which could
+      # fail correct code on a slow VM.
+      #
+      # WHAT THIS DOES AND DOES NOT ESTABLISH, stated because an earlier claim overreached: it
+      # catches the defect it exists for -- a deadline stamped by the CALLER, which here loses the
+      # ~300ms of queue time this test injects. It does NOT prove the arithmetic exactly. A
+      # deadline stamped one millisecond early still satisfies this whenever the pool begins
+      # handling at least a millisecond after `resumed_at`, which is usual. Proving exactness
+      # would need the clock injected into the pool; the queue-time property is what is asserted
+      # here.
       resumed_at = System.monotonic_time(:millisecond)
       :sys.resume(p)
       assert {:ok, _res} = Task.await(task, 5_000)
@@ -226,7 +233,7 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
 
       assert deadline >= resumed_at + ack_window,
              "the ack interval was charged for time queued: deadline is " <>
-               "#{resumed_at + ack_window - deadline}ms before admission + window"
+               "#{resumed_at + ack_window - deadline}ms before resume + window"
     end
   end
 
