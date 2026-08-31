@@ -107,6 +107,49 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
     assert telemetry_metadata.manual_override == true
   end
 
+  test "merge preserves source tags, metadata, and discovery sources on the survivor", %{
+    actor: actor
+  } do
+    from_uid = "sr:" <> Ecto.UUID.generate()
+    to_uid = "sr:" <> Ecto.UUID.generate()
+
+    assert {:ok, _from_device} =
+             create_device(actor, from_uid, "merge-facts-from", %{
+               tags: %{"rids" => true, "owner" => "source"},
+               metadata: %{"csv_import" => true, "authority" => "source"},
+               discovery_sources: ["manual", "sweep"]
+             })
+
+    assert {:ok, _to_device} =
+             create_device(actor, to_uid, "merge-facts-to", %{
+               tags: %{"managed" => true, "owner" => "survivor"},
+               metadata: %{"armis_device_id" => "4487840", "authority" => "survivor"},
+               discovery_sources: ["armis", "sweep"]
+             })
+
+    assert :ok =
+             IdentityReconciler.merge_devices(from_uid, to_uid,
+               actor: actor,
+               reason: "manual_merge"
+             )
+
+    assert {:ok, survivor} = Device.get_by_uid(to_uid, false, actor: actor)
+
+    assert survivor.tags == %{
+             "managed" => true,
+             "owner" => "survivor",
+             "rids" => true
+           }
+
+    assert survivor.metadata == %{
+             "armis_device_id" => "4487840",
+             "authority" => "survivor",
+             "csv_import" => true
+           }
+
+    assert Enum.sort(survivor.discovery_sources) == ["armis", "manual", "sweep"]
+  end
+
   test "merge reassigns endpoint inventory rows and tombstones dead ordinal", %{actor: actor} do
     from_uid = "sr:" <> Ecto.UUID.generate()
     to_uid = "sr:" <> Ecto.UUID.generate()
@@ -166,12 +209,16 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
     assert is_integer(EndpointInventoryFleetOrdinal.ordinal_for(device_uid))
   end
 
-  defp create_device(actor, uid, hostname) do
-    attrs = %{
-      uid: uid,
-      hostname: hostname,
-      ip: unique_ip_for_uid(uid)
-    }
+  defp create_device(actor, uid, hostname, extra_attrs \\ %{}) do
+    attrs =
+      Map.merge(
+        %{
+          uid: uid,
+          hostname: hostname,
+          ip: unique_ip_for_uid(uid)
+        },
+        extra_attrs
+      )
 
     Device
     |> Ash.Changeset.for_create(:create, attrs)

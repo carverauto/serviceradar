@@ -57,13 +57,19 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
   end
 
   describe "column_mac_groups_from_rows/1" do
-    test "pairs a device carrying a MAC only on its row with the device that registered it" do
+    test "pairs devices only when the identifier owner still carries the same current MAC" do
       # device_identifiers is UNIQUE on (identifier_type, identifier_value,
       # partition), so a second device can never register the same MAC. Without
       # this grouping the two records stay split forever: duplicate-identifier
       # grouping cannot see them, and neither can the sibling grouping, which
-      # needs both sides registered.
-      rows = [{"AC8BA9D587DD", "sr:column-side", "sr:identifier-owner", "default"}]
+      # needs both sides registered. The owner's current MAC must corroborate
+      # the old identifier: a survivor may own many historical MAC identifiers
+      # reassigned by earlier merges, and those must not pull unrelated devices
+      # into its component.
+      rows = [
+        {"AC8BA9D587DD", "sr:column-side", "sr:identifier-owner", "default", "default", "default",
+         "ac:8b:a9:d5:87:dd"}
+      ]
 
       assert [{{"default", :mac_column, "AC8BA9D587DD"}, members}] =
                DuplicateSweep.column_mac_groups_from_rows(rows)
@@ -75,9 +81,9 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
       # Randomized phone Wi-Fi and virtual bridges are not globally unique;
       # merging on them would collapse unrelated hardware.
       rows = [
-        {"1E14049215A9", "sr:a", "sr:b", "default"},
-        {"56FE96003BA7", "sr:c", "sr:d", "default"},
-        {"A67C5557004F", "sr:e", "sr:f", "default"}
+        {"1E14049215A9", "sr:a", "sr:b", "default", "default", "default", "1E14049215A9"},
+        {"56FE96003BA7", "sr:c", "sr:d", "default", "default", "default", "56FE96003BA7"},
+        {"A67C5557004F", "sr:e", "sr:f", "default", "default", "default", "A67C5557004F"}
       ]
 
       assert DuplicateSweep.column_mac_groups_from_rows(rows) == []
@@ -85,8 +91,10 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
 
     test "keeps globally-unique MACs and drops locally-administered ones in the same batch" do
       rows = [
-        {"1CB3C9126C6C", "sr:keep-a", "sr:keep-b", "default"},
-        {"C2AB756587EF", "sr:drop-a", "sr:drop-b", "default"}
+        {"1CB3C9126C6C", "sr:keep-a", "sr:keep-b", "default", "default", "default",
+         "1C:B3:C9:12:6C:6C"},
+        {"C2AB756587EF", "sr:drop-a", "sr:drop-b", "default", "default", "default",
+         "C2:AB:75:65:87:EF"}
       ]
 
       assert [{{"default", :mac_column, "1CB3C9126C6C"}, _}] =
@@ -95,8 +103,8 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
 
     test "partitions scope the group key" do
       rows = [
-        {"1CB3C9126C6C", "sr:a", "sr:b", "default"},
-        {"1CB3C9126C6C", "sr:c", "sr:d", "tenant-2"}
+        {"1CB3C9126C6C", "sr:a", "sr:b", "default", "default", "default", "1CB3C9126C6C"},
+        {"1CB3C9126C6C", "sr:c", "sr:d", "tenant-2", "tenant-2", "tenant-2", "1CB3C9126C6C"}
       ]
 
       keys = rows |> DuplicateSweep.column_mac_groups_from_rows() |> Enum.map(&elem(&1, 0))
@@ -107,6 +115,50 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
 
     test "is empty for no rows" do
       assert DuplicateSweep.column_mac_groups_from_rows([]) == []
+    end
+
+    test "rejects an identifier that is only historical on its current owner" do
+      rows = [
+        {"0009EC028145", "sr:rids", "sr:unrelated-survivor", "default", "default", "default",
+         "B8:A4:4F:7D:85:2C"}
+      ]
+
+      assert DuplicateSweep.column_mac_groups_from_rows(rows) == []
+    end
+
+    test "never merges a device across identifier partitions" do
+      rows = [
+        {"0009EC028145", "sr:rids", "sr:armis", "default", "default", "default:armis:source-a",
+         "00:09:EC:02:81:45"}
+      ]
+
+      assert DuplicateSweep.column_mac_groups_from_rows(rows) == []
+    end
+  end
+
+  describe "classify_duplicate_components/1" do
+    test "keeps isolated pairs and blocks transitive components" do
+      entries = [
+        {{"default", :mac_column, "0009EC028145"}, MapSet.new(["sr:a", "sr:b"])},
+        {{"default", :mac_column, "B8A44F7D852C"}, MapSet.new(["sr:b", "sr:c"])},
+        {{"default", :mac_column, "001A2B000001"}, MapSet.new(["sr:d", "sr:e"])}
+      ]
+
+      assert %{mergeable: [pair], blocked: [component]} =
+               DuplicateSweep.classify_duplicate_components(entries)
+
+      assert pair.device_ids == ["sr:d", "sr:e"]
+      assert component.device_ids == ["sr:a", "sr:b", "sr:c"]
+      assert Enum.map(component.evidence, & &1.value) == ["0009EC028145", "B8A44F7D852C"]
+    end
+
+    test "blocks one evidence group that names more than two devices" do
+      entries = [
+        {{"default", :agent_id, "agent-1"}, MapSet.new(["sr:a", "sr:b", "sr:c"])}
+      ]
+
+      assert %{mergeable: [], blocked: [%{device_ids: ["sr:a", "sr:b", "sr:c"]}]} =
+               DuplicateSweep.classify_duplicate_components(entries)
     end
   end
 
