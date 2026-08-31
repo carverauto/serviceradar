@@ -3,6 +3,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
 
   defmacro __using__(_opts) do
     quote do
+      unquote(overlay_definitions())
+      unquote(timeseries_definitions())
+    end
+  end
+
+  defp overlay_definitions do
+    quote do
       defp mtr_overlays do
         if mtr_path_edges_present?() do
           cypher = """
@@ -98,7 +105,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
         do: timeseries
 
       defp merge_mtr_summaries(_timeseries, overlays_summary), do: overlays_summary
+    end
+  end
 
+  defp timeseries_definitions do
+    quote do
       @sobelow_skip ["SQL.Query"]
       defp mtr_timeseries_summary(time_window) do
         if relation_exists?("platform.mtr_traces") and relation_exists?("platform.mtr_hops") do
