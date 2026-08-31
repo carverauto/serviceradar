@@ -1054,15 +1054,13 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   defp parse_timestamp(value) when is_binary(value) do
     value = String.trim(value)
 
+    # Trace summaries are source text; only an explicit offset identifies an instant.
     case DateTime.from_iso8601(value) do
       {:ok, dt, _offset} ->
         {:ok, dt}
 
       {:error, _} ->
-        case NaiveDateTime.from_iso8601(value) do
-          {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-          {:error, _} -> :error
-        end
+        :error
     end
   end
 

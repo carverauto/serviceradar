@@ -47,6 +47,24 @@ defmodule ServiceRadarWebNGWeb.MetricLive.TimestampRenderingTest do
     assert params["q"] =~ "time:[2026-08-30T17:00:00Z,2026-08-30T19:00:00Z]"
   end
 
+  test "metric detail leaves an offset-less binary timestamp as raw fallback text", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/metrics/0bd8613253e905b2")
+    html = render(lv)
+
+    assert html =~ "2026-08-30T12:34:56"
+    refute has_element?(lv, "time#metric-detail-time")
+    refute html =~ "2026-08-30T12:34:56Z"
+  end
+
+  test "metric detail preserves an explicitly offset binary instant", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/metrics/0bd8613253e905b3")
+
+    assert has_element?(
+             lv,
+             ~s(#metric-detail-time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"])
+           )
+  end
+
   defmodule SRQLStub do
     @moduledoc false
     @behaviour ServiceRadarWebNG.SRQLBehaviour
@@ -55,10 +73,17 @@ defmodule ServiceRadarWebNGWeb.MetricLive.TimestampRenderingTest do
 
     def query(query, _opts) do
       results =
-        if String.contains?(query, "span_id:"),
-          do: [
+        if String.contains?(query, "span_id:") do
+          timestamp =
+            cond do
+              String.contains?(query, "0bd8613253e905b2") -> "2026-08-30T12:34:56"
+              String.contains?(query, "0bd8613253e905b3") -> "2026-08-30T13:00:00-05:00"
+              true -> "2026-08-30T18:00:00Z"
+            end
+
+          [
             %{
-              "timestamp" => "2026-08-30T18:00:00Z",
+              "timestamp" => timestamp,
               "service_name" => "core-elx",
               "metric_type" => "span",
               "span_name" => "GET /api/devices",
@@ -67,8 +92,10 @@ defmodule ServiceRadarWebNGWeb.MetricLive.TimestampRenderingTest do
               "duration_ms" => 142.0,
               "is_slow" => true
             }
-          ],
-          else: []
+          ]
+        else
+          []
+        end
 
       {:ok, %{"results" => results}}
     end

@@ -173,6 +173,36 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     assert LazyHTML.attribute(times, "datetime") == ["2026-08-30T18:00:00Z", "2026-08-30T18:01:00Z"]
   end
 
+  test "results table leaves offset-less time strings raw while accepting explicit instants" do
+    html =
+      render_component(&SRQLComponents.srql_results_table/1,
+        id: "timestamp-boundary-results",
+        rows: [
+          %{"timestamp" => "2026-08-30T12:34:56"},
+          %{"timestamp" => "2026-08-30T18:00:00Z"},
+          %{"timestamp" => "2026-08-30T13:01:00-05:00"}
+        ],
+        columns: ["timestamp"],
+        timezone: "America/Chicago"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    times = LazyHTML.query(document, "time")
+
+    assert html =~ "2026-08-30T12:34:56"
+    refute html =~ ~s(datetime="2026-08-30T12:34:56Z")
+
+    assert LazyHTML.attribute(times, "id") == [
+             "timestamp-boundary-results-time-1-0",
+             "timestamp-boundary-results-time-2-0"
+           ]
+
+    assert LazyHTML.attribute(times, "datetime") == [
+             "2026-08-30T18:00:00Z",
+             "2026-08-30T18:01:00Z"
+           ]
+  end
+
   test "results table renders a composite timestamp semantically without rewriting its canonical instant" do
     html =
       render_component(&SRQLComponents.srql_results_table/1,
@@ -214,5 +244,40 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     assert LazyHTML.attribute(times, "data-user-time-zone") == ["America/Chicago"]
     assert html =~ "ordinary"
     refute html =~ "2026-08-30 18:00:00 UTC"
+  end
+
+  test "category visualization leaves offset-less keys raw while accepting explicit instants" do
+    html =
+      render_component(&SRQLComponents.srql_auto_viz/1,
+        id: "category-timestamp-boundary",
+        timezone: "America/Chicago",
+        viz:
+          {:categories,
+           %{
+             label: "bucket",
+             value: "count",
+             items: [
+               {"2026-08-30T12:34:56", 3},
+               {"2026-08-30T18:00:00Z", 2},
+               {"2026-08-30T13:01:00-05:00", 1}
+             ]
+           }}
+      )
+
+    document = LazyHTML.from_fragment(html)
+    times = LazyHTML.query(document, "time")
+
+    assert html =~ "2026-08-30T12:34:56"
+    refute html =~ ~s(datetime="2026-08-30T12:34:56Z")
+
+    assert LazyHTML.attribute(times, "id") == [
+             "category-timestamp-boundary-time-1",
+             "category-timestamp-boundary-time-2"
+           ]
+
+    assert LazyHTML.attribute(times, "datetime") == [
+             "2026-08-30T18:00:00Z",
+             "2026-08-30T18:01:00Z"
+           ]
   end
 end

@@ -125,4 +125,28 @@ defmodule ServiceRadarWebNGWeb.Components.UserTimeTest do
     assert LazyHTML.attribute(time, "data-user-time-zone") == ["Etc/UTC"]
     assert LazyHTML.text(time) == "2026-08-30T18:00:00Z"
   end
+
+  test "distinguishes a typed canonical database datetime from offset-less source text" do
+    typed_html =
+      render_component(&CoreComponents.user_time/1, %{
+        id: "typed-database-time",
+        value: ~N[2026-08-30 18:00:00],
+        timezone: "America/Chicago"
+      })
+
+    source_html =
+      render_component(&CoreComponents.user_time/1, %{
+        id: "offset-less-source-time",
+        value: "2026-08-30T18:00:00",
+        timezone: "America/Chicago",
+        fallback: "2026-08-30T18:00:00"
+      })
+
+    typed_time = LazyHTML.query(LazyHTML.from_fragment(typed_html), "time")
+    source_document = LazyHTML.from_fragment(source_html)
+
+    assert LazyHTML.attribute(typed_time, "datetime") == ["2026-08-30T18:00:00Z"]
+    assert source_document |> LazyHTML.query("time") |> LazyHTML.tag() == []
+    assert LazyHTML.text(source_document) == "2026-08-30T18:00:00"
+  end
 end

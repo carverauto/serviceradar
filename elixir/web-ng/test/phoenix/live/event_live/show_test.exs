@@ -91,6 +91,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
            )
 
     refute has_element?(lv, "#event-context-note-time")
+    refute has_element?(lv, "time#event-context-logged-time-time")
+    assert render(lv) =~ "2026-07-04T12:06:30"
+    refute render(lv) =~ "2026-07-04T12:06:30Z"
   end
 
   test "renders projected exhaustion semantically in the authenticated timezone", %{conn: conn} do
@@ -196,6 +199,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
           "created_at" => "2026-07-04T12:03:00Z",
           "expires_at" => "2026-07-04T12:04:00Z",
           "timestamp" => "2026-07-04T12:07:00Z",
+          "logged_time" => "2026-07-04T12:06:30",
           "note" => "2026-07-04T12:06:00Z"
         },
         "metadata" => %{

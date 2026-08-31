@@ -158,10 +158,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert length(ids) == length(Enum.uniq(ids))
     assert has_element?(lv, ~s(#logs time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"]))
     assert html =~ "syslog unzoned source"
+    assert html =~ "source-only unzoned log"
     assert html =~ "OTel info log"
     assert html =~ "SNMP trap log"
     assert html =~ "GELF log"
+    assert has_element?(lv, "#log-00000000-0000-0000-0000-000000000014", "2026-08-30T12:45:56")
+    refute has_element?(lv, "#log-00000000-0000-0000-0000-000000000014 time")
     refute html =~ ~s(datetime="2026-08-30T12:34:56Z")
+    refute html =~ ~s(datetime="2026-08-30T12:45:56Z")
   end
 
   test "trace and metric rows localize labels while metric pivots retain exact UTC bounds", %{conn: conn} do
@@ -762,6 +766,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "service_name" => "page-one-service",
           "source" => "syslog",
           "body" => "Page 1 log — syslog unzoned source"
+        },
+        %{
+          "id" => "00000000-0000-0000-0000-000000000014",
+          "timestamp" => "2026-08-30T12:45:56",
+          "severity_text" => "INFO",
+          "service_name" => "source-only-service",
+          "source" => "syslog",
+          "body" => "source-only unzoned log"
         },
         # OTel-SDK producers write the raw SeverityNumber enum name into
         # severity_text. The badge must normalize it to a label + color.

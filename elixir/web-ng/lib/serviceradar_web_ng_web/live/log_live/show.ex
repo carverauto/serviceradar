@@ -1741,6 +1741,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp parse_timestamp(""), do: :error
   defp parse_timestamp(%DateTime{} = value), do: {:ok, value}
 
+  # Typed NaiveDateTime values are a canonical DB representation. Source text must carry an offset.
   defp parse_timestamp(%NaiveDateTime{} = value), do: {:ok, DateTime.from_naive!(value, "Etc/UTC")}
 
   defp parse_timestamp(value) when is_binary(value) do
@@ -1751,10 +1752,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
         {:ok, dt}
 
       {:error, _} ->
-        case NaiveDateTime.from_iso8601(value) do
-          {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-          {:error, _} -> :error
-        end
+        :error
     end
   end
 

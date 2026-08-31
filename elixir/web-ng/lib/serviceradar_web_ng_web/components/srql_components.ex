@@ -881,17 +881,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         {:ok, dt, DateTime.to_iso8601(dt)}
 
       {:error, _} ->
-        parse_iso8601_naive(value)
-    end
-  end
-
-  defp parse_iso8601_naive(value) do
-    case NaiveDateTime.from_iso8601(value) do
-      {:ok, ndt} ->
-        dt = DateTime.from_naive!(ndt, "Etc/UTC")
-        {:ok, dt, DateTime.to_iso8601(dt)}
-
-      {:error, _} ->
+        # Arbitrary SRQL text without an offset does not identify an instant.
         :error
     end
   end

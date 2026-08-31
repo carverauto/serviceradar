@@ -227,6 +227,35 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert stable_ids == stream_ids
     end
 
+    test "keeps a source-only offset-less timestamp as raw fallback text", %{conn: conn} do
+      user = operator_user_fixture()
+
+      user =
+        Ash.update!(user, %{timezone: "America/Chicago"},
+          action: :update_timezone_preference,
+          actor: user
+        )
+
+      conn = log_in_user(conn, user)
+
+      log_id = "550e8400-e29b-41d4-a716-446655440098"
+      old = Application.get_env(:serviceradar_web_ng, :srql_module)
+      Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.TimestampSRQLStub)
+
+      on_exit(fn ->
+        if is_nil(old),
+          do: Application.delete_env(:serviceradar_web_ng, :srql_module),
+          else: Application.put_env(:serviceradar_web_ng, :srql_module, old)
+      end)
+
+      {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
+      html = render(lv)
+
+      assert html =~ "2026-08-30T12:45:56"
+      refute has_element?(lv, "time#log-detail-time")
+      refute html =~ "2026-08-30T12:45:56Z"
+    end
+
     test "renders resource attributes section when present", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -498,11 +527,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
     def query(query, _opts) do
       results =
-        if String.contains?(query, ~s(id:")) do
-          [@log]
-        else
-          idless = Map.delete(@log, "id")
-          [idless, idless]
+        cond do
+          String.contains?(query, "550e8400-e29b-41d4-a716-446655440098") ->
+            [source_only_log()]
+
+          String.contains?(query, ~s(id:")) ->
+            [@log]
+
+          true ->
+            idless = Map.delete(@log, "id")
+            [idless, idless]
         end
 
       {:ok, %{"results" => results}}
@@ -510,6 +544,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
 
     def query_request(%{"query" => query}), do: query(query)
     def query_request(_), do: {:error, :invalid_request}
+
+    defp source_only_log do
+      @log
+      |> Map.put("id", "550e8400-e29b-41d4-a716-446655440098")
+      |> Map.put("timestamp", "2026-08-30T12:45:56")
+      |> Map.put("time", "2026-08-30T12:45:56")
+      |> Map.put("body", "source-only unzoned timestamp")
+      |> Map.delete("observed_timestamp")
+    end
   end
 
   defp insert_test_log_with_nested_attributes!(log_id) when is_binary(log_id) do

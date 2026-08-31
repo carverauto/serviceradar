@@ -214,6 +214,17 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     refute has_element?(lv, "#trace-not-found")
   end
 
+  test "does not derive correlated-log bounds from an offset-less summary string", %{conn: conn} do
+    :persistent_term.put({__MODULE__, :scenario}, :unzoned_summary)
+
+    {:ok, _lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
+
+    queries = drain_srql_queries()
+
+    refute Enum.any?(queries, &String.starts_with?(&1, "in:logs "))
+    refute Enum.any?(queries, &String.contains?(&1, "2026-06-10T11:55:00Z"))
+  end
+
   test "orphan trace header falls back to service_set when root service is unknown", %{conn: conn} do
     :persistent_term.put({__MODULE__, :scenario}, :orphan)
 
@@ -285,11 +296,15 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     def query_request(%{"query" => query}) when is_binary(query), do: query(query, %{})
     def query_request(_payload), do: {:error, :invalid_request}
 
-    defp results("in:otel_trace_summaries" <> _rest, scenario) when scenario in [:full, :expired] do
+    defp results("in:otel_trace_summaries" <> _rest, scenario) when scenario in [:full, :expired, :unzoned_summary] do
       [
         %{
           "trace_id" => @trace_id,
-          "timestamp" => "2026-06-10T12:00:00Z",
+          "timestamp" =>
+            if(scenario == :unzoned_summary,
+              do: "2026-06-10T12:00:00",
+              else: "2026-06-10T12:00:00Z"
+            ),
           "root_span_name" => "GET /api/devices",
           "root_service_name" => "web-ng",
           "duration_ms" => 50.0,
