@@ -15,13 +15,44 @@ defmodule ServiceRadar.Identity.Validations.ProfileTimezoneTest do
   end
 
   test "normalizes the pending timezone in the atomic update path" do
-    assert {:ok, normalized} =
-             " GMT "
-             |> changeset()
-             |> NormalizeTimezonePreference.atomic([], %{})
+    changeset =
+      "America/New_York"
+      |> changeset()
+      |> Map.put(:attributes, %{})
+      |> Map.put(:atomics, timezone: " GMT ")
 
-    assert Ash.Changeset.get_attribute(normalized, :timezone) == "Etc/UTC"
-    assert normalized.data.timezone == "America/New_York"
+    assert {:atomic, %{timezone: "Etc/UTC"}} =
+             NormalizeTimezonePreference.atomic(changeset, [], %{})
+  end
+
+  test "normalizes the effective value in a fully atomic timezone action" do
+    catalog_query = fn _sql, _params -> {:ok, %{rows: [["Etc/UTC"]]}} end
+
+    for assume_casted? <- [false, true] do
+      changeset =
+        Ash.Changeset.fully_atomic_changeset(
+          User,
+          :update_timezone_preference,
+          %{timezone: " Z "},
+          context: %{private: %{time_zone_query: catalog_query}},
+          assume_casted?: assume_casted?
+        )
+
+      assert %Ash.Changeset{} = changeset
+      assert Ash.Changeset.get_attribute(changeset, :timezone) == "Etc/UTC"
+      refute Keyword.get(changeset.atomics, :timezone) == " Z "
+    end
+  end
+
+  test "returns an Ash change error for an invalid atomic timezone" do
+    changeset =
+      "America/New_York"
+      |> changeset()
+      |> Map.put(:attributes, %{})
+      |> Map.put(:atomics, timezone: "Etc/GMT+5")
+
+    assert {:error, [field: :timezone, message: "is not a valid timezone"]} =
+             NormalizeTimezonePreference.atomic(changeset, [], %{})
   end
 
   test "returns a timezone field error for an invalid profile timezone" do
