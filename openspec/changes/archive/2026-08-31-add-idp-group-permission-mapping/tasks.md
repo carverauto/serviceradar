@@ -59,12 +59,12 @@
 
 ## 4. Operator surfaces
 
-- [ ] 4.1 Add a role-profile selector and a user-group selector to the mapping editor in
-      PARTIAL: the mappings editor is a raw JSON textarea, so a selector would mean
-      rebuilding it. Added a collapsible list of role profiles and user groups with their ids
-      instead, so an operator can copy one rather than hunt for it on another page. A structured
-      editor is still the better answer and is not done.
+- [x] 4.1 Add a role-profile selector and a user-group selector to the mapping editor in
       `authorization_live.ex`.
+      DONE: the editor is a structured form with selects for source, value, claim, role,
+      role_profile_id and user_group_id. This supersedes an earlier partial pass that kept the raw
+      JSON textarea and only listed profile/group ids for an operator to copy; that note described
+      the editor as unbuilt after it had been built.
 - [x] 4.2 Add the dry-run resolver: paste a claim set, see matched mappings, role, profile and the
       DONE: Dry-run resolver on Settings -> Authorization: paste a claim set, see the resolved role, profiles, groups and which mappings matched, without signing anyone in.
       resulting permission set.
@@ -145,13 +145,14 @@
 - [x] 7.2 `./scripts/elixir_quality.sh --project elixir/serviceradar_core`
       DONE: format + Credo clean (2262 files, 50 checks, no issues).
 - [ ] 7.3 `make test`
-      BLOCKED locally, not skipped: every Bazel target on this machine fails toolchain
-      resolution because the shared repo cache cannot extract the LLVM toolchain archive
-      (`@@llvm++llvm+llvm-project`: "Failed to extract archive", empty stderr). Unrelated to
-      this change and reproducible on a clean staging checkout; the archive itself is intact
-      (extracts by hand with the same bsdtar). Run in CI. Verified instead, directly:
-      migrations_expected_version_test 4/4, settings catalog gate 38/38, and a script check
-      that the disposition TSV and its bzl projection agree (async 131/131, serial 161/161,
-      no load_only leaks, no duplicates).
+      NOT run green end-to-end for this change, and deliberately left unchecked.
+      It could not run locally: every Bazel target on that workstation failed toolchain resolution
+      because the shared repo cache could not extract the LLVM archive (`@@llvm++llvm+llvm-project`,
+      empty stderr), reproducible on a clean staging checkout with the archive itself intact.
+      CI did run the suite on the final branch head (invocation 0caeb97f): this change's own tests
+      passed -- zero failures in `IdpGroupPermissionMappingDbTest` -- and the single remaining
+      failure was an unrelated `DireRemediationTest` collision on a reused RBE `/tmp`, since fixed
+      on staging by 5be35d2f48. The merge commit carries no BazelCI status at all, so nothing here
+      is evidence of a green whole-repo run.
 - [x] 7.4 `openspec validate add-idp-group-permission-mapping --strict`
       DONE: strict validation passes.
