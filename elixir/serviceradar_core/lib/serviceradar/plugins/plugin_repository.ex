@@ -63,7 +63,7 @@ defmodule ServiceRadar.Plugins.PluginRepository do
     schema "platform"
 
     references do
-      reference :credential_secret, on_delete: :nilify
+      reference :credential_secret, on_delete: :restrict
     end
   end
 

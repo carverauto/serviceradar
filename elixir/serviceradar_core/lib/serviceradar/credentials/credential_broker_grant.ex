@@ -51,6 +51,10 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     table "credential_broker_grants"
     repo ServiceRadar.Repo
     schema "platform"
+
+    references do
+      reference :secret, on_delete: :restrict
+    end
   end
 
   state_machine do
@@ -70,7 +74,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
   paper_trail do
     primary_key_type :uuid_v7
     table_name "credential_broker_grant_versions"
-    mixin {ServiceRadar.Credentials.PaperTrailMixin, :mixin, []}
+    mixin {ServiceRadar.Credentials.PaperTrailMixin, :cascade_versions, []}
     change_tracking_mode :changes_only
     store_action_name? true
     store_action_inputs? true
