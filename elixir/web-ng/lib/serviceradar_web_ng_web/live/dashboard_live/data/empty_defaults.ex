@@ -8,7 +8,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.EmptyDefaults do
       defp empty_flow_summary, do: %{bytes_total: 0, packets_total: 0, flow_count: 0, bps: 0.0, pps: 0.0, link_count: 0}
 
       defp empty_mtr_summary,
-        do: %{path_count: 0, endpoint_sample_count: 0, avg_loss_pct: 0.0, avg_latency_ms: 0.0, degraded_count: 0}
+        do: %{
+          path_count: 0,
+          endpoint_sample_count: 0,
+          loss_sample_count: 0,
+          latency_sample_count: 0,
+          avg_loss_pct: nil,
+          avg_latency_ms: nil,
+          degraded_count: 0
+        }
 
       defp empty_camera_summary, do: %{total: 0, online: 0, offline: 0, recording: 0, tiles: []}
 

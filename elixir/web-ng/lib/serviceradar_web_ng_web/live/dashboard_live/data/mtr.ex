@@ -95,6 +95,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
         %{
           path_count: count,
           endpoint_sample_count: 0,
+          loss_sample_count: 0,
+          latency_sample_count: 0,
           avg_loss_pct: Float.round(avg_loss, 2),
           avg_latency_ms: Float.round(avg_latency_ms, 1),
           degraded_count: Enum.count(overlays, &(&1.loss_pct > 0 or &1.avg_us > 100_000))
@@ -141,15 +143,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
           SELECT
             COUNT(st.id)::bigint,
             COUNT(dh.trace_id)::bigint,
-            COALESCE(
+            COUNT(dh.trace_id) FILTER (WHERE dh.sent > 0)::bigint,
+            COUNT(dh.trace_id) FILTER (WHERE dh.avg_us IS NOT NULL AND dh.received > 0)::bigint,
+            (
               100.0 * (
                 SUM(dh.sent::numeric) FILTER (WHERE dh.sent > 0) -
                   SUM(dh.received::numeric) FILTER (WHERE dh.sent > 0)
               ) /
-                NULLIF(SUM(dh.sent::numeric) FILTER (WHERE dh.sent > 0), 0),
-              0.0
+                NULLIF(SUM(dh.sent::numeric) FILTER (WHERE dh.sent > 0), 0)
             )::float8,
-            COALESCE(
+            (
               SUM(dh.avg_us::numeric * dh.received::numeric)
                 FILTER (WHERE dh.avg_us IS NOT NULL AND dh.received > 0) /
                 NULLIF(
@@ -157,8 +160,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
                     FILTER (WHERE dh.avg_us IS NOT NULL AND dh.received > 0),
                   0
                 ) /
-                1000.0,
-              0.0
+                1000.0
             )::float8,
             COUNT(st.id) FILTER (
               WHERE NOT st.target_reached
@@ -170,12 +172,27 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
           """
 
           case ServiceRadarWebNG.Repo.query(sql, [cutoff_for_time_window(time_window)]) do
-            {:ok, %{rows: [[path_count, endpoint_sample_count, avg_loss_pct, avg_latency_ms, degraded_count]]}} ->
+            {:ok,
+             %{
+               rows: [
+                 [
+                   path_count,
+                   endpoint_sample_count,
+                   loss_sample_count,
+                   latency_sample_count,
+                   avg_loss_pct,
+                   avg_latency_ms,
+                   degraded_count
+                 ]
+               ]
+             }} ->
               %{
                 path_count: to_int(path_count),
                 endpoint_sample_count: to_int(endpoint_sample_count),
-                avg_latency_ms: Float.round(to_float(avg_latency_ms), 1),
-                avg_loss_pct: Float.round(to_float(avg_loss_pct), 2),
+                loss_sample_count: to_int(loss_sample_count),
+                latency_sample_count: to_int(latency_sample_count),
+                avg_latency_ms: round_nullable(avg_latency_ms, 1),
+                avg_loss_pct: round_nullable(avg_loss_pct, 2),
                 degraded_count: to_int(degraded_count)
               }
 
@@ -188,6 +205,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
       rescue
         _ -> empty_mtr_summary()
       end
+
+      defp round_nullable(nil, _precision), do: nil
+      defp round_nullable(value, precision), do: Float.round(to_float(value), precision)
     end
   end
 end

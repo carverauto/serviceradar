@@ -35,6 +35,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrMetricsTest do
 
     assert summary.path_count == 3
     assert summary.endpoint_sample_count == 2
+    assert summary.loss_sample_count == 2
+    assert summary.latency_sample_count == 2
     assert_in_delta summary.avg_loss_pct, 50.0, 1.0e-10
     assert_in_delta summary.avg_latency_ms, 20.0, 1.0e-10
     assert summary.degraded_count == 2
@@ -51,8 +53,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrMetricsTest do
         mtr_timeseries: %{
           path_count: 1,
           endpoint_sample_count: 0,
-          avg_loss_pct: 0.0,
-          avg_latency_ms: 0.0,
+          loss_sample_count: 0,
+          latency_sample_count: 0,
+          avg_loss_pct: nil,
+          avg_latency_ms: nil,
           degraded_count: 1
         },
         loaded: %{mtr: true}
@@ -62,11 +66,71 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrMetricsTest do
 
     metrics = Map.new(dashboard.observability_metrics, &{&1.label, &1})
 
-    assert %{value: "No endpoint sample", scale: "", axis_min: "", axis_mid: "", axis_max: ""} =
+    assert %{
+             available: false,
+             value: "No endpoint sample",
+             scale: "",
+             sparkline: [],
+             axis_min: "",
+             axis_mid: "",
+             axis_max: ""
+           } =
              metrics["Destination Latency"]
 
-    assert %{value: "No endpoint sample", scale: "", axis_min: "", axis_mid: "", axis_max: ""} =
+    assert %{
+             available: false,
+             value: "No endpoint sample",
+             scale: "",
+             sparkline: [],
+             axis_min: "",
+             axis_mid: "",
+             axis_max: ""
+           } =
              metrics["Destination Loss"]
+  end
+
+  test "missing destination RTT leaves latency unavailable while loss remains available" do
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+
+    insert_mtr_trace!("dashboard-mtr-missing-rtt", timestamp,
+      target_reached: true,
+      hops: [{"198.51.100.50", nil, 10, 10}]
+    )
+
+    %{mtr_timeseries: summary} = Data.load_mtr("last_1h")
+    %{sparklines: sparklines} = Data.load_sparklines("last_1h")
+
+    assert summary.endpoint_sample_count == 1
+    assert summary.loss_sample_count == 1
+    assert summary.latency_sample_count == 0
+    assert summary.avg_latency_ms == nil
+    assert_in_delta summary.avg_loss_pct, 0.0, 1.0e-10
+    assert sparklines.latency == []
+    assert sparklines.packet_loss == [0.0]
+
+    dashboard =
+      Data.derive(%{
+        mtr_timeseries: summary,
+        sparklines: sparklines,
+        loaded: %{mtr: true}
+      })
+
+    metrics = Map.new(dashboard.observability_metrics, &{&1.label, &1})
+
+    assert %{
+             available: false,
+             value: "No endpoint sample",
+             scale: "",
+             sparkline: [],
+             axis_min: "",
+             axis_mid: "",
+             axis_max: ""
+           } = metrics["Destination Latency"]
+
+    assert %{available: true, value: "0.0", scale: "%", sparkline: [loss_pct]} =
+             metrics["Destination Loss"]
+
+    assert_in_delta loss_pct, 0.0, 1.0e-10
   end
 
   test "dashboard excludes zero-probe destinations from loss weighting" do
@@ -89,6 +153,64 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrMetricsTest do
     assert_in_delta summary.avg_loss_pct, 50.0, 1.0e-10
     assert [loss_pct] = sparklines.packet_loss
     assert_in_delta loss_pct, 50.0, 1.0e-10
+  end
+
+  test "zero-probe destination leaves metrics unavailable despite an endpoint observation" do
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+
+    insert_mtr_trace!("dashboard-mtr-zero-probe", timestamp,
+      target_reached: true,
+      hops: [{"198.51.100.60", 25_000, 0, 0}]
+    )
+
+    %{mtr_timeseries: summary} = Data.load_mtr("last_1h")
+    %{sparklines: sparklines} = Data.load_sparklines("last_1h")
+
+    assert summary.endpoint_sample_count == 1
+    assert summary.loss_sample_count == 0
+    assert summary.latency_sample_count == 0
+    assert summary.avg_loss_pct == nil
+    assert summary.avg_latency_ms == nil
+    assert sparklines.packet_loss == []
+    assert sparklines.latency == []
+
+    dashboard =
+      Data.derive(%{
+        mtr_timeseries: summary,
+        sparklines: sparklines,
+        loaded: %{mtr: true}
+      })
+
+    metrics = Map.new(dashboard.observability_metrics, &{&1.label, &1})
+
+    assert %{available: false, value: "No endpoint sample", scale: "", sparkline: []} =
+             metrics["Destination Loss"]
+
+    assert %{available: false, value: "No endpoint sample", scale: "", sparkline: []} =
+             metrics["Destination Latency"]
+  end
+
+  test "zero destination RTT remains a latency observation" do
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+
+    insert_mtr_trace!("dashboard-mtr-zero-rtt", timestamp,
+      target_reached: true,
+      hops: [{"198.51.100.70", 0, 5, 5}]
+    )
+
+    %{mtr_timeseries: summary} = Data.load_mtr("last_1h")
+
+    assert summary.endpoint_sample_count == 1
+    assert summary.loss_sample_count == 1
+    assert summary.latency_sample_count == 1
+    assert_in_delta summary.avg_loss_pct, 0.0, 1.0e-10
+    assert_in_delta summary.avg_latency_ms, 0.0, 1.0e-10
+
+    dashboard = Data.derive(%{mtr_timeseries: summary, loaded: %{mtr: true}})
+    metrics = Map.new(dashboard.observability_metrics, &{&1.label, &1})
+
+    assert %{available: true, value: "0.0", scale: "ms"} = metrics["Destination Latency"]
+    assert %{available: true, value: "0.0", scale: "%"} = metrics["Destination Loss"]
   end
 
   test "dashboard uses one deterministic terminal observation per trace" do
