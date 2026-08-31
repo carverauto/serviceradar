@@ -15,25 +15,28 @@ Secret, or a config file. The one remaining exception is the agent's SNMP file
 path, documented under [SNMP](#snmp).
 
 :::note Not everything on this page has shipped yet
-The current release is **1.4.46**. Five mechanisms described below are merged
+The current release is **1.4.49**. Three mechanisms described below are merged
 work that has not appeared in a release yet, and each one is marked in place
-with a `:::caution Not in 1.4.46` box:
+with a `:::caution Not in 1.4.49` box:
 
 - the TLS Policy control rendering for UniFi Protect and Axis
   ([TLS policy](#tls-policy))
-- `allowed_networks` on the UniFi Protect, Axis, OpenText and AWX plugin
-  manifests ([0 cameras, 0 streams](#unifi-protect-reports-0-cameras-0-streams))
-- `action-only:v1` on the AWX manifest
-  ([AWX api_token is required](#awx-configuration-invalid-api_token-is-required-resolved-from-credential-broker-grant))
 - `ca_bundle_pem` and `server_cert_fingerprint` on a credential rule
   ([CA trust material](#ca-trust-material))
 - the `netbox` credential profile and its `inventory_sync` purpose
   ([NetBox](#netbox))
 
-Replace `<first-release>` in those boxes with the version that ships them once
-it is cut. If you are reading this on a deployment running 1.4.46 or earlier,
-the behaviour described in a marked box is not present and the workaround in
-that box is the current answer.
+Two mechanisms this page originally listed as unreleased have shipped since, in
+**1.4.48**: `allowed_networks` on the UniFi Protect, Axis, OpenText and AWX
+plugin manifests
+([0 cameras, 0 streams](#unifi-protect-reports-0-cameras-0-streams)), and
+`action-only:v1` on the AWX manifest
+([AWX api_token is required](#awx-configuration-invalid-api_token-is-required-resolved-from-credential-broker-grant)).
+
+Replace `<first-release>` in the remaining boxes with the version that ships
+them once it is cut. If you are reading this on a deployment running 1.4.49 or
+earlier, the behaviour described in a marked box is not present and the
+workaround in that box is the current answer.
 :::
 
 ## Two objects: the credential and the rule
@@ -57,7 +60,7 @@ Not every provider takes a rule. A provider's descriptor declares
 | Provider | Rule? | Where the credential is bound instead |
 | --- | --- | --- |
 | Proxmox, UniFi Protect, Axis, OpenText | Yes | The rule itself |
-| NetBox | Yes, from `<first-release>` | The rule itself. Through 1.4.46 there is no `netbox` provider on this page and the token is a plugin assignment parameter -- see [NetBox](#netbox) |
+| NetBox | Yes, from `<first-release>` | The rule itself. Through 1.4.49 there is no `netbox` provider on this page and the token is a plugin assignment parameter -- see [NetBox](#netbox) |
 | AWX / AAP | No | **Settings -> Ansible -> Controllers**, per controller and purpose |
 | VulnCheck | No | **Settings -> Security -> Vulnerability Feeds**, per feed |
 | SNMP | No | **Settings -> SNMP Profiles**, per profile or target |
@@ -218,16 +221,23 @@ same device is not a configuration, it is a coin flip.
 
 `verify` (the default) or `skip_verify`.
 
-:::caution Not in 1.4.46
+:::caution Not in 1.4.49
 **The TLS Policy control renders whenever the provider declares transport rule
-controls.** Through 1.4.46 the control was rendered only when the selected auth
-method also declared a non-empty `tls_policies` list, while the save path
-required a valid `tls_policy` unconditionally. UniFi Protect and Axis declare
-`rule_controls.transport: true` but no per-method `tls_policies`, so on those two
-providers the input was never drawn, the browser submitted nothing, and every
-save failed with `Invalid TLS policy`. There is no way to save such a rule on
-1.4.46 or earlier -- see
-[Invalid TLS policy](#invalid-tls-policy-when-saving-a-rule).
+controls and the selected auth method is not an SSH one.** Through 1.4.49 the
+control was rendered only when the selected auth method also declared a
+non-empty `tls_policies` list, while the save path required a valid `tls_policy`
+unconditionally. UniFi Protect and Axis declare `rule_controls.transport: true`
+but no per-method `tls_policies`, so on those two providers the input was never
+drawn, the browser submitted nothing, and every save failed with
+`Invalid TLS policy`. There is no way to save such a rule on 1.4.49 or earlier
+-- see [Invalid TLS policy](#invalid-tls-policy-when-saving-a-rule).
+
+The merged fix keys the control on `rule_controls.transport` plus the auth
+method declaring no `ssh_host_key_policies`, so an SSH transport -- which has no
+TLS policy to choose -- keeps the SSH Host Key Policy control instead. An auth
+method that declares no `tls_policies` is offered the full set, and a
+`tls_policy` that is absent on submit falls back to the resource default
+(`verify`) rather than failing the save.
 
 First release containing the fix: `<first-release>`.
 :::
@@ -255,7 +265,7 @@ instead.
 
 ### CA trust material
 
-**Today, trust for plugin HTTP is configured on the agent, not on the rule.**
+**On 1.4.49, trust for plugin HTTP is configured on the agent, not on the rule.**
 The agent builds one host-owned HTTP client for every Wasm plugin call. Its trust
 roots are the operating system pool plus every PEM bundle listed in
 `plugin_http_trusted_ca_files` in `agent.json` (Helm:
@@ -276,7 +286,7 @@ Three properties of that client decide every question below:
 
 Restart the agent after changing the bundle.
 
-:::caution Not in 1.4.46
+:::caution Not in 1.4.49
 **`ca_bundle_pem` and `server_cert_fingerprint` on a credential rule.** Merged
 work adds two optional, mutually exclusive columns to a rule:
 
@@ -291,18 +301,90 @@ are stored in the clear: a CA certificate and a fingerprint are trust anchors,
 not authenticators, so an operator can read back what a rule trusts and the
 values never go through the credential broker.
 
-Scope of what has landed, stated precisely so nobody plans against more than
-exists: the change adds the rule columns, their validation, the migration, and
-permission for a manifest params template to reference them as
-`$source: rule, field: ca_bundle_pem` / `field: server_cert_fingerprint`. It does
-**not** add a form control on the Credential Rules page, no shipped plugin
-manifest references either field yet, and the agent's plugin HTTP client does not
-read them. Setting one on a rule therefore records an intent; it does not by
-itself change what the agent trusts. Until a manifest and the agent transport
-consume them, use `plugin_http_trusted_ca_files` above.
+`ca_bundle_pem` is wired end to end, and only for Proxmox:
+
+- **The form.** The rule form draws a **CA bundle (PEM)** textarea and a
+  **Server certificate fingerprint** input wherever it draws the TLS Policy
+  control.
+- **The manifest.** `go/cmd/wasm-plugins/proxmox/plugin.yaml` (version `0.1.7`)
+  adds `ca_bundle_pem` as `$source: rule, field: ca_bundle_pem` with
+  `omit_if_blank: true` to all three of its consumers: `inventory_enrichment`,
+  and both `console_access` consumers. No other shipped manifest references
+  either field.
+- **The agent.** The bundle travels on the Proxmox host-authority binding beside
+  `insecure_skip_verify`, not on the guest-controlled HTTP payload, so a plugin
+  cannot nominate its own anchor. It is in the host-authority secret-key list, so
+  it is stripped before the guest sees the params. When a Proxmox binding carries
+  one, the agent verifies that request against it.
+
+**Pinned roots replace the system trust store for that request; they do not
+extend it.** This is the opposite of `plugin_http_trusted_ca_files` above, and it
+is deliberate: a rule that pins a private CA is asking for that anchor, and
+keeping the public roots alongside it would still accept any publicly-trusted
+certificate for the same origin -- weaker than what the operator configured. A
+bundle that fails to parse on the agent leaves the client unchanged, so
+verification falls back to the system pool and fails closed at the handshake
+rather than silently trusting nothing.
+
+`server_cert_fingerprint` is validated, stored and editable, and nothing consumes
+it: no manifest references it and no agent path reads it. Setting one records an
+intent. For every provider other than Proxmox, and for both fields on 1.4.49,
+`plugin_http_trusted_ca_files` above is still the only thing that changes what
+the agent trusts.
 
 First release containing the columns: `<first-release>`.
 :::
+
+**Fetching a Proxmox cluster CA.** Proxmox signs every node certificate with a
+cluster CA that lives in the replicated `/etc/pve` filesystem, so any node in the
+cluster serves the same copy:
+
+```bash
+ssh root@<pve-node> cat /etc/pve/pve-root-ca.pem
+```
+
+That file is a public certificate. It is what goes into the rule's **CA bundle
+(PEM)** box, or into `plugin_http_trusted_ca_files` on the agent. Do not copy
+`/etc/pve/pve-root-ca.key`, which is the CA private key.
+
+Read the SAN list of the certificate the node actually serves before deciding
+anything:
+
+```bash
+ssh root@<pve-node> openssl x509 -in /etc/pve/local/pve-ssl.pem -noout -ext subjectAltName
+```
+
+PVE issues node certificates with an IP SAN. On the ServiceRadar demo cluster,
+`pve02` reports:
+
+```text
+IP Address:10.0.0.3, DNS:pve02, DNS:pve02.localdomain
+```
+
+That is the whole reason this works. With `/etc/pve/pve-root-ca.pem` pinned as
+the sole anchor and the handshake made against the IP literal ServiceRadar
+dials, verification returns `Verify return code: 0 (ok)` on both `pve02`
+(`10.0.0.3`) and `pve03` (`10.0.0.4`); without the CA the same handshake fails
+`unable to get local issuer certificate`. Check it from any host that can reach
+the node:
+
+```bash
+openssl s_client -connect 10.0.0.3:8006 -CAfile ./pve-root-ca.pem </dev/null 2>/dev/null \
+  | grep 'Verify return code'
+```
+
+**So no certificate re-issuance is needed in the normal case.** Pin the cluster
+CA and the stock node certificate verifies by IP.
+
+Read the SAN output rather than assuming it, because the exception is real and
+was not measured: a node re-addressed after its certificate was generated, or a
+node serving a custom certificate (`/etc/pve/local/pveproxy-ssl.pem`, which is
+what a client sees when it exists), can present a certificate with no
+`IP Address` entry, or with one that is not the address the agent uses. A
+certificate whose SANs are only `DNS` entries cannot verify against
+`https://<ip>:8006` no matter which CA signed it, and no trust material fixes
+that -- the certificate has to be reissued with the address in its SAN list. See
+[Proxmox: When the SAN has no IP address](./proxmox.md#step-4-when-the-san-has-no-ip-address).
 
 ### Allowed ports
 
@@ -421,11 +503,13 @@ login. Full detail in [UniFi Protect](./unifi-protect.md).
 3. **Create the rule.** Provider `unifi-protect`, purposes `camera_inventory` and
    `camera_stream`, allowed ports `443, 7447`, target query
    `in:devices vendor:"Ubiquiti"`.
-4. **Set the controller field.** The **UniFi OS / Protect controller** box takes
-   the controller address -- hostname, IP, or a full URL, from which ServiceRadar
-   keeps the host. The controller is almost always reached by a private IP such
-   as `192.168.1.1`. Leave it blank only when the target query already resolves
-   the controller device itself; the plugin calls that host, not a seed row's IP.
+4. **Set the controller field.** The **UniFi OS / Protect controller** box
+   (relabelled **UniFi Protect controller host** from `<first-release>`, when the
+   control stops being UniFi-specific) takes the controller address -- hostname,
+   IP, or a full URL, from which ServiceRadar keeps the host. The controller is
+   almost always reached by a private IP such as `192.168.1.1`. Leave it blank
+   only when the target query already resolves the controller device itself; the
+   plugin calls that host, not a seed row's IP.
 5. **TLS.** `verify` if the controller presents a certificate the agent can
    chain to and that is valid for the address the agent dials -- add the issuing
    CA to `plugin_http_trusted_ca_files` (see
@@ -477,7 +561,7 @@ password on package approval.
 1. **Import and approve** `opentext-nom-inventory`. Until that is done, this
    page's **New Credential** / **New Rule** menus will not offer OpenText NOM.
 2. **Create the credential.** **New Credential** ->
-   `OpenText NOM · Username and password`. Store the NOM service account.
+   `OpenText NOM - Username and password`. Store the NOM service account.
 3. **Create the rule.** Provider `opentext-nom`, auth method
    `username_password`, purpose `device_inventory`, scope **agent** = the agent
    that can reach both Network Automation and NNMi.
@@ -530,7 +614,7 @@ NetBox has two independent paths, and they take their credentials differently:
 
 Setup for both is in [NetBox Integration](./netbox.md).
 
-:::caution Not in 1.4.46
+:::caution Not in 1.4.49
 **The `netbox` credential profile.** Merged work adds an
 `integrations.credential_profiles` block to
 `go/cmd/wasm-plugins/netbox/plugin.yaml`, which makes NetBox a credential-rule
@@ -543,8 +627,8 @@ provider on this page. What the manifest declares:
 | Purpose | `inventory_sync` |
 | Scope types | `agent`, `gateway`, `partition` |
 | Rule controls | allowed ports, controller host, target query, transport |
-| Rule defaults | target query `in:devices metadata.netbox_candidate:true`, scope type `agent`, allowed ports `443, 8443`, TLS policy `verify` |
-| Provisioning | `target_policy`, consumer `netbox-inventory`, grant type `netbox_api_token` resolved at the control plane with a 300 second TTL |
+| Rule defaults | target query `in:devices sort:uid:asc limit:1`, scope type `agent`, allowed ports `443, 8443`, TLS policy `verify` |
+| Provisioning | `target_policy`, consumer `netbox-inventory` declared `target_cardinality: single`, grant type `netbox_api_token` resolved at the control plane with a 300 second TTL |
 
 Delivery follows the ordinary path in
 [How a rule reaches a plugin](#how-a-rule-reaches-a-plugin): the stored
@@ -558,18 +642,38 @@ BASE_PATH deployment (`https://tools.example.com/netbox`) can be expressed.
 `insecure_skip_verify` is derived from the rule's TLS policy being
 `skip_verify`, and `page_size` / `timeout_ms` default to `100` / `30000`.
 
-Two things to know before planning against it. The default target query keys on
-`metadata.netbox_candidate`, and nothing in the tree writes that key today --
-unlike `proxmox_candidate`, which the mapper stamps -- so the default matches
-nothing until you replace it with a query that selects the agent's NetBox host.
-And a rule renders the plugin's **flat** single-source fields, not a `sources[]`
-entry; the plugin reads `sources[]` first and falls back to the flat fields only
-when it is absent, so an assignment that still has a non-empty `sources[]`
+Three things to know before planning against it.
+
+**The target set is only a delivery gate.** A NetBox instance is the rule's
+controller host, not a resolved device: the sync walks the instance named by the
+rule and ignores `inputs[].items[]`. The consumer is declared
+`target_cardinality: single`, so the planner emits exactly one un-chunked
+assignment per rule per agent, and a target set too large for one payload is an
+error naming the target query rather than a split. The default is a query that
+resolves one stable device for that reason, `in:devices sort:uid:asc limit:1`;
+narrow it to the NetBox host's own device record (for example
+`in:devices ip:10.0.0.5`) when you want the targets to name the instance.
+
+**Give each NetBox rule a distinct target query.** Two `netbox` rules matching
+the same devices in the same scope are a [priority](#priority) conflict and only
+the winning rule materialises, so two instances behind one query means only one
+of them syncs.
+
+**A rule renders the plugin's flat single-source fields, not a `sources[]`
+entry.** The plugin reads `sources[]` first and falls back to the flat fields
+only when it is absent, so an assignment that still has a non-empty `sources[]`
 ignores everything the rule delivers. Clear `sources[]` when you move a
 single-source assignment onto a rule, and keep multi-source assignments on
 hand-entered parameters.
 
-On 1.4.46 there is no `NetBox` entry under **New Credential** or **New Rule**,
+An earlier revision of this profile defaulted to
+`in:devices metadata.netbox_candidate:true`. Nothing in the tree writes that key
+-- unlike `proxmox_candidate`, which the mapper stamps -- so every rule left on
+that default matched zero devices and materialised nothing, silently. It has
+been replaced by the default above; older notes describing it still say
+`netbox_candidate`.
+
+On 1.4.49 there is no `NetBox` entry under **New Credential** or **New Rule**,
 no `netbox` provider, and no `inventory_sync` purpose -- the token is a plugin
 assignment parameter and there is no rule to move it to.
 
@@ -641,22 +745,22 @@ socket is opened.
 **Fix.** The plugin manifest must declare `allowed_networks` covering private
 address space.
 
-:::caution Not in 1.4.46
+:::note Fixed in 1.4.48
 **`allowed_networks` on the UniFi Protect, Axis, OpenText and AWX manifests.**
-Merged work adds RFC1918 plus CGNAT `100.64.0.0/10` to all four (link-local
+1.4.48 declares RFC1918 plus CGNAT `100.64.0.0/10` on all four (link-local
 `169.254.0.0/16` is deliberately excluded: no controller is deliberately
-addressed there). On 1.4.46 those four manifests declare no `allowed_networks`
-at all, so every literal-IP destination is denied and there is no rule setting
-that changes it.
+addressed there). Through 1.4.47 those four manifests declared no
+`allowed_networks` at all, so every literal-IP destination was denied and no rule
+setting changed it.
 
-The `netbox-inventory` manifest is not affected -- it has declared RFC1918
-`allowed_networks` since 1.4.46, without CGNAT.
+The `netbox-inventory` manifest was never affected -- it has declared RFC1918
+`allowed_networks` since 1.4.46, without CGNAT. `proxmox` is deliberately left
+alone: its destinations are authorised by the host-authority binding, which
+checks the manifest's allowed ports but not its host or network allow-lists.
 
-Until the fix ships, the only in-product workaround is to give the controller a
-hostname that resolves for the agent, so the request matches
+On a release before 1.4.48 the only in-product workaround is to give the
+controller a hostname that resolves for the agent, so the request matches
 `allowed_domains: ["*"]` instead of falling through to `allowed_networks`.
-
-First release containing the declarations: `<first-release>`.
 :::
 
 Publishing a manifest change is not enough on its own: assignments point at a
@@ -676,17 +780,18 @@ rendered, the browser submitted nothing, and the save could not succeed. Core
 never agreed with the form here: an undeclared list already means "any policy
 permitted" everywhere else.
 
-:::caution Not in 1.4.46
+:::caution Not in 1.4.49
 The fix makes the control render whenever the provider declares transport rule
-controls, defaulting to the full policy set when the auth method does not narrow
-it, and makes an absent `tls_policy` on submit fall back to the resource default
-instead of failing the save. It is merged but unreleased.
+controls and the auth method declares no SSH host key policies, defaulting to the
+full policy set when the auth method does not narrow it, and makes an absent
+`tls_policy` on submit fall back to the resource default instead of failing the
+save. It is merged but unreleased.
 
 First release containing it: `<first-release>`.
 :::
 
 **Until then.** There is no way to save a UniFi Protect or Axis rule from the
-Credential Rules form on 1.4.46 or earlier, and no supported workaround: the
+Credential Rules form on 1.4.49 or earlier, and no supported workaround: the
 Credential Rules page is the only route to the resource (there is no REST or
 GraphQL endpoint for `network_credential_rules`), nothing about the rule you are
 entering is wrong, and no combination of fields makes the save succeed, because
@@ -705,31 +810,36 @@ params, which can never satisfy the check.
 
 **Fix.** The failure is not a missing credential -- do not go looking for one.
 
-:::caution Not in 1.4.46
-**`action-only:v1` on the AWX manifest.** Merged work adds that capability to
+:::note Fixed in 1.4.48
+**`action-only:v1` on the AWX manifest.** 1.4.48 adds that capability to
 `go/cmd/wasm-plugins/awx/plugin.yaml`, so the assignment is addressable through
 `AgentCommandBus` without a periodic runner and the recurring failure stops.
-After it ships, republish, register, and re-materialise the package -- an
-existing assignment points at the old package version and keeps its runner.
+Republish, register, and re-materialise the package after upgrading -- an
+existing assignment points at the old package version and keeps its runner, so
+the message survives the upgrade until the assignment is re-materialised.
 
-On 1.4.46 the message repeats on the assignment's cadence and is cosmetic:
+Before 1.4.48 the message repeats on the assignment's cadence and is cosmetic:
 dispatched AWX commands still carry their own grant and still work. Judge AWX
 health from `awx.ping` and from an actual dispatch, not from this result.
-
-First release containing the capability: `<first-release>`.
 :::
 
 ### "NetBox inventory_sync has no sources configured"
 
 **Symptom.** The `netbox-inventory` assignment reports `UNKNOWN` with that
-message. On builds carrying the credential profile the wording is longer:
-`NetBox inventory_sync has no source configured: set base_url and api_token, or
-attach a NetBox credential rule`. Both mean the same thing.
+message. On builds carrying the credential profile the wording is longer and the
+condition behind it is narrower:
+
+```text
+NetBox inventory_sync has no source configured: set base_url and api_token, or attach a NetBox credential rule
+```
 
 **Cause.** The assignment named no source at all. The plugin reads `sources[]`
-from the assignment params and falls back to the flat `base_url` / `api_token`
-fields only when `sources` is absent, so this message means neither shape was
-populated.
+from the assignment params and falls back to the flat single-source fields only
+when `sources` is absent. Through 1.4.49 that fallback engages only when
+`base_url` is non-empty, so a half-configured flat source is reported as having
+no sources; from `<first-release>` it engages as soon as any of `base_url`,
+`api_token`, `source_id` or `source_name` is set, and a half-configured source is
+then reported by the field it is missing instead.
 
 **Fix.** Fill in `sources[]` on the plugin assignment under **Admin ->
 Plugins**, with `source_id`, `base_url`, and `api_token` per source. See
@@ -740,9 +850,16 @@ Related messages, all `UNKNOWN`, all naming the source that is short a field:
 | Message | Meaning |
 | --- | --- |
 | `NetBox source <id> has no api_token configured` | The source entry exists, its token is blank. |
-| `NetBox source <id> has an invalid base_url` | The base URL is blank or does not parse. From `<first-release>` a blank one is reported separately as `has no base_url configured`, and a malformed one appends the reason -- `has an invalid base_url: base url must be http or https`. |
+| `NetBox source <id> has an invalid base_url` | The base URL is blank or does not parse. From `<first-release>` a blank one is reported separately as `NetBox source <id> has no base_url configured`, and a malformed one appends the reason -- `NetBox source <id> has an invalid base_url: base url must be http or https`. |
 
-On 1.4.46 there is no NetBox credential rule to configure any of this from, and
+Two more `UNKNOWN` results are about the configuration as a whole rather than one
+source. `NetBox configuration could not be loaded` means the host returned no
+configuration for the assignment. `NetBox configuration could not be parsed`,
+from `<first-release>`, means it returned one the plugin cannot decode -- a flat
+config with a mistyped field, or a `serviceradar.plugin_inputs.v1` envelope with
+a malformed `template`.
+
+On 1.4.49 there is no NetBox credential rule to configure any of this from, and
 an API token in assignment params is the placement the credential model exists to
 remove. Merged work adds the `netbox` credential profile -- see
 [NetBox](#netbox) above for what it declares and what it does not fix.

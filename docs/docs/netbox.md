@@ -18,8 +18,8 @@ token from the plugin assignment's parameters under **Admin -> Plugins**
 (`/settings/agents/plugins`). The prefix-import path uses the NetBox source
 under **Settings -> Integrations** (type **Netbox**).
 
-:::caution Not in 1.4.46
-**The `netbox` credential rule provider.** On 1.4.46 the `netbox-inventory`
+:::caution Not in 1.4.49
+**The `netbox` credential rule provider.** On 1.4.49 the `netbox-inventory`
 manifest declares no `integrations` block, so there is no `NetBox` entry under
 **New Credential** or **New Rule**, no `netbox` provider, and no
 `inventory_sync` purpose. Looking for NetBox on
@@ -31,11 +31,17 @@ Merged work adds an `integrations.credential_profiles` block to
 auth method, purpose `inventory_sync`, `supports_rules: true` -- so the token
 moves onto a credential and the rule delivers it, which is what
 [Credential Management](./credentials.md) exists to do. That page's
-[NetBox section](./credentials.md#netbox) has the full declaration, including
-the two things it does not fix: the manifest's default target query keys on
-`metadata.netbox_candidate`, which nothing writes yet, and a rule renders the
-flat single-source fields, so an assignment with a non-empty `sources[]`
-ignores what the rule delivers.
+[NetBox section](./credentials.md#netbox) has the full declaration.
+
+Two rule fields behave differently here than they do for a per-device
+integration. **Controller host** is the NetBox instance and becomes `base_url`,
+so set the full origin (`https://netbox.example.com`). **Target query** is only
+a delivery gate: the sync walks the instance named by the rule and ignores the
+resolved targets, so the manifest default resolves a single device
+(`in:devices sort:uid:asc limit:1`) and you narrow it to the NetBox host's own
+device record. What the rule does not fix is that it renders the flat
+single-source fields, so an assignment with a non-empty `sources[]` ignores what
+the rule delivers.
 
 The parameter shapes documented below -- the `sources` array and the flat
 single-source shorthand -- stay supported either way. Multi-source assignments
@@ -96,7 +102,7 @@ shorthand: they are read only when `sources` is absent. Whichever shape you use,
 
 Scope the token to read-only DCIM access. It is stored in
 `plugin_assignments.params`, which is a weaker placement than a credential, and
-on 1.4.46 the only mitigation is least privilege on the NetBox side. From
+on 1.4.49 the only mitigation is least privilege on the NetBox side. From
 `<first-release>` a `netbox` credential rule delivers the token instead, and the
 assignment row holds a secret reference rather than the value -- see
 [Credential Management: NetBox](./credentials.md#netbox).
@@ -126,9 +132,12 @@ assignment row holds a secret reference rather than the value -- see
 - `NetBox inventory_sync has no sources configured`: the assignment's `sources[]`
   is empty and no flat `base_url` was given either. Fill in the source
   parameters on the assignment under **Admin -> Plugins**
-  (`/settings/agents/plugins`). From `<first-release>` the same condition reads
+  (`/settings/agents/plugins`). From `<first-release>` the message reads
   `NetBox inventory_sync has no source configured: set base_url and api_token,
-  or attach a NetBox credential rule`.
+  or attach a NetBox credential rule`, and the condition is narrower: the flat
+  fallback engages as soon as any of `base_url`, `api_token`, `source_id` or
+  `source_name` is set, so a half-configured source is reported by the field it
+  is missing rather than as having no source.
 - `NetBox source <id> has no api_token configured`: the source entry exists but
   its `api_token` is blank.
 - `NetBox source <id> has an invalid base_url`: the entry's `base_url` is blank
