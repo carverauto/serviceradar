@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.EventWriter.Processors.FalcoEvents
   alias ServiceRadar.Plugins.DisplayContract
   alias ServiceRadarWebNG.Observability.SignalDisplay
 
@@ -131,28 +132,35 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
     assert contract["version"] == "1.1.0"
   end
 
-  test "classifies Falco's raw event time separately from its stored UTC time" do
-    raw_event_time = 1_788_112_800_123_456_789
+  test "classifies Falco's producer fallback event time separately from its stored UTC time" do
+    payload = %{
+      "output" => "Unexpected connection to K8s API Server from container",
+      "priority" => "Warning",
+      "rule" => "Contact K8S API Server From Container",
+      "time" => "2026-03-03T05:56:44.079252771Z",
+      "output_fields" => %{"evt.type" => "connect"}
+    }
+
+    row =
+      FalcoEvents.parse_message(%{
+        data: Jason.encode!(payload),
+        metadata: %{subject: "falco.warning.contact_k8s"}
+      })
 
     event = %{
-      "log_provider" => "falco",
-      "log_name" => "falco.runtime",
-      "time" => "2026-08-30T18:00:00.123456Z",
-      "metadata" => %{
-        "security_signal" => %{
-          "source" => "falco",
-          "diagnostics" => %{"event" => %{"time" => raw_event_time}}
-        }
-      }
+      "log_provider" => row.log_provider,
+      "log_name" => row.log_name,
+      "time" => DateTime.to_iso8601(row.time),
+      "metadata" => row.metadata
     }
 
     assert {:ok, widgets} = SignalDisplay.render_record(event)
     timeline = Enum.find(widgets, &(&1.type == :timeline))
 
-    assert %{format: "unix_nano", value: "1788112800123456789"} =
+    assert %{format: "unix_nano", value: "2026-03-03T05:56:44.079252771Z"} =
              Enum.find(timeline.fields, &(&1.label == "Event Time"))
 
-    assert %{format: "timestamp", value: "2026-08-30T18:00:00.123456Z"} =
+    assert %{format: "timestamp", value: "2026-03-03T05:56:44.079252Z"} =
              Enum.find(timeline.fields, &(&1.label == "Observed"))
   end
 

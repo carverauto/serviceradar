@@ -64,4 +64,31 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponentsTest do
     assert html =~ "Note"
     assert html =~ "2026-08-30T18:00:00Z"
   end
+
+  test "renders Falco's RFC3339 fallback through a unix-nano display contract" do
+    html =
+      render_component(&SignalDisplayComponents.signal_display_panel/1,
+        id: "falco-signal",
+        timezone: "America/Chicago",
+        widgets: [
+          %{
+            type: :timeline,
+            fields: [
+              %{
+                label: "Event Time",
+                value: "2026-03-03T05:56:44.079252771Z",
+                format: "unix_nano"
+              }
+            ]
+          }
+        ]
+      )
+
+    document = LazyHTML.from_fragment(html)
+    times = LazyHTML.query(document, "time[phx-hook='UserTime']")
+
+    assert LazyHTML.attribute(times, "id") == ["falco-signal-widget-0-field-0-time"]
+    assert LazyHTML.attribute(times, "datetime") == ["2026-03-03T05:56:44.079252771Z"]
+    assert LazyHTML.attribute(times, "data-user-time-zone") == ["America/Chicago"]
+  end
 end

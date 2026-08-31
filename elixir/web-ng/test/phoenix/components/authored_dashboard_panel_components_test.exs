@@ -59,6 +59,53 @@ defmodule ServiceRadarWebNGWeb.Components.AuthoredDashboardPanelComponentsTest d
     assert length(Enum.uniq(ids)) == 2
   end
 
+  test "pivot localizes datetime row and column dimensions without changing grouping keys" do
+    html =
+      render_component(&PanelComponents.render_visual/1, %{
+        panel: %{
+          id: "panel-pivot-time",
+          visual_type: :pivot,
+          title: "Event windows",
+          data_binding: %{
+            "row_field" => "started_at",
+            "column_field" => "ended_at",
+            "value_field" => "count"
+          },
+          display_config: %{},
+          visual_config: %{}
+        },
+        rows: [
+          %{
+            "started_at" => "2026-08-30T18:00:00Z",
+            "ended_at" => "2026-08-30T19:00:00Z",
+            "count" => 3
+          }
+        ],
+        fields: [
+          %{name: "started_at", type: :datetime},
+          %{name: "ended_at", type: :datetime},
+          %{name: "count", type: :number}
+        ],
+        timezone: "America/Chicago"
+      })
+
+    document = LazyHTML.from_fragment(html)
+    times = LazyHTML.query(document, "time[phx-hook='UserTime']")
+
+    assert LazyHTML.attribute(times, "datetime") == [
+             "2026-08-30T19:00:00Z",
+             "2026-08-30T18:00:00Z"
+           ]
+
+    assert LazyHTML.attribute(times, "data-user-time-zone") == [
+             "America/Chicago",
+             "America/Chicago"
+           ]
+
+    value_cell = LazyHTML.query(document, "tbody tr > td:nth-child(2)")
+    assert value_cell |> LazyHTML.text() |> String.trim() == "3.0"
+  end
+
   test "stat trend compares oldest and newest rows by time" do
     html =
       render_component(&PanelComponents.render_visual/1, %{

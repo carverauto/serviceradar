@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.UserTimezoneSurfaceContractTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias ServiceRadarWebNGWeb.AnalyticsLive.Index, as: AnalyticsIndex
+  alias ServiceRadarWebNGWeb.AuthoredDashboardLive.WorkbenchComponents
   alias ServiceRadarWebNGWeb.BmpLive.Index, as: BmpIndex
   alias ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel
@@ -20,11 +21,132 @@ defmodule ServiceRadarWebNGWeb.UserTimezoneSurfaceContractTest do
   alias ServiceRadarWebNGWeb.ObservabilityHealthLive.Index, as: ObservabilityHealthIndex
   alias ServiceRadarWebNGWeb.SecurityLive.Index, as: SecurityIndex
   alias ServiceRadarWebNGWeb.ServiceLive.Show.HistoryTable
+  alias ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents
 
   @moduletag :db_free
 
   @canonical "2026-08-30T18:00:00Z"
   @timezone "America/Chicago"
+
+  test "topology stream contract localizes the generated-at instant" do
+    html =
+      render_component(&GodViewTemplateComponents.stream_contract/1,
+        schema_version: 1,
+        stream_state: :ok,
+        last_revision: 42,
+        last_generated_at: @canonical,
+        last_bytes: 1_024,
+        last_node_count: 2,
+        last_edge_count: 1,
+        last_network_ms: 3.5,
+        last_renderer_mode: "webgl",
+        last_zoom_tier: "near",
+        last_zoom_mode: "local",
+        last_decode_ms: 1.5,
+        last_render_ms: 2.5,
+        last_bitmap_metadata: nil,
+        timezone: @timezone
+      )
+
+    document = LazyHTML.from_fragment(html)
+    time = LazyHTML.query(document, "time#god-view-stream-generated-at[phx-hook='UserTime']")
+
+    assert LazyHTML.attribute(time, "datetime") == [@canonical]
+    assert LazyHTML.attribute(time, "data-user-time-zone") == [@timezone]
+    assert LazyHTML.text(time) == @canonical
+
+    surface_html =
+      render_component(&GodViewTemplateComponents.surface/1,
+        snapshot_url: "/topology/snapshot/latest",
+        stream_state: :ok,
+        last_node_count: 2,
+        last_edge_count: 1,
+        pipeline_stats: %{},
+        controls_collapsed: true,
+        visual_layers: %{mantle: true, crust: true, atmosphere: true, security: true},
+        zoom_mode: "local",
+        causal_filters: %{root_cause: true, affected: true, healthy: true, unknown: true},
+        topology_layers: %{backbone: true, inferred: false, endpoints: false, mtr_paths: true},
+        timezone: @timezone
+      )
+
+    surface =
+      surface_html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#god-view-binary-stream")
+
+    assert LazyHTML.attribute(surface, "data-timezone") == [@timezone]
+  end
+
+  test "authored dashboard source schema localizes only datetime samples" do
+    form =
+      Phoenix.Component.to_form(
+        %{
+          "name" => "Recent events",
+          "title" => "Recent events",
+          "srql_query" => "in:events limit:10",
+          "display_label" => "",
+          "unit" => "",
+          "lookback_days" => "",
+          "caption" => ""
+        },
+        as: :source_query
+      )
+
+    html =
+      render_component(&WorkbenchComponents.dashboard_workbench/1,
+        dashboard: %{
+          id: "dashboard-timezone-preview",
+          owner_id: "user-1",
+          panels: [],
+          metadata: %{},
+          visibility: :private
+        },
+        settings_open?: true,
+        source_query_form: form,
+        source_query_preview: %{
+          row_count: 1,
+          fields: [
+            %{name: "observed_at", type: :datetime, sample: @canonical},
+            %{name: "note", type: :string, sample: @canonical}
+          ],
+          outputs: []
+        },
+        panel_results: %{},
+        editing_panel_id: nil,
+        access_grants: [],
+        user_grant_form: nil,
+        group_grant_form: nil,
+        users: [],
+        user_groups: [],
+        can_view_groups?: false,
+        can_edit?: false,
+        can_share?: false,
+        can_schedule_reports?: false,
+        report_schedule_form: nil,
+        current_scope: %{user: %{id: "user-1", timezone: @timezone}}
+      )
+
+    document = LazyHTML.from_fragment(html)
+    time = LazyHTML.query(document, "time[phx-hook='UserTime']")
+
+    assert LazyHTML.attribute(time, "datetime") == [@canonical]
+    assert LazyHTML.attribute(time, "data-user-time-zone") == [@timezone]
+
+    note_sample =
+      LazyHTML.query(document, "tr[data-source-field='note'] td:nth-child(3)")
+
+    assert note_sample |> LazyHTML.text() |> String.trim() == @canonical
+    assert note_sample |> LazyHTML.query("time") |> LazyHTML.attribute("datetime") == []
+
+    [canvas_props] =
+      document
+      |> LazyHTML.query("[phx-hook='DashboardBuilderCanvas']")
+      |> LazyHTML.attribute("data-props")
+      |> Enum.map(&Jason.decode!/1)
+
+    assert canvas_props["timezone"] == @timezone
+  end
 
   test "dashboard threat instants stay canonical and carry the saved zone" do
     html =

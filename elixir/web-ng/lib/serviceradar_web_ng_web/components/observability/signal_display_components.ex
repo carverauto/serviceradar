@@ -288,7 +288,10 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
         ".#{nanoseconds |> Integer.to_string() |> String.pad_leading(9, "0")}Z"
       )
     else
-      _ -> nil
+      # Falco uses its top-level RFC3339 timestamp when evt.time is absent.
+      # Accept that producer fallback at the display boundary without rewriting
+      # the stored payload or weakening the unix-nanosecond precision path.
+      _ -> temporal_value(%{format: "timestamp", value: value})
     end
   end
 

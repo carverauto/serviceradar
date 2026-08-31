@@ -99,7 +99,9 @@ filegroup(
         "js/hooks/charts/Netflow*Chart.js",
         "js/hooks/charts/Netflow*Chart.test.js",
     ]) + [
+        "component/src/DashboardBuilderCanvas.jsx",
         "component/src/DashboardPanelChart.jsx",
+        "component/test/DashboardBuilderCanvas.test.jsx",
         "component/test/DashboardPanelChart.test.jsx",
         "js/dashboards/endpoint_inventory.js",
         "js/dashboards/security_findings.js",
@@ -142,6 +144,7 @@ js_test(
     args = [
         "$(rootpath %s)" % test
         for test in glob([
+            "component/test/DashboardBuilderCanvas.test.jsx",
             "component/test/DashboardPanelChart.test.jsx",
             "js/dashboards/user_time.test.js",
             "js/hooks/UserTime.test.js",
@@ -161,6 +164,7 @@ js_test(
     ],
     chdir = package_name(),
     data = glob([
+        "component/test/DashboardBuilderCanvas.test.jsx",
         "component/test/DashboardPanelChart.test.jsx",
         "js/dashboards/user_time.test.js",
         "js/hooks/UserTime.test.js",
@@ -199,6 +203,8 @@ filegroup(
         "god_view_acceptance_geometry_observer.test.js",
         "god_view_production_bundle_contract.test.js",
         "js/lib/GodViewRenderer.js",
+        "js/utils/dashboard_user_time.js",
+        "js/utils/user_time.js",
     ],
 )
 

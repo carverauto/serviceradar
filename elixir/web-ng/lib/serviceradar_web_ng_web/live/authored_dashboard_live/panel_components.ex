@@ -256,15 +256,31 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
           <thead>
             <tr>
               <th>{@pivot.row_label}</th>
-              <th :for={column <- @pivot.columns}>{column}</th>
+              <th :for={column <- @pivot.columns}>
+                <.table_cell
+                  value={column.value}
+                  type={@pivot.column_type}
+                  renderer="text"
+                  id={"authored-dashboard-pivot-#{safe_dom_id(@panel.id)}-column-#{column.index}"}
+                  timezone={@timezone}
+                />
+              </th>
               <th :if={@pivot.show_totals?}>Total</th>
             </tr>
           </thead>
           <tbody>
             <tr :for={row <- @pivot.rows}>
-              <th>{row.label}</th>
+              <th>
+                <.table_cell
+                  value={row.value}
+                  type={@pivot.row_type}
+                  renderer="text"
+                  id={"authored-dashboard-pivot-#{safe_dom_id(@panel.id)}-row-#{row.index}"}
+                  timezone={@timezone}
+                />
+              </th>
               <td :for={column <- @pivot.columns}>
-                {Map.get(row.values, column, @pivot.empty_value)}
+                {Map.get(row.values, column.key, @pivot.empty_value)}
               </td>
               <td :if={@pivot.show_totals?}>{row.total}</td>
             </tr>
@@ -663,42 +679,73 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     aggregate = binding["aggregate"] || "sum"
     empty_value = binding["empty_value"] || "0"
 
-    grouped =
-      Enum.reduce(rows, %{}, fn row, acc ->
-        row_key = format_value(Map.get(row, row_field))
-        column_key = format_value(Map.get(row, column_field))
-        value = numeric(Map.get(row, value_field)) || 0
-
-        update_in(acc, [Access.key(row_key, %{}), Access.key(column_key, [])], &[value | &1])
-      end)
+    grouped = Enum.reduce(rows, %{}, &add_pivot_value(&1, &2, row_field, column_field, value_field))
 
     columns =
       grouped
       |> Map.values()
-      |> Enum.flat_map(&Map.keys/1)
-      |> Enum.uniq()
-      |> Enum.sort()
+      |> Enum.reduce(%{}, fn row_group, acc ->
+        Map.merge(acc, row_group.columns, fn _key, existing, _duplicate -> existing end)
+      end)
+      |> Enum.sort_by(fn {key, _column} -> key end)
+      |> Enum.with_index()
+      |> Enum.map(fn {{key, column}, index} ->
+        %{key: key, value: column.value, index: index}
+      end)
 
     pivot_rows =
       grouped
-      |> Enum.sort_by(fn {label, _values} -> label end)
-      |> Enum.map(fn {label, values_by_column} ->
+      |> Enum.sort_by(fn {key, _row_group} -> key end)
+      |> Enum.with_index()
+      |> Enum.map(fn {{_key, row_group}, index} ->
         values =
           Map.new(columns, fn column ->
-            values = Map.get(values_by_column, column, [])
-            {column, aggregate_values(values, aggregate)}
+            values = get_in(row_group, [:columns, column.key, :values]) || []
+            {column.key, aggregate_values(values, aggregate)}
           end)
 
-        %{label: label, values: values, total: aggregate_values(Map.values(values), "sum")}
+        %{
+          value: row_group.value,
+          index: index,
+          values: values,
+          total: aggregate_values(Map.values(values), "sum")
+        }
       end)
 
     %{
       row_label: humanize_field(row_field || "row"),
+      row_type: field_type_for(fields, row_field),
+      column_type: field_type_for(fields, column_field),
       columns: columns,
       rows: pivot_rows,
       empty_value: empty_value,
       show_totals?: true
     }
+  end
+
+  defp add_pivot_value(row, acc, row_field, column_field, value_field) do
+    row_value = Map.get(row, row_field)
+    column_value = Map.get(row, column_field)
+    row_key = format_value(row_value)
+    column_key = format_value(column_value)
+    value = numeric(Map.get(row, value_field)) || 0
+
+    Map.update(
+      acc,
+      row_key,
+      %{value: row_value, columns: %{column_key => %{value: column_value, values: [value]}}},
+      fn row_group ->
+        columns =
+          Map.update(
+            row_group.columns,
+            column_key,
+            %{value: column_value, values: [value]},
+            &Map.update!(&1, :values, fn values -> [value | values] end)
+          )
+
+        %{row_group | columns: columns}
+      end
+    )
   end
 
   defp aggregate_values([], _aggregate), do: 0
