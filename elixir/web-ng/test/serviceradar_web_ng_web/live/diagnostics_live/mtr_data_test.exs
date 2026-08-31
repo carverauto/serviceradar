@@ -233,8 +233,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     trends = MtrData.build_trends(traces)
     unreached_time = trace_by_id[unreached_id]["time"]
 
-    assert {unreached_time, 0} in trends.latency
-    refute {unreached_time, 900_000} in trends.latency
+    assert {trace_by_id[silent_transit_id]["time"], 30_000} in trends.latency
+    assert {trace_by_id[partial_destination_id]["time"], 40_000} in trends.latency
+    refute Enum.any?(trends.latency, fn {time, _latency} -> time == unreached_time end)
   end
 
   test "compare_windows handles partial elapsed windows and uneven samples" do

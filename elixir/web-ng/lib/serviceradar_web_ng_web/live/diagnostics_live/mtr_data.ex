@@ -263,8 +263,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       end)
 
     latency =
-      Enum.map(sorted, fn trace ->
-        {trace["time"], trace["destination_avg_us"] || 0}
+      sorted
+      |> Enum.filter(fn trace ->
+        (trace["destination_received"] || 0) > 0 and is_number(trace["destination_avg_us"])
+      end)
+      |> Enum.map(fn trace ->
+        {trace["time"], trace["destination_avg_us"]}
       end)
 
     %{hops: hops, latency: latency}
