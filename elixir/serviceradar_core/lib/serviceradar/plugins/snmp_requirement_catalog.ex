@@ -49,6 +49,10 @@ defmodule ServiceRadar.Plugins.SNMPRequirementCatalog do
   # Mirrors maxOIDNameLength in go/pkg/agent/snmp/config.go.
   @max_oid_name_length 64
 
+  # Longest package namespace allowed to prefix an OID name, leaving the rest of
+  # the 64-byte budget for the name itself.
+  @max_oid_namespace_length 32
+
   # Vendor marks the template as plugin-contributed. It is not "builtin", so
   # the template browser's Custom tab already renders it.
   @plugin_vendor "plugin"
@@ -139,6 +143,7 @@ defmodule ServiceRadar.Plugins.SNMPRequirementCatalog do
           :update,
           drop_nils(Map.take(definition, @template_definition_fields))
         )
+        |> put_provenance(package)
         |> Ash.update(actor: actor)
 
       {:error, reason} ->
@@ -172,13 +177,19 @@ defmodule ServiceRadar.Plugins.SNMPRequirementCatalog do
         |> put_provenance(package)
         |> Ash.create(actor: actor)
 
-      # Deliberately a no-op. Every remaining field on a profile is
-      # operator-owned, including oid_template_ids: if an operator removed the
+      # Nothing operator-owned is written. Every remaining field on a profile
+      # belongs to the operator, including oid_template_ids: if they removed the
       # plugin's template or added their own, an upgrade must not reinstate the
       # list. This is also what stops a re-approve after a revoke from re-arming
       # polling, since `enabled` is never written here.
+      #
+      # Provenance is the one exception, and only so it keeps pointing at the
+      # package version that currently owns the row rather than a superseded one.
       {:ok, profile} ->
-        {:ok, profile}
+        profile
+        |> Ash.Changeset.for_update(:update, %{})
+        |> put_provenance(package)
+        |> Ash.update(actor: actor)
 
       {:error, reason} ->
         {:error, reason}
@@ -198,10 +209,17 @@ defmodule ServiceRadar.Plugins.SNMPRequirementCatalog do
     |> Ash.update(actor: actor)
   end
 
-  # Templates and profiles are namespaced by package for the same reason alert
-  # rules are: the name is the lookup key, and an unqualified name could collide
-  # with an operator's own row.
-  defp qualified_name(package, name), do: "plugin:#{package.name}:#{name}"
+  # Namespaced by plugin_id, not by display name.
+  #
+  # The name is the lookup key, so an unqualified one could collide with an
+  # operator's own row. It has to key on plugin_id specifically because
+  # PluginPackage is unique on (plugin_id, version) and NOT on name: every new
+  # version of a plugin is a separate package row carrying the same display
+  # name. Keying on the name would make v0.2.0 try to create a template whose
+  # (vendor, name) v0.1.0 already owns, and
+  # `snmp_oid_templates_unique_name_per_vendor_index` would fail the whole sync -
+  # so approving an upgrade would materialize nothing.
+  defp qualified_name(package, name), do: "plugin:#{package.plugin_id}:#{name}"
 
   # The agent rejects duplicate OID *names* within a target
   # (`errOIDDuplicate`), while `load_template_oids/2` dedupes by OID *string*
@@ -209,7 +227,7 @@ defmodule ServiceRadar.Plugins.SNMPRequirementCatalog do
   # already has one would otherwise produce a name collision that rejects the
   # entire agent config - taking out every other profile on that agent.
   defp namespaced_oids(package, oids) when is_list(oids) do
-    prefix = package |> Map.get(:name) |> slug() |> String.slice(0, 20)
+    prefix = oid_namespace(package)
 
     oids
     |> Enum.map_reduce(MapSet.new(), fn oid, seen ->
@@ -227,6 +245,24 @@ defmodule ServiceRadar.Plugins.SNMPRequirementCatalog do
   end
 
   defp namespaced_oids(_package, _oids), do: []
+
+  # Derived from the package's plugin_id rather than its display name. The id is
+  # the canonical, already slug-safe identifier; the display name is prose that
+  # an operator can edit, and slugging it produced mid-word truncations like
+  # "ClearPass_Policy_Man" in the metric names operators and dashboards see.
+  #
+  # The cap leaves room for a useful OID name inside the agent's 64-byte limit
+  # while being wide enough that a normal plugin id survives whole.
+  defp oid_namespace(package) do
+    package
+    |> Map.get(:plugin_id)
+    |> then(fn
+      id when is_binary(id) and id != "" -> id
+      _other -> Map.get(package, :name)
+    end)
+    |> slug()
+    |> String.slice(0, @max_oid_namespace_length)
+  end
 
   defp namespaced_oid_name(prefix, name) do
     name = slug(name)
@@ -268,9 +304,15 @@ defmodule ServiceRadar.Plugins.SNMPRequirementCatalog do
   defp manifest_key(:timeout), do: "default_timeout_seconds"
   defp manifest_key(:retries), do: "default_retries"
 
-  defp find_existing(resource, package_id, name, actor) do
+  # Looked up by NAME alone, not by (plugin_package_id, name).
+  #
+  # plugin_package_id changes on every version bump, so keying on it would make
+  # an upgrade miss the row its predecessor created and take the create branch
+  # into a unique-name collision. The name is plugin-stable by construction (see
+  # qualified_name/2), which is what makes it the right key.
+  defp find_existing(resource, _package_id, name, actor) do
     resource
-    |> Ash.Query.filter(plugin_package_id == ^package_id and name == ^name)
+    |> Ash.Query.filter(name == ^name)
     |> Ash.Query.limit(1)
     |> Ash.read(actor: actor)
     |> case do
