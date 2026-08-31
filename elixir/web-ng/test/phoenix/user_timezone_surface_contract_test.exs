@@ -21,12 +21,25 @@ defmodule ServiceRadarWebNGWeb.UserTimezoneSurfaceContractTest do
   alias ServiceRadarWebNGWeb.ObservabilityHealthLive.Index, as: ObservabilityHealthIndex
   alias ServiceRadarWebNGWeb.SecurityLive.Index, as: SecurityIndex
   alias ServiceRadarWebNGWeb.ServiceLive.Show.HistoryTable
+  alias ServiceRadarWebNGWeb.TopologyLive.GodViewTemplate
   alias ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents
 
   @moduletag :db_free
 
   @canonical "2026-08-30T18:00:00Z"
   @timezone "America/Chicago"
+
+  test "topology template forwards the saved timezone to both rendering boundaries" do
+    html = render_component(&GodViewTemplate.render/1, god_view_template_assigns())
+    document = LazyHTML.from_fragment(html)
+
+    surface = LazyHTML.query(document, "#god-view-binary-stream")
+    generated_at = LazyHTML.query(document, "time#god-view-stream-generated-at")
+
+    assert LazyHTML.attribute(surface, "data-timezone") == [@timezone]
+    assert LazyHTML.attribute(generated_at, "datetime") == [@canonical]
+    assert LazyHTML.attribute(generated_at, "data-user-time-zone") == [@timezone]
+  end
 
   test "topology stream contract localizes the generated-at instant" do
     html =
@@ -807,6 +820,43 @@ defmodule ServiceRadarWebNGWeb.UserTimezoneSurfaceContractTest do
       device_uid: "device-1",
       inserted_at: ~U[2026-08-30 18:00:00Z],
       redacted_input_values: %{}
+    }
+  end
+
+  defp god_view_template_assigns do
+    %{
+      flash: %{},
+      current_scope: %{
+        user: %{email: "operator@example.com", role: :admin, timezone: @timezone}
+      },
+      current_path: "/topology",
+      snapshot_url: "/topology/snapshot/latest",
+      schema_version: 1,
+      stream_state: :ok,
+      last_revision: 42,
+      last_generated_at: @canonical,
+      last_bytes: 1_024,
+      last_node_count: 2,
+      last_edge_count: 1,
+      last_network_ms: 3.5,
+      last_renderer_mode: "webgl",
+      last_zoom_tier: "near",
+      last_zoom_mode: "local",
+      last_decode_ms: 1.5,
+      last_render_ms: 2.5,
+      last_bitmap_metadata: nil,
+      pipeline_stats: %{},
+      controls_collapsed: true,
+      visual_layers: %{mantle: true, crust: true, atmosphere: true, security: true},
+      zoom_mode: "local",
+      causal_filters: %{root_cause: true, affected: true, healthy: true, unknown: true},
+      topology_layers: %{backbone: true, inferred: false, endpoints: false, mtr_paths: true},
+      selected_camera_context: nil,
+      active_camera_relay_session: nil,
+      last_camera_relay_session: nil,
+      camera_relay_viewer_state: nil,
+      camera_relay_tiles: [],
+      camera_relay_tile_notice: nil
     }
   end
 end
