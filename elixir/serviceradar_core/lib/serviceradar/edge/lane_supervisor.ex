@@ -11,9 +11,9 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   past the grant, and the original caller, holding the dead pool's pid, exits inside its own
   `settle/3` after receiving a durable PubAck.
 
-  Accounting and in-flight request ownership therefore share a restart boundary. Under
-  `:one_for_all` a pool crash also restarts the connection, so requests whose reservations were
-  discarded are dropped with it; the reverse holds too.
+  Accounting and in-flight request ownership therefore share a restart boundary: under
+  `:one_for_all`, a crash in either child restarts both. That narrows the window in which the two
+  can disagree. It does not eliminate it -- see below.
 
   ## This is NOT an atomic fence, and must not be read as one
 
@@ -30,10 +30,9 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   PubAck correlation and recovery, owed by tasks 3.4 and 3.5 -- or a generation the broker itself
   would honour, which JetStream does not offer for a local credit bound.
 
-  This is the conservative direction. A restart drops in-flight publishes rather than orphaning
-  them, and the agent republishes on the same slot; the alternative -- reconstructing reservations
-  for requests whose replies may still arrive -- needs the PubAck correlation that tasks 3.4 and
-  3.5 own.
+  The conservative direction is to lose an in-flight publish rather than orphan its accounting:
+  the record stays unresolved and is offered again. Reconstructing reservations for requests whose
+  replies may still arrive needs the PubAck correlation that tasks 3.4 and 3.5 own.
 
   ## What this does NOT cover: an ordinary reconnect
 

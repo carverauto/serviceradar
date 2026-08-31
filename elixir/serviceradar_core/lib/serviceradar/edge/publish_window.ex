@@ -47,6 +47,24 @@ defmodule ServiceRadar.Edge.PublishWindow do
   So `expired/2` REPORTS; only `settle/3` releases. Expiry is a signal to republish, not a
   reclaim.
 
+  ## WHAT THIS DOES NOT YET BOUND
+
+  The window bounds ADMISSIONS. It does not bound the interval between a caller receiving its
+  reservation and that caller reaching the socket, and nothing here can observe that interval.
+
+  So this interleaving is still reachable, and it is ordinary scheduling rather than a crash: a
+  caller receives attempt 1 and is descheduled; its deadline passes; an expiry sweep ends attempt
+  1 with `attempt_failed/2` and admits attempt 2; the first caller then resumes and publishes
+  under attempt 1. Two publications, one charge.
+
+  Every gate here is on the RESERVATION, and by construction none of them can see whether the
+  attempt they are superseding has already reached the wire. Closing it needs the retry to be
+  fenced against the original attempt's owner -- which requires knowing whether that attempt
+  published, i.e. the PubAck correlation owed by tasks 3.4 and 3.5.
+
+  Until then the hard-window requirement is NOT satisfied, and nothing in this module should be
+  read as claiming it is.
+
   ## Transition policy, stated once
 
       admit a new PUBLICATION, within bounds     -> {:ok, window, reservation}
@@ -242,12 +260,18 @@ defmodule ServiceRadar.Edge.PublishWindow do
   never handed over, so a revocation arriving after that attempt was superseded cannot release
   whatever holds the key now. A key-only version could not express that, and so could not enforce
   its own contract.
+
+  Refuses a CONFIRMED attempt for the same reason. Its caller holds it and may already be
+  publishing; releasing the credit then would let one grant cover two publications.
   """
   @spec abandon(t(), reservation()) :: {:ok, t()} | {:error, atom()}
   def abandon(%__MODULE__{} = w, {key, token}) do
     case Map.fetch(w.outstanding, key) do
-      # EITHER phase: revocation is precisely the case where the attempt is still provisional.
-      {:ok, {bytes, _deadline, {_phase, ^token}}} ->
+      # PROVISIONAL ONLY. An active attempt is one its caller holds and may already be
+      # publishing; releasing it would free the credit while that request is on the wire, so one
+      # grant would cover two publications. Accepting either phase here made the narrow authority
+      # this function documents unenforceable.
+      {:ok, {bytes, _deadline, {:pending, ^token}}} ->
         {:ok,
          %{
            w

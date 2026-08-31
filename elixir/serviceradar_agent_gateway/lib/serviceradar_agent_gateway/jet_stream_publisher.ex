@@ -228,11 +228,18 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
 
       # The publish reached the broker, but the accounting that authorised it did not survive to
       # record the fact -- the lane restarted, or this reservation was superseded. Reporting it
-      # durable would be reporting a fact we can no longer account for, so progress is withheld
-      # and the record is republished; `Nats-Msg-Id` deduplicates the copy.
+      # durable would be reporting a fact nothing can account for, so a RETRYABLE error is
+      # returned instead and the source sequence stays unresolved.
       #
-      # This does NOT close the hole underneath it. A replacement pool starts with its full grant
-      # while this publish may still be broker-ambiguous, so the lane can briefly exceed its
+      # Stated carefully, because a looser version of this comment claimed more: this function
+      # returns an error, it does not itself republish -- there is no production caller yet. And
+      # if a caller does retry, broker deduplication is not a general answer: `Nats-Msg-Id` dedup
+      # is scoped to one stream and one duplicate window, so a copy landing outside that window,
+      # or on a different stream, is not deduplicated there. The proposal names database
+      # idempotency as the backstop for exactly that.
+      #
+      # This also does NOT close the hole underneath it. A replacement pool starts with its full
+      # grant while this publish may still be broker-ambiguous, so the lane can briefly exceed its
       # bound. Closing THAT needs to know whether the in-flight publish landed, which is the
       # PubAck correlation owed by tasks 3.4 and 3.5.
       {:error, reason} ->
