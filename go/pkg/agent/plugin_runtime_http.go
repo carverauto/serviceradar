@@ -214,10 +214,12 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		return pluginErrDenied
 	}
 
-	httpClient := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify, timeout)
-	if proxmoxBinding != nil && proxmoxBinding.caBundlePEM != "" {
-		httpClient = pluginHTTPClientWithPinnedRoots(httpClient, proxmoxBinding.caBundlePEM)
-	}
+	httpClient := pluginHTTPClientForBinding(
+		e.manager.httpClient,
+		payload.InsecureSkipVerify,
+		timeout,
+		proxmoxBinding,
+	)
 	configurePluginHTTPRedirects(httpClient, grant, reqURL, &e.assignment.Permissions)
 	if hostCredentialBound {
 		// Host-retained credentials are authorized for this one canonical
@@ -748,6 +750,23 @@ type pluginHTTPPinnedTransportKey struct {
 // silently trusting nothing. The control plane rejects unparseable material at
 // save time, so reaching that branch means the binding was tampered with in
 // transit.
+// pluginHTTPClientForBinding applies the binding's own trust material when it
+// carries any, so hostHTTPRequest states the intent once rather than branching
+// on it inline.
+func pluginHTTPClientForBinding(
+	base *http.Client,
+	insecureSkipVerify bool,
+	timeout time.Duration,
+	binding *pluginHostAuthorityBinding,
+) *http.Client {
+	client := pluginHTTPClient(base, insecureSkipVerify, timeout)
+	if binding == nil || binding.caBundlePEM == "" {
+		return client
+	}
+
+	return pluginHTTPClientWithPinnedRoots(client, binding.caBundlePEM)
+}
+
 func pluginHTTPClientWithPinnedRoots(client *http.Client, bundle string) *http.Client {
 	pool := pluginHostAuthorityCertPool(bundle)
 	if pool == nil {

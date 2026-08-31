@@ -93,22 +93,37 @@ func TestPinnedRootsVerifyAPrivateCAByIPAndRejectOthers(t *testing.T) {
 	// only trust in play is what the binding supplies.
 	base := &http.Client{Transport: http.DefaultTransport}
 
+	get := func(t *testing.T, client *http.Client) (int, error) {
+		t.Helper()
+
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+		if err != nil {
+			t.Fatalf("build request: %v", err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return 0, err
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		return resp.StatusCode, nil
+	}
+
 	t.Run("system roots alone cannot reach it", func(t *testing.T) {
 		client := pluginHTTPClient(base, false, 5*time.Second)
-		if _, err := client.Get(server.URL); err == nil {
+		if _, err := get(t, client); err == nil {
 			t.Fatal("expected verification to fail against the system trust store")
 		}
 	})
 
 	t.Run("the pinned cluster CA reaches it", func(t *testing.T) {
 		client := pluginHTTPClientWithPinnedRoots(pluginHTTPClient(base, false, 5*time.Second), caPEM)
-		resp, err := client.Get(server.URL)
+		status, err := get(t, client)
 		if err != nil {
 			t.Fatalf("pinned CA should verify the node certificate: %v", err)
 		}
-		defer func() { _ = resp.Body.Close() }()
-		if resp.StatusCode != http.StatusOK {
-			t.Fatalf("status = %d, want 200", resp.StatusCode)
+		if status != http.StatusOK {
+			t.Fatalf("status = %d, want 200", status)
 		}
 	})
 
@@ -118,7 +133,7 @@ func TestPinnedRootsVerifyAPrivateCAByIPAndRejectOthers(t *testing.T) {
 			pluginHTTPClient(base, false, 5*time.Second),
 			otherPEM,
 		)
-		if _, err := client.Get(server.URL); err == nil {
+		if _, err := get(t, client); err == nil {
 			t.Fatal("pinning an unrelated CA must not verify this server")
 		}
 	})
