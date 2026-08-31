@@ -212,6 +212,7 @@ defmodule ServiceRadarWebNGWeb.TimezoneSurfaceBTest do
       cron_expression: nil,
       partition: "default",
       agent_id: nil,
+      agent_ids: [],
       last_run_at: @canonical,
       executions: []
     }

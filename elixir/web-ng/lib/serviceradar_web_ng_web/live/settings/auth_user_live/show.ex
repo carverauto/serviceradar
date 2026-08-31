@@ -421,9 +421,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
               <div class="sr-ui-card-body space-y-4">
                 <div class="flex items-center justify-between gap-3">
                   <h2 class="sr-ui-card-title text-base">Access from group mappings</h2>
-                  <span class="text-xs opacity-60 font-mono">
-                    {format_datetime(@role_mapping_event.inserted_at)}
-                  </span>
+                  <.user_time
+                    id={"settings-auth-user-role-mapping-#{@role_mapping_event.id}-inserted-at"}
+                    value={canonical_datetime(@role_mapping_event.inserted_at)}
+                    timezone={@current_scope.user.timezone || "Etc/UTC"}
+                    style={:compact}
+                    fallback="—"
+                    class="text-xs opacity-60 font-mono"
+                  />
                 </div>
 
                 <div class="text-xs opacity-70">

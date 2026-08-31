@@ -59,7 +59,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
             <%= if @latest_completed do %>
               •
               <.user_time
-                id={"settings-active-scan-#{@latest_completed.id}-completed-at"}
+                id="settings-active-scan-latest-completed-at"
                 value={@latest_completed.completed_at || @latest_completed.updated_at}
                 timezone={@timezone}
                 style={:compact}

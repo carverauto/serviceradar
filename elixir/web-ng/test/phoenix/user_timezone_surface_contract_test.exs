@@ -235,6 +235,7 @@ defmodule ServiceRadarWebNGWeb.UserTimezoneSurfaceContractTest do
       render_component(&MtrComponents.mtr_tab_content/1,
         device_uid: "device-a",
         traces: trace_rows,
+        recent_traces: trace_rows,
         pending_jobs: job_rows,
         total_count: 2,
         timezone: @timezone

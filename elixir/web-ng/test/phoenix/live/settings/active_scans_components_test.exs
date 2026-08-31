@@ -19,7 +19,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponentsTest d
         groups: [
           %{id: "ot-managed", name: "OT managed"},
           %{id: "rids", name: "RIDS"}
-        ]
+        ],
+        timezone: "America/Chicago"
       )
       |> LazyHTML.from_fragment()
 
@@ -34,6 +35,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponentsTest d
     assert text =~ "141 available"
     refute text =~ "5,993"
     refute text =~ "Hosts Scanned"
+
+    time = LazyHTML.query(card, "#settings-active-scan-latest-completed-at")
+    assert LazyHTML.attribute(time, "datetime") == ["2026-08-30T23:36:00Z"]
+    assert LazyHTML.attribute(time, "data-user-time-zone") == ["America/Chicago"]
   end
 
   defp execution(group_id, hosts_total, hosts_available, completed_at) do
