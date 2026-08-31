@@ -13,7 +13,13 @@ import (
 const (
 	testConfidenceHigh         = "high"
 	testEvidenceEndpointAttach = "endpoint-attachment"
+	testPhysicalMAC            = "02:42:49:7d:cf:00"
 	testRelationAttachedTo     = "ATTACHED_TO"
+)
+
+var (
+	errTestInterfaceLabelQuery = errors.New("label query timed out")
+	errTestSNMPV1BulkWalk      = errors.New("SNMPV1 does not support GETBULK")
 )
 
 func TestGenerateDeviceIDNormalizesMAC(t *testing.T) {
@@ -56,24 +62,24 @@ func TestSelectPrimaryMACSkipsVRRPInterfaces(t *testing.T) {
 			name: "vrrp interface before physical interface",
 			candidates: []interfaceMACCandidate{
 				{ifIndex: 2, ifName: "vrrp10", ifDescr: "vrrp10", mac: "e2:44:ac:eb:e7:44"},
-				{ifIndex: 125, ifName: "eth0", ifDescr: "eth0", mac: "02:42:49:7d:cf:00"},
+				{ifIndex: 125, ifName: "eth0", ifDescr: "eth0", mac: testPhysicalMAC},
 			},
-			want: "02:42:49:7d:cf:00",
+			want: testPhysicalMAC,
 		},
 		{
 			name: "vrrp identified by description",
 			candidates: []interfaceMACCandidate{
 				{ifIndex: 2, ifDescr: "VRRP10", mac: "e2:44:ac:eb:e7:44"},
-				{ifIndex: 125, ifName: "eth0", mac: "02:42:49:7d:cf:00"},
+				{ifIndex: 125, ifName: "eth0", mac: testPhysicalMAC},
 			},
-			want: "02:42:49:7d:cf:00",
+			want: testPhysicalMAC,
 		},
 		{
 			name: "locally administered physical interface remains valid",
 			candidates: []interfaceMACCandidate{
-				{ifIndex: 125, ifName: "eth0", ifDescr: "eth0", mac: "02:42:49:7d:cf:00"},
+				{ifIndex: 125, ifName: "eth0", ifDescr: "eth0", mac: testPhysicalMAC},
 			},
-			want: "02:42:49:7d:cf:00",
+			want: testPhysicalMAC,
 		},
 		{
 			name: "only vrrp interface",
@@ -149,7 +155,7 @@ func TestGetMACAddressSkipsVRRPInterfaceMAC(t *testing.T) {
 	}
 	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
 
-	if got := engine.getMACAddress(client, "10.99.0.21", "test-job"); got != "02:42:49:7d:cf:00" {
+	if got := engine.getMACAddress(client, "10.99.0.21", "test-job"); got != testPhysicalMAC {
 		t.Fatalf("getMACAddress() = %q, want CORE-1 physical interface MAC", got)
 	}
 }
@@ -167,7 +173,7 @@ func TestGetMACAddressSupportsSNMPv1IndexOneMACWithoutIfName(t *testing.T) {
 	}
 	client := &fakeSNMPMACReader{
 		version:     gosnmp.Version1,
-		bulkWalkErr: errors.New("SNMPV1 does not support GETBULK"),
+		bulkWalkErr: errTestSNMPV1BulkWalk,
 		get: func(oids []string) (*gosnmp.SnmpPacket, error) {
 			for _, oid := range oids {
 				if oid == oidIfName+".1" {
@@ -204,7 +210,7 @@ func TestGetMACAddressUsesWalkForSNMPv1Fallback(t *testing.T) {
 	}
 	client := &fakeSNMPMACReader{
 		version:     gosnmp.Version1,
-		bulkWalkErr: errors.New("SNMPV1 does not support GETBULK"),
+		bulkWalkErr: errTestSNMPV1BulkWalk,
 		get: func(oids []string) (*gosnmp.SnmpPacket, error) {
 			for _, oid := range oids {
 				if len(oid) >= len(oidIfName) && oid[:len(oidIfName)] == oidIfName {
@@ -231,7 +237,7 @@ func TestGetMACAddressUsesWalkForSNMPv1Fallback(t *testing.T) {
 	}
 	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
 
-	if got := engine.getMACAddress(client, "10.99.0.21", "test-v1"); got != "02:42:49:7d:cf:00" {
+	if got := engine.getMACAddress(client, "10.99.0.21", "test-v1"); got != testPhysicalMAC {
 		t.Fatalf("getMACAddress() = %q, want SNMPv1 physical interface MAC", got)
 	}
 }
@@ -305,7 +311,7 @@ func TestGetMACAddressStopsWalkingAfterFirstNonVRRPCandidate(t *testing.T) {
 	}
 	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
 
-	if got := engine.getMACAddress(client, "10.99.0.21", "test-budget"); got != "02:42:49:7d:cf:00" {
+	if got := engine.getMACAddress(client, "10.99.0.21", "test-budget"); got != testPhysicalMAC {
 		t.Fatalf("getMACAddress() = %q, want physical interface MAC", got)
 	}
 	if client.getCalls > 3 {
@@ -339,7 +345,7 @@ func TestGetMACAddressRejectsCandidateWhenLabelsFail(t *testing.T) {
 		get: func(oids []string) (*gosnmp.SnmpPacket, error) {
 			for _, oid := range oids {
 				if oid == oidIfDescr+".2" || oid == oidIfName+".2" {
-					return nil, errors.New("label query timed out")
+					return nil, errTestInterfaceLabelQuery
 				}
 			}
 
@@ -362,7 +368,7 @@ func TestGetMACAddressRejectsCandidateWhenLabelsFail(t *testing.T) {
 	}
 	engine := &DiscoveryEngine{logger: logger.NewTestLogger()}
 
-	if got := engine.getMACAddress(client, "10.99.0.21", "test-label-error"); got != "02:42:49:7d:cf:00" {
+	if got := engine.getMACAddress(client, "10.99.0.21", "test-label-error"); got != testPhysicalMAC {
 		t.Fatalf("getMACAddress() = %q, want candidate after failed label lookup", got)
 	}
 }
