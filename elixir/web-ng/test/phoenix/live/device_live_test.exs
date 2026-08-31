@@ -4558,11 +4558,111 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}?tab=mtr")
     html = render_until(view, "Recent Availability Timeline")
 
-    assert html =~ "Reachability"
-    assert html =~ "Recent Availability Timeline"
-    assert html =~ "Reached"
+    assert has_element?(view, "#device-mtr-reachability")
+    assert has_element?(view, "#device-mtr-destination-latency")
+    assert has_element?(view, "#device-mtr-destination-loss")
+    assert has_element?(view, "#device-mtr-recent-samples")
+    assert html =~ "50.0%"
+    assert html =~ "12.0ms"
+    assert html =~ "Destination Loss"
+    assert html =~ "0.0%"
+  end
+
+  test "keeps device MTR summary pinned to the newest 50 traces while table shows page two", %{
+    conn: conn
+  } do
+    uid = "test-device-mtr-page-two-#{System.unique_integer([:positive])}"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    target_ip = "10.42.0.45"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "mtr-page-two-host",
+        ip: target_ip,
+        is_available: true,
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    newest_traces =
+      for offset <- 0..49 do
+        %{
+          id: uuid_binary(),
+          time: DateTime.add(now, -offset, :second),
+          agent_id: "agent-mtr-page-two",
+          device_id: uid,
+          target: target_ip,
+          target_ip: target_ip,
+          target_reached: true,
+          total_hops: 3,
+          protocol: "icmp",
+          ip_version: 4,
+          created_at: DateTime.add(now, -offset, :second)
+        }
+      end
+
+    oldest_trace = %{
+      id: uuid_binary(),
+      time: DateTime.add(now, -51, :second),
+      agent_id: "agent-mtr-page-two",
+      device_id: uid,
+      target: target_ip,
+      target_ip: target_ip,
+      target_reached: false,
+      total_hops: 9,
+      protocol: "icmp",
+      ip_version: 4,
+      error: "timeout",
+      created_at: DateTime.add(now, -51, :second)
+    }
+
+    Repo.insert_all("mtr_traces", newest_traces ++ [oldest_trace])
+
+    destination_hops =
+      Enum.map(newest_traces, fn trace ->
+        %{
+          id: uuid_binary(),
+          time: trace.time,
+          trace_id: trace.id,
+          hop_number: 3,
+          addr: target_ip,
+          sent: 5,
+          received: 5,
+          loss_pct: 0.0,
+          avg_us: 10_000,
+          created_at: trace.created_at
+        }
+      end)
+
+    oldest_unreachable_hop = %{
+      id: uuid_binary(),
+      time: oldest_trace.time,
+      trace_id: oldest_trace.id,
+      hop_number: 9,
+      addr: "10.42.0.1",
+      sent: 5,
+      received: 0,
+      loss_pct: 100.0,
+      avg_us: 900_000,
+      created_at: oldest_trace.created_at
+    }
+
+    Repo.insert_all("mtr_hops", destination_hops ++ [oldest_unreachable_hop])
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}?tab=mtr&mtr_page=2")
+    html = render_until(view, "Recent Availability Timeline")
+
+    assert has_element?(view, "#device-mtr-reachability")
+    assert has_element?(view, "#device-mtr-destination-latency")
+    assert has_element?(view, "#device-mtr-destination-loss")
+    assert has_element?(view, "#device-mtr-recent-samples")
+    assert html =~ "100.0%"
+    assert html =~ "10.0ms"
+    assert html =~ "50"
     assert html =~ "Unreachable"
-    assert html =~ "23.0ms"
   end
 
   test "shows MTR tab on default device details when diagnostics exist", %{conn: conn} do

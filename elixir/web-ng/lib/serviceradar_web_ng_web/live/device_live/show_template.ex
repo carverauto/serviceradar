@@ -465,6 +465,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             device_uid={@device_uid}
             fallback_target={get_device_ip(@results)}
             traces={@mtr_traces}
+            recent_traces={@mtr_recent_traces}
             pending_jobs={@mtr_pending_jobs}
             trends={@mtr_trends}
             total_count={@mtr_total_count}
