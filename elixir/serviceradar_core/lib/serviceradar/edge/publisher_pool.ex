@@ -53,7 +53,8 @@ defmodule ServiceRadar.Edge.PublisherPool do
   frame outstanding for a republish.
 
   NOT wired: publication is still one synchronous request per record. The window bounds how many
-  may be outstanding at once, which is a real bound across concurrent callers, but the asynchronous
+  may be ADMITTED at once, which bounds concurrent admissions but NOT concurrent publications --
+  see `PublishWindow`'s "what this does not yet bound" -- and the asynchronous
   pipelining and the PubAck correlation that make out-of-order settlement possible are tasks 3.4
   and 3.5. This module also does not bind byte credits to encoded frame size.
 
