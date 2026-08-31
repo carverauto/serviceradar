@@ -122,6 +122,22 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
     enabled
   end
 
+  # SweepGroup validates agent_ids against registered agents, so a group's
+  # scanners have to exist before the group does.
+  defp register_agent!(uid) do
+    case Agent.get_by_uid(uid, actor: actor()) do
+      {:ok, _agent} ->
+        :ok
+
+      {:error, _reason} ->
+        Agent
+        |> Ash.Changeset.for_create(:register, %{uid: uid}, actor: actor())
+        |> Ash.create!()
+
+        :ok
+    end
+  end
+
   defp covering_groups!(agent_a, agent_b) do
     profile =
       SweepProfile
