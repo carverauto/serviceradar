@@ -198,6 +198,28 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert copied["observed_timestamp"] == "2026-08-30T18:00:00Z"
       assert copied["timestamp"] == "2026-08-30T12:34:56"
       refute copied_json =~ "America/Chicago"
+
+      stream_times =
+        lv
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("#log-stream time")
+
+      stream_ids = LazyHTML.attribute(stream_times, "id")
+
+      assert length(stream_ids) == 3
+      assert stream_ids == Enum.uniq(stream_ids)
+      assert LazyHTML.attribute(stream_times, "datetime") == List.duplicate("2026-08-30T18:00:00Z", 3)
+      assert LazyHTML.attribute(stream_times, "data-user-time-zone") == List.duplicate("America/Chicago", 3)
+
+      stable_ids =
+        lv
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("#log-stream time")
+        |> LazyHTML.attribute("id")
+
+      assert stable_ids == stream_ids
     end
 
     test "renders resource attributes section when present", %{conn: conn} do
@@ -455,7 +477,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
     }
 
     def query(query), do: query(query, %{})
-    def query(_query, _opts), do: {:ok, %{"results" => [@log]}}
+
+    def query(query, _opts) do
+      results =
+        if String.contains?(query, ~s(id:")) do
+          [@log]
+        else
+          idless = Map.delete(@log, "id")
+          [idless, idless]
+        end
+
+      {:ok, %{"results" => results}}
+    end
+
     def query_request(%{"query" => query}), do: query(query)
     def query_request(_), do: {:error, :invalid_request}
   end

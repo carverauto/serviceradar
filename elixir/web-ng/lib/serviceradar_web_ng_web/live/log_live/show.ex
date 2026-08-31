@@ -249,6 +249,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
             title="Log stream"
             class="sr-log-stream"
             entries={@visible_stream}
+            timezone={@current_scope.user.timezone}
             page_count={length(@visible_stream)}
             page={@stream_page}
             selected_id={@log_id}
@@ -358,7 +359,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
     case srql_module().query(strip_embedded_limit(query), opts) do
       {:ok, %{"results" => results} = resp} when is_list(results) ->
-        entries = Enum.map(results, &stream_entry/1)
+        entries = results |> Enum.with_index() |> Enum.map(fn {row, idx} -> stream_entry(row, idx) end)
 
         entries =
           if is_nil(cursor) and is_map(log) do
@@ -454,16 +455,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     end
   end
 
-  defp stream_entry(log) when is_map(log) do
+  defp stream_entry(log, idx) when is_map(log) do
     body = log_message(log)
-    id = entry_id(log)
+    id = entry_id(log, idx)
 
     %{
       id: id,
+      dom_id: "log-entry-#{idx}",
       href: ~p"/logs/#{id}",
       severity: Map.get(log, "severity_text"),
       secondary: Map.get(log, "service_name") || Map.get(log, "service") || "—",
-      time_short: format_time_short(log),
+      timestamp: Map.get(log, "observed_timestamp") || Map.get(log, "timestamp"),
       preview: message_preview(body)
     }
   end
@@ -472,7 +474,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     if Enum.any?(entries, &(&1.id == selected_id)) do
       entries
     else
-      [stream_entry(Map.put(log, "id", selected_id)) | entries]
+      [stream_entry(Map.put(log, "id", selected_id), "selected") | entries]
     end
   end
 
@@ -1337,20 +1339,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp value_looks_like_ip?(v) when is_binary(v), do: Regex.match?(~r/^(?:\d{1,3}\.){3}\d{1,3}$/, v)
   defp value_looks_like_ip?(_), do: false
 
-  defp format_time_short(log) do
-    ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%H:%M:%S")
-      _ -> "—"
-    end
-  end
-
-  defp entry_id(log) do
+  defp entry_id(log, idx) do
     case Map.get(log, "id") do
       <<_::binary-size(16)>> = bin -> uuid_to_string(bin)
       id when is_binary(id) and id != "" -> id
-      _ -> "unknown-" <> Integer.to_string(:erlang.phash2(log))
+      _ -> "row-#{idx}"
     end
   end
 

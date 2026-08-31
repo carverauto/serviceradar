@@ -331,6 +331,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         device_uid={@device_uid}
         device_display_name={@device_display_name}
         metric_sections={@metric_sections}
+        timezone={@timezone}
       />
     </div>
     """
@@ -411,6 +412,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   attr :device_uid, :string, default: nil
   attr :device_display_name, :string, default: nil
   attr :metric_sections, :list, default: []
+  attr :timezone, :string, required: true
 
   defp anomaly_capacity_detail_modal(%{detail: nil} = assigns) do
     ~H"""

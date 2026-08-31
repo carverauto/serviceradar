@@ -279,6 +279,26 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
                ~s(time#alert-delivery-#{delivery.id}-next-attempt-time[datetime="2026-08-30T18:30:00.000000Z"][data-user-time-zone="America/Chicago"])
              )
 
+      assert has_element?(
+               lv,
+               ~s(time#alert-incident-first-seen-time[datetime="2026-08-30T17:00:00Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-incident-last-seen-time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-context-event-time[datetime="2026-08-30T18:15:00Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(#alert-stream time[datetime="2026-08-09T12:00:00Z"][data-user-time-zone="America/Chicago"])
+             )
+
       render_submit(lv, "alert_snooze", %{"duration" => "1h"})
       snoozed = reload(alert)
       snooze_iso = DateTime.to_iso8601(snoozed.snooze_until)
@@ -464,6 +484,14 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
         "severity" => "warning",
         "status" => "pending",
         "source_type" => "device",
+        "event_time" => "2026-08-30T18:15:00Z",
+        "metadata" => %{
+          "incident_rule_id" => "rule-1",
+          "incident_diagnostics" => %{
+            "first_seen_at" => "2026-08-30T17:00:00Z",
+            "last_seen_at" => "2026-08-30T18:00:00Z"
+          }
+        },
         "triggered_at" => "2026-08-09T12:00:00Z"
       }
     end

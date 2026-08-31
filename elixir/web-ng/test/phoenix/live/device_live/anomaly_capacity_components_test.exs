@@ -76,7 +76,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     html =
       render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
         overview: overview,
-        detail: %{kind: "anomaly", row: anomaly}
+        detail: %{kind: "anomaly", row: anomaly},
+        timezone: "Etc/UTC"
       )
 
     assert html =~ ~s(phx-click="open_anomaly_capacity_detail")
@@ -97,7 +98,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     capacity_html =
       render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
         overview: overview,
-        detail: %{kind: "capacity", row: capacity}
+        detail: %{kind: "capacity", row: capacity},
+        timezone: "Etc/UTC"
       )
 
     assert capacity_html =~ "Capacity forecast"
@@ -161,7 +163,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     html =
       render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
         overview: overview,
-        detail: %{kind: "anomaly", row: anomaly}
+        detail: %{kind: "anomaly", row: anomaly},
+        timezone: "Etc/UTC"
       )
 
     assert html =~ "demo | sysmon/cpu | sr:ns03 | ifIndex 20 | core_id=20 | label=CPU20"
@@ -232,7 +235,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     html =
       render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
         overview: overview,
-        detail: %{kind: "anomaly", row: anomaly}
+        detail: %{kind: "anomaly", row: anomaly},
+        timezone: "Etc/UTC"
       )
 
     assert html =~ "CPU saturation"
@@ -277,7 +281,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     html =
       render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
         overview: overview,
-        detail: %{kind: "anomaly", row: anomaly}
+        detail: %{kind: "anomaly", row: anomaly},
+        timezone: "Etc/UTC"
       )
 
     assert html =~ "partition:agent:cpu0"
@@ -318,7 +323,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     html =
       render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
         overview: overview,
-        detail: %{kind: "anomaly", row: anomaly}
+        detail: %{kind: "anomaly", row: anomaly},
+        timezone: "Etc/UTC"
       )
 
     assert html =~ "Resolved: ifOutUcastPkts"
@@ -362,7 +368,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     html =
       render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
         overview: overview,
-        detail: %{kind: "capacity", row: capacity}
+        detail: %{kind: "capacity", row: capacity},
+        timezone: "Etc/UTC"
       )
 
     assert html =~ "projected 163.46%"
@@ -423,7 +430,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
       render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
         overview: overview,
         detail: %{kind: "capacity", row: capacity},
-        metric_sections: metric_sections
+        metric_sections: metric_sections,
+        timezone: "Etc/UTC"
       )
 
     assert html =~ "Metric context"
@@ -485,7 +493,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
       render_component(&AnomalyCapacityComponents.anomaly_capacity_section/1,
         overview: overview,
         detail: %{kind: "capacity", row: capacity},
-        metric_sections: metric_sections
+        metric_sections: metric_sections,
+        timezone: "Etc/UTC"
       )
 
     assert html =~ "data-annotation-window-position=\"after_window\""

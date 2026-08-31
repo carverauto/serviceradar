@@ -279,6 +279,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
             title="Event stream"
             class="sr-event-stream"
             entries={@visible_stream}
+            timezone={@current_scope.user.timezone}
             page_count={length(@visible_stream)}
             page={@stream_page}
             selected_id={@event_id}
@@ -312,7 +313,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
                 metrics_loading={@anomaly_metrics_loading}
                 metrics_error={@anomaly_metrics_error}
               />
-              <.capacity_forecast_summary :if={capacity_forecast_event?(@event)} event={@event} />
+              <.capacity_forecast_summary
+                :if={capacity_forecast_event?(@event)}
+                event={@event}
+                timezone={@current_scope.user.timezone}
+              />
               <.waf_finding_summary :if={waf_event?(@event)} event={@event} />
               <.falco_runtime_summary :if={falco_event?(@event)} event={@event} />
               <.related_links related={@related} />
@@ -402,7 +407,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
     case srql_module().query(strip_embedded_limit(query), opts) do
       {:ok, %{"results" => results} = resp} when is_list(results) ->
-        entries = Enum.map(results, &stream_entry/1)
+        entries = results |> Enum.with_index() |> Enum.map(fn {row, idx} -> stream_entry(row, idx) end)
 
         entries =
           if is_nil(cursor) and is_map(event) do
@@ -498,15 +503,16 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     end
   end
 
-  defp stream_entry(event) when is_map(event) do
-    id = entry_id(event)
+  defp stream_entry(event, idx) when is_map(event) do
+    id = entry_id(event, idx)
 
     %{
       id: id,
+      dom_id: "event-entry-#{idx}",
       href: ~p"/events/#{id}",
       severity: Map.get(event, "severity"),
       secondary: Map.get(event, "host") || Map.get(event, "log_provider") || "—",
-      time_short: format_time_short(event),
+      timestamp: Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp"),
       preview: message_preview(event_message(event))
     }
   end
@@ -515,7 +521,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     if Enum.any?(entries, &(&1.id == selected_id)) do
       entries
     else
-      [stream_entry(Map.put(event, "id", selected_id)) | entries]
+      [stream_entry(Map.put(event, "id", selected_id), "selected") | entries]
     end
   end
 
@@ -1671,6 +1677,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   attr(:event, :map, required: true)
+  attr(:timezone, :string, required: true)
 
   defp capacity_forecast_summary(assigns) do
     forecast = capacity_forecast_payload(assigns.event)
@@ -1701,10 +1708,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         <.finding_fact label="Current" value={map_value(@forecast, "current_value")} mono />
         <.finding_fact label="Projected" value={map_value(@forecast, "projected_value")} mono />
         <.finding_fact label="Threshold" value={map_value(@forecast, "exhaustion_threshold")} mono />
-        <.finding_fact
+        <.finding_time_fact
+          id="event-projected-exhaustion-time"
           label="Projected Exhaustion"
           value={map_value(@forecast, "projected_exhaustion_at")}
-          mono
+          timezone={@timezone}
         />
         <.finding_fact label="Confidence" value={map_value(@forecast, "confidence")} mono />
       </div>
@@ -1735,6 +1743,29 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       >
         {display_value(@value)}
       </span>
+    </div>
+    """
+  end
+
+  attr(:id, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:value, :any, default: nil)
+  attr(:timezone, :string, required: true)
+
+  defp finding_time_fact(assigns) do
+    ~H"""
+    <div :if={not blank?(@value)} class="min-w-0">
+      <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted block mb-1">
+        {@label}
+      </span>
+      <.user_time
+        id={@id}
+        value={@value}
+        timezone={@timezone}
+        style={:full}
+        fallback="—"
+        class="break-all font-mono text-sm text-sr-ink"
+      />
     </div>
     """
   end
@@ -2065,21 +2096,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp normalize_severity(v) when is_binary(v), do: v |> String.trim() |> String.downcase()
   defp normalize_severity(v), do: v |> to_string() |> normalize_severity()
 
-  defp format_time_short(event) do
-    ts =
-      Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%H:%M:%S")
-      _ -> "—"
-    end
-  end
-
-  defp entry_id(event) do
+  defp entry_id(event, idx) do
     case Map.get(event, "id") || Map.get(event, "event_id") do
       <<_::binary-size(16)>> = bin -> uuid_to_string(bin)
       id when is_binary(id) and id != "" -> id
-      _ -> "unknown-" <> Integer.to_string(:erlang.phash2(event))
+      _ -> "row-#{idx}"
     end
   end
 
@@ -2455,26 +2476,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp event_timestamp_value(event) do
     Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
   end
-
-  defp parse_timestamp(nil), do: :error
-  defp parse_timestamp(""), do: :error
-
-  defp parse_timestamp(value) when is_binary(value) do
-    value = String.trim(value)
-
-    case DateTime.from_iso8601(value) do
-      {:ok, dt, _offset} ->
-        {:ok, dt}
-
-      {:error, _} ->
-        case NaiveDateTime.from_iso8601(value) do
-          {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-          {:error, _} -> :error
-        end
-    end
-  end
-
-  defp parse_timestamp(_), do: :error
 
   defp waf_event?(event) when is_map(event) do
     waf = waf_payload(event)

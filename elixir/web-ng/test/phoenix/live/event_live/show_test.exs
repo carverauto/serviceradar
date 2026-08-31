@@ -59,6 +59,20 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
              lv,
              ~s(time#event-detail-time[datetime="2026-07-04T12:00:00Z"][data-user-time-zone="America/Chicago"])
            )
+
+    assert has_element?(
+             lv,
+             ~s(#event-stream time[datetime="2026-07-04T12:00:00Z"][data-user-time-zone="America/Chicago"])
+           )
+  end
+
+  test "renders projected exhaustion semantically in the authenticated timezone", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/events/capacity-forecast-1")
+
+    assert has_element?(
+             lv,
+             ~s(time#event-projected-exhaustion-time[datetime="2026-08-30T18:45:00Z"][data-user-time-zone="America/Chicago"])
+           )
   end
 
   test "still links by uid when the device cannot be resolved", %{conn: conn} do
@@ -123,6 +137,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
 
         String.contains?(query, "in:events") and String.contains?(query, "snmp-anomaly-1") ->
           {:ok, %{"results" => [snmp_anomaly_event()], "pagination" => %{}, "error" => nil}}
+
+        String.contains?(query, "in:events") and String.contains?(query, "capacity-forecast-1") ->
+          {:ok, %{"results" => [capacity_forecast_event()], "pagination" => %{}, "error" => nil}}
 
         String.contains?(query, "in:events") ->
           {:ok, %{"results" => [proxmox_event()], "pagination" => %{}, "error" => nil}}
@@ -198,6 +215,25 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
           "finding_info" => %{
             "title" => "SNMP interface rate anomaly",
             "uid" => "finding-snmp-1"
+          }
+        }
+      }
+    end
+
+    defp capacity_forecast_event do
+      %{
+        "id" => "capacity-forecast-1",
+        "time" => "2026-08-30T18:00:00Z",
+        "severity" => "High",
+        "log_provider" => "capacity_forecasting",
+        "message" => "Disk capacity forecast",
+        "unmapped" => %{
+          "event_type" => "capacity_forecast",
+          "capacity_forecast" => %{
+            "resource_label" => "disk /data",
+            "metric_name" => "disk_used_percent",
+            "status" => "projected",
+            "projected_exhaustion_at" => "2026-08-30T18:45:00Z"
           }
         }
       }

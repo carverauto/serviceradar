@@ -264,6 +264,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
             title="Alert stream"
             class="sr-alert-stream"
             entries={@visible_stream}
+            timezone={@current_scope.user.timezone}
             page_count={length(@visible_stream)}
             page={@stream_page}
             selected_id={@alert_id}
@@ -291,8 +292,12 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
             <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
               <.alert_message_hero alert={@alert} />
-              <.stateful_incident_summary :if={stateful_incident?(@alert)} alert={@alert} />
-              <.alert_context_panel alert={@alert} />
+              <.stateful_incident_summary
+                :if={stateful_incident?(@alert)}
+                alert={@alert}
+                timezone={@current_scope.user.timezone}
+              />
+              <.alert_context_panel alert={@alert} timezone={@current_scope.user.timezone} />
               <.notification_history
                 :if={@can_view_deliveries?}
                 alert_id={@alert_id}
@@ -465,7 +470,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
     case srql_module().query(strip_embedded_limit(query), opts) do
       {:ok, %{"results" => results} = resp} when is_list(results) ->
-        entries = Enum.map(results, &stream_entry/1)
+        entries = results |> Enum.with_index() |> Enum.map(fn {row, idx} -> stream_entry(row, idx) end)
 
         entries =
           if is_nil(cursor) and is_map(alert) do
@@ -572,15 +577,16 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     end
   end
 
-  defp stream_entry(alert) when is_map(alert) do
-    id = entry_id(alert)
+  defp stream_entry(alert, idx) when is_map(alert) do
+    id = entry_id(alert, idx)
 
     %{
       id: id,
+      dom_id: "alert-entry-#{idx}",
       href: ~p"/alerts/#{id}",
       severity: Map.get(alert, "severity"),
       secondary: Map.get(alert, "status") || Map.get(alert, "source_type") || "—",
-      time_short: format_time_short(alert),
+      timestamp: Map.get(alert, "triggered_at") || Map.get(alert, "timestamp"),
       preview: message_preview(EventTitle.alert_title(alert) || Map.get(alert, "description") || "")
     }
   end
@@ -589,7 +595,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     if Enum.any?(entries, &(&1.id == selected_id)) do
       entries
     else
-      [stream_entry(Map.put(alert, "id", selected_id)) | entries]
+      [stream_entry(Map.put(alert, "id", selected_id), "selected") | entries]
     end
   end
 
@@ -1182,6 +1188,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   end
 
   attr :alert, :map, required: true
+  attr :timezone, :string, required: true
 
   defp stateful_incident_summary(assigns) do
     diagnostics = incident_diagnostics(assigns.alert)
@@ -1227,15 +1234,17 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
         />
         <.fact_cell label="Threshold" value={diagnostic_value(@diagnostics, ["threshold"])} mono />
         <.fact_cell label="Window" value={window_display(@diagnostics)} mono />
-        <.fact_cell
+        <.time_fact_cell
+          id="alert-incident-first-seen-time"
           label="First seen"
-          value={format_any_time(diagnostic_value(@diagnostics, ["first_seen_at"]))}
-          mono
+          value={diagnostic_value(@diagnostics, ["first_seen_at"])}
+          timezone={@timezone}
         />
-        <.fact_cell
+        <.time_fact_cell
+          id="alert-incident-last-seen-time"
           label="Last seen"
-          value={format_any_time(diagnostic_value(@diagnostics, ["last_seen_at"]))}
-          mono
+          value={diagnostic_value(@diagnostics, ["last_seen_at"])}
+          timezone={@timezone}
         />
         <.fact_cell label="Process" value={process_display(@process)} mono />
         <.fact_cell label="Container" value={container_display(@container)} mono />
@@ -1307,6 +1316,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   end
 
   attr :alert, :map, required: true
+  attr :timezone, :string, required: true
 
   defp alert_context_panel(assigns) do
     facts = alert_context_facts(assigns.alert)
@@ -1330,15 +1340,24 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
           <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
             {fact.label}
           </span>
+          <.user_time
+            :if={Map.get(fact, :time?, false)}
+            id={fact.time_id}
+            value={fact.value}
+            timezone={@timezone}
+            style={:full}
+            fallback="—"
+            class="break-all font-mono text-[13px] tracking-tight text-sr-ink"
+          />
           <.link
-            :if={is_binary(Map.get(fact, :href))}
+            :if={not Map.get(fact, :time?, false) and is_binary(Map.get(fact, :href))}
             navigate={fact.href}
             class="break-all text-sm text-sr-brand hover:underline"
           >
             {fact.value}
           </.link>
           <span
-            :if={is_nil(Map.get(fact, :href))}
+            :if={not Map.get(fact, :time?, false) and is_nil(Map.get(fact, :href))}
             class={[
               "break-all text-sm text-sr-ink",
               fact.mono? && "font-mono text-[13px] tracking-tight"
@@ -1361,7 +1380,13 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       %{label: "Source type", value: Map.get(alert, "source_type"), mono?: false},
       %{label: "Source ID", value: Map.get(alert, "source_id"), mono?: true},
       %{label: "Event ID", value: Map.get(alert, "event_id"), mono?: true, href: event_href(Map.get(alert, "event_id"))},
-      %{label: "Event time", value: format_any_time(Map.get(alert, "event_time")), mono?: true},
+      %{
+        label: "Event time",
+        value: Map.get(alert, "event_time"),
+        mono?: true,
+        time?: true,
+        time_id: "alert-context-event-time"
+      },
       %{label: "Metric", value: Map.get(alert, "metric_name"), mono?: true},
       %{
         label: "Metric value",
@@ -1543,6 +1568,29 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       >
         {display_value(@value)}
       </span>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+  attr :timezone, :string, required: true
+
+  defp time_fact_cell(assigns) do
+    ~H"""
+    <div :if={not blank?(@value)} class="min-w-0">
+      <span class="mb-1 block font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+        {@label}
+      </span>
+      <.user_time
+        id={@id}
+        value={@value}
+        timezone={@timezone}
+        style={:full}
+        fallback="—"
+        class="break-all font-mono text-[13px] tracking-tight text-sr-ink"
+      />
     </div>
     """
   end
@@ -1835,47 +1883,16 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
   defp alert_source_kind(_), do: "alert"
 
-  defp entry_id(alert) do
+  defp entry_id(alert, idx) do
     case Map.get(alert, "id") || Map.get(alert, "alert_id") do
       id when is_binary(id) and id != "" -> id
-      _ -> "unknown-" <> Integer.to_string(:erlang.phash2(alert))
+      _ -> "row-#{idx}"
     end
   end
 
   defp alert_timestamp_value(alert) do
     Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
   end
-
-  defp format_time_short(alert) do
-    ts = Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%H:%M:%S")
-      _ -> "—"
-    end
-  end
-
-  defp format_any_time(nil), do: nil
-  defp format_any_time(""), do: nil
-
-  defp format_any_time(ts) do
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-      _ -> to_string(ts)
-    end
-  end
-
-  defp parse_timestamp(nil), do: :error
-  defp parse_timestamp(%DateTime{} = dt), do: {:ok, dt}
-
-  defp parse_timestamp(ts) when is_binary(ts) do
-    case DateTime.from_iso8601(String.trim(ts)) do
-      {:ok, dt, _} -> {:ok, dt}
-      _ -> :error
-    end
-  end
-
-  defp parse_timestamp(_), do: :error
 
   defp format_optional_number(nil), do: nil
   defp format_optional_number(n) when is_number(n), do: to_string(n)
