@@ -267,7 +267,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
               log_id={@log_id}
               can_create_rules?={can_create_rules?(@current_scope)}
             />
-            <.log_meta_strip log={@log} />
+            <.log_meta_strip log={@log} timezone={@current_scope.user.timezone} />
 
             <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
               <.log_message_hero log={@log} body_mode={@body_mode} />
@@ -552,15 +552,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   attr :log, :map, required: true
+  attr :timezone, :string, required: true
 
   defp log_meta_strip(assigns) do
     service = Map.get(assigns.log, "service_name")
     source_ip = Map.get(assigns.log, "source_ip")
+    timestamp = timestamp_meta(assigns.log)
 
     facts =
       Enum.reject(
         [
-          %{label: "Timestamp", value: format_timestamp(assigns.log), mono?: true, href: nil},
           %{
             label: "Service",
             value: service,
@@ -580,7 +581,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
         fn fact -> blank_value?(fact.value) end
       )
 
-    n = length(facts)
+    n = length(facts) + 1
 
     col_class =
       cond do
@@ -594,10 +595,24 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     assigns =
       assigns
       |> assign(:facts, facts)
+      |> assign(:timestamp, timestamp)
       |> assign(:col_class, col_class)
 
     ~H"""
     <div class={["grid gap-px border-b border-sr-line bg-sr-line", @col_class]}>
+      <div class="flex min-w-0 flex-col gap-1 bg-sr-surface px-4 py-3">
+        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          Timestamp
+        </span>
+        <.user_time
+          id="log-detail-time"
+          value={@timestamp.value}
+          timezone={@timezone}
+          style={:full}
+          fallback={@timestamp.fallback}
+          class="truncate font-mono text-[13px] tracking-tight text-sr-ink"
+        />
+      </div>
       <div
         :for={fact <- @facts}
         class="flex min-w-0 flex-col gap-1 bg-sr-surface px-4 py-3"
@@ -1715,17 +1730,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp normalize_severity(v), do: v |> to_string() |> normalize_severity()
 
-  defp format_timestamp(log) do
-    ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
+  defp timestamp_meta(log) do
+    value = Map.get(log, "observed_timestamp") || Map.get(log, "timestamp")
 
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-      _ -> ts || "—"
+    case parse_timestamp(value) do
+      {:ok, dt} -> %{value: dt, fallback: DateTime.to_iso8601(dt)}
+      _ -> %{value: nil, fallback: value || "—"}
     end
   end
 
   defp parse_timestamp(nil), do: :error
   defp parse_timestamp(""), do: :error
+  defp parse_timestamp(%DateTime{} = value), do: {:ok, value}
+
+  defp parse_timestamp(%NaiveDateTime{} = value), do: {:ok, DateTime.from_naive!(value, "Etc/UTC")}
 
   defp parse_timestamp(value) when is_binary(value) do
     value = String.trim(value)

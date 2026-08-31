@@ -8,6 +8,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   setup %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :operator})
+
+    user =
+      Ash.update!(user, %{timezone: "America/Chicago"},
+        action: :update_timezone_preference,
+        actor: user
+      )
+
     conn = log_in_user(conn, user)
 
     old = Application.get_env(:serviceradar_web_ng, :srql_module)
@@ -44,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   test "logs default to non-live browsing", %{conn: conn} do
     {:ok, lv, html} =
-      live(conn, ~p"/observability?#{%{tab: "logs", q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
+      live(conn, ~p"/observability/logs")
 
     assert html =~ "Page 1 log"
     assert has_element?(lv, "#logs-live-status", "Off")
@@ -134,6 +141,62 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     # The raw enum name and its 5-char truncation must never reach the badge.
     refute html =~ "SEVERITY_NUMBER_INFO"
     refute html =~ ">SEVER<"
+  end
+
+  test "log signal rows render their selected canonical instants with unique user-time ids", %{conn: conn} do
+    path = ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc"}}"
+    {:ok, lv, _html} = live_following_redirect(conn, path)
+
+    html = render(lv)
+    document = LazyHTML.from_fragment(html)
+    times = LazyHTML.query(document, "#logs time")
+    ids = LazyHTML.attribute(times, "id")
+
+    assert html =~ ~s(phx-hook="UserTime")
+    assert length(ids) >= 4
+    assert Enum.all?(ids, &(&1 != ""))
+    assert length(ids) == length(Enum.uniq(ids))
+    assert has_element?(lv, ~s(#logs time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"]))
+    assert html =~ "syslog unzoned source"
+    assert html =~ "OTel info log"
+    assert html =~ "SNMP trap log"
+    assert html =~ "GELF log"
+    refute html =~ ~s(datetime="2026-08-30T12:34:56Z")
+  end
+
+  test "trace and metric rows localize labels while metric pivots retain exact UTC bounds", %{conn: conn} do
+    {:ok, traces, _html} = live(conn, ~p"/observability/traces")
+
+    assert has_element?(
+             traces,
+             ~s(#traces time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    {:ok, metrics, _html} = live(conn, ~p"/observability/metrics")
+
+    assert has_element?(
+             metrics,
+             ~s(#metrics time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    [href] =
+      metrics
+      |> element("#metrics-row-0 a[aria-label='View correlated logs']")
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("a")
+      |> LazyHTML.attribute("href")
+
+    query = href |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("q")
+    assert query =~ "time:[2026-08-30T17:00:00Z,2026-08-30T19:00:00Z]"
+  end
+
+  test "event and alert rows use the shared user-time contract", %{conn: conn} do
+    {:ok, events, _html} = live(conn, ~p"/observability/events")
+    assert has_element?(events, ~s(#events time[datetime="2026-08-30T18:00:00Z"]))
+
+    {:ok, alerts, _html} = live(conn, ~p"/observability/alerts")
+    assert has_element?(alerts, ~s(#alerts time[datetime="2026-08-30T18:00:00Z"]))
   end
 
   test "enabling live mode allows log-ingest refreshes", %{conn: conn} do
@@ -394,6 +457,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     end
   end
 
+  defp live_following_redirect(conn, path) do
+    case live(conn, path) do
+      {:ok, _lv, _html} = result -> result
+      {:error, {:live_redirect, %{to: to}}} -> live(conn, to)
+    end
+  end
+
   defmodule RecordingSRQLStub do
     @moduledoc false
     @behaviour ServiceRadarWebNG.SRQLBehaviour
@@ -431,6 +501,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           String.starts_with?(query, "in:traces") -> sample_raw_traces()
           String.starts_with?(query, "in:otel_metric_points") -> otlp_points_results(query)
           String.starts_with?(query, "in:otel_metrics") -> sample_metrics()
+          String.starts_with?(query, "in:events") -> sample_events()
+          String.starts_with?(query, "in:alerts") -> sample_alerts()
           true -> sample_logs(cursor)
         end
 
@@ -498,7 +570,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     defp sample_otlp_recent_points do
       [
         %{
-          "timestamp" => "2026-04-18T15:02:00Z",
+          "timestamp" => "2026-08-30T18:00:00Z",
           "metric_name" => "falco.outputs.queue",
           "metric_type" => "sum",
           "unit" => "1",
@@ -510,7 +582,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "value" => 130.0
         },
         %{
-          "timestamp" => "2026-04-18T15:02:00Z",
+          "timestamp" => "2026-08-30T18:00:00Z",
           "metric_name" => "gen",
           "metric_type" => "gauge",
           "unit" => "ms",
@@ -550,7 +622,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     defp sample_metrics do
       [
         %{
-          "timestamp" => "2026-04-18T15:02:00Z",
+          "timestamp" => "2026-08-30T18:00:00Z",
           "service_name" => "metrics-service",
           "metric_type" => "span",
           "span_name" => "GET /api/devices",
@@ -560,7 +632,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "is_slow" => true
         },
         %{
-          "timestamp" => "2026-04-18T15:01:00Z",
+          "timestamp" => "2026-08-30T18:01:00Z",
           "service_name" => "falco",
           "metric_type" => "sum",
           "metric_name" => "falco.outputs.queue",
@@ -573,7 +645,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
       [
         %{
           "trace_id" => "aabbccddeeff00112233445566778899",
-          "timestamp" => "2026-04-18T15:02:00Z",
+          "timestamp" => "2026-08-30T18:00:00Z",
           "root_service_name" => "web-ng",
           "root_span_name" => "GET /api/devices",
           "duration_ms" => 12.5,
@@ -581,7 +653,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "error_count" => 0
         },
         %{
-          "timestamp" => "2026-04-18T15:01:00Z",
+          "timestamp" => "2026-08-30T18:01:00Z",
           "root_service_name" => "core-elx",
           "root_span_name" => "orphan summary",
           "duration_ms" => 1.0,
@@ -629,10 +701,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
       [
         %{
           "id" => "00000000-0000-0000-0000-000000000001",
-          "timestamp" => "2026-04-18T15:02:00Z",
+          "timestamp" => "2026-08-30T12:34:56",
+          "observed_timestamp" => "2026-08-30T18:00:00Z",
           "severity_text" => "INFO",
           "service_name" => "page-one-service",
-          "body" => "Page 1 log"
+          "source" => "syslog",
+          "body" => "Page 1 log — syslog unzoned source"
         },
         # OTel-SDK producers write the raw SeverityNumber enum name into
         # severity_text. The badge must normalize it to a label + color.
@@ -641,6 +715,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "timestamp" => "2026-04-18T15:02:01Z",
           "severity_text" => "SEVERITY_NUMBER_INFO",
           "service_name" => "otel-info-service",
+          "source" => "otel",
           "body" => "OTel info log"
         },
         %{
@@ -648,7 +723,40 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "timestamp" => "2026-04-18T15:02:02Z",
           "severity_text" => "SEVERITY_NUMBER_WARN",
           "service_name" => "otel-warn-service",
-          "body" => "OTel warn log"
+          "source" => "snmp_trap",
+          "body" => "SNMP trap log"
+        },
+        %{
+          "id" => "00000000-0000-0000-0000-000000000013",
+          "timestamp" => "2026-04-18T15:02:03Z",
+          "severity_text" => "INFO",
+          "service_name" => "gelf-service",
+          "source" => "gelf",
+          "body" => "GELF log"
+        }
+      ]
+    end
+
+    defp sample_events do
+      [
+        %{
+          "id" => "event-1",
+          "time" => "2026-08-30T18:00:00Z",
+          "severity" => "High",
+          "source" => "otel",
+          "message" => "OTel event"
+        }
+      ]
+    end
+
+    defp sample_alerts do
+      [
+        %{
+          "id" => "alert-1",
+          "triggered_at" => "2026-08-30T18:00:00Z",
+          "severity" => "critical",
+          "status" => "pending",
+          "title" => "Alert"
         }
       ]
     end

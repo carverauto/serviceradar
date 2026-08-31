@@ -145,4 +145,27 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     assert html =~ "alpha"
     assert :binary.match(html, "zeta") < :binary.match(html, "alpha")
   end
+
+  test "results table renders canonical time cells in the selected timezone with unique ids" do
+    html =
+      render_component(&SRQLComponents.srql_results_table/1,
+        id: "results",
+        rows: [
+          %{"timestamp" => "2026-08-30T18:00:00Z"},
+          %{"timestamp" => "2026-08-30T18:01:00Z"}
+        ],
+        columns: ["timestamp"],
+        timezone: "America/Chicago"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    times = LazyHTML.query(document, "time")
+    ids = LazyHTML.attribute(times, "id")
+
+    assert html =~ ~s(phx-hook="UserTime")
+    assert ids == ["srql-time-0-0", "srql-time-1-0"]
+    assert ids == Enum.uniq(ids)
+    assert LazyHTML.attribute(times, "data-user-time-zone") == ["America/Chicago", "America/Chicago"]
+    assert LazyHTML.attribute(times, "datetime") == ["2026-08-30T18:00:00Z", "2026-08-30T18:01:00Z"]
+  end
 end

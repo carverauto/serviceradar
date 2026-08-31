@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
   - Attribute parsing and display
   """
 
-  use ServiceRadarWebNGWeb.ConnCase, async: true
+  use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
   import Phoenix.LiveViewTest
@@ -161,6 +161,37 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
   end
 
   describe "log detail metadata rendering" do
+    test "renders the effective canonical instant in the user's timezone", %{conn: conn} do
+      user = operator_user_fixture()
+
+      user =
+        Ash.update!(user, %{timezone: "America/Chicago"},
+          action: :update_timezone_preference,
+          actor: user
+        )
+
+      conn = log_in_user(conn, user)
+
+      log_id = "550e8400-e29b-41d4-a716-446655440099"
+      old = Application.get_env(:serviceradar_web_ng, :srql_module)
+      Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.TimestampSRQLStub)
+
+      on_exit(fn ->
+        if is_nil(old),
+          do: Application.delete_env(:serviceradar_web_ng, :srql_module),
+          else: Application.put_env(:serviceradar_web_ng, :srql_module, old)
+      end)
+
+      {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
+
+      assert has_element?(
+               lv,
+               ~s(#log-detail-time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      refute has_element?(lv, ~s(#log-detail-time[datetime="2026-08-30T17:00:00Z"]))
+    end
+
     test "renders resource attributes section when present", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -398,6 +429,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
         created_at: now
       }
     ])
+  end
+
+  defmodule TimestampSRQLStub do
+    @moduledoc false
+    @behaviour ServiceRadarWebNG.SRQLBehaviour
+
+    @log %{
+      "id" => "550e8400-e29b-41d4-a716-446655440099",
+      "timestamp" => "2026-08-30T12:34:56",
+      "observed_timestamp" => "2026-08-30T18:00:00Z",
+      "severity_text" => "INFO",
+      "service_name" => "syslog",
+      "body" => "syslog effective timestamp",
+      "source" => "syslog",
+      "attributes" => %{"source_timestamp" => "Aug 30 12:34:56"}
+    }
+
+    def query(query), do: query(query, %{})
+    def query(_query, _opts), do: {:ok, %{"results" => [@log]}}
+    def query_request(%{"query" => query}), do: query(query)
+    def query_request(_), do: {:error, :invalid_request}
   end
 
   defp insert_test_log_with_nested_attributes!(log_id) when is_binary(log_id) do

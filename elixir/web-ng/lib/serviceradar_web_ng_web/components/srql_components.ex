@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   use Phoenix.Component
 
-  import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
+  import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1, user_time: 1]
   import ServiceRadarWebNGWeb.QueryBuilderComponents
   import ServiceRadarWebNGWeb.UIComponents
 
@@ -221,6 +221,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   attr(:sort_dir, :any, default: nil)
   attr(:sort_col, :string, default: nil)
   attr(:sort_event, :string, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def srql_results_table(assigns) do
     columns = normalize_columns(assigns.columns, assigns.rows, assigns.max_columns)
@@ -286,12 +287,17 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
           <%= for {row, idx} <- Enum.with_index(@rows) do %>
             <tr id={"#{@id}-row-#{idx}"} class="hover:bg-sr-subtle/40">
-              <%= for col <- @columns do %>
+              <%= for {col, col_idx} <- Enum.with_index(@columns) do %>
                 <td class="whitespace-nowrap text-xs max-w-[24rem] truncate">
                   <%= if col == "_sparkline" do %>
                     <.srql_sparkline points={Map.get(row, "_sparkline")} />
                   <% else %>
-                    <.srql_cell col={col} value={Map.get(row, col)} />
+                    <.srql_cell
+                      id={"srql-time-#{idx}-#{col_idx}"}
+                      col={col}
+                      value={Map.get(row, col)}
+                      timezone={@timezone}
+                    />
                   <% end %>
                 </td>
               <% end %>
@@ -305,19 +311,27 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   attr(:col, :string, required: true)
   attr(:value, :any, default: nil)
+  attr(:id, :string, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def srql_cell(assigns) do
     assigns =
       assigns
+      |> assign(:id, assigns.id || "srql-time-#{:erlang.phash2({assigns.col, assigns.value})}")
       |> assign(:col_key, assigns.col |> to_string() |> String.trim() |> String.downcase())
       |> assign(:formatted, format_cell(assigns.col, assigns.value))
 
     ~H"""
     <%= case @formatted do %>
-      <% {:time, %{display: display, iso: iso}} -> %>
-        <time datetime={iso} title={iso} class="font-mono text-[11px]">
-          {display}
-        </time>
+      <% {:time, %{value: value, iso: iso}} -> %>
+        <.user_time
+          id={@id}
+          value={value}
+          timezone={@timezone}
+          style={:full}
+          fallback={iso}
+          class="font-mono text-[11px]"
+        />
       <% {:link, %{href: href, label: label}} -> %>
         <a
           href={href}
@@ -756,7 +770,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
     case parse_iso8601(value) do
       {:ok, dt, iso} ->
-        {:time, %{display: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC"), iso: iso}}
+        {:time, %{value: dt, iso: iso}}
 
       :error ->
         format_composite_string(value)
@@ -769,7 +783,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     cond do
       match?({:ok, _, _}, parse_iso8601(value)) ->
         {:ok, dt, iso} = parse_iso8601(value)
-        {:time, %{display: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC"), iso: iso}}
+        {:time, %{value: dt, iso: iso}}
 
       url?(value) ->
         {:link, %{href: value, label: url_label(value)}}
