@@ -130,6 +130,9 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
     # Full ingest with SweepHostResult records
     # DB connection's search_path determines the schema
+    # JetStream payloads do not carry the gateway's mTLS principal. Keep the
+    # body agent_id as forensic attribution only; never promote it into either
+    # authenticated identity option here.
     opts = [
       sweep_group_id: sweep_group_id,
       agent_id: agent_id,

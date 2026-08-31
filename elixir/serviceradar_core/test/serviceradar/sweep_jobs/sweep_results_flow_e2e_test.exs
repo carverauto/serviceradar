@@ -1,6 +1,8 @@
 defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   use ServiceRadar.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
   alias ExUnit.CaptureLog
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
@@ -74,7 +76,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         %{
           name: "Group #{unique_id}",
           partition: partition,
-          agent_id: agent_id
+          agent_ids: []
         },
         actor: actor,
         actor: actor
@@ -109,6 +111,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-#{unique_id}"
              )
 
@@ -187,7 +191,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         %{
           name: "Banner Audit #{unique_id}",
           partition: "default",
-          agent_id: agent_id
+          agent_ids: []
         },
         actor: actor
       )
@@ -211,6 +215,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
+               authenticated_partition_id: "default",
                request_id: request_id,
                banner_grab_summary: %{
                  "sweep_banner_grab_probes_total" => 12,
@@ -298,7 +304,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         %{
           name: "Aggregate Evidence #{unique_id}",
           partition: partition,
-          agent_id: agent_id
+          agent_ids: []
         },
         actor: actor
       )
@@ -330,6 +336,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-aggregate-#{unique_id}"
              )
 
@@ -414,6 +422,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: secondary_agent_id,
+               authenticated_agent_id: secondary_agent_id,
+               authenticated_partition_id: "default",
                config_version: "secondary-#{unique_id}"
              )
 
@@ -451,6 +461,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: primary_agent_id,
+               authenticated_agent_id: primary_agent_id,
+               authenticated_partition_id: "default",
                config_version: "primary-#{unique_id}"
              )
 
@@ -502,7 +514,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         %{
           name: "Canonical Unavailable #{unique_id}",
           partition: "default",
-          agent_id: agent_id,
+          agent_ids: [],
           interval: "1h"
         },
         actor: actor
@@ -521,6 +533,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
+               authenticated_partition_id: "default",
                config_version: "first-failure-#{unique_id}"
              )
 
@@ -535,6 +549,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
+               authenticated_partition_id: "default",
                config_version: "second-failure-#{unique_id}"
              )
 
@@ -595,6 +611,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: primary_agent_id,
+               authenticated_agent_id: primary_agent_id,
+               authenticated_partition_id: "default",
                config_version: "available-#{unique_id}"
              )
 
@@ -611,6 +629,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  actor: actor,
                  sweep_group_id: group.id,
                  agent_id: secondary_agent_id,
+                 authenticated_agent_id: secondary_agent_id,
+                 authenticated_partition_id: "default",
                  config_version: "failed-#{attempt}-#{unique_id}"
                )
     end
@@ -686,6 +706,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: reachable_agent_id,
+               authenticated_agent_id: reachable_agent_id,
+               authenticated_partition_id: "default",
                config_version: "available-#{unique_id}"
              )
 
@@ -702,6 +724,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  actor: actor,
                  sweep_group_id: group.id,
                  agent_id: unreachable_agent_id,
+                 authenticated_agent_id: unreachable_agent_id,
+                 authenticated_partition_id: "default",
                  config_version: "failed-alias-#{attempt}-#{unique_id}"
                )
     end
@@ -737,7 +761,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         %{
           name: "Sweep Create #{unique_id}",
           partition: partition,
-          agent_id: agent_id
+          agent_ids: []
         },
         actor: actor,
         actor: actor
@@ -763,6 +787,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-create-#{unique_id}"
              )
 
@@ -838,7 +864,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         %{
           name: "Sweep Duplicate Active IP #{unique_id}",
           partition: partition,
-          agent_id: agent_id
+          agent_ids: []
         },
         actor: actor
       )
@@ -851,6 +877,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-duplicate-active-ip-#{unique_id}"
              )
 
@@ -906,7 +934,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Restore Deleted #{unique_id}", partition: partition, agent_id: agent_id},
+        %{name: "Sweep Restore Deleted #{unique_id}", partition: partition, agent_ids: []},
         actor: actor
       )
       |> Ash.create()
@@ -918,6 +946,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-restore-deleted-#{unique_id}"
              )
 
@@ -981,7 +1011,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Changed IP #{unique_id}", partition: partition, agent_id: agent_id},
+        %{name: "Sweep Changed IP #{unique_id}", partition: partition, agent_ids: []},
         actor: actor
       )
       |> Ash.create()
@@ -999,6 +1029,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-changed-ip-#{unique_id}"
              )
 
@@ -1089,6 +1121,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
                config_version: "hash-promote-#{unique_id}",
                mapper_promotion_opts: [dispatcher: dispatcher, cooldown_seconds: 900]
              )
@@ -1184,6 +1217,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
                config_version: "hash-stale-cache-#{unique_id}",
                mapper_promotion_opts: [dispatcher: dispatcher, cooldown_seconds: 900]
              )
@@ -1240,7 +1274,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         %{
           name: "Sweep Stale Promotion Map #{unique_id}",
           partition: partition,
-          agent_id: agent_id
+          agent_ids: []
         },
         actor: actor
       )
@@ -1347,6 +1381,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
                config_version: "hash-multibatch-#{unique_id}",
                mapper_promotion_opts: [dispatcher: dispatcher, cooldown_seconds: 900]
              )
@@ -1407,7 +1442,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         %{
           name: "Isolation Sweep #{unique_id}",
           partition: isolation_partition,
-          agent_id: agent_id,
+          agent_ids: [],
           interval: "15m",
           static_targets: [ip]
         },
@@ -1432,6 +1467,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  actor: actor,
                  sweep_group_id: group.id,
                  agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 authenticated_partition_id: isolation_partition,
                  config_version: "hash-isolation-#{attempt}-#{unique_id}"
                )
     end
@@ -1493,6 +1530,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
                config_version: "hash-cooldown-first-#{unique_id}",
                mapper_promotion_opts: [dispatcher: dispatcher, cooldown_seconds: 900]
              )
@@ -1505,6 +1543,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
                config_version: "hash-cooldown-second-#{unique_id}",
                mapper_promotion_opts: [dispatcher: dispatcher, cooldown_seconds: 900]
              )
@@ -1568,6 +1607,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
                config_version: "hash-interval-#{unique_id}",
                mapper_promotion_opts: [
                  dispatcher: fn _job, _opts ->
@@ -1645,6 +1685,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
                config_version: "hash-self-#{unique_id}",
                mapper_promotion_opts: [
                  dispatcher: fn _job, _opts ->
@@ -1682,7 +1723,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
-        %{name: "Sweep Skip #{unique_id}", partition: partition, agent_id: agent_id},
+        %{name: "Sweep Skip #{unique_id}", partition: partition, agent_ids: []},
         actor: actor,
         actor: actor
       )
@@ -1695,6 +1736,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_id,
+               authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
                config_version: "hash-skip-#{unique_id}",
                mapper_promotion_opts: [
                  dispatcher: fn _job, _opts ->
@@ -1776,6 +1819,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                    actor: actor,
                    sweep_group_id: group.id,
                    agent_id: agent_a,
+                   authenticated_agent_id: agent_a,
+                   authenticated_partition_id: "default",
                    config_version: "all-agents-a-#{unique_id}"
                  )
 
@@ -1786,6 +1831,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                    actor: actor,
                    sweep_group_id: group.id,
                    agent_id: agent_b,
+                   authenticated_agent_id: agent_b,
+                   authenticated_partition_id: "default",
                    config_version: "all-agents-b-#{unique_id}"
                  )
       end)
@@ -1818,7 +1865,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
     {:ok, canonical} = Device.get_by_uid(device.uid, false, actor: actor)
     canonical = single_result(canonical)
-    refute canonical.is_available
+    assert canonical.is_available
 
     assert {:ok, pinned} =
              canonical
@@ -1836,6 +1883,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                actor: actor,
                sweep_group_id: group.id,
                agent_id: agent_a,
+               authenticated_agent_id: agent_a,
+               authenticated_partition_id: "default",
                config_version: "all-agents-a-pinned-#{unique_id}"
              )
 
@@ -1845,7 +1894,1221 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert after_pin.availability_source_agent_id == agent_a
   end
 
-  describe "canonical availability ownership when the group cannot be read" do
+  describe "persisted reporter expectation" do
+    test "selected reporters are independent and a deselected reporter remains forensic", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      agent_a = "expected-a-#{unique_id}"
+      agent_b = "expected-b-#{unique_id}"
+      agent_c = "unexpected-c-#{unique_id}"
+
+      Enum.each([agent_a, agent_b, agent_c], &register_reporter!(actor, &1))
+
+      device = reporter_device!(actor, unique_id, "independent", false)
+      group = reporter_group!(actor, unique_id, "independent", [agent_a, agent_b])
+      result = available_result(device.ip)
+
+      expected_log =
+        CaptureLog.capture_log(fn ->
+          assert {:ok, _} = ingest_report(actor, group.id, agent_a, result)
+          assert {:ok, _} = ingest_report(actor, group.id, agent_b, result)
+        end)
+
+      refute expected_log =~ "ANOMALOUS SWEEP ASSIGNMENT"
+      refute expected_log =~ "MULTI-AGENT CONFLICT"
+
+      assert {:ok, group_after_expected} = Ash.get(SweepGroup, group.id, actor: actor)
+      assert group_after_expected.last_run_at
+
+      historical_last_run = ~U[2020-01-02 03:04:05Z]
+
+      {1, _} =
+        Repo.update_all(
+          from(g in SweepGroup, where: g.id == ^group.id),
+          set: [last_run_at: historical_last_run]
+        )
+
+      unexpected_log =
+        CaptureLog.capture_log(fn ->
+          assert {:ok, _} = ingest_report(actor, group.id, agent_c, result)
+        end)
+
+      assert unexpected_log =~ "ANOMALOUS SWEEP ASSIGNMENT"
+      assert unexpected_log =~ group.id
+      assert unexpected_log =~ agent_c
+
+      assert {:ok, group_after_unexpected} = Ash.get(SweepGroup, group.id, actor: actor)
+      assert group_after_unexpected.last_run_at == historical_last_run
+
+      {:ok, execution_page} =
+        SweepGroupExecution
+        |> Ash.Query.filter(sweep_group_id == ^group.id)
+        |> Ash.read(actor: actor)
+
+      assert MapSet.new(Enum.map(results_from(execution_page), & &1.agent_id)) ==
+               MapSet.new([agent_a, agent_b, agent_c])
+
+      assert {:ok, forensic_row} =
+               DeviceAgentAvailability.get_by_device_agent(device.uid, agent_c, actor: actor)
+
+      assert forensic_row.is_available
+      assert forensic_row.sweep_group_id == group.id
+      assert forensic_row.metadata["sweep_reporter_expectation"] == "unexpected"
+      assert forensic_row.metadata["sweep_resolved_group_id"] == group.id
+    end
+
+    test "an unexpected reporter cannot make a newly discovered device canonically available", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      expected_agent = "expected-discovery-#{unique_id}"
+      unexpected_agent = "unexpected-discovery-#{unique_id}"
+      Enum.each([expected_agent, unexpected_agent], &register_reporter!(actor, &1))
+
+      ip = unique_ip("unexpected-discovery-#{unique_id}")
+      group = reporter_group!(actor, unique_id, "unexpected-discovery", [expected_agent])
+
+      assert {:ok, _} =
+               ingest_report(actor, group.id, unexpected_agent, available_result(ip))
+
+      assert {:ok, device_page} =
+               Device
+               |> Ash.Query.filter(ip == ^ip and partition == "default")
+               |> Ash.read(actor: actor)
+
+      [device] = results_from(device_page)
+      refute device.is_available
+
+      assert {:ok, forensic_row} =
+               DeviceAgentAvailability.get_by_device_agent(device.uid, unexpected_agent,
+                 actor: actor
+               )
+
+      assert forensic_row.is_available
+      assert forensic_row.metadata["sweep_reporter_expectation"] == "unexpected"
+    end
+
+    test "All accepts an authenticated reporter while unattributed reporters fail closed", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      all_agent_id = "unregistered-partition-reporter-#{unique_id}"
+      selected_agent_id = "selected-reporter-#{unique_id}"
+      register_reporter!(actor, selected_agent_id)
+
+      all_device = reporter_device!(actor, unique_id, "all-authenticated", false)
+      all_group = reporter_group!(actor, unique_id, "all-authenticated", [])
+
+      assert {:ok, _} =
+               ingest_report(actor, all_group.id, all_agent_id, available_result(all_device.ip))
+
+      assert reload_device!(actor, all_device.uid).is_available
+
+      assert {:ok, all_row} =
+               DeviceAgentAvailability.get_by_device_agent(all_device.uid, all_agent_id,
+                 actor: actor
+               )
+
+      assert all_row.metadata["sweep_reporter_expectation"] == "expected"
+
+      unknown_device =
+        reporter_device!(actor, unique_id, "headerless", false,
+          availability_source_agent_id: selected_agent_id
+        )
+
+      selected_group = reporter_group!(actor, unique_id, "headerless", [selected_agent_id])
+
+      assert {:error, :conflicting_execution_reporter} =
+               SweepResultsIngestor.ingest_results(
+                 [available_result(unknown_device.ip)],
+                 Ash.UUID.generate(),
+                 actor: actor,
+                 sweep_group_id: selected_group.id,
+                 agent_id: selected_agent_id,
+                 config_version: "headerless-#{unique_id}"
+               )
+
+      refute reload_device!(actor, unknown_device.uid).is_available
+
+      assert {:ok, unknown_row} =
+               DeviceAgentAvailability.get_by_device_agent(unknown_device.uid, selected_agent_id,
+                 actor: actor
+               )
+
+      assert unknown_row.metadata["sweep_reporter_expectation"] == "unknown"
+      assert unknown_row.metadata["sweep_resolved_group_id"] == selected_group.id
+
+      blank_device = reporter_device!(actor, unique_id, "blank-auth", false)
+
+      assert {:error, :conflicting_execution_reporter} =
+               SweepResultsIngestor.ingest_results(
+                 [available_result(blank_device.ip)],
+                 Ash.UUID.generate(),
+                 actor: actor,
+                 sweep_group_id: selected_group.id,
+                 agent_id: selected_agent_id,
+                 authenticated_agent_id: "  ",
+                 config_version: "blank-auth-#{unique_id}"
+               )
+
+      refute reload_device!(actor, blank_device.uid).is_available
+
+      assert {:ok, blank_row} =
+               DeviceAgentAvailability.get_by_device_agent(blank_device.uid, selected_agent_id,
+                 actor: actor
+               )
+
+      assert blank_row.metadata["sweep_reporter_expectation"] == "unknown"
+
+      assert {:ok, selected_group_after_unknown} =
+               Ash.get(SweepGroup, selected_group.id, actor: actor)
+
+      assert is_nil(selected_group_after_unknown.last_run_at)
+    end
+
+    test "All keeps a cross-partition authenticated reporter forensic-only", %{actor: actor} do
+      unique_id = Ash.UUID.generate()
+      reporter_agent_id = "cross-partition-all-reporter-#{unique_id}"
+
+      device = reporter_device!(actor, unique_id, "cross-partition-all", false)
+      group = reporter_group!(actor, unique_id, "cross-partition-all", [])
+
+      log =
+        CaptureLog.capture_log(fn ->
+          assert {:ok, _} =
+                   ingest_report(
+                     actor,
+                     group.id,
+                     reporter_agent_id,
+                     available_result(device.ip),
+                     authenticated_partition_id: "other-partition"
+                   )
+        end)
+
+      assert log =~ "ANOMALOUS SWEEP ASSIGNMENT"
+      assert log =~ group.id
+      assert log =~ reporter_agent_id
+      refute reload_device!(actor, device.uid).is_available
+
+      assert {:ok, forensic_row} =
+               DeviceAgentAvailability.get_by_device_agent(device.uid, reporter_agent_id,
+                 actor: actor
+               )
+
+      assert forensic_row.is_available
+      assert forensic_row.sweep_group_id == group.id
+      assert forensic_row.metadata["sweep_reporter_expectation"] == "unexpected"
+      assert forensic_row.metadata["sweep_resolved_group_id"] == group.id
+
+      assert {:ok, group_after_report} = Ash.get(SweepGroup, group.id, actor: actor)
+      assert is_nil(group_after_report.last_run_at)
+    end
+
+    test "All keeps reporters without a canonical authenticated partition forensic-only", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      group = reporter_group!(actor, unique_id, "missing-authenticated-partition", [])
+
+      for {suffix, partition_opts} <- [
+            {"missing", []},
+            {"blank", [authenticated_partition_id: "  "]}
+          ] do
+        reporter_agent_id = "#{suffix}-partition-all-reporter-#{unique_id}"
+        device = reporter_device!(actor, unique_id, "#{suffix}-partition-all", false)
+        execution_id = Ash.UUID.generate()
+
+        opts =
+          Keyword.merge(
+            [
+              actor: actor,
+              sweep_group_id: group.id,
+              agent_id: reporter_agent_id,
+              authenticated_agent_id: reporter_agent_id,
+              config_version: "#{suffix}-partition-#{unique_id}"
+            ],
+            partition_opts
+          )
+
+        assert {:ok, _} =
+                 SweepResultsIngestor.ingest_results(
+                   [available_result(device.ip)],
+                   execution_id,
+                   opts
+                 )
+
+        refute reload_device!(actor, device.uid).is_available
+
+        assert {:ok, forensic_row} =
+                 DeviceAgentAvailability.get_by_device_agent(device.uid, reporter_agent_id,
+                   actor: actor
+                 )
+
+        assert forensic_row.is_available
+        assert forensic_row.metadata["sweep_reporter_expectation"] == "unknown"
+        assert forensic_row.metadata["sweep_resolved_group_id"] == group.id
+      end
+
+      assert {:ok, group_after_reports} = Ash.get(SweepGroup, group.id, actor: actor)
+      assert is_nil(group_after_reports.last_run_at)
+    end
+
+    test "unknown reporters cannot supersede running group executions", %{actor: actor} do
+      unique_id = Ash.UUID.generate()
+      claimed_agent = "supersede-claimed-#{unique_id}"
+      other_agent = "supersede-other-#{unique_id}"
+      Enum.each([claimed_agent, other_agent], &register_reporter!(actor, &1))
+
+      group = reporter_group!(actor, unique_id, "unknown-supersession", [claimed_agent])
+      claimed_execution = running_execution!(actor, group.id, claimed_agent)
+      other_execution = running_execution!(actor, group.id, other_agent)
+
+      assert {:error, :conflicting_execution_reporter} =
+               SweepResultsIngestor.ingest_results([], Ash.UUID.generate(),
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: claimed_agent,
+                 config_version: "body-only-#{unique_id}"
+               )
+
+      assert Repo.get!(SweepGroupExecution, claimed_execution.id).status == :running
+      assert Repo.get!(SweepGroupExecution, other_execution.id).status == :running
+
+      assert {:error, :conflicting_execution_reporter} =
+               SweepResultsIngestor.ingest_results([], Ash.UUID.generate(),
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 config_version: "unattributed-#{unique_id}"
+               )
+
+      assert Repo.get!(SweepGroupExecution, claimed_execution.id).status == :running
+      assert Repo.get!(SweepGroupExecution, other_execution.id).status == :running
+    end
+
+    test "unknown reports retain forensic anchors without inventory or mapper side effects", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      claimed_agent = "unknown-side-effects-#{unique_id}"
+      register_reporter!(actor, claimed_agent)
+
+      alias_ip = unique_ip("unknown-alias-#{unique_id}")
+      deleted_ip = unique_ip("unknown-deleted-#{unique_id}")
+      provisional_ip = unique_ip("unknown-provisional-#{unique_id}")
+
+      alias_device = reporter_device!(actor, unique_id, "unknown-alias", false)
+
+      deleted_device =
+        reporter_device!(actor, unique_id, "unknown-deleted", false, ip: deleted_ip)
+
+      assert {:ok, alias_state} =
+               DeviceAliasState.create_detected(
+                 %{
+                   device_id: alias_device.uid,
+                   partition: "default",
+                   alias_type: :ip,
+                   alias_value: alias_ip,
+                   metadata: %{}
+                 },
+                 actor: actor
+               )
+
+      assert {:ok, _deleted} =
+               deleted_device
+               |> Ash.Changeset.for_update(
+                 :soft_delete,
+                 %{deleted_reason: "unknown reporter test", deleted_by: "task-6-review"},
+                 actor: actor
+               )
+               |> Ash.update(actor: actor)
+
+      deleted_before = include_deleted_device!(actor, deleted_device.uid)
+      assert %DateTime{} = deleted_before.deleted_at
+
+      group = reporter_group!(actor, unique_id, "unknown-side-effects", [claimed_agent])
+
+      assert {:ok, mapper_job} =
+               MapperJob
+               |> Ash.Changeset.for_create(
+                 :create,
+                 %{
+                   name: "Unknown reporter mapper #{unique_id}",
+                   partition: "default",
+                   discovery_mode: :snmp,
+                   discovery_type: :full
+                 },
+                 actor: actor
+               )
+               |> Ash.create(actor: actor)
+
+      test_pid = self()
+
+      dispatcher = fn job, opts ->
+        send(test_pid, {:unknown_reporter_mapper_dispatch, job.id, Keyword.get(opts, :seeds)})
+        {:ok, "unknown-reporter-command-#{unique_id}"}
+      end
+
+      execution_id = Ash.UUID.generate()
+
+      assert {:error, :conflicting_execution_reporter} =
+               SweepResultsIngestor.ingest_results(
+                 Enum.map([alias_ip, deleted_ip, provisional_ip], &available_result/1),
+                 execution_id,
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: claimed_agent,
+                 config_version: "unknown-side-effects-#{unique_id}",
+                 mapper_promotion_opts: [dispatcher: dispatcher, cooldown_seconds: 900]
+               )
+
+      assert {:ok, alias_after} = Ash.get(DeviceAliasState, alias_state.id, actor: actor)
+      deleted_after = include_deleted_device!(actor, deleted_device.uid)
+
+      assert {:ok, provisional_page} =
+               Device
+               |> Ash.Query.filter(ip == ^provisional_ip and partition == "default")
+               |> Ash.read(actor: actor)
+
+      [provisional] = results_from(provisional_page)
+      alias_device_after = reload_device!(actor, alias_device.uid)
+
+      forensic_uids = [alias_device.uid, deleted_device.uid, provisional.uid]
+
+      forensic_rows =
+        Repo.all(
+          from(a in DeviceAgentAvailability,
+            where: a.agent_id == ^claimed_agent and a.device_uid in ^forensic_uids,
+            select: {a.device_uid, a.execution_id, a.metadata}
+          )
+        )
+
+      assert %{
+               alias_state: alias_after.state,
+               alias_sightings: alias_after.sighting_count,
+               alias_sources: alias_device_after.discovery_sources,
+               alias_mapper_metadata?:
+                 Map.has_key?(alias_device_after.metadata || %{}, "sweep_mapper_promotion"),
+               deleted_at: deleted_before.deleted_at,
+               deleted_sources: deleted_after.discovery_sources,
+               deleted_mapper_metadata?:
+                 Map.has_key?(deleted_after.metadata || %{}, "sweep_mapper_promotion"),
+               provisional_available: provisional.is_available,
+               provisional_mapper_metadata?:
+                 Map.has_key?(provisional.metadata || %{}, "sweep_mapper_promotion"),
+               execution: Repo.get(SweepGroupExecution, execution_id),
+               host_result_count: length(host_result_snapshots(actor, execution_id)),
+               audit_count: execution_audit_count(execution_id),
+               forensic_rows:
+                 forensic_rows
+                 |> Enum.map(fn {uid, row_execution_id, metadata} ->
+                   {uid, row_execution_id, metadata["sweep_reporter_expectation"]}
+                 end)
+                 |> Enum.sort()
+             } == %{
+               alias_state: :detected,
+               alias_sightings: 1,
+               alias_sources: ["manual"],
+               alias_mapper_metadata?: false,
+               deleted_at: deleted_after.deleted_at,
+               deleted_sources: ["manual"],
+               deleted_mapper_metadata?: false,
+               provisional_available: false,
+               provisional_mapper_metadata?: false,
+               execution: nil,
+               host_result_count: 0,
+               audit_count: 0,
+               forensic_rows:
+                 forensic_uids
+                 |> Enum.map(&{&1, nil, "unknown"})
+                 |> Enum.sort()
+             }
+
+      assert %DateTime{} = deleted_after.deleted_at
+      mapper_job_id = mapper_job.id
+      refute_receive {:unknown_reporter_mapper_dispatch, ^mapper_job_id, _seeds}
+    end
+
+    test "an unexpected reporter mutates only its explicitly configured availability device", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      expected_agent = "unexpected-side-effects-expected-#{unique_id}"
+      unexpected_agent = "unexpected-side-effects-reporter-#{unique_id}"
+      Enum.each([expected_agent, unexpected_agent], &register_reporter!(actor, &1))
+
+      alias_ip = unique_ip("unexpected-alias-#{unique_id}")
+      unconfigured_ip = unique_ip("unexpected-unconfigured-#{unique_id}")
+      configured_ip = unique_ip("unexpected-configured-#{unique_id}")
+
+      alias_device = reporter_device!(actor, unique_id, "unexpected-alias", false)
+
+      unconfigured_device =
+        reporter_device!(actor, unique_id, "unexpected-unconfigured", false, ip: unconfigured_ip)
+
+      configured_device =
+        reporter_device!(actor, unique_id, "unexpected-configured", false,
+          ip: configured_ip,
+          availability_source_agent_id: unexpected_agent
+        )
+
+      assert {:ok, alias_state} =
+               DeviceAliasState.create_detected(
+                 %{
+                   device_id: alias_device.uid,
+                   partition: "default",
+                   alias_type: :ip,
+                   alias_value: alias_ip,
+                   metadata: %{}
+                 },
+                 actor: actor
+               )
+
+      Enum.each([unconfigured_device, configured_device], fn device ->
+        assert {:ok, _deleted} =
+                 device
+                 |> Ash.Changeset.for_update(
+                   :soft_delete,
+                   %{deleted_reason: "unexpected reporter test", deleted_by: "task-6-review"},
+                   actor: actor
+                 )
+                 |> Ash.update(actor: actor)
+      end)
+
+      unconfigured_deleted_at = include_deleted_device!(actor, unconfigured_device.uid).deleted_at
+      assert %DateTime{} = unconfigured_deleted_at
+      assert %DateTime{} = include_deleted_device!(actor, configured_device.uid).deleted_at
+
+      group =
+        reporter_group!(actor, unique_id, "unexpected-side-effects", [expected_agent])
+
+      assert {:ok, mapper_job} =
+               MapperJob
+               |> Ash.Changeset.for_create(
+                 :create,
+                 %{
+                   name: "Unexpected reporter mapper #{unique_id}",
+                   partition: "default",
+                   discovery_mode: :snmp,
+                   discovery_type: :full
+                 },
+                 actor: actor
+               )
+               |> Ash.create(actor: actor)
+
+      test_pid = self()
+
+      dispatcher = fn job, opts ->
+        send(test_pid, {:unexpected_reporter_mapper_dispatch, job.id, Keyword.get(opts, :seeds)})
+        {:ok, "unexpected-reporter-command-#{unique_id}"}
+      end
+
+      execution_id = Ash.UUID.generate()
+
+      assert {:ok, stats} =
+               SweepResultsIngestor.ingest_results(
+                 Enum.map([alias_ip, unconfigured_ip, configured_ip], &available_result/1),
+                 execution_id,
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: unexpected_agent,
+                 authenticated_agent_id: unexpected_agent,
+                 config_version: "unexpected-side-effects-#{unique_id}",
+                 mapper_promotion_opts: [dispatcher: dispatcher, cooldown_seconds: 900]
+               )
+
+      assert {:ok, alias_after} = Ash.get(DeviceAliasState, alias_state.id, actor: actor)
+      alias_device_after = reload_device!(actor, alias_device.uid)
+      unconfigured_after = include_deleted_device!(actor, unconfigured_device.uid)
+      configured_after = include_deleted_device!(actor, configured_device.uid)
+
+      assert {:ok, configured_forensic_row} =
+               DeviceAgentAvailability.get_by_device_agent(
+                 configured_device.uid,
+                 unexpected_agent,
+                 actor: actor
+               )
+
+      assert %{
+               alias_state: alias_after.state,
+               alias_sightings: alias_after.sighting_count,
+               alias_sources: alias_device_after.discovery_sources,
+               alias_available: alias_device_after.is_available,
+               alias_mapper_metadata?:
+                 Map.has_key?(alias_device_after.metadata || %{}, "sweep_mapper_promotion"),
+               unconfigured_deleted_at: unconfigured_after.deleted_at,
+               unconfigured_sources: unconfigured_after.discovery_sources,
+               unconfigured_mapper_metadata?:
+                 Map.has_key?(unconfigured_after.metadata || %{}, "sweep_mapper_promotion"),
+               configured_deleted_at: configured_after.deleted_at,
+               configured_sources: Enum.sort(configured_after.discovery_sources),
+               configured_available: configured_after.is_available,
+               configured_mapper_metadata?:
+                 Map.has_key?(configured_after.metadata || %{}, "sweep_mapper_promotion"),
+               forensic_expectation:
+                 configured_forensic_row.metadata["sweep_reporter_expectation"],
+               host_result_count: length(host_result_snapshots(actor, execution_id)),
+               mapper_stats:
+                 Map.take(stats, [
+                   :mapper_dispatched,
+                   :mapper_failed,
+                   :mapper_skipped,
+                   :mapper_suppressed
+                 ])
+             } == %{
+               alias_state: :detected,
+               alias_sightings: 1,
+               alias_sources: ["manual"],
+               alias_available: false,
+               alias_mapper_metadata?: false,
+               unconfigured_deleted_at: unconfigured_deleted_at,
+               unconfigured_sources: ["manual"],
+               unconfigured_mapper_metadata?: false,
+               configured_deleted_at: nil,
+               configured_sources: ["manual", "sweep"],
+               configured_available: true,
+               configured_mapper_metadata?: false,
+               forensic_expectation: "unexpected",
+               host_result_count: 3,
+               mapper_stats: %{
+                 mapper_dispatched: 0,
+                 mapper_failed: 0,
+                 mapper_skipped: 0,
+                 mapper_suppressed: 0
+               }
+             }
+
+      mapper_job_id = mapper_job.id
+      refute_receive {:unexpected_reporter_mapper_dispatch, ^mapper_job_id, _seeds}
+    end
+
+    test "missing or unresolved group identity fails closed", %{actor: actor} do
+      unique_id = Ash.UUID.generate()
+      agent_id = "missing-group-#{unique_id}"
+      device = reporter_device!(actor, unique_id, "missing-group", false)
+      result = available_result(device.ip)
+
+      assert {:error, :missing_sweep_group_id} =
+               SweepResultsIngestor.ingest_results(
+                 [result],
+                 Ash.UUID.generate(),
+                 actor: actor,
+                 agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 config_version: "missing-group-#{unique_id}"
+               )
+
+      unresolved_execution_id = Ash.UUID.generate()
+
+      assert {:error, :unresolved_sweep_group} =
+               SweepResultsIngestor.ingest_results(
+                 [result],
+                 unresolved_execution_id,
+                 actor: actor,
+                 sweep_group_id: Ash.UUID.generate(),
+                 agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 config_version: "unresolved-group-#{unique_id}"
+               )
+
+      refute reload_device!(actor, device.uid).is_available
+      assert is_nil(Repo.get(SweepGroupExecution, unresolved_execution_id))
+
+      assert is_nil(
+               Repo.get_by(DeviceAgentAvailability, device_uid: device.uid, agent_id: agent_id)
+             )
+    end
+
+    test "authenticated identity controls classification when a payload identity differs", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      selected_agent = "selected-auth-#{unique_id}"
+      unexpected_agent = "unexpected-auth-#{unique_id}"
+      Enum.each([selected_agent, unexpected_agent], &register_reporter!(actor, &1))
+
+      unexpected_device = reporter_device!(actor, unique_id, "auth-unexpected", false)
+      expected_device = reporter_device!(actor, unique_id, "auth-expected", false)
+      group = reporter_group!(actor, unique_id, "identity-mismatch", [selected_agent])
+
+      unexpected_log =
+        CaptureLog.capture_log(fn ->
+          assert {:ok, _} =
+                   SweepResultsIngestor.ingest_results(
+                     [available_result(unexpected_device.ip)],
+                     Ash.UUID.generate(),
+                     actor: actor,
+                     sweep_group_id: group.id,
+                     agent_id: selected_agent,
+                     authenticated_agent_id: unexpected_agent,
+                     config_version: "auth-unexpected-#{unique_id}"
+                   )
+        end)
+
+      assert unexpected_log =~ "SWEEP REPORTER IDENTITY MISMATCH"
+      refute reload_device!(actor, unexpected_device.uid).is_available
+
+      assert {:ok, unexpected_row} =
+               DeviceAgentAvailability.get_by_device_agent(
+                 unexpected_device.uid,
+                 unexpected_agent,
+                 actor: actor
+               )
+
+      assert unexpected_row.metadata["sweep_reporter_expectation"] == "unexpected"
+      assert unexpected_row.metadata["sweep_reported_agent_id"] == selected_agent
+
+      expected_log =
+        CaptureLog.capture_log(fn ->
+          assert {:ok, _} =
+                   SweepResultsIngestor.ingest_results(
+                     [available_result(expected_device.ip)],
+                     Ash.UUID.generate(),
+                     actor: actor,
+                     sweep_group_id: group.id,
+                     agent_id: unexpected_agent,
+                     authenticated_agent_id: selected_agent,
+                     config_version: "auth-expected-#{unique_id}"
+                   )
+        end)
+
+      assert expected_log =~ "SWEEP REPORTER IDENTITY MISMATCH"
+      assert reload_device!(actor, expected_device.uid).is_available
+
+      assert {:ok, expected_row} =
+               DeviceAgentAvailability.get_by_device_agent(
+                 expected_device.uid,
+                 selected_agent,
+                 actor: actor
+               )
+
+      assert expected_row.metadata["sweep_reporter_expectation"] == "expected"
+      assert expected_row.metadata["sweep_reported_agent_id"] == unexpected_agent
+    end
+
+    test "an unexpected positive cannot block later expected failures", %{actor: actor} do
+      unique_id = Ash.UUID.generate()
+      expected_agent = "expected-failure-#{unique_id}"
+      unexpected_agent = "unexpected-positive-#{unique_id}"
+
+      Enum.each([expected_agent, unexpected_agent], &register_reporter!(actor, &1))
+
+      device = reporter_device!(actor, unique_id, "unexpected-positive", true)
+      group = reporter_group!(actor, unique_id, "unexpected-positive", [expected_agent])
+
+      assert {:ok, _} =
+               ingest_report(
+                 actor,
+                 group.id,
+                 unexpected_agent,
+                 available_result(device.ip)
+               )
+
+      assert {:ok, unexpected_row} =
+               DeviceAgentAvailability.get_by_device_agent(device.uid, unexpected_agent,
+                 actor: actor
+               )
+
+      assert unexpected_row.is_available
+      assert unexpected_row.metadata["sweep_reporter_expectation"] == "unexpected"
+
+      failed_result = unavailable_result(device.ip)
+
+      assert {:ok, _} = ingest_report(actor, group.id, expected_agent, failed_result)
+      assert {:ok, _} = ingest_report(actor, group.id, expected_agent, failed_result)
+
+      refute reload_device!(actor, device.uid).is_available
+    end
+
+    test "an explicitly configured source wins even when it is outside the assignment", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      selected_agent = "selected-#{unique_id}"
+      configured_agent = "configured-outside-#{unique_id}"
+
+      Enum.each([selected_agent, configured_agent], &register_reporter!(actor, &1))
+
+      device =
+        reporter_device!(actor, unique_id, "configured-source", false,
+          availability_source_agent_id: configured_agent
+        )
+
+      group = reporter_group!(actor, unique_id, "configured-source", [selected_agent])
+
+      assert {:ok, _} =
+               ingest_report(actor, group.id, configured_agent, available_result(device.ip))
+
+      assert reload_device!(actor, device.uid).is_available
+
+      assert {:ok, configured_row} =
+               DeviceAgentAvailability.get_by_device_agent(device.uid, configured_agent,
+                 actor: actor
+               )
+
+      assert configured_row.metadata["sweep_reporter_expectation"] == "unexpected"
+
+      assert {:ok, _} =
+               ingest_report(actor, group.id, selected_agent, unavailable_result(device.ip))
+
+      assert {:ok, _} =
+               ingest_report(actor, group.id, selected_agent, unavailable_result(device.ip))
+
+      assert reload_device!(actor, device.uid).is_available
+    end
+
+    test "the execution FK is authoritative when a later payload names another group", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      agent_id = "execution-owner-#{unique_id}"
+      register_reporter!(actor, agent_id)
+
+      device = reporter_device!(actor, unique_id, "execution-owner", false)
+      execution_group = reporter_group!(actor, unique_id, "execution-group", [agent_id])
+      conflicting_group = reporter_group!(actor, unique_id, "payload-group", [agent_id])
+      execution_id = Ash.UUID.generate()
+
+      assert {:ok, _} =
+               ingest_report(
+                 actor,
+                 execution_group.id,
+                 agent_id,
+                 unavailable_result(device.ip),
+                 execution_id: execution_id
+               )
+
+      assert {:ok, _} =
+               ingest_report(
+                 actor,
+                 conflicting_group.id,
+                 agent_id,
+                 available_result(device.ip),
+                 execution_id: execution_id
+               )
+
+      refute reload_device!(actor, device.uid).is_available
+
+      assert {:ok, row} =
+               DeviceAgentAvailability.get_by_device_agent(device.uid, agent_id, actor: actor)
+
+      assert row.sweep_group_id == execution_group.id
+      assert row.metadata["sweep_reporter_expectation"] == "unknown"
+      assert row.metadata["sweep_resolved_group_id"] == execution_group.id
+    end
+
+    test "an authenticated reporter cannot reuse another reporter's execution", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      agent_a = "execution-agent-a-#{unique_id}"
+      agent_b = "execution-agent-b-#{unique_id}"
+      Enum.each([agent_a, agent_b], &register_reporter!(actor, &1))
+
+      device_a = reporter_device!(actor, unique_id, "execution-agent-a", false)
+      device_b = reporter_device!(actor, unique_id, "execution-agent-b", false)
+      group = reporter_group!(actor, unique_id, "execution-agent-owner", [agent_a, agent_b])
+      execution_id = Ash.UUID.generate()
+
+      assert {:ok, _} =
+               SweepResultsIngestor.ingest_results(
+                 [available_result(device_a.ip)],
+                 execution_id,
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: agent_a,
+                 authenticated_agent_id: agent_a,
+                 config_version: "execution-agent-a-#{unique_id}",
+                 request_id: "request-a-#{unique_id}",
+                 banner_grab_summary: %{"sweep_banner_grab_probes_total" => 1}
+               )
+
+      execution_before = execution_snapshot(execution_id)
+      host_results_before = host_result_snapshots(actor, execution_id)
+      audit_count_before = execution_audit_count(execution_id)
+
+      result =
+        SweepResultsIngestor.ingest_results(
+          [available_result(device_b.ip)],
+          execution_id,
+          actor: actor,
+          sweep_group_id: group.id,
+          agent_id: agent_b,
+          authenticated_agent_id: agent_b,
+          config_version: "execution-agent-b-#{unique_id}",
+          request_id: "request-b-#{unique_id}",
+          banner_grab_summary: %{"sweep_banner_grab_probes_total" => 99}
+        )
+
+      assert {:ok, forensic_row} =
+               DeviceAgentAvailability.get_by_device_agent(device_b.uid, agent_b, actor: actor)
+
+      assert %{
+               result: result,
+               forensic_execution_id: forensic_row.execution_id,
+               forensic_expectation: forensic_row.metadata["sweep_reporter_expectation"],
+               canonical_available: reload_device!(actor, device_b.uid).is_available,
+               execution: execution_snapshot(execution_id),
+               host_results: host_result_snapshots(actor, execution_id),
+               audit_count: execution_audit_count(execution_id)
+             } == %{
+               result: {:error, :conflicting_execution_reporter},
+               forensic_execution_id: nil,
+               forensic_expectation: "unknown",
+               canonical_available: false,
+               execution: execution_before,
+               host_results: host_results_before,
+               audit_count: audit_count_before
+             }
+    end
+
+    test "a body-only claim cannot reuse an authenticated reporter's execution", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      agent_id = "execution-body-only-#{unique_id}"
+      register_reporter!(actor, agent_id)
+
+      owner_device = reporter_device!(actor, unique_id, "execution-body-owner", false)
+      forensic_device = reporter_device!(actor, unique_id, "execution-body-forensic", false)
+      group = reporter_group!(actor, unique_id, "execution-body-only", [agent_id])
+      execution_id = Ash.UUID.generate()
+
+      assert {:ok, _} =
+               SweepResultsIngestor.ingest_results(
+                 [available_result(owner_device.ip)],
+                 execution_id,
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 config_version: "execution-body-owner-#{unique_id}",
+                 request_id: "request-owner-#{unique_id}",
+                 banner_grab_summary: %{"sweep_banner_grab_probes_total" => 1}
+               )
+
+      execution_before = execution_snapshot(execution_id)
+      host_results_before = host_result_snapshots(actor, execution_id)
+      audit_count_before = execution_audit_count(execution_id)
+
+      result =
+        SweepResultsIngestor.ingest_results(
+          [available_result(forensic_device.ip)],
+          execution_id,
+          actor: actor,
+          sweep_group_id: group.id,
+          agent_id: agent_id,
+          config_version: "execution-body-forensic-#{unique_id}",
+          request_id: "request-forensic-#{unique_id}",
+          banner_grab_summary: %{"sweep_banner_grab_probes_total" => 99}
+        )
+
+      assert {:ok, forensic_row} =
+               DeviceAgentAvailability.get_by_device_agent(
+                 forensic_device.uid,
+                 agent_id,
+                 actor: actor
+               )
+
+      assert %{
+               result: result,
+               forensic_execution_id: forensic_row.execution_id,
+               forensic_expectation: forensic_row.metadata["sweep_reporter_expectation"],
+               canonical_available: reload_device!(actor, forensic_device.uid).is_available,
+               execution: execution_snapshot(execution_id),
+               host_results: host_result_snapshots(actor, execution_id),
+               audit_count: execution_audit_count(execution_id)
+             } == %{
+               result: {:error, :conflicting_execution_reporter},
+               forensic_execution_id: nil,
+               forensic_expectation: "unknown",
+               canonical_available: false,
+               execution: execution_before,
+               host_results: host_results_before,
+               audit_count: audit_count_before
+             }
+    end
+
+    test "a body-only claim cannot create an execution before an authenticated retry", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      agent_id = "execution-body-first-#{unique_id}"
+      register_reporter!(actor, agent_id)
+
+      device = reporter_device!(actor, unique_id, "execution-body-first", false)
+      group = reporter_group!(actor, unique_id, "execution-body-first", [agent_id])
+      execution_id = Ash.UUID.generate()
+
+      result =
+        SweepResultsIngestor.ingest_results(
+          [available_result(device.ip)],
+          execution_id,
+          actor: actor,
+          sweep_group_id: group.id,
+          agent_id: agent_id,
+          config_version: "execution-body-first-#{unique_id}",
+          request_id: "request-body-first-#{unique_id}",
+          scanner_metrics: %{"duration_ms" => 99},
+          banner_grab_summary: %{"sweep_banner_grab_probes_total" => 99}
+        )
+
+      assert {:ok, forensic_row} =
+               DeviceAgentAvailability.get_by_device_agent(device.uid, agent_id, actor: actor)
+
+      assert %{
+               result: result,
+               forensic_execution_id: forensic_row.execution_id,
+               forensic_expectation: forensic_row.metadata["sweep_reporter_expectation"],
+               canonical_available: reload_device!(actor, device.uid).is_available,
+               execution: Repo.get(SweepGroupExecution, execution_id),
+               host_results: host_result_snapshots(actor, execution_id),
+               audit_count: execution_audit_count(execution_id)
+             } == %{
+               result: {:error, :conflicting_execution_reporter},
+               forensic_execution_id: nil,
+               forensic_expectation: "unknown",
+               canonical_available: false,
+               execution: nil,
+               host_results: [],
+               audit_count: 0
+             }
+
+      assert {:ok, _} =
+               SweepResultsIngestor.ingest_results(
+                 [available_result(device.ip)],
+                 execution_id,
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 config_version: "execution-authenticated-retry-#{unique_id}"
+               )
+
+      assert %{agent_id: ^agent_id, sweep_group_id: group_id} =
+               execution_snapshot(execution_id)
+
+      assert group_id == group.id
+      assert [_host_result] = host_result_snapshots(actor, execution_id)
+      assert reload_device!(actor, device.uid).is_available
+    end
+
+    test "an existing execution resolves an omitted direct group identity", %{actor: actor} do
+      unique_id = Ash.UUID.generate()
+      agent_id = "execution-redelivery-#{unique_id}"
+      register_reporter!(actor, agent_id)
+
+      device = reporter_device!(actor, unique_id, "execution-redelivery", false)
+      group = reporter_group!(actor, unique_id, "execution-redelivery", [agent_id])
+      execution_id = Ash.UUID.generate()
+
+      assert {:ok, _} =
+               ingest_report(
+                 actor,
+                 group.id,
+                 agent_id,
+                 unavailable_result(device.ip),
+                 execution_id: execution_id
+               )
+
+      assert {:ok, _} =
+               SweepResultsIngestor.ingest_results(
+                 [available_result(device.ip)],
+                 execution_id,
+                 actor: actor,
+                 agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 config_version: "execution-redelivery-#{unique_id}"
+               )
+
+      assert reload_device!(actor, device.uid).is_available
+
+      assert {:ok, row} =
+               DeviceAgentAvailability.get_by_device_agent(device.uid, agent_id, actor: actor)
+
+      assert row.sweep_group_id == group.id
+      assert row.metadata["sweep_resolved_group_id"] == group.id
+      assert row.metadata["sweep_reporter_expectation"] == "expected"
+    end
+
+    test "an older unexpected result cannot replace a newer expected observation", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      original_agent = "fresh-original-#{unique_id}"
+      replacement_agent = "fresh-replacement-#{unique_id}"
+      Enum.each([original_agent, replacement_agent], &register_reporter!(actor, &1))
+
+      device = reporter_device!(actor, unique_id, "freshness", false)
+      group = reporter_group!(actor, unique_id, "freshness", [original_agent])
+      newer = DateTime.truncate(DateTime.utc_now(), :microsecond)
+      older = DateTime.add(newer, -3_600, :second)
+
+      assert {:ok, _} =
+               ingest_report(
+                 actor,
+                 group.id,
+                 original_agent,
+                 available_result(device.ip, newer)
+               )
+
+      assert {:ok, group} =
+               group
+               |> Ash.Changeset.for_update(:update, %{agent_ids: [replacement_agent]},
+                 actor: actor
+               )
+               |> Ash.update(actor: actor)
+
+      assert {:ok, _} =
+               ingest_report(
+                 actor,
+                 group.id,
+                 original_agent,
+                 unavailable_result(device.ip, older)
+               )
+
+      assert {:ok, row} =
+               DeviceAgentAvailability.get_by_device_agent(device.uid, original_agent,
+                 actor: actor
+               )
+
+      assert row.checked_at == newer
+      assert row.is_available
+      assert row.metadata["sweep_reporter_expectation"] == "expected"
+    end
+
+    test "an older expected positive cannot change canonical state or emit recovery", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      agent_id = "stale-expected-#{unique_id}"
+      register_reporter!(actor, agent_id)
+
+      device = reporter_device!(actor, unique_id, "stale-expected", true)
+
+      group =
+        reporter_group!(actor, unique_id, "stale-expected", [agent_id], %{
+          emit_availability_events: true
+        })
+
+      newer = DateTime.utc_now() |> DateTime.add(30, :second) |> DateTime.truncate(:microsecond)
+      older = DateTime.add(newer, -3_600, :second)
+
+      assert {:ok, _} =
+               ingest_report(actor, group.id, agent_id, unavailable_result(device.ip, newer))
+
+      assert {:ok, _} =
+               ingest_report(actor, group.id, agent_id, unavailable_result(device.ip, newer))
+
+      before_stale = reload_device!(actor, device.uid)
+      refute before_stale.is_available
+      assert before_stale.metadata["sweep_consecutive_failures"] == 2
+
+      stale_execution_id = Ash.UUID.generate()
+
+      assert {:ok, _} =
+               ingest_report(actor, group.id, agent_id, available_result(device.ip, older),
+                 execution_id: stale_execution_id
+               )
+
+      assert {:ok, row} =
+               DeviceAgentAvailability.get_by_device_agent(device.uid, agent_id, actor: actor)
+
+      assert row.checked_at == newer
+      refute row.is_available
+      assert row.metadata["sweep_reporter_expectation"] == "expected"
+
+      after_stale = reload_device!(actor, device.uid)
+      refute after_stale.is_available
+      assert after_stale.metadata["sweep_consecutive_failures"] == 2
+
+      assert after_stale.metadata["sweep_last_available_at"] ==
+               before_stale.metadata["sweep_last_available_at"]
+
+      assert %{rows: [[0]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM logs WHERE (attributes::jsonb)->>'execution_id' = $1",
+                 [stale_execution_id]
+               )
+    end
+
+    test "an older configured-source positive cannot change canonical state or emit recovery", %{
+      actor: actor
+    } do
+      unique_id = Ash.UUID.generate()
+      selected_agent = "stale-selected-#{unique_id}"
+      configured_agent = "stale-configured-#{unique_id}"
+      Enum.each([selected_agent, configured_agent], &register_reporter!(actor, &1))
+
+      device =
+        reporter_device!(actor, unique_id, "stale-configured", true,
+          availability_source_agent_id: configured_agent
+        )
+
+      group =
+        reporter_group!(actor, unique_id, "stale-configured", [selected_agent], %{
+          emit_availability_events: true
+        })
+
+      newer = DateTime.utc_now() |> DateTime.add(30, :second) |> DateTime.truncate(:microsecond)
+      older = DateTime.add(newer, -3_600, :second)
+
+      assert {:ok, _} =
+               ingest_report(
+                 actor,
+                 group.id,
+                 configured_agent,
+                 unavailable_result(device.ip, newer)
+               )
+
+      assert {:ok, _} =
+               ingest_report(
+                 actor,
+                 group.id,
+                 configured_agent,
+                 unavailable_result(device.ip, newer)
+               )
+
+      before_stale = reload_device!(actor, device.uid)
+      refute before_stale.is_available
+      assert before_stale.metadata["sweep_consecutive_failures"] == 2
+
+      stale_execution_id = Ash.UUID.generate()
+
+      assert {:ok, _} =
+               ingest_report(
+                 actor,
+                 group.id,
+                 configured_agent,
+                 available_result(device.ip, older),
+                 execution_id: stale_execution_id
+               )
+
+      assert {:ok, row} =
+               DeviceAgentAvailability.get_by_device_agent(device.uid, configured_agent,
+                 actor: actor
+               )
+
+      assert row.checked_at == newer
+      refute row.is_available
+      assert row.metadata["sweep_reporter_expectation"] == "unexpected"
+
+      after_stale = reload_device!(actor, device.uid)
+      refute after_stale.is_available
+      assert after_stale.metadata["sweep_consecutive_failures"] == 2
+
+      assert after_stale.metadata["sweep_last_available_at"] ==
+               before_stale.metadata["sweep_last_available_at"]
+
+      assert %{rows: [[0]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM logs WHERE (attributes::jsonb)->>'execution_id' = $1",
+                 [stale_execution_id]
+               )
+    end
+  end
+
+  describe "canonical availability ownership across redelivery" do
     setup do
       unique_id = System.unique_integer([:positive])
       actor = SystemActor.system(:sweep_results_ingestor)
@@ -1855,12 +3118,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
     test "a batch whose payload lost its group id resolves the group from the execution",
          %{unique_id: unique_id, actor: actor, agent_id: agent_id} do
-      # ensure_execution_exists/6 short-circuits on an execution_id it already
-      # knows WITHOUT consulting sweep_group_id, so a redelivery or a later
-      # chunk can arrive with the group id missing. Before this resolved through
-      # the execution, all_agents_group?(nil) returned false and DISABLED the
-      # pin requirement -- an all-agents group's results then wrote the
-      # canonical bit unpinned, which is exactly what the guard exists to stop.
+      # A redelivery or later chunk can lose the direct group ID. The persisted
+      # execution FK remains authoritative for reporter expectation and policy.
       ip = "10.90.#{rem(unique_id, 200) + 1}.#{rem(unique_id, 200) + 1}"
 
       {:ok, device} =
@@ -1879,12 +3138,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
         )
         |> Ash.create()
 
-      # agent_id nil => an "any agent in partition" group.
       {:ok, group} =
         SweepGroup
         |> Ash.Changeset.for_create(
           :create,
-          %{name: "AllAgents #{unique_id}", partition: "default", agent_id: nil},
+          %{name: "AllAgents #{unique_id}", partition: "default", agent_ids: []},
           actor: actor
         )
         |> Ash.create()
@@ -1905,6 +3163,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                SweepResultsIngestor.ingest_results(results, execution_id,
                  sweep_group_id: group.id,
                  agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 authenticated_partition_id: "default",
                  config_version: "hash-#{unique_id}"
                )
 
@@ -1913,22 +3173,205 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                SweepResultsIngestor.ingest_results(results, execution_id,
                  sweep_group_id: nil,
                  agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 authenticated_partition_id: "default",
                  config_version: "hash-#{unique_id}"
                )
 
       {:ok, reloaded} = Ash.get(Device, device.uid, actor: actor)
 
-      # No availability source is pinned, so an all-agents group must NOT have
-      # written the canonical bit in either pass.
-      assert reloaded.is_available,
-             "an unpinned all-agents group wrote canonical availability"
+      refute reloaded.is_available
+      assert reloaded.metadata["sweep_consecutive_failures"] == 2
 
-      # The per-agent row is written regardless -- that is the designed split.
-      assert {:ok, _row} =
+      assert {:ok, row} =
                DeviceAgentAvailability.get_by_device_agent(device.uid, agent_id, actor: actor)
+
+      assert row.metadata["sweep_reporter_expectation"] == "expected"
+      assert row.metadata["sweep_resolved_group_id"] == group.id
     end
+  end
+
+  defp register_reporter!(actor, agent_id) do
+    assert {:ok, _agent} =
+             Agent
+             |> Ash.Changeset.for_create(:register, %{uid: agent_id, name: agent_id},
+               actor: actor
+             )
+             |> Ash.create(actor: actor)
+  end
+
+  defp reporter_device!(actor, unique_id, suffix, available?, attrs \\ []) do
+    ip = unique_ip("reporter-#{suffix}-#{unique_id}")
+
+    base_attrs = %{
+      uid: "device-reporter-#{suffix}-#{unique_id}",
+      ip: ip,
+      partition: "default",
+      hostname: "reporter-#{suffix}-#{unique_id}",
+      discovery_sources: ["manual"],
+      is_available: available?,
+      metadata: %{}
+    }
+
+    assert {:ok, device} =
+             Device
+             |> Ash.Changeset.for_create(:create, Map.merge(base_attrs, Map.new(attrs)),
+               actor: actor
+             )
+             |> Ash.create(actor: actor)
+
+    device
+  end
+
+  defp reporter_group!(actor, unique_id, suffix, agent_ids, attrs \\ %{}) do
+    group_attrs =
+      Map.merge(
+        %{
+          name: "Reporter #{suffix} #{unique_id}",
+          partition: "default",
+          agent_ids: agent_ids,
+          interval: "1h"
+        },
+        attrs
+      )
+
+    assert {:ok, group} =
+             SweepGroup
+             |> Ash.Changeset.for_create(
+               :create,
+               group_attrs,
+               actor: actor
+             )
+             |> Ash.create(actor: actor)
+
+    group
+  end
+
+  defp ingest_report(actor, group_id, agent_id, result, opts \\ []) do
+    execution_id = Keyword.get(opts, :execution_id, Ash.UUID.generate())
+    authenticated_partition_id = Keyword.get(opts, :authenticated_partition_id, "default")
+
+    SweepResultsIngestor.ingest_results([result], execution_id,
+      actor: actor,
+      sweep_group_id: group_id,
+      agent_id: agent_id,
+      authenticated_agent_id: agent_id,
+      authenticated_partition_id: authenticated_partition_id,
+      config_version: "reporter-policy-#{execution_id}"
+    )
+  end
+
+  defp available_result(ip, checked_at \\ DateTime.utc_now()) do
+    %{
+      "host_ip" => ip,
+      "available" => true,
+      "icmp_status" => %{"available" => true},
+      "last_sweep_time" => DateTime.to_iso8601(checked_at)
+    }
+  end
+
+  defp unavailable_result(ip, checked_at \\ DateTime.utc_now()) do
+    %{
+      "host_ip" => ip,
+      "available" => false,
+      "icmp_status" => %{"available" => false},
+      "port_results" => [],
+      "last_sweep_time" => DateTime.to_iso8601(checked_at)
+    }
+  end
+
+  defp reload_device!(actor, uid) do
+    assert {:ok, device} = Device.get_by_uid(uid, false, actor: actor)
+    single_result(device)
+  end
+
+  defp include_deleted_device!(actor, uid) do
+    assert {:ok, page} =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: true})
+             |> Ash.Query.filter(uid == ^uid)
+             |> Ash.read(actor: actor)
+
+    [device] = results_from(page)
+    device
   end
 
   defp single_result([result]), do: result
   defp single_result(result), do: result
+
+  defp execution_snapshot(execution_id) do
+    execution = Repo.get!(SweepGroupExecution, execution_id)
+
+    Map.take(execution, [
+      :id,
+      :agent_id,
+      :sweep_group_id,
+      :status,
+      :started_at,
+      :completed_at,
+      :duration_ms,
+      :hosts_total,
+      :hosts_available,
+      :hosts_failed,
+      :error_message,
+      :config_version,
+      :scanner_metrics,
+      :banner_grab_summary,
+      :inserted_at,
+      :updated_at
+    ])
+  end
+
+  defp host_result_snapshots(actor, execution_id) do
+    assert {:ok, page} =
+             SweepHostResult
+             |> Ash.Query.for_read(:by_execution, %{execution_id: execution_id})
+             |> Ash.read(actor: actor)
+
+    page
+    |> results_from()
+    |> Enum.map(
+      &Map.take(&1, [
+        :id,
+        :ip,
+        :hostname,
+        :status,
+        :response_time_ms,
+        :open_ports,
+        :error_message,
+        :device_id
+      ])
+    )
+  end
+
+  defp execution_audit_count(execution_id) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        """
+        SELECT count(*)
+        FROM platform.sweep_group_execution_versions
+        WHERE version_source_id = ($1::text)::uuid
+        """,
+        [execution_id]
+      )
+
+    count
+  end
+
+  defp running_execution!(actor, sweep_group_id, agent_id) do
+    assert {:ok, execution} =
+             SweepGroupExecution
+             |> Ash.Changeset.for_create(
+               :start,
+               %{
+                 sweep_group_id: sweep_group_id,
+                 agent_id: agent_id,
+                 config_version: "running-#{Ash.UUID.generate()}"
+               },
+               actor: actor
+             )
+             |> Ash.create(actor: actor)
+
+    execution
+  end
 end

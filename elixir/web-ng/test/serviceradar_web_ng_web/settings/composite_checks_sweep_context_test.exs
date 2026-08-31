@@ -1,10 +1,13 @@
 defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContextTest do
   use ExUnit.Case, async: true
 
+  import Phoenix.LiveViewTest
+
   # Pure functions over plain maps: no repo, no Ash, no fixture. Without this tag
   # the file still LOADS in the db-free lane and then contributes zero tests,
   # which the shard-level guard in test_helper.exs cannot catch in an otherwise
   # populated shard.
+  alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext
 
   @moduletag :db_free
@@ -120,5 +123,45 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContextTest do
     test "is empty for no entries" do
       assert SweepContext.coverage_intervals([]) == %{}
     end
+  end
+
+  test "labels fixed-subset coverage separately from partition-wide coverage" do
+    html =
+      render_component(&Components.sweep_context/1, %{
+        mode: :edit,
+        entries: [
+          %{
+            key: "vantage-a",
+            label: "Vantage A",
+            agent_id: "agent-a",
+            partition: "default",
+            groups: [
+              %{
+                id: "selected-group",
+                name: "Fixed subset",
+                assigned?: true,
+                ports: [],
+                modes: ["icmp"],
+                interval: "5m",
+                interval_seconds: 300,
+                profile_name: nil
+              },
+              %{
+                id: "partition-group",
+                name: "Partition wide",
+                assigned?: false,
+                ports: [],
+                modes: ["icmp"],
+                interval: "5m",
+                interval_seconds: 300,
+                profile_name: nil
+              }
+            ]
+          }
+        ]
+      })
+
+    assert html =~ "selected for this agent"
+    assert html =~ "all agents in partition"
   end
 end

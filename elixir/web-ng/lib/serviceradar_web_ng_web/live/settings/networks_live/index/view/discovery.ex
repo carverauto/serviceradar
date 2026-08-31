@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
   attr :show_form, :any, default: nil
   attr :form, :any, default: nil
   attr :seeds_text, :string, default: ""
-  attr :agents, :list, default: []
+  attr :mapper_agents, :list, default: []
   attr :unifi_form, :any, default: nil
   attr :unifi_present, :boolean, default: false
   attr :mikrotik, :map, default: %{}
@@ -47,7 +47,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
         <MapperJobForm.render
           form={@form}
           seeds_text={@seeds_text}
-          agents={@agents}
+          agents={@mapper_agents}
           unifi_form={@unifi_form}
           unifi_present={@unifi_present}
           mikrotik={@mikrotik}

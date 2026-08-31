@@ -10,6 +10,7 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.AgentPicker
 
   @moduletag :database
 
@@ -408,5 +409,150 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       assert Enum.any?(connected_agents, &(&1.uid == connected.uid))
       assert Enum.any?(connecting_agents, &(&1.uid == connecting.uid))
     end
+  end
+
+  describe "agent_picker" do
+    test "searches trimmed names and UIDs case-insensitively with a stable name then UID order",
+         %{
+           actor: actor,
+           unique_id: unique_id
+         } do
+      viewer_scope = %{actor: %{id: "viewer-#{unique_id}", role: :viewer}}
+
+      agents = [
+        create_picker_agent("picker-uid-b-#{unique_id}", "ALPHA", actor),
+        create_picker_agent("picker-uid-a-#{unique_id}", "alpha", actor),
+        create_picker_agent("picker-uid-only-#{unique_id}", nil, actor),
+        create_picker_agent("picker-other-#{unique_id}", "Bravo", actor)
+      ]
+
+      {:ok, page} = agent_picker_page("  ALPHA  ", viewer_scope)
+
+      assert [first, second] = page.results
+      assert first.uid == "picker-uid-a-#{unique_id}"
+      assert second.uid == "picker-uid-b-#{unique_id}"
+
+      {:ok, uid_page} = agent_picker_page("UID-ONLY", viewer_scope)
+      assert [%{uid: uid}] = uid_page.results
+      assert uid == "picker-uid-only-#{unique_id}"
+
+      {:ok, all_page} = agent_picker_page("   ", viewer_scope)
+      returned_uids = MapSet.new(all_page.results, & &1.uid)
+
+      assert MapSet.subset?(MapSet.new(Enum.map(agents, & &1.uid)), returned_uids)
+    end
+
+    test "caps every page at fifty records and supports forward and backward keysets", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      operator_scope = %{actor: %{id: "operator-#{unique_id}", role: :operator}}
+      prefix = "picker-page-#{unique_id}-"
+
+      for index <- 1..101 do
+        create_picker_agent(
+          "#{prefix}#{String.pad_leading(Integer.to_string(index), 3, "0")}",
+          "#{prefix}#{String.pad_leading(Integer.to_string(index), 3, "0")}",
+          actor
+        )
+      end
+
+      action = Ash.Resource.Info.action(Agent, :agent_picker, :read)
+      assert %{default_limit: 50, max_page_size: 50, keyset?: true} = action.pagination
+
+      {:ok, first_page} = agent_picker_page(prefix, operator_scope)
+
+      assert 50 = length(first_page.results)
+      assert first_page.before == nil
+      assert first_page.after
+      refute Enum.any?(first_page.results, &(&1.uid == "#{prefix}051"))
+
+      {:ok, middle_page} =
+        agent_picker_page(prefix, operator_scope, {:after, first_page.after})
+
+      assert 50 = length(middle_page.results)
+      assert %{uid: middle_first_uid} = List.first(middle_page.results)
+      assert middle_first_uid == "#{prefix}051"
+      assert %{uid: middle_last_uid} = List.last(middle_page.results)
+      assert middle_last_uid == "#{prefix}100"
+      assert middle_page.before
+      assert middle_page.after
+
+      {:ok, terminal_page} =
+        agent_picker_page(prefix, operator_scope, {:after, middle_page.after})
+
+      assert [%{uid: last_uid}] = terminal_page.results
+      assert last_uid == "#{prefix}101"
+      assert terminal_page.before
+      assert terminal_page.after == nil
+
+      {:ok, rewind_page} =
+        agent_picker_page(prefix, operator_scope, {:before, middle_page.before})
+
+      assert Enum.map(rewind_page.results, & &1.uid) == Enum.map(first_page.results, & &1.uid)
+      assert rewind_page.before == nil
+      assert rewind_page.after
+
+      {:ok, empty_page} = agent_picker_page("picker-empty-#{unique_id}", operator_scope)
+      assert empty_page.results == []
+      assert empty_page.before == nil
+      assert empty_page.after == nil
+    end
+
+    test "loads only each row's persisted gateway partition and retains viewer-plus authorization",
+         %{
+           actor: actor,
+           unique_id: unique_id
+         } do
+      alias ServiceRadar.Infrastructure.Gateway
+
+      gateway_id = "picker-gateway-#{unique_id}"
+
+      {:ok, _gateway} =
+        Gateway
+        |> Ash.Changeset.for_create(
+          :register,
+          %{
+            id: gateway_id,
+            component_id: "picker-component-#{unique_id}",
+            registration_source: "manual"
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      create_picker_agent(
+        "picker-gateway-agent-#{unique_id}",
+        "Gateway picker",
+        actor,
+        gateway_id
+      )
+
+      viewer_scope = %{actor: %{id: "viewer-#{unique_id}", role: :viewer}}
+      operator_scope = %{actor: %{id: "operator-#{unique_id}", role: :operator}}
+      denied_scope = %{actor: %{id: "denied-#{unique_id}", role: :guest}}
+
+      {:ok, viewer_page} = agent_picker_page("gateway picker", viewer_scope)
+      assert [%{gateway: %{id: ^gateway_id, partition_id: nil}}] = viewer_page.results
+
+      assert {:ok, %Ash.Page.Keyset{}} = agent_picker_page("gateway picker", operator_scope)
+      assert {:ok, %{results: []}} = agent_picker_page("gateway picker", denied_scope)
+    end
+
+    defp create_picker_agent(uid, name, actor, gateway_id \\ nil) do
+      {:ok, agent} =
+        Agent
+        |> Ash.Changeset.for_create(
+          :register,
+          %{uid: uid, name: name, host: "127.0.0.1", port: 50_051, gateway_id: gateway_id},
+          actor: actor
+        )
+        |> Ash.create()
+
+      agent
+    end
+
+    defp agent_picker_page(search, scope, selector \\ :first),
+      do: AgentPicker.page(scope, search, selector)
   end
 end

@@ -41,7 +41,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
             show_form={@show_mapper_form}
             form={@mapper_form}
             seeds_text={@mapper_seeds_text}
-            agents={@agents}
+            mapper_agents={@mapper_agents}
             unifi_form={@mapper_unifi_form}
             unifi_present={@mapper_unifi_present}
             mikrotik={@mapper_mikrotik}
@@ -54,7 +54,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
               form={@form}
               show_form={@show_form}
               profiles={@sweep_profiles}
-              agents={@agents}
+              agent_picker={@agent_picker}
+              agent_picker_open={@agent_picker_open}
+              agent_picker_selected_rows={@agent_picker_selected_rows}
+              agent_picker_summary_agent={@agent_picker_summary_agent}
               target_device_count={@target_device_count}
               builder_open={@builder_open}
               builder_sync={@builder_sync}
@@ -71,7 +74,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
               />
             <% else %>
               <%= if @show_form == :show_group do %>
-                <.group_detail group={@selected_group} />
+                <.group_detail
+                  group={@selected_group}
+                  summary_agents={@sweep_group_summary_agents}
+                />
               <% else %>
                 <Navigation.render
                   active_tab={@active_tab}
@@ -84,6 +90,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                   <% :groups -> %>
                     <SweepGroups.render
                       groups={@sweep_groups}
+                      summary_agents={@sweep_group_summary_agents}
                       sweep_command_statuses={@sweep_command_statuses}
                       can_manage_networks={@can_manage_networks}
                     />

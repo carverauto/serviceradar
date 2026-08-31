@@ -855,6 +855,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
         "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //..."
     )
+    web_db_suite = "bazel test $FLAGS //elixir/web-ng:networks_live_db_test"
     playwright_acceptance = (
         "bazel test -c opt --config=ci "
         "//elixir/web-ng/test/playwright:god_view_elk_scene_acceptance "
@@ -1323,9 +1324,11 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 self.sweep,
                 "bazel test $FLAGS //rust/integration-db:provision_db",
                 self.ordinary_suite,
+                self.web_db_suite,
             ),
             commands,
         )
+        self.assertLess(action.index(self.ordinary_suite), action.index(self.web_db_suite))
         self.assertEqual(
             (self.ordinary_suite,),
             tuple(

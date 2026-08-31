@@ -4,9 +4,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext do
 
   Composite checks derive rather than probe: a vantage point reads whatever the
   sweeps already produced for its agent. Which sweeps those are is not a single
-  "scan profile" — `SweepGroup.agent_id` is nullable and means "any agent in
-  partition", so an agent is covered by every group explicitly assigned to it
-  *plus* every unassigned group in its partition. Showing one group as "the
+  "scan profile" — an empty `SweepGroup.agent_ids` means every agent in its
+  partition, while a non-empty array is a fixed subset. An agent is covered by
+  every group that contains it *plus* every partition-wide group in its
+  partition. Showing one group as "the
   profile" would misstate which ports are probed.
 
   Read-only. Editing belongs to sweep administration, which owns these records.
@@ -82,9 +83,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext do
   defp groups_for(nil, _partition, _opts), do: []
 
   # `:for_agent_partition` is the read whose filter is: enabled, and either
-  # assigned to this agent (including isolation scans whose device partition
-  # differs) or unassigned in this agent's partition. `:by_agent` ignores
-  # partition entirely and would credit a vantage with every unassigned group.
+  # its fixed subset contains this agent (including isolation scans whose device
+  # partition differs) or is partition-wide in this agent's partition.
+  # `:by_agent` ignores partition entirely and would credit a vantage with every
+  # partition-wide group.
   defp groups_for(agent_id, partition, opts) do
     SweepGroup
     |> Ash.Query.for_read(:for_agent_partition, %{agent_id: agent_id, partition: partition})
@@ -105,7 +107,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext do
     %{
       id: group.id,
       name: group.name,
-      assigned?: group.agent_id == agent_id,
+      assigned?: agent_id in (group.agent_ids || []),
       ports: group.ports || profile_field(group, :ports) || [],
       modes: group.sweep_modes || profile_field(group, :sweep_modes) || [],
       interval: group.interval,

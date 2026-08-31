@@ -95,6 +95,7 @@ defmodule ServiceRadarAgentGateway.AddonPartitionStampingTest do
       agent_id: "agent-1",
       gateway_id: "gateway-1",
       partition: "cert-partition",
+      authenticated_partition: "cert-partition",
       source_ip: "192.0.2.10",
       kv_store_id: nil,
       timestamp: System.os_time(:second),
@@ -117,6 +118,52 @@ defmodule ServiceRadarAgentGateway.AddonPartitionStampingTest do
 
     assert status.partition == "cert-partition",
            "an add-on supplied its own partition and the gateway believed it"
+  end
+
+  test "results carry the certificate partition separately from payload routing" do
+    capture_forwarded_status()
+
+    service =
+      addon_service(
+        source: "results",
+        service_type: "sweep",
+        service_name: "network-sweep"
+      )
+
+    capture_log(fn ->
+      AgentGatewayServer.process_chunk_services([service], metadata())
+    end)
+
+    assert_receive {:forwarded, status}
+    assert status.partition == "payload-spoofed-partition"
+    assert status.authenticated_partition == "cert-partition"
+  end
+
+  test "results do not synthesize default authority from a missing certificate partition" do
+    capture_forwarded_status()
+
+    service =
+      addon_service(
+        source: "results",
+        service_type: "sweep",
+        service_name: "network-sweep"
+      )
+
+    for invalid_partition <- [nil, "", " padded-partition "] do
+      metadata = %{
+        metadata()
+        | authenticated_partition: invalid_partition,
+          partition: "default"
+      }
+
+      capture_log(fn ->
+        AgentGatewayServer.process_chunk_services([service], metadata)
+      end)
+
+      assert_receive {:forwarded, status}
+      assert status.partition == "payload-spoofed-partition"
+      assert is_nil(status.authenticated_partition)
+    end
   end
 
   test "a non-add-on source still uses the partition the payload carries" do

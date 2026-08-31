@@ -42,6 +42,7 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
   alias ServiceRadar.Infrastructure.Changes.EnsureStateMonitor
   alias ServiceRadar.Infrastructure.Changes.PublishStateChange
+  alias ServiceRadar.Infrastructure.Preparations.AgentPicker
 
   @capability_definitions %{
     icmp: %{
@@ -301,6 +302,21 @@ defmodule ServiceRadar.Infrastructure.Agent do
     read :by_capability do
       argument :capability, :string, allow_nil?: false
       filter expr(^arg(:capability) in capabilities)
+    end
+
+    read :agent_picker do
+      description "A bounded, stable page of agents for the sweep-group picker"
+
+      argument :search, :string, default: ""
+
+      prepare AgentPicker
+
+      pagination keyset?: true,
+                 required?: true,
+                 via_data_layer?: false,
+                 default_limit: 50,
+                 max_page_size: 50,
+                 stable_sort: [picker_sort_key: :asc, uid: :asc]
     end
 
     read :recently_seen do
@@ -793,6 +809,10 @@ defmodule ServiceRadar.Infrastructure.Agent do
   end
 
   calculations do
+    calculate :picker_sort_key,
+              :string,
+              expr(fragment("lower(coalesce(?, ?))", name, uid))
+
     calculate :type_name,
               :string,
               expr(

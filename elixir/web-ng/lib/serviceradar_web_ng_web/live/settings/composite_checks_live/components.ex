@@ -834,8 +834,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
   The sweeps that actually feed each vantage point, read-only.
 
   A vantage point maps to zero or more sweep groups, not to one scan profile:
-  `SweepGroup.agent_id` is nullable and means "any agent in partition". Naming
-  one group as the check's profile would misstate which ports are probed.
+  an empty `SweepGroup.agent_ids` means every agent in the device partition,
+  while a non-empty array is a fixed scanner subset. Naming one group as the
+  check's profile would misstate which ports are probed.
   """
   def sweep_context(assigns) do
     ~H"""
@@ -892,7 +893,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
             </.link>
 
             <span class="text-sr-ink-muted">
-              {if group.assigned?, do: "assigned to this agent", else: "any agent in partition"}
+              {if group.assigned?, do: "selected for this agent", else: "all agents in partition"}
             </span>
 
             <span :if={group.interval} class="text-sr-ink-muted">every {group.interval}</span>

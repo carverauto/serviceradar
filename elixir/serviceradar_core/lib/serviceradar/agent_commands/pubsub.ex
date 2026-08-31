@@ -79,6 +79,25 @@ defmodule ServiceRadar.AgentCommands.PubSub do
     safe_broadcast(ingress_topic(), event)
   end
 
+  @doc "Publish one completed sweep fanout decision to command-status subscribers."
+  def broadcast_sweep_dispatch(data) when is_map(data) do
+    safe_broadcast(topic(), {:sweep_dispatch, data})
+  end
+
+  @doc "Publish an acknowledgment only after the status handler persisted it exactly."
+  def broadcast_persisted_ack(data) when is_map(data) do
+    event = {:command_ack, Map.put_new(data, :received_at, DateTime.utc_now())}
+
+    safe_broadcast(topic(), event)
+  end
+
+  @doc "Publish progress only after the status handler persisted it exactly."
+  def broadcast_persisted_progress(data) when is_map(data) do
+    event = {:command_progress, Map.put_new(data, :updated_at, DateTime.utc_now())}
+
+    safe_broadcast(topic(), event)
+  end
+
   @doc "Fan out a command result only after the status handler persisted it exactly."
   def broadcast_persisted_result(data) when is_map(data) do
     event = {:command_result, Map.put_new(data, :completed_at, DateTime.utc_now())}
