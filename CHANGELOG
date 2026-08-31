@@ -5,8 +5,9 @@ grants go away when membership does. Sweep groups can target a
 selected agent subset instead of all-or-one. Plugin SNMP shows
 where a profile came from, and a version bump no longer collides
 on the display name. Also: VRRP MACs stop stealing device
-identity, MTR headlines report the destination, and the dashboard
-profile menu stays open.
+identity, MTR headlines report the destination, OpenText NOM
+rules actually provision, and the dashboard profile menu stays
+open.
 
 ## Whats New
 
@@ -42,6 +43,15 @@ profile menu stays open.
   LiveView remorphs. (PR #4210)
 - MCP: an omitted MCP limit no longer swallows the SRQL
   query limit. (PR #4174)
+- OpenText NOM: credential-rule provisioning no longer dies on
+  a missing `:by_policy` read. `example-nom` stayed Pending /
+  Awaiting provisioning with Run Now disabled. (PR #4223)
+- Web UI: Active Scans "Hosts Scanned" is Latest Execution,
+  with host unit and sweep-group name, so one run is not
+  mistaken for total coverage. (PR #4218)
+- Event writer: optional drain-consumer setup failures are a
+  warning, not a startup error. Required consumer failures
+  stay fatal. (PR #4219)
 - Docs: Visibility Profiles operator page; Validation Runs is
   vendor-neutral; credentials guide matches what 1.4.49
   actually ships. (PR #4179, #4211, #4213)
