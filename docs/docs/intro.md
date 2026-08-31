@@ -56,7 +56,8 @@ ServiceRadar is designed with security in mind:
 3. **Session Management** - Secure, expirable sessions for the web UI and API access
 4. **Role-Based Access** - Instance-scoped roles and permissions for administrative actions
 
-For operator SSO and RBAC, see [Authentication](./auth-configuration.md) and
+For operator SSO and RBAC, see [Authentication](./auth-configuration.md),
+[Group Permission Mapping](./group-permission-mapping.md), and
 [Roles & Permissions](./rbac-and-roles.md). Advanced custom-CA scenarios remain in
 [TLS & mTLS](./tls-security.md).
 

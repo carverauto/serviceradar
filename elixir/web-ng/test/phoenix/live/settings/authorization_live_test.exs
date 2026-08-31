@@ -48,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLiveTest do
 
       assert html =~ "Settings Console"
       assert html =~ "Default built-in role"
+      assert html =~ "Role profile"
 
       html =
         live
@@ -99,10 +100,21 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLiveTest do
       user = AshTestHelpers.admin_user_fixture()
       conn = log_in_user(conn, user)
 
-      {:ok, _lv, html} = live(conn, ~p"/settings/auth/authorization")
+      {:ok, live, html} = live(conn, ~p"/settings/auth/authorization")
       assert html =~ "Authorization"
       assert html =~ "Default built-in role"
       assert html =~ "Create accounts on first SSO login"
+      assert html =~ "Role profile"
+      refute html =~ "Role Mappings (JSON)"
+
+      source_count = fn markup ->
+        ~r/name="settings\[mappings\]\[\d+\]\[source\]"/
+        |> Regex.scan(markup)
+        |> length()
+      end
+
+      assert source_count.(html) >= 1
+      assert source_count.(render_click(live, "add_mapping", %{})) == source_count.(html) + 1
     end
   end
 

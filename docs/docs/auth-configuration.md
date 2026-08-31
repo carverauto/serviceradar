@@ -22,6 +22,18 @@ Helm and Docker Compose set these for you (typically via a generated secret/file
 
 Keep `SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC=false` for normal installs so a password changed in the UI is not overwritten on restart. Set it to `true` only when the mounted secret/file is the intended source of truth for the bootstrap admin password.
 
+## Creating Accounts On First SSO Login
+
+By default an identity-provider user with no local ServiceRadar account is
+denied. Turn on **Create accounts on first SSO login** in
+**Settings -> Authorization** (the same switch as **Settings -> Authentication
+-> Auto-provision Accounts**) when the first successful SSO sign-in should
+create the local row. New accounts get the configured default built-in role
+unless a [group mapping](./group-permission-mapping.md) grants more.
+
+Gate who can authenticate at the IdP (app assignment / group) so that only
+people you intend to onboard can complete the login.
+
 ## Local Password Login With SSO
 
 When Direct SSO or Gateway Proxy mode is enabled, local password login is controlled per account. Admins can enable or disable the **Local password login** toggle for each user under **Settings -> Auth -> Users**.
@@ -90,10 +102,11 @@ Claim mappings apply to OIDC, SAML, and Gateway Proxy to map identity claims int
 
 Dot-notation is supported for nested claims (example: `user.email`).
 
-These mappings populate user fields. To turn identity-provider **group**
-membership into ServiceRadar roles, permission sets, and group membership --
-including how grants are revoked when a user leaves a group, and the Microsoft
-Entra specifics -- see [Group Permission Mapping](group-permission-mapping.md).
+These mappings populate user fields (email, name, subject). They do **not**
+assign roles. To turn identity-provider **groups** into a built-in role, a role
+profile, or a ServiceRadar user group -- including how grants are revoked when
+a user leaves a group, and the Microsoft Entra specifics -- see
+[Group Permission Mapping](./group-permission-mapping.md).
 
 ## Hostname And Redirects
 

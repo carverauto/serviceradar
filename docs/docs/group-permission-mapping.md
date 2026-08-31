@@ -6,9 +6,30 @@ title: Group Permission Mapping
 # Group Permission Mapping
 
 Mapping rules turn claims from your identity provider into ServiceRadar access.
-They are configured in **Settings -> Authorization** and applied on every SSO
-sign-in, so directory changes take effect the next time a user signs in rather
-than when an operator remembers to mirror them.
+They are configured in **Settings -> Authorization** with one row per match
+(not by editing JSON) and applied on every SSO sign-in, so directory changes
+take effect the next time a user signs in rather than when an operator
+remembers to mirror them.
+
+## Built-in roles versus role profiles
+
+These are different things, and the default-role dropdown only lists the first.
+
+| Kind | Built-in role | Role profile |
+| --- | --- | --- |
+| What it is | One of four rungs: `viewer`, `helpdesk`, `operator`, `admin` | A named permission set, for example `demo` or Plugin Authors |
+| Where you edit it | You cannot. The rungs are fixed. | **Settings -> Policy Editor** |
+| Where you grant it from SSO | Mapping row -> **Built-in role** | Mapping row -> **Role profile** |
+| When to use it | The person should have that whole rung | The team should get a specific capability without becoming `operator` |
+
+`demo` is a role profile, not a built-in role. To give an IdP group the `demo`
+profile: **Add mapping** -> source `IdP group` -> paste the group name (Authentik)
+or object ID (Entra) -> **Role profile** -> `demo`. Leave **Built-in role** on
+None unless they also need a rung on that ladder.
+
+A mapping can grant a role, a profile, a ServiceRadar user group, or any
+combination. You do not paste UUIDs; the profile and user-group fields are
+dropdowns of names.
 
 ## Creating Accounts On First SSO Login
 
@@ -26,18 +47,17 @@ Use this for a first production SSO cutover when you do not want to pre-create
 dozens of local users. Gate who can authenticate at the IdP (app assignment /
 group) so that only people you intend to onboard can complete the login.
 
-## What A Mapping Can Grant
+## Adding A Mapping
 
-A mapping matches on a claim and grants one or more of:
+In **Settings -> Authorization**:
 
-- **A role.** One of `viewer`, `helpdesk`, `operator`, `admin`. Roles are coarse
-  and built in; they cannot be edited.
-- **A role profile.** A named permission set from **Settings -> Auth -> Role
-  Profiles**. This is how a group grants a specific capability, such as staging
-  a plugin, without also granting everything else an `operator` can do.
-- **A user group.** A ServiceRadar group. Group membership backs dashboard
-  sharing and device group grants, so this keeps an IdP group and the
-  ServiceRadar group of the same name from drifting apart.
+1. **Add mapping**.
+2. Choose what to match: IdP group (usual), email domain, email address, or a
+   named claim.
+3. Enter the value. For Authentik that is the group name. For Entra it is the
+   group object ID unless you configured names.
+4. Grant at least one of: a built-in role, a role profile, a user group.
+5. Save, then dry-run a sample claim set before trusting it in production.
 
 Prefer a profile over a role when the intent is "this team may do this one
 thing". Reaching for `operator` because a permission happens to sit inside it
@@ -45,11 +65,12 @@ grants the rest of `operator` too.
 
 ## Match Sources
 
-| Source         | Matches against                                  |
-| -------------- | ------------------------------------------------ |
-| `groups`       | An entry in the group claim                      |
-| `email_domain` | The domain part of the user's email              |
-| `claim`        | The value of a named claim                       |
+| Source in the UI | Stored as | Matches against |
+| --- | --- | --- |
+| IdP group | `groups` | An entry in the group claim |
+| Email domain | `email_domain` | The domain part of the user's email |
+| Email address | `email` | The full email address |
+| Named claim | `claim` | The value of a named claim |
 
 `claim` names the claim to read and supports dot-notation for nested values
 (example: `user.department`).
@@ -165,10 +186,10 @@ Goal: members of an Entra group may stage WASM plugins, and nothing else.
    person clearing it for use.
 2. **Get the group's object ID.** In the Entra admin center, open the group and
    copy its Object ID.
-3. **Add the mapping.** In **Settings -> Authorization**, add an entry whose
-   source is `groups`, whose value is that object ID, and which grants the
-   `Plugin Authors` profile. Do not also grant a role -- the user keeps the
-   default role, plus this one capability.
+3. **Add the mapping.** In **Settings -> Authorization**, **Add mapping**,
+   source `IdP group`, value that object ID, **Role profile** `Plugin Authors`.
+   Leave the built-in role on None -- the user keeps the default role, plus
+   this one capability.
 4. **Dry-run it.** Paste a claim set containing that object ID and confirm the
    profile is listed and the mapping is shown as matched.
 5. **Verify by signing in.** The user's next sign-in applies the profile; they

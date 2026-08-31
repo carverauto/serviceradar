@@ -162,25 +162,22 @@ All of this section is in the **product UI**, not the control plane.
 Sign in with the account created at signup (email/password and any linked social
 login). Land on the dashboard and open **Settings**.
 
-### 4.2 Local user records are required even with SSO
+### 4.2 Local user records still exist with SSO
 
 :::important Local accounts still exist with SSO
 ServiceRadar attaches **roles and custom RBAC profiles to user records** in the
-product database. Even if people only ever use “Sign in with SSO,” you still need
-a user row so you can:
+product database. Even if people only ever use “Sign in with SSO,” each person
+still needs a user row so you can audit actions against a stable identity.
 
-- Assign a built-in role or custom profile
-- Audit actions against a stable identity
-- Keep break-glass recovery options
+You do **not** have to pre-create every row by hand. In
+**Settings → Authorization**, turn on **Create accounts on first SSO login**
+and map IdP groups to a built-in role and/or a role profile. The first
+successful SSO sign-in creates the local account. See
+[Group Permission Mapping](./group-permission-mapping.md).
 
-**Do this:**
-
-1. Pre-create users under **Settings → Users** (`/settings/auth/users`) with the
-   corporate email that will appear in IdP claims (`email` claim must match).
-2. Assign each user a role/profile **before** or immediately after first SSO login.
-3. Keep at least one **local password** admin (or enable local password on a
-   break-glass account) for IdP outages. See
-   [Authentication — local password with SSO](./auth-configuration.md#local-password-login-with-sso).
+Still keep at least one **local password** admin (or enable local password on a
+break-glass account) for IdP outages. See
+[Authentication — local password with SSO](./auth-configuration.md#local-password-login-with-sso).
 :::
 
 ### 4.3 Configure SSO (OIDC / SAML)
@@ -194,9 +191,13 @@ a user row so you can:
    - ACS: `https://<your-web-host>/auth/saml/consume`  
    - SP metadata: `https://<your-web-host>/auth/saml/metadata`
 4. Map claims: `email` (required), plus `name` and `sub` when available.
-5. Test with a non-admin account first; confirm the assigned role after login.
+5. In **Settings → Authorization**, turn on first-SSO account creation if you
+   do not want to pre-create users, and add group → role / role-profile mappings.
+6. Test with a non-admin account first; confirm the assigned role and profile
+   after login.
 
-Full detail: [Authentication](./auth-configuration.md).
+Full detail: [Authentication](./auth-configuration.md) and
+[Group Permission Mapping](./group-permission-mapping.md).
 
 ### 4.4 Build and assign RBAC profiles
 
@@ -206,6 +207,7 @@ Full detail: [Authentication](./auth-configuration.md).
 | --- | --- | --- |
 | Permission catalog & custom profiles | **Settings → Policy Editor** | `/settings/auth/rbac` |
 | Assign roles to people | **Settings → Users** | `/settings/auth/users` |
+| Map IdP groups to roles and profiles | **Settings → Authorization** | `/settings/auth/authorization` |
 
 Built-in roles (increasing privilege): `viewer` → `helpdesk` → `operator` → `admin`.
 

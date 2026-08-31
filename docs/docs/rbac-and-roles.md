@@ -9,9 +9,10 @@ user can see and do. Every user is assigned a **role**, and every role grants a
 set of **permissions** drawn from a fixed permission catalog. Administrators can
 also create **custom role profiles** that grant a tailored subset of permissions.
 
-This page is for operators and administrators who manage who can do what. For
-how users sign in (local passwords, OIDC, SAML), see
-[Authentication](./auth-configuration.md).
+This page is for operators and administrators who manage who can do what. For how users sign in (local passwords, OIDC, SAML), see
+[Authentication](./auth-configuration.md). For mapping identity-provider
+groups onto these roles and profiles, see
+[Group Permission Mapping](./group-permission-mapping.md).
 
 ## The four built-in roles
 
@@ -103,11 +104,17 @@ A create or update request supplies a `name`, an optional `description`, and a
 `permissions` array of permission keys (for example `devices.view`,
 `services.run`). Use the `catalog` endpoint to discover valid keys.
 
+A user can hold **both**: a built-in role (the rung) and a role profile (a
+named extra permission set). Mapping an IdP group onto a profile does **not**
+require putting that profile in the default-role dropdown. That dropdown is
+only the four built-in rungs. See
+[Group Permission Mapping](./group-permission-mapping.md).
+
 ## How roles are assigned to users
 
-Each user record carries either a built-in role or a reference to a custom role
-profile. Assign or change a user's role from **Settings → Auth → Users** by
-opening the user and selecting the desired role or profile.
+Each user record carries a built-in role and, optionally, a role profile.
+Assign or change those from **Settings → Auth → Users**, or let SSO apply them
+from **Settings → Authorization** mappings on each sign-in.
 
 When a user's role or profile changes — or a profile's permission list is
 edited — ServiceRadar invalidates the affected RBAC caches so the new
