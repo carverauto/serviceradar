@@ -120,10 +120,10 @@ Define `plugin_assignment_fixture/1` locally by creating its approved package, a
 
 - [ ] **Step 2: Run the focused database target and confirm RED**
 
-Run:
+Create a disposable scratch database with `.agents/skills/srql-fixtures-db-tests/SKILL.md`, run current migrations into it with `MIX_ENV=test mix ash.migrate` (never `mix ecto.migrate`), then run:
 
 ```bash
-bazel test --config=remote //elixir/serviceradar_core:integration_tests
+MIX_ENV=test mix test test/serviceradar/credentials/credential_secret_reference_constraints_db_test.exs
 ```
 
 Expected: FAIL because `NetworkCredentialSecretBinding` and the binding table/triggers do not exist; the failure must not be a fixture or connection error.
@@ -198,10 +198,10 @@ Run:
 
 ```bash
 mix ash.migrate
-bazel test --config=remote //elixir/serviceradar_core:integration_tests
+MIX_ENV=test mix test test/serviceradar/credentials/credential_secret_reference_constraints_db_test.exs
 ```
 
-Expected: PASS, including an explicit assertion that one concurrent operation loses and no dangling reference commits.
+Expected: PASS against the disposable scratch database, including an explicit assertion that one concurrent operation loses and no dangling reference commits. Drop the scratch database afterward. Do not run the guarded Bazel integration lanes from a workstation; GitHub/BuildBuddy owns them.
 
 - [ ] **Step 6: Commit the database invariant slice**
 
@@ -234,6 +234,13 @@ git commit -m "feat(credentials): enforce guarded secret deletion"
 - Produces: `CredentialSecretBuilder.build_rotation/4` that validates provider/kind compatibility and returns only rotation-safe Ash attributes.
 - Produces: `CredentialRotation.rotate/4` that validates before state mutation, then executes start/complete/fail actions.
 - Produces: `NetworkCredentialSecret.edit_details/2`, `usage/2`, and `destroy_permanently/2`; generic `:update` no longer accepts secret material.
+
+**Implementation rulings:**
+- `CredentialUsage.Result.live_grants` contains only redacted `%CredentialUsage.LiveGrant{id, status, consumer_kind, consumer_id, purpose, expires_at}` values, never raw grant resources.
+- `CredentialUsage` first authorizes every requested secret through its public read with the caller scope/actor. Only after that gate may its internal source registry use a system actor for cross-domain reads. One source failure returns unavailable; missing rows are never treated as zero usage. Capture one injectable `now` per call, normalize mirrored Ansible legacy/sync columns, deduplicate by `{kind, id, slot}`, and sort deterministically.
+- `CredentialSecretBuilder.build_rotation/4` is `(secret, freshly_resolved_profile, submitted_values, opts)`. `CredentialRotation.rotate/4` is `(secret, submitted_values, scope_or_actor, opts)` and resolves the current approved profile from `IntegrationCatalog.profile_for(secret.provider, ...)` under an internal actor; it never accepts a browser/caller-supplied descriptor. The builder verifies internal source type, rotatable state, stored descriptor/auth method, provider, credential kind, and auth method. It preserves `next_rotation_due_at` until a separate scheduling input exists.
+- Normalize equal Ansible legacy and sync credential columns into one `:sync` consumer; if they diverge, retain a separate legacy slot so every restrictive FK remains visible.
+- The final FK loser is mapped outside a plain `before_action` hook (declared AshPostgres constraint mapping or an around/public wrapper), because the FK can fail after the guard returns. The stable error is `credential_in_use`; the LiveView separately reloads structured usage for named links.
 
 - [ ] **Step 1: Write failing lifecycle and usage tests**
 
@@ -283,7 +290,7 @@ Run:
 
 ```bash
 bazel test --config=remote //elixir/serviceradar_core:unit_tests
-bazel test --config=remote //elixir/serviceradar_core:integration_tests
+MIX_ENV=test mix test test/serviceradar/credentials/network_credential_secret_destroy_db_test.exs
 ```
 
 Expected: FAIL on missing `CredentialUsage`, `build_rotation/4`, `edit_details`, and `destroy_permanently` behavior.
@@ -344,7 +351,7 @@ The change verifies the confirmation ID, queries `CredentialUsage`, rejects unav
 
 ```bash
 bazel test --config=remote //elixir/serviceradar_core:unit_tests
-bazel test --config=remote //elixir/serviceradar_core:integration_tests
+MIX_ENV=test mix test test/serviceradar/credentials/credential_secret_reference_constraints_db_test.exs test/serviceradar/credentials/network_credential_secret_destroy_db_test.exs
 git add elixir/serviceradar_core
 git commit -m "feat(credentials): manage and delete reusable secrets"
 ```
@@ -542,13 +549,12 @@ Run:
 mix format --check-formatted
 openspec validate refactor-unified-credential-management --strict
 bazel test --config=remote //elixir/serviceradar_core:unit_tests
-bazel test --config=remote //elixir/serviceradar_core:integration_tests
 bazel test --config=remote //elixir/web-ng:unit_tests
 make lint
 make test
 ```
 
-Expected: every command exits zero. Read the final output and record exact target/test counts; do not infer success from a running job.
+Run both new DB test files against a fresh disposable scratch database before these commands. Expected: every command exits zero. Read the final output and record exact target/test counts; do not infer success from a running job. The guarded core integration lanes run only in the in-cluster GitHub/BuildBuddy workflow and are verified from PR checks.
 
 - [ ] **Step 4: Commit verification/docs**
 
