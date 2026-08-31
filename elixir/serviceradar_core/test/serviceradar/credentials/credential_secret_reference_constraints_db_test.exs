@@ -705,8 +705,13 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
     marker = "task1-plaintext-marker-#{System.unique_integer([:positive])}"
     secret = secret_fixture(%{secret_payload: marker})
 
-    secret
-    |> Ash.Changeset.for_update(:update, %{secret_payload: marker <> "-rotated"},
+    rotating_secret =
+      secret
+      |> Ash.Changeset.for_update(:start_rotation, %{}, actor: system_actor())
+      |> Ash.update!()
+
+    rotating_secret
+    |> Ash.Changeset.for_update(:complete_rotation, %{secret_payload: marker <> "-rotated"},
       actor: system_actor()
     )
     |> Ash.update!()

@@ -15,6 +15,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
 
   alias ServiceRadar.Credentials.Changes.WriteBrokerGrantLifecycleEvent
   alias ServiceRadar.Credentials.RequestBodyPolicy
+  alias ServiceRadar.Credentials.Validations.GrantPrunableForSecretDeletion
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -148,6 +149,12 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       change set_attribute(:revocation_reason, arg(:reason))
       change {WriteBrokerGrantLifecycleEvent, action: :revoke}
     end
+
+    destroy :prune_for_secret_deletion do
+      public? false
+      argument :cutoff, :utc_datetime, allow_nil?: false
+      validate GrantPrunableForSecretDeletion
+    end
   end
 
   policies do
@@ -156,7 +163,15 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     system_bypass()
     read_with_permission(@credential_manage_check)
 
-    policy action([:issue, :activate, :consume, :deny, :expire, :revoke]) do
+    policy action([
+             :issue,
+             :activate,
+             :consume,
+             :deny,
+             :expire,
+             :revoke,
+             :prune_for_secret_deletion
+           ]) do
       authorize_if actor_attribute_equals(:role, :system)
     end
   end
