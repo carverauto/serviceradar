@@ -5,15 +5,45 @@ import {filterTimezoneOptions} from "./timezone_options"
 const noSupportedValuesOfIntl = {
   DateTimeFormat: class {
     constructor(_locale, {timeZone}) {
-      if (timeZone !== "Etc/UTC" && timeZone !== "America/Chicago") throw new RangeError("unsupported zone")
+      if (!["Etc/UTC", "America/Chicago", "Europe/London"].includes(timeZone)) throw new RangeError("unsupported zone")
     }
   },
 }
 
 describe("filterTimezoneOptions", () => {
-  it("keeps UTC and the saved zone when constructor probing rejects a server option", () => {
-    expect(filterTimezoneOptions(["America/Chicago", "Mars/Olympus"], "America/Chicago", {intl: noSupportedValuesOfIntl}))
-      .toEqual(["Etc/UTC", "America/Chicago"])
+  it("constructor-probes every server-approved option when supportedValuesOf is absent", () => {
+    const calls = []
+    const intl = {
+      DateTimeFormat: class {
+        constructor(_locale, {timeZone}) {
+          calls.push(timeZone)
+          if (!["Etc/UTC", "America/Chicago", "Europe/London"].includes(timeZone)) throw new RangeError("unsupported zone")
+        }
+      },
+    }
+
+    expect(filterTimezoneOptions(["America/Chicago", "Europe/London", "Mars/Olympus"], "America/Chicago", {intl}))
+      .toEqual(["Etc/UTC", "America/Chicago", "Europe/London"])
+    expect(calls).toEqual(expect.arrayContaining(["America/Chicago", "Europe/London", "Mars/Olympus"]))
+  })
+
+  it("constructor-probes every server-approved option when supportedValuesOf throws", () => {
+    const calls = []
+    const intl = {
+      supportedValuesOf: () => {
+        throw new Error("unsupported API")
+      },
+      DateTimeFormat: class {
+        constructor(_locale, {timeZone}) {
+          calls.push(timeZone)
+          if (!["Etc/UTC", "America/Chicago", "Europe/London"].includes(timeZone)) throw new RangeError("unsupported zone")
+        }
+      },
+    }
+
+    expect(filterTimezoneOptions(["America/Chicago", "Europe/London", "Mars/Olympus"], "America/Chicago", {intl}))
+      .toEqual(["Etc/UTC", "America/Chicago", "Europe/London"])
+    expect(calls).toEqual(expect.arrayContaining(["America/Chicago", "Europe/London", "Mars/Olympus"]))
   })
 
   it("retains only UTC and the saved zone when supportedValuesOf is unavailable", () => {
@@ -33,5 +63,10 @@ describe("filterTimezoneOptions", () => {
 
     expect(filterTimezoneOptions(["Europe/London", "Mars/Olympus", "America/Chicago"], "Europe/London", {intl}))
       .toEqual(["Etc/UTC", "America/Chicago", "Europe/London"])
+  })
+
+  it("retains a saved legacy timezone even when it is absent from the server catalog and browser rejects it", () => {
+    expect(filterTimezoneOptions(["America/Chicago"], "Legacy/Removed", {intl: noSupportedValuesOfIntl}))
+      .toEqual(["Etc/UTC", "America/Chicago", "Legacy/Removed"])
   })
 })

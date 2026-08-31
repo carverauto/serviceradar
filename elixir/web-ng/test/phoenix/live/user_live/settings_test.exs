@@ -235,15 +235,16 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
     end
 
     test "renders the searchable timezone form in the current responsive settings shell", %{conn: conn, user: user} do
-      {:ok, _lv, _html} = live(conn, ~p"/settings/profile")
+      {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
-      assert has_element?(_lv, "#settings-nav-drawer")
-      assert has_element?(_lv, "#timezone_form")
-      assert has_element?(_lv, "#user_timezone[list='timezone_catalog'][phx-hook='TimezoneSelect']")
-      assert has_element?(_lv, "#timezone_catalog option[value='Etc/UTC']")
-      assert has_element?(_lv, "#timezone_catalog option[value='America/Chicago']")
-      assert has_element?(_lv, "#user_timezone[data-current-timezone='#{user.timezone}']")
-      assert has_element?(_lv, "#timezone-preview[data-user-time-zone='#{user.timezone}']")
+      assert has_element?(lv, "#settings-view-tree")
+      assert has_element?(lv, "#settings-nav-drawer")
+      assert has_element?(lv, ".sr-settings-shell section #timezone_form")
+      assert has_element?(lv, "#user_timezone[list='timezone_catalog'][phx-hook='TimezoneSelect']")
+      assert has_element?(lv, "#timezone_catalog option[value='Etc/UTC']")
+      assert has_element?(lv, "#timezone_catalog option[value='America/Chicago']")
+      assert has_element?(lv, "#user_timezone[data-current-timezone='#{user.timezone}']")
+      assert has_element?(lv, "#timezone-preview[data-user-time-zone='#{user.timezone}']")
     end
 
     test "rejects an invalid timezone without changing the saved preference", %{conn: conn, user: user} do
@@ -287,6 +288,30 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
       assert has_element?(lv, "#user_timezone[data-current-timezone='#{updated.timezone}']")
+    end
+
+    test "renders a persisted legacy timezone without allowing it to be saved again", %{conn: conn, user: user} do
+      legacy_timezone = "Legacy/Removed"
+
+      ServiceRadar.Repo.query!(
+        "UPDATE platform.ng_users SET timezone = $1 WHERE id = $2",
+        [legacy_timezone, Ecto.UUID.dump!(user.id)]
+      )
+
+      assert fresh_user(user.id).timezone == legacy_timezone
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/profile")
+
+      assert has_element?(lv, "#user_timezone[data-current-timezone='#{legacy_timezone}']")
+      assert has_element?(lv, "#timezone_catalog option[value='#{legacy_timezone}']")
+
+      result =
+        lv
+        |> form("#timezone_form", %{"timezone_preference" => %{"timezone" => legacy_timezone}})
+        |> render_submit()
+
+      assert result =~ "is not a supported timezone"
+      assert fresh_user(user.id).timezone == legacy_timezone
     end
   end
 

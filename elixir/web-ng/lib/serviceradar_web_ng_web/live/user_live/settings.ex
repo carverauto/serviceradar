@@ -308,12 +308,16 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
 
     if connected?(socket) do
       case TimeZone.profile_timezones() do
-        {:ok, zones} -> {zones, nil}
+        {:ok, zones} -> {merge_timezone_catalog(fallback, zones), nil}
         {:error, :catalog_unavailable} -> {fallback, "Timezone choices are temporarily unavailable."}
       end
     else
       {fallback, nil}
     end
+  end
+
+  defp merge_timezone_catalog(fallback, zones) do
+    ["Etc/UTC" | Enum.sort(Enum.uniq((fallback ++ zones) -- ["Etc/UTC"]))]
   end
 
   @impl true

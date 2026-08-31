@@ -10,25 +10,27 @@ function canFormatTimeZone(intl, zone) {
 export function filterTimezoneOptions(serverZones, currentZone, options = {}) {
   const intl = Object.hasOwn(options, "intl") ? options.intl : globalThis.Intl
   const approved = new Set(Array.isArray(serverZones) ? serverZones : [])
-  const current = approved.has(currentZone) ? currentZone : null
-  const baseline = ["Etc/UTC", current].filter(Boolean)
+  const baseline = ["Etc/UTC", currentZone].filter(Boolean)
 
-  if (!intl?.DateTimeFormat || typeof intl.supportedValuesOf !== "function") {
+  if (!intl?.DateTimeFormat) {
     return [...new Set(baseline)]
   }
 
-  let browserZones
+  let candidates = [...approved]
 
-  try {
-    browserZones = new Set(intl.supportedValuesOf("timeZone"))
-  } catch (_error) {
-    return [...new Set(baseline)]
+  if (typeof intl.supportedValuesOf === "function") {
+    try {
+      const browserZones = new Set(intl.supportedValuesOf("timeZone"))
+      candidates = candidates.filter((zone) => zone === "Etc/UTC" || browserZones.has(zone))
+    } catch (_error) {
+      // Older or partial Intl implementations can expose this API but reject the
+      // timeZone key. Probe the server-approved values instead of discarding them.
+    }
   }
 
-  const survivors = [...approved].filter((zone) => zone === "Etc/UTC" || zone === current || browserZones.has(zone))
-  const supported = survivors.filter((zone) => zone === current || canFormatTimeZone(intl, zone))
+  const supported = candidates.filter((zone) => canFormatTimeZone(intl, zone))
 
-  return [...new Set(["Etc/UTC", ...supported, current].filter(Boolean))]
+  return [...new Set([...baseline, ...supported])]
     .sort((left, right) => {
       if (left === "Etc/UTC") return -1
       if (right === "Etc/UTC") return 1

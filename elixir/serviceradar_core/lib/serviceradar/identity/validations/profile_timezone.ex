@@ -7,10 +7,7 @@ defmodule ServiceRadar.Identity.Validations.ProfileTimezone do
 
   @impl true
   def validate(changeset, _opts, context) do
-    case Ash.Changeset.fetch_change(changeset, :timezone) do
-      {:ok, timezone} -> validate_timezone(timezone, changeset, context)
-      :error -> :ok
-    end
+    validate_timezone(Ash.Changeset.get_attribute(changeset, :timezone), changeset, context)
   end
 
   @impl true
