@@ -115,11 +115,13 @@ defmodule ServiceRadar.Identity.IdpGroupPermissionMappingDbTest do
         %{"source" => "groups", "value" => "high", "role" => "admin"}
       ]
 
-      settings!(forward)
+      settings = settings!(forward)
       first = RoleMapping.resolve(claims(["low", "high"]), actor: actor())
 
       {:ok, _updated} =
-        AuthorizationSettings.update_settings(%{role_mappings: Enum.reverse(forward)},
+        AuthorizationSettings.update_settings(
+          settings,
+          %{role_mappings: Enum.reverse(forward)},
           actor: actor()
         )
 
@@ -174,6 +176,7 @@ defmodule ServiceRadar.Identity.IdpGroupPermissionMappingDbTest do
       # Adding a mapping in the new shape alongside them leaves them intact.
       {:ok, updated} =
         AuthorizationSettings.update_settings(
+          settings,
           %{
             role_mappings:
               legacy ++

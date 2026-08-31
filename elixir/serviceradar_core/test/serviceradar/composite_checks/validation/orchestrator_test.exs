@@ -9,6 +9,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
   alias ServiceRadar.CompositeChecks.RuleGenerator
   alias ServiceRadar.CompositeChecks.Validation.Orchestrator
   alias ServiceRadar.CompositeChecks.ValidationRun
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Scans.ScanResult
@@ -136,6 +137,8 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
       |> Ash.create!()
 
     for agent_id <- [agent_a, agent_b] do
+      register_agent!(agent_id)
+
       SweepGroup
       |> Ash.Changeset.for_create(
         :create,
@@ -153,6 +156,20 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
     end
 
     profile
+  end
+
+  defp register_agent!(uid) do
+    case Agent.get_by_uid(uid, actor: actor()) do
+      {:ok, _agent} ->
+        :ok
+
+      {:error, _reason} ->
+        Agent
+        |> Ash.Changeset.for_create(:register, %{uid: uid}, actor: actor())
+        |> Ash.create!()
+
+        :ok
+    end
   end
 
   test "start resolves IP to uid without dispatching probes" do
@@ -309,6 +326,9 @@ defmodule ServiceRadar.CompositeChecks.Validation.OrchestratorTest do
         actor: actor()
       )
       |> Ash.create!()
+
+    register_agent!(agent_a)
+    register_agent!(agent_narrow)
 
     SweepGroup
     |> Ash.Changeset.for_create(
