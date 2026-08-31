@@ -293,10 +293,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
                 ]
               </pre>
               <p class="text-xs text-sr-muted mt-3">
-                Every matching mapping contributes: profiles and groups union, and the
-                highest matched role wins. Mapping order does not matter. Entra's
-                <code>groups</code>
-                claim is group object IDs by default, not display names.
+                Every matching mapping contributes: profiles and groups union, and the highest
+                matched role wins. Mapping order does not matter.
+              </p>
+              <p class="text-xs text-sr-muted mt-1">
+                Entra sends group object IDs in <code>groups</code>, not display names.
               </p>
             </div>
           </section>
