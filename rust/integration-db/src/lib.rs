@@ -5,7 +5,7 @@
 //! Database lifecycle for the `serviceradar_core` integration suite.
 //!
 //! Replaces `scripts/reset-test-db.sh`, `scripts/drop-test-db.sh` and
-//! `scripts/sweep-stale-core-test-dbs.sh`, so `.forgejo/workflows/elixir-integration-sr-core.yml`
+//! `scripts/sweep-stale-core-test-dbs.sh`, so BuildBuddy (`buildbuddy.yaml`)
 //! invokes Bazel targets and nothing else.
 //!
 //! # Why Rust and not Elixir

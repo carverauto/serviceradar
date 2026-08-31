@@ -26,7 +26,7 @@ load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
 #
 # Two CI references went with it, and both have to come back deliberately:
 #
-#   * .forgejo/workflows/precommit-web-ng.yml was deleted. Its only substantive step was
+#   * precommit-web-ng.yml was deleted. Its only substantive step was
 #     `bazel test //elixir/web-ng:precommit`, so with the target gone every run exited 1.
 #   * main.yml's test sweep dropped its `except set(//elixir/web-ng:precommit)` clause. That
 #     was not cosmetic: `set()` hard-errors on an unknown label, so the dangling reference
