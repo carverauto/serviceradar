@@ -11,11 +11,24 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   past the grant, and the original caller, holding the dead pool's pid, exits inside its own
   `settle/3` after receiving a durable PubAck.
 
-  Accounting and in-flight request ownership therefore need a COMMON restart boundary. Under
-  `:one_for_all` a pool crash also restarts the connection, so the requests whose reservations were
-  just discarded are dropped with it: the window and the socket can never disagree about what is
-  outstanding. The reverse holds too -- a connection crash clears the reservations for requests
-  that died with it, instead of leaving them charged until their deadlines.
+  Accounting and in-flight request ownership therefore share a restart boundary. Under
+  `:one_for_all` a pool crash also restarts the connection, so requests whose reservations were
+  discarded are dropped with it; the reverse holds too.
+
+  ## This is NOT an atomic fence, and must not be read as one
+
+  Stated because an earlier version of this text overstated it. Supervisor restarts are eventual,
+  not atomic: between a pool crashing and the supervisor terminating its sibling, a publisher
+  holding the OLD connection can still complete a request. The replacement pool then starts with
+  its full grant while that publish is still broker-ambiguous, so the lane can briefly exceed its
+  bound.
+
+  What is closed today is the reporting: `JetStreamPublisher` refuses to report a publish durable
+  when the accounting that authorised it did not survive, so a record in that window is withheld
+  and republished rather than recorded as delivered. What is NOT closed is the transient
+  over-admission itself. Closing it requires knowing whether the in-flight publish landed --
+  PubAck correlation and recovery, owed by tasks 3.4 and 3.5 -- or a generation the broker itself
+  would honour, which JetStream does not offer for a local credit bound.
 
   This is the conservative direction. A restart drops in-flight publishes rather than orphaning
   them, and the agent republishes on the same slot; the alternative -- reconstructing reservations

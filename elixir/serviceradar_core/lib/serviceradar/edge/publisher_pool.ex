@@ -258,7 +258,22 @@ defmodule ServiceRadar.Edge.PublisherPool do
   end
 
   def handle_cast({:confirm_admission, attempt_ref}, state) do
-    {:noreply, drop_pending(state, attempt_ref)}
+    # Activation and de-provisioning are one step: until the caller has the reservation in hand,
+    # the attempt holds its slot but is inert -- invisible to expiry and refused by settle, rearm
+    # and attempt_failed.
+    case Map.fetch(state.pending, attempt_ref) do
+      {:ok, %{key: key, token: token}} ->
+        window =
+          case PublishWindow.activate(state.window, {key, token}) do
+            {:ok, w} -> w
+            {:error, _} -> state.window
+          end
+
+        {:noreply, drop_pending(%{state | window: window}, attempt_ref)}
+
+      :error ->
+        {:noreply, state}
+    end
   end
 
   @impl true
@@ -318,7 +333,7 @@ defmodule ServiceRadar.Edge.PublisherPool do
         result =
           case kind do
             :created -> PublishWindow.abandon(state.window, reservation)
-            :rearmed -> PublishWindow.attempt_failed(state.window, reservation)
+            :rearmed -> PublishWindow.revoke_pending(state.window, reservation)
           end
 
         window =

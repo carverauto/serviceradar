@@ -55,7 +55,9 @@ defmodule ServiceRadar.Edge.PublishWindow do
                                                     no new credits, NEW attempt token)
       a different record on the same slot        -> a DIFFERENT publication, admitted on its own
                                                     credits (the spec REQUIRES it to be published)
-      attempt_failed on the live attempt         -> {:ok, window}  (credits KEPT)
+      activate a provisional attempt             -> {:ok, window}  (handoff confirmed)
+      attempt_failed on the ACTIVE attempt       -> {:ok, window}  (credits KEPT)
+      revoke_pending a provisional attempt       -> {:ok, window}  (credits KEPT)
       abandon an admission never received       -> {:ok, window}  (credits released, no outcome)
       admit beyond the frame grant               -> {:error, :frame_credits_exhausted}
       admit beyond the byte grant                -> {:error, :byte_credits_exhausted}
@@ -115,9 +117,10 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @opaque t :: %__MODULE__{
             frame_credits: non_neg_integer(),
             byte_credits: non_neg_integer(),
-            # publication key => {bytes, deadline, attempt_token | nil}
+            # publication key => {bytes, deadline, nil | {:pending | :active, token}}
             outstanding: %{
-              optional(key()) => {non_neg_integer(), integer(), pos_integer() | nil}
+              optional(key()) =>
+                {non_neg_integer(), integer(), nil | {:pending | :active, pos_integer()}}
             },
             bytes_outstanding: non_neg_integer()
           }
@@ -211,8 +214,11 @@ defmodule ServiceRadar.Edge.PublishWindow do
         token = mint_token()
 
         {:ok,
-         %{w | outstanding: Map.put(w.outstanding, key, {reserved_bytes, deadline_at, token})},
-         {key, token}}
+         %{
+           w
+           | outstanding:
+               Map.put(w.outstanding, key, {reserved_bytes, deadline_at, {:pending, token}})
+         }, {key, token}}
 
       :error ->
         admit_new(w, key, bytes, deadline_at)
@@ -240,13 +246,56 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @spec abandon(t(), reservation()) :: {:ok, t()} | {:error, atom()}
   def abandon(%__MODULE__{} = w, {key, token}) do
     case Map.fetch(w.outstanding, key) do
-      {:ok, {bytes, _deadline, ^token}} ->
+      # EITHER phase: revocation is precisely the case where the attempt is still provisional.
+      {:ok, {bytes, _deadline, {_phase, ^token}}} ->
         {:ok,
          %{
            w
            | outstanding: Map.delete(w.outstanding, key),
              bytes_outstanding: w.bytes_outstanding - bytes
          }}
+
+      _ ->
+        {:error, :not_outstanding}
+    end
+  end
+
+  @doc """
+  Activates a provisional attempt, once its caller has taken delivery of the reservation.
+
+  Until this runs the attempt exists only to hold the slot: it is invisible to `expired/2` and
+  refused by `settle/3`, `rearm/3` and `attempt_failed/2`. That is the point. A provisional token
+  reported as expired was enough for an observer to end the attempt, admit a retry, and put two
+  requests on the wire under a single charge -- while the caller that was handed the first token
+  had not even received it yet.
+  """
+  @spec activate(t(), reservation()) :: {:ok, t()} | {:error, atom()}
+  def activate(%__MODULE__{} = w, {key, token}) do
+    case Map.fetch(w.outstanding, key) do
+      {:ok, {bytes, deadline, {:pending, ^token}}} ->
+        {:ok,
+         %{w | outstanding: Map.put(w.outstanding, key, {bytes, deadline, {:active, token}})}}
+
+      _ ->
+        {:error, :not_outstanding}
+    end
+  end
+
+  @doc """
+  Returns a PROVISIONAL attempt to the no-attempt state, keeping the reservation and its credits.
+
+  Distinct from `attempt_failed/2`, which requires a confirmed attempt, and from `abandon/2`,
+  which releases. This is the retry half of revocation: the caller never took delivery, and the
+  admission it never received had added no credits -- it re-armed a reservation that is still
+  unresolved and still owed a republish. Releasing there handed back a broker-ambiguous frame.
+
+  Named for its authority: only a handoff that did not complete can use it.
+  """
+  @spec revoke_pending(t(), reservation()) :: {:ok, t()} | {:error, atom()}
+  def revoke_pending(%__MODULE__{} = w, {key, token}) do
+    case Map.fetch(w.outstanding, key) do
+      {:ok, {bytes, deadline, {:pending, ^token}}} ->
+        {:ok, %{w | outstanding: Map.put(w.outstanding, key, {bytes, deadline, nil})}}
 
       _ ->
         {:error, :not_outstanding}
@@ -266,7 +315,10 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @spec attempt_failed(t(), reservation()) :: {:ok, t()} | {:error, atom()}
   def attempt_failed(%__MODULE__{} = w, {key, token}) do
     case Map.fetch(w.outstanding, key) do
-      {:ok, {bytes, deadline, ^token}} ->
+      # ACTIVE only. A provisional attempt belongs to a handoff that has not completed: ending it
+      # would free the slot for a retry while the original caller is still about to receive its
+      # reservation, putting two attempts on the wire under one charge.
+      {:ok, {bytes, deadline, {:active, ^token}}} ->
         {:ok, %{w | outstanding: Map.put(w.outstanding, key, {bytes, deadline, nil})}}
 
       _ ->
@@ -294,7 +346,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
         {:ok,
          %{
            w
-           | outstanding: Map.put(w.outstanding, key, {bytes, deadline_at, token}),
+           | outstanding: Map.put(w.outstanding, key, {bytes, deadline_at, {:pending, token}}),
              bytes_outstanding: w.bytes_outstanding + bytes
          }, {key, token}}
     end
@@ -312,7 +364,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
     case Map.fetch(w.outstanding, key) do
       # Only an IN-FLIGHT attempt has a handle. A reservation whose attempt has ended holds its
       # credits but has nothing to settle or re-arm; the next `admit/4` mints its next attempt.
-      {:ok, {_bytes, _deadline, token}} when token !== nil -> {:ok, {key, token}}
+      {:ok, {_bytes, _deadline, {:active, token}}} -> {:ok, {key, token}}
       _ -> :error
     end
   end
@@ -421,10 +473,11 @@ defmodule ServiceRadar.Edge.PublishWindow do
 
   defp release(w, {key, token}) do
     case Map.fetch(w.outstanding, key) do
-      # The token must match. Without it a late acknowledgement from an already-settled attempt
-      # released a LATER reservation that had reused the key -- one publication's ack cancelling
-      # another's.
-      {:ok, {bytes, _deadline, ^token}} ->
+      # The token must match AND the attempt must be confirmed. Without the token a late
+      # acknowledgement from an already-settled attempt released a LATER reservation that had
+      # reused the key; without the phase, a provisional attempt could be settled by anyone who
+      # learned its token before its caller did.
+      {:ok, {bytes, _deadline, {:active, ^token}}} ->
         {:ok,
          %{
            w
@@ -457,8 +510,9 @@ defmodule ServiceRadar.Edge.PublishWindow do
         # Token-checked for the same reason release/2 is: an observer can read an expired
         # reservation, watch it settle, and then move the deadline of whatever reserved the key
         # next.
-        {:ok, {bytes, _old, ^token}} ->
-          {:ok, %{w | outstanding: Map.put(w.outstanding, key, {bytes, deadline_at, token})}}
+        {:ok, {bytes, _old, {:active, ^token}}} ->
+          {:ok,
+           %{w | outstanding: Map.put(w.outstanding, key, {bytes, deadline_at, {:active, token}})}}
 
         _ ->
           {:error, :not_outstanding}
@@ -478,10 +532,15 @@ defmodule ServiceRadar.Edge.PublishWindow do
   """
   @spec expired(t(), integer()) :: [reservation()]
   def expired(%__MODULE__{} = w, now) when is_integer(now) do
+    # ACTIVE attempts only. Reporting a provisional one handed its token to anyone watching for
+    # expiry -- enough to end it, admit a retry, and put two attempts on the wire under one charge
+    # before the original caller had even received its reservation.
     w.outstanding
-    |> Enum.filter(fn {_key, {_bytes, deadline, token}} -> token !== nil and deadline <= now end)
-    |> Enum.sort_by(fn {key, {_bytes, deadline, _token}} -> {deadline, key} end)
-    |> Enum.map(fn {key, {_bytes, _deadline, token}} -> {key, token} end)
+    |> Enum.filter(fn {_key, {_bytes, deadline, attempt}} ->
+      match?({:active, _}, attempt) and deadline <= now
+    end)
+    |> Enum.sort_by(fn {key, {_bytes, deadline, _attempt}} -> {deadline, key} end)
+    |> Enum.map(fn {key, {_bytes, _deadline, {:active, token}}} -> {key, token} end)
   end
 
   @doc """
