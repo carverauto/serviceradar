@@ -14,8 +14,24 @@ table, ASCII-only docs.
   `ValidateForAgent`: drop-with-warning rather than reject-all, or an
   equivalent guard. Today one bad target disables SNMP for every profile on
   that agent. Add a test proving a good target still polls alongside a bad one.
-- [ ] 0.3 Verify 0.1 against a live compile with real ClearPass inventory
+- [x] 0.3 Verify 0.1 against a live compile with real ClearPass inventory
   before anything below is enabled in an environment that polls.
+
+  **Verified against the live estate.** 16,437 of 22,592 active `ocsf_devices`
+  rows - 73% - carry a character `isValidNameChar` rejects in
+  `name`/`hostname`/`uid`. Real examples:
+  `host01 @ 00:00:5e:00:53:03 [ews]`, `host02 [windows
+  server]`, and every synthetic `sr:<uuid>` uid. The single configured profile
+  is `Default SNMP`, `enabled`, `is_default`, `target_query: in:devices` - it
+  matches all of them, so under the old code the first such device would have
+  failed `ValidateForAgent` and taken the whole agent's SNMP config down.
+
+  Both fixes ship in the deployed `v1.4.49`. A live compile could not be
+  observed producing sanitized names because that profile has **no credential of
+  any kind** (no community, no v3 user, no `credential_secret_id`), so it
+  compiles to zero targets: `device_snmp_facts` is empty and the agent logs no
+  SNMP activity at all. That is the same silent-nothing state task 5.3's warning
+  now surfaces, and it is live today.
 
 ## 1. Manifest
 
@@ -155,7 +171,9 @@ table, ASCII-only docs.
   `config/snmp-clearpass.example.json`. Landed as Example-Airline-Org/
   fjb-network-monitor#35, verified by running the real file through
   `Manifest.from_yaml/1` and `SNMPRequirementCatalog.sync_package/2`.
-- [ ] 6.2 (blocked: needs a live environment with the package approved)
+- [ ] 6.2 (blocked: the ClearPass package is not imported. The estate has two
+  approved packages, both `opentext-nom-inventory` 0.1.4/0.1.6, and neither
+  declares `snmp_requirements`.)
   Confirm the ClearPass string OIDs (node version, node role, service
   names) land in `device_snmp_facts` against the right device, since these are
   the values that have nowhere to go today.
