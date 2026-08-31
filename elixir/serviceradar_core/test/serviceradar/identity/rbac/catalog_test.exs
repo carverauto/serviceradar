@@ -143,6 +143,18 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     assert MapSet.member?(viewer, "validation_runs.read")
   end
 
+  test "personal API credential and MCP permissions default to all roles" do
+    keys = Catalog.permission_keys()
+
+    for permission <- ["settings.api_credentials.manage", "settings.mcp.manage"] do
+      assert permission in keys
+
+      for role <- [:viewer, :helpdesk, :operator, :admin] do
+        assert MapSet.member?(Catalog.permissions_for_role(role), permission)
+      end
+    end
+  end
+
   test "prefix tag manage permission is an operator+ catalog key" do
     keys = Catalog.permission_keys()
     admin_permissions = Catalog.permissions_for_role(:admin)

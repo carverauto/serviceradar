@@ -57,7 +57,9 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Identity.OAuthClient
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Security.Lockouts
   alias ServiceRadar.Security.RateLimiter
@@ -362,42 +364,62 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
 
     case User.get_by_id(client.user_id, actor: actor) do
       {:ok, user} ->
-        scopes_atoms = Enum.map(scopes, &scope_to_atom/1)
+        scopes = permitted_scopes(user, scopes)
 
-        extra_claims = %{
-          "client_id" => to_string(client.id),
-          # Keep OAuth-compatible scope string for convenience.
-          "scope" => Enum.join(scopes, " ")
-        }
-
-        case Guardian.create_api_token(user,
-               scopes: scopes_atoms,
-               claims: extra_claims,
-               ttl: {@default_ttl_seconds, :second}
-             ) do
-          {:ok, token, _full_claims} ->
-            conn
-            |> put_resp_content_type("application/json")
-            |> put_resp_header("cache-control", "no-store")
-            |> put_resp_header("pragma", "no-cache")
-            |> send_resp(
-              200,
-              Jason.encode!(%{
-                access_token: token,
-                token_type: "Bearer",
-                expires_in: @default_ttl_seconds,
-                scope: Enum.join(scopes, " ")
-              })
-            )
-
-          {:error, reason} ->
-            Logger.error("Failed to create access token: #{inspect(reason)}")
-            error_response(conn, 500, "server_error", "Failed to generate access token")
+        if scopes == [] do
+          error_response(
+            conn,
+            403,
+            "unauthorized_client",
+            "No permitted scopes for this account"
+          )
+        else
+          issue_token_for_user(conn, client, user, scopes)
         end
 
       {:error, _} ->
         Logger.error("OAuth client #{client.id} has invalid user_id #{client.user_id}")
         error_response(conn, 500, "server_error", "Client configuration error")
+    end
+  end
+
+  defp issue_token_for_user(conn, client, user, scopes) do
+    extra_claims = %{
+      "client_id" => to_string(client.id),
+      "scope" => Enum.join(scopes, " ")
+    }
+
+    case Guardian.create_api_token(user,
+           scopes: Enum.map(scopes, &scope_to_atom/1),
+           claims: extra_claims,
+           ttl: {@default_ttl_seconds, :second}
+         ) do
+      {:ok, token, _full_claims} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> put_resp_header("cache-control", "no-store")
+        |> put_resp_header("pragma", "no-cache")
+        |> send_resp(
+          200,
+          Jason.encode!(%{
+            access_token: token,
+            token_type: "Bearer",
+            expires_in: @default_ttl_seconds,
+            scope: Enum.join(scopes, " ")
+          })
+        )
+
+      {:error, reason} ->
+        Logger.error("Failed to create access token: #{inspect(reason)}")
+        error_response(conn, 500, "server_error", "Failed to generate access token")
+    end
+  end
+
+  defp permitted_scopes(user, scopes) do
+    if RBAC.has_permission?(user, Constants.mcp_manage_permission()) do
+      scopes
+    else
+      List.delete(scopes, "mcp")
     end
   end
 

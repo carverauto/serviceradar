@@ -5,20 +5,33 @@ defmodule ServiceRadarWebNGWeb.Settings.McpSessionsLive do
 
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Identity.McpOAuthGrant
   alias ServiceRadarWebNG.Mcp.OAuth.Server
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.FeatureFlags
   alias ServiceRadarWebNGWeb.Settings.Shell
 
+  @mcp_manage_permission Constants.mcp_manage_permission()
+
   @impl true
   def mount(_params, _session, socket) do
-    socket =
-      socket
-      |> assign(:page_title, "MCP Sessions")
-      |> assign(:current_path, "/settings/mcp-sessions")
-      |> load_grants()
+    scope = socket.assigns.current_scope
 
-    {:ok, socket}
+    if RBAC.can?(scope, @mcp_manage_permission) do
+      socket =
+        socket
+        |> assign(:page_title, "MCP Sessions")
+        |> assign(:current_path, "/settings/mcp-sessions")
+        |> load_grants()
+
+      {:ok, socket}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to manage MCP sessions.")
+       |> push_navigate(to: ~p"/dashboard")}
+    end
   end
 
   @impl true

@@ -51,8 +51,40 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
         |> log_in_user(sso_user)
         |> live(~p"/settings/profile")
 
-      assert html =~ "Change Email"
+      refute html =~ "Change Email"
       refute html =~ "Save Password"
+      assert html =~ "managed by your identity provider"
+    end
+
+    test "SSO-linked accounts with a local password still cannot change email or password", %{
+      conn: conn
+    } do
+      actor = SystemActor.system(:test)
+
+      {:ok, sso_user} =
+        User.provision_sso_user(
+          %{
+            email: unique_user_email(),
+            display_name: "SSO Hybrid",
+            external_id: "oidc|#{System.unique_integer([:positive])}",
+            provider: :oidc
+          },
+          actor: actor
+        )
+
+      {:ok, sso_user} =
+        User.admin_set_password(sso_user, %{password: valid_user_password()}, actor: actor)
+
+      {:ok, _lv, html} =
+        conn
+        |> log_in_user(sso_user)
+        |> live(~p"/settings/profile")
+
+      refute html =~ "Change Email"
+      refute html =~ "Save Password"
+      refute html =~ ~s(id="email_form")
+      refute html =~ ~s(id="password_form")
+      assert html =~ "managed by your identity provider"
     end
 
     test "topbar exposes a Profile / API docs / Logout dropdown", %{conn: conn} do

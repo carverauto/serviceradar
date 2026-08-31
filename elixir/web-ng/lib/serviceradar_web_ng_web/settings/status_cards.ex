@@ -28,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
   alias ServiceRadar.Security.SecurityEvent
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadarWebNG.TenantUsage
+  alias ServiceRadarWebNGWeb.Settings.Catalog
   alias ServiceRadarWebNGWeb.Stats
 
   require Ash.Query
@@ -49,10 +50,11 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
   The contextual status cards for a view, or `:suppressed` when the page renders
   its own metrics.
   """
-  @spec for_view(map() | nil) :: :suppressed | [card()]
-  def for_view(%{has_own_stats: true}), do: :suppressed
-  def for_view(%{} = view), do: cards(context_for(view))
-  def for_view(_), do: []
+  @spec for_view(map() | nil, term()) :: :suppressed | [card()]
+  def for_view(view, scope \\ nil)
+  def for_view(%{has_own_stats: true}, _scope), do: :suppressed
+  def for_view(%{} = view, scope), do: view |> context_for() |> cards() |> filter_cards(scope)
+  def for_view(_, _scope), do: []
 
   # Resolve a card-set context from the view. Audit-flavoured views get an audit
   # set; otherwise resolve by parent-group, then by category.
@@ -75,8 +77,7 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
 
   # The users/access strip. Each count links to the page that manages that
   # resource: the user-population cards open Users management, the API-key card
-  # opens API Credentials. (Access to the linked page is still enforced by that
-  # page's own policy; the link is only an affordance.)
+  # opens API Credentials when the scope holds settings.api_credentials.manage.
   defp cards(:users) do
     [
       %{title: "Total users", value: total_users(), navigate: "/settings/auth/users"},
@@ -114,6 +115,21 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
       %{title: "Add-ons", value: addon_packages_count()},
       %{title: "Latest release", value: latest_release()}
     ]
+  end
+
+  defp filter_cards(cards, nil), do: cards
+
+  defp filter_cards(cards, scope) do
+    Enum.filter(cards, fn
+      %{navigate: "/settings/api-credentials"} ->
+        case Catalog.view(:api_credentials) do
+          nil -> false
+          view -> Catalog.visible_view?(scope, view)
+        end
+
+      _card ->
+        true
+    end)
   end
 
   # ---------------------------------------------------------------------------

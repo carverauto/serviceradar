@@ -13,7 +13,11 @@ defmodule ServiceRadar.Identity.McpOAuthGrant do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshCloak]
 
+  alias ServiceRadar.Identity.Constants
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
+
   @auth_methods [:oidc, :saml, :password]
+  @mcp_manage_check {ActorHasPermission, permission: Constants.mcp_manage_permission()}
 
   postgres do
     table "mcp_oauth_grants"
@@ -100,6 +104,11 @@ defmodule ServiceRadar.Identity.McpOAuthGrant do
     policy action(:by_user) do
       authorize_if expr(^arg(:user_id) == ^actor(:id))
       authorize_if is_admin()
+      authorize_if actor_attribute_equals(:role, :system)
+    end
+
+    policy action([:by_user, :revoke]) do
+      authorize_if @mcp_manage_check
       authorize_if actor_attribute_equals(:role, :system)
     end
 

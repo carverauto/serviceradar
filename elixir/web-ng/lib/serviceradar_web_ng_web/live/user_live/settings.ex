@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.Identity.Constants
+  alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Accounts
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -43,44 +44,76 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
             </p>
           </div>
 
-          <.ui_panel>
-            <:header>
-              <div>
-                <div class="text-sm font-semibold">Email</div>
-                <p class="text-xs text-sr-muted">
-                  Update the email used to sign in to ServiceRadar.
-                </p>
-              </div>
-            </:header>
+          <%= if @idp_managed_identity do %>
+            <.ui_panel>
+              <:header>
+                <div>
+                  <div class="text-sm font-semibold">Email</div>
+                  <p class="text-xs text-sr-muted">
+                    This address is managed by your identity provider and cannot
+                    be changed in ServiceRadar.
+                  </p>
+                </div>
+              </:header>
 
-            <.form
-              for={@email_form}
-              id="email_form"
-              phx-submit="update_email"
-              phx-change="validate_email"
-            >
-              <.input
-                field={@email_form[:email]}
-                type="email"
-                label="Email"
-                autocomplete="username"
-                required
-              />
-              <%= if has_password?(@current_scope.user) do %>
+              <p class="text-sm font-mono text-sr-ink">{@current_email}</p>
+            </.ui_panel>
+
+            <.ui_panel>
+              <:header>
+                <div>
+                  <div class="text-sm font-semibold">Password</div>
+                  <p class="text-xs text-sr-muted">
+                    Password for this account is managed by your identity provider.
+                  </p>
+                </div>
+              </:header>
+
+              <p class="text-sm text-sr-muted">
+                Sign in through SSO to change it there. ServiceRadar will not
+                accept a password change for an identity-provider account.
+              </p>
+            </.ui_panel>
+          <% else %>
+            <.ui_panel>
+              <:header>
+                <div>
+                  <div class="text-sm font-semibold">Email</div>
+                  <p class="text-xs text-sr-muted">
+                    Update the email used to sign in to ServiceRadar.
+                  </p>
+                </div>
+              </:header>
+
+              <.form
+                for={@email_form}
+                id="email_form"
+                phx-submit="update_email"
+                phx-change="validate_email"
+              >
                 <.input
-                  field={@email_form[:current_password]}
-                  id="email_current_password"
-                  type="password"
-                  label="Current password"
-                  autocomplete="current-password"
+                  field={@email_form[:email]}
+                  type="email"
+                  label="Email"
+                  autocomplete="username"
                   required
                 />
-              <% end %>
-              <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
-            </.form>
-          </.ui_panel>
+                <%= if has_password?(@current_scope.user) do %>
+                  <.input
+                    field={@email_form[:current_password]}
+                    id="email_current_password"
+                    type="password"
+                    label="Current password"
+                    autocomplete="current-password"
+                    required
+                  />
+                <% end %>
+                <.button variant="primary" phx-disable-with="Changing...">Change Email</.button>
+              </.form>
+            </.ui_panel>
+          <% end %>
 
-          <%= if @can_change_password and has_password?(@current_scope.user) do %>
+          <%= if not @idp_managed_identity and @can_change_password and has_password?(@current_scope.user) do %>
             <.ui_panel>
               <:header>
                 <div>
@@ -156,17 +189,19 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   def mount(_params, session, socket) do
     scope = socket.assigns.current_scope
     user = scope.user
-    can_change_password = RBAC.can?(scope, @password_manage_permission)
-    email_ash_form = build_email_form(user, scope)
+    idp_managed_identity = User.idp_managed_identity?(user)
+    can_change_password = not idp_managed_identity and RBAC.can?(scope, @password_manage_permission)
+    email_ash_form = if !idp_managed_identity, do: build_email_form(user, scope)
     password_ash_form = if can_change_password, do: build_password_form(user, scope)
 
     socket =
       socket
+      |> assign(:idp_managed_identity, idp_managed_identity)
       |> assign(:can_change_password, can_change_password)
       |> assign(:current_email, user.email)
       |> assign(:email_ash_form, email_ash_form)
       |> assign(:password_ash_form, password_ash_form)
-      |> assign(:email_form, to_form(email_ash_form))
+      |> assign(:email_form, if(email_ash_form, do: to_form(email_ash_form)))
       |> assign(:password_form, if(password_ash_form, do: to_form(password_ash_form)))
       |> assign(:trigger_submit, false)
       |> assign(:sudo_at, mount_sudo_at(session))
@@ -204,6 +239,10 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   end
 
   @impl true
+  def handle_event("validate_email", _params, %{assigns: %{idp_managed_identity: true}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("validate_email", %{"user" => user_params}, socket) do
     ash_form = AshPhoenix.Form.validate(socket.assigns.email_ash_form, user_params)
 
@@ -211,6 +250,13 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
      socket
      |> assign(:email_ash_form, ash_form)
      |> assign(:email_form, to_form(ash_form))}
+  end
+
+  def handle_event("update_email", _params, %{assigns: %{idp_managed_identity: true}} = socket) do
+    {:noreply,
+     socket
+     |> put_flash(:error, "Email for this account is managed by your identity provider.")
+     |> push_navigate(to: ~p"/settings/profile")}
   end
 
   def handle_event("update_email", %{"user" => user_params}, socket) do

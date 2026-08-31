@@ -209,27 +209,34 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
 
       category_ids = Enum.map(Catalog.visible_categories(scope), & &1.id)
 
-      # Network Services and Edge Ops have no ungated views, so an empty scope
-      # sees neither. (System stays visible via the ungated personal pages.)
+      # Every System / Network / Edge view is permission-gated (Profile is
+      # nav-hidden), so an empty scope sees no settings category at all.
+      refute :system in category_ids
       refute :network_services in category_ids
       refute :edge_ops in category_ids
 
+      assert Catalog.visible_views(scope, :system) == []
       assert Catalog.visible_views(scope, :network_services) == []
       assert Catalog.visible_views(scope, :edge_ops) == []
     end
 
-    test "an authenticated scope always sees ungated personal views (orphan rescue)" do
-      # `API Credentials` (and `Profile`, though nav-hidden) are per-user pages
-      # with no permission gate, so System is minimally visible even to a scope
-      # with no RBAC permissions.
-      scope = %Scope{permissions: MapSet.new([])}
+    test "API credentials and MCP sessions are gated on their catalog keys" do
+      empty = %Scope{permissions: MapSet.new([])}
+      empty_ids = empty |> Catalog.visible_views(:system) |> Enum.map(& &1.id)
 
-      ids = scope |> Catalog.visible_views(:system) |> Enum.map(& &1.id)
-      assert :api_credentials in ids
-      refute :profile in ids, "profile is hidden_from_nav and must not appear in nav lists"
-      refute :auth_users in ids, "gated System views stay hidden for an empty scope"
+      refute :api_credentials in empty_ids
+      refute :mcp_sessions in empty_ids
+      refute :profile in empty_ids, "profile is hidden_from_nav and must not appear in nav lists"
 
-      assert Enum.any?(Catalog.visible_categories(scope), &(&1.id == :system))
+      creds = %Scope{permissions: MapSet.new(["settings.api_credentials.manage"])}
+      assert :api_credentials in Enum.map(Catalog.visible_views(creds, :system), & &1.id)
+      assert Enum.any?(Catalog.visible_categories(creds), &(&1.id == :system))
+
+      mcp = %Scope{permissions: MapSet.new(["settings.mcp.manage"])}
+
+      if ServiceRadarWebNGWeb.FeatureFlags.mcp_enabled?() do
+        assert :mcp_sessions in Enum.map(Catalog.visible_views(mcp, :system), & &1.id)
+      end
     end
 
     test "each category is reachable by some permission set" do

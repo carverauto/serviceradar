@@ -25,7 +25,10 @@ These are different things, and the default-role dropdown only lists the first.
 `demo` is a role profile, not a built-in role. To give an IdP group the `demo`
 profile: **Add mapping** -> source `IdP group` -> paste the group name (Authentik)
 or object ID (Entra) -> **Role profile** -> `demo`. Leave **Built-in role** on
-None unless they also need a rung on that ladder.
+None unless they also need a rung on that ladder. Keep `plugins.view`,
+`settings.api_credentials.manage`, and `settings.mcp.manage` off that profile
+unless the demo account should see Dashboard Packages, Edge Ops add-ons, API
+credentials, or MCP.
 
 A mapping can grant a role, a profile, a ServiceRadar user group, or any
 combination. You do not paste UUIDs; the profile and user-group fields are

@@ -129,5 +129,10 @@ defmodule ServiceRadarWebNG.Mcp.Tools do
       description("MCP tools require an authenticated actor; HTTP already gated mcp scope.")
       authorize_if(actor_present())
     end
+
+    policy always() do
+      description("MCP tools also require settings.mcp.manage on the caller.")
+      authorize_if({ServiceRadar.Policies.Checks.ActorHasPermission, permission: "settings.mcp.manage"})
+    end
   end
 end

@@ -5,11 +5,13 @@ defmodule ServiceRadarWebNGWeb.OAuthAuthorizeController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Mcp.OAuth
   alias ServiceRadarWebNG.Mcp.OAuth.IdP
   alias ServiceRadarWebNG.Mcp.OAuth.RedirectURI
   alias ServiceRadarWebNG.Mcp.OAuth.Server
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.ClientIP
   alias ServiceRadarWebNGWeb.FeatureFlags
 
@@ -43,6 +45,18 @@ defmodule ServiceRadarWebNGWeb.OAuthAuthorizeController do
             conn
             |> put_session(:user_return_to, "/oauth/consent")
             |> redirect(to: ~p"/users/log-in")
+
+          not RBAC.can?(conn.assigns.current_scope, Constants.mcp_manage_permission()) ->
+            redirect(
+              conn,
+              external:
+                error_redirect(
+                  request["redirect_uri"],
+                  request["state"],
+                  "access_denied",
+                  "MCP access is not permitted for this account"
+                )
+            )
 
           Server.active_grant?(user, request["client_id"]) ->
             skip_consent(conn, user, request)
