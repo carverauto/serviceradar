@@ -289,8 +289,8 @@ Three properties of that client decide every question below:
 Restart the agent after changing the bundle.
 
 :::caution Not in 1.4.46
-**`ca_bundle_pem` and `server_cert_fingerprint` on a credential rule.** Merged
-work adds two optional, mutually exclusive columns to a rule:
+**`ca_bundle_pem` and `server_cert_fingerprint` on a credential rule.** A rule
+carries two optional, mutually exclusive columns:
 
 - `ca_bundle_pem` -- a PEM chain, rejected at save time if it does not parse as
   unencrypted `CERTIFICATE` blocks or if any certificate in it has expired.
@@ -303,17 +303,22 @@ are stored in the clear: a CA certificate and a fingerprint are trust anchors,
 not authenticators, so an operator can read back what a rule trusts and the
 values never go through the credential broker.
 
-Scope of what has landed, stated precisely so nobody plans against more than
-exists: the change adds the rule columns, their validation, the migration, and
-permission for a manifest params template to reference them as
-`$source: rule, field: ca_bundle_pem` / `field: server_cert_fingerprint`. It does
-**not** add a form control on the Credential Rules page, no shipped plugin
-manifest references either field yet, and the agent's plugin HTTP client does not
-read them. Setting one on a rule therefore records an intent; it does not by
-itself change what the agent trusts. Until a manifest and the agent transport
-consume them, use `plugin_http_trusted_ca_files` above.
+The Credential Rules form renders both fields wherever a provider declares
+transport controls, the Proxmox manifest passes `ca_bundle_pem` to the host as
+`$source: rule`, and the agent verifies against it. Unlike
+`plugin_http_trusted_ca_files` above, a rule's trust material **replaces** the
+system trust store for that rule's destinations rather than widening it: a rule
+pinning a private CA is asking for that anchor, and keeping the public roots
+would still accept any publicly-trusted certificate for the same origin. The
+bundle never reaches the Wasm guest.
 
-First release containing the columns: `<first-release>`.
+Proxmox is the case that forced this. Inventory enrichment mandates `verify`, the
+controller origin is always an IP literal, and a binding carrying
+`insecure_skip_verify` is rejected outright -- so pinning the cluster CA is the
+only way to reach a node behind it. See the Proxmox provider section for the
+procedure.
+
+First release containing these: `<first-release>`.
 :::
 
 ### Allowed ports

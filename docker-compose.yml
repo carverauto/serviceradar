@@ -408,13 +408,14 @@ services:
       - DEVICE_ENRICHMENT_RULES_DIR=/var/lib/serviceradar/rules/device-enrichment
       # Core-owned advisory vulnerability feed ingestion (disk-staged on a named
       # volume). Off by default in the single-node Compose stack; set
-      # SERVICERADAR_ADVISORY_FEEDS_ENABLED=true (and a VULNCHECK_API_TOKEN) to
-      # run CISA/VulnCheck KEV enrichment. nist-nvd2 stays sub-gated.
+      # SERVICERADAR_ADVISORY_FEEDS_ENABLED=true to run CISA/VulnCheck KEV
+      # enrichment. The VulnCheck token is a credential rule, not an
+      # environment variable -- see docs/docs/credentials.md. nist-nvd2 stays
+      # sub-gated.
       - SERVICERADAR_ADVISORY_FEEDS_ENABLED=${SERVICERADAR_ADVISORY_FEEDS_ENABLED:-false}
       - ADVISORY_FEED_SCHEDULER_ENABLED=${SERVICERADAR_ADVISORY_FEEDS_ENABLED:-false}
       - SERVICERADAR_ADVISORY_NIST_NVD2_ENABLED=${SERVICERADAR_ADVISORY_NIST_NVD2_ENABLED:-false}
       - SERVICERADAR_ADVISORY_STAGING_DIR=/var/lib/serviceradar/advisory-feeds
-      - VULNCHECK_API_TOKEN=${VULNCHECK_API_TOKEN:-}
       - PLUGIN_STORAGE_PUBLIC_URL=${PLUGIN_STORAGE_PUBLIC_URL:-http://web-ng:4000}
       - PLUGIN_STORAGE_SIGNING_SECRET_FILE=/etc/serviceradar/admin/plugin-storage-signing-secret
       - PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS=${PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS:-86400}
