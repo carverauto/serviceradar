@@ -149,7 +149,7 @@ MIX_ENV=test mix test test/phoenix/live/dashboard_live/mtr_metrics_test.exs
 
 **Step 2: Rewrite the dashboard summary CTEs**
 
-Select `target_reached` and `total_hops` with traces. Join destination hops only under the global terminal-hop rule. Return weighted loss, weighted RTT, and `endpoint_sample_count`. Count a trace as degraded when it is unreached or its destination sample has loss above 0% or RTT above 100 ms.
+Select `target_reached` and `total_hops` with traces. Join destination hops only under the global terminal-hop rule. Return weighted loss, weighted RTT, `endpoint_sample_count`, and independent valid-loss and valid-latency sample counts. Count a trace as degraded when it is unreached or its destination sample has loss above 0% or RTT above 100 ms.
 
 The overlay-only fallback cannot prove destination identity, so it must expose `endpoint_sample_count: 0`; it may continue to describe path overlays only when no Timescale trace data exists.
 
@@ -159,7 +159,7 @@ Join `mtr_traces` to terminal destination hops and use the same counter/reply we
 
 **Step 4: Relabel dashboard cards**
 
-Rename headline labels to `Destination Latency` and `Destination Loss`. Base availability on `endpoint_sample_count`; when paths exist but endpoints do not, render `No endpoint sample` rather than 0 ms / 0%.
+Rename headline labels to `Destination Latency` and `Destination Loss`. Base each card's availability on its own valid denominator: positive sent count for loss, and positive replies with a non-null RTT for latency. An endpoint row alone must not fabricate 0 ms or 0%; when a denominator is unavailable, render `No endpoint sample`.
 
 **Step 5: Verify and commit**
 
