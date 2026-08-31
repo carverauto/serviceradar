@@ -10,6 +10,10 @@
 // operator's expand/collapse choice survives field changes.
 export default {
   mounted() {
+    // The browser owns `open` after a summary click. LiveView's attribute merge
+    // would otherwise strip it on the next patch (dashboard slice loads, camera
+    // poll, form phx-change) and snap the disclosure shut.
+    this.js().ignoreAttributes(this.el, ["open"])
     this._open = this.el.open
   },
   beforeUpdate() {

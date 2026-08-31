@@ -95,6 +95,21 @@ vitest_bin.vitest_test(
     tags = ["unit_test"],
 )
 
+vitest_bin.vitest_test(
+    name = "details_state_test",
+    args = [
+        "run",
+        "js/hooks/DetailsState.test.js",
+    ],
+    chdir = package_name(),
+    data = [
+        ":node_modules",
+        "js/hooks/DetailsState.js",
+        "js/hooks/DetailsState.test.js",
+    ],
+    tags = ["unit_test"],
+)
+
 js_binary(
     name = "god_view_elk_scene_bundler",
     data = [":node_modules/esbuild"],
