@@ -91,6 +91,35 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrMetricsTest do
     assert_in_delta loss_pct, 50.0, 1.0e-10
   end
 
+  test "dashboard uses one deterministic terminal observation per trace" do
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+
+    trace_id =
+      insert_mtr_trace!("dashboard-mtr-duplicate-terminal", timestamp,
+        target_reached: true,
+        hops: [{"198.51.100.40", 900_000, 10, 10}]
+      )
+
+    insert_duplicate_terminal_hop!(
+      trace_id,
+      DateTime.add(timestamp, 1, :second),
+      {"198.51.100.40", 20_000, 20, 10}
+    )
+
+    %{mtr_timeseries: summary} = Data.load_mtr("last_1h")
+    %{sparklines: sparklines} = Data.load_sparklines("last_1h")
+
+    assert summary.path_count == 1
+    assert summary.endpoint_sample_count == 1
+    assert summary.degraded_count == 1
+    assert_in_delta summary.avg_loss_pct, 50.0, 1.0e-10
+    assert_in_delta summary.avg_latency_ms, 20.0, 1.0e-10
+    assert [latency_ms] = sparklines.latency
+    assert [loss_pct] = sparklines.packet_loss
+    assert_in_delta latency_ms, 20.0, 1.0e-10
+    assert_in_delta loss_pct, 50.0, 1.0e-10
+  end
+
   defp insert_mtr_trace!(agent_id, timestamp, opts) do
     id = Ecto.UUID.generate()
     db_id = dump_uuid!(id)
@@ -123,32 +152,44 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrMetricsTest do
       hops
       |> Enum.with_index(1)
       |> Enum.map(fn {{addr, avg_us, sent, received}, hop_number} ->
-        %{
-          id: dump_uuid!(Ecto.UUID.generate()),
-          time: timestamp,
-          trace_id: db_id,
-          hop_number: hop_number,
-          addr: addr,
-          hostname: nil,
-          ecmp_addrs: [],
-          asn: nil,
-          asn_org: nil,
-          mpls_labels: %{},
-          sent: sent,
-          received: received,
-          loss_pct: if(sent > 0, do: 100.0 * (sent - received) / sent, else: 0.0),
-          last_us: avg_us,
-          avg_us: avg_us,
-          min_us: avg_us,
-          max_us: avg_us,
-          stddev_us: 0,
-          jitter_us: 0,
-          jitter_worst_us: 0,
-          jitter_interarrival_us: 0,
-          created_at: timestamp
-        }
+        mtr_hop_row(db_id, timestamp, hop_number, {addr, avg_us, sent, received})
       end)
     )
+
+    id
+  end
+
+  defp insert_duplicate_terminal_hop!(trace_id, timestamp, {addr, avg_us, sent, received}) do
+    ServiceRadar.Repo.insert_all("mtr_hops", [
+      mtr_hop_row(dump_uuid!(trace_id), timestamp, 1, {addr, avg_us, sent, received})
+    ])
+  end
+
+  defp mtr_hop_row(trace_id, timestamp, hop_number, {addr, avg_us, sent, received}) do
+    %{
+      id: dump_uuid!(Ecto.UUID.generate()),
+      time: timestamp,
+      trace_id: trace_id,
+      hop_number: hop_number,
+      addr: addr,
+      hostname: nil,
+      ecmp_addrs: [],
+      asn: nil,
+      asn_org: nil,
+      mpls_labels: %{},
+      sent: sent,
+      received: received,
+      loss_pct: if(sent > 0, do: 100.0 * (sent - received) / sent, else: 0.0),
+      last_us: avg_us,
+      avg_us: avg_us,
+      min_us: avg_us,
+      max_us: avg_us,
+      stddev_us: 0,
+      jitter_us: 0,
+      jitter_worst_us: 0,
+      jitter_interarrival_us: 0,
+      created_at: timestamp
+    }
   end
 
   defp dump_uuid!(uuid) do

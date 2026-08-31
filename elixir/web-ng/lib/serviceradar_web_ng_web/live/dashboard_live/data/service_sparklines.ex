@@ -181,17 +181,36 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.ServiceSparklines do
             end
 
           sql = """
+          WITH destination_hops AS (
+            SELECT trace_time, sent, received, avg_us
+            FROM (
+              SELECT
+                t.time AS trace_time,
+                h.time AS hop_time,
+                h.id AS hop_id,
+                h.trace_id,
+                h.sent,
+                h.received,
+                h.avg_us,
+                ROW_NUMBER() OVER (
+                  PARTITION BY h.trace_id
+                  ORDER BY h.time DESC, h.id DESC
+                ) AS terminal_rank
+              FROM mtr_traces t
+              INNER JOIN mtr_hops h
+                ON h.trace_id = t.id
+                AND t.target_reached
+                AND h.hop_number = t.total_hops
+              WHERE t.time >= $1
+            ) terminal_candidates
+            WHERE terminal_rank = 1
+          )
           SELECT bucket, value
           FROM (
             SELECT
-              time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, h.time) AS bucket,
+              time_bucket(#{bucket_interval_literal(sparkline_bucket_for(time_window))}, h.trace_time) AS bucket,
               #{value_expr} AS value
-            FROM mtr_traces t
-            INNER JOIN mtr_hops h
-              ON h.trace_id = t.id
-              AND t.target_reached
-              AND h.hop_number = t.total_hops
-            WHERE t.time >= $1
+            FROM destination_hops h
             GROUP BY 1
             HAVING #{denominator_expr} > 0
             ORDER BY 1 DESC

@@ -109,11 +109,23 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
             WHERE time >= $1
           ),
           destination_hops AS (
-            SELECT h.trace_id, h.sent, h.received, h.avg_us
-            FROM mtr_hops h
-            INNER JOIN selected_traces st ON st.id = h.trace_id
-              AND st.target_reached
-              AND h.hop_number = st.total_hops
+            SELECT trace_id, sent, received, avg_us
+            FROM (
+              SELECT
+                h.trace_id,
+                h.sent,
+                h.received,
+                h.avg_us,
+                ROW_NUMBER() OVER (
+                  PARTITION BY h.trace_id
+                  ORDER BY h.time DESC, h.id DESC
+                ) AS terminal_rank
+              FROM mtr_hops h
+              INNER JOIN selected_traces st ON st.id = h.trace_id
+                AND st.target_reached
+                AND h.hop_number = st.total_hops
+            ) terminal_candidates
+            WHERE terminal_rank = 1
           )
           SELECT
             COUNT(st.id)::bigint,
