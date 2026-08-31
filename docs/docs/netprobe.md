@@ -14,6 +14,15 @@ and threat intelligence.
 `serviceradar-agent`: the agent assigns, verifies, configures, and reports the add-on,
 while `netprobe` owns host-level packet and socket collection.
 
+Process-to-flow attribution is the add-on itself. Assign netprobe with
+`enabled: true` and it attaches host-wide eBPF kprobes; that path does not
+wait for a Visibility Profile. Packet capture, DPI, and fingerprinting are
+the extra policy surface: operators set those in
+[Visibility Profiles](./visibility-profiles.md)
+(`Settings -> Network Services -> Visibility Profiles`), which name the NIC
+and target devices. Assign netprobe first. Add a profile only when you want
+passive capture on a real interface.
+
 ## What netprobe does
 
 `serviceradar-netprobe` provides three related data streams:
@@ -112,7 +121,10 @@ ip -o link show
 
 Enable the add-on from **Settings > Agents > Add-ons** after the package has been
 approved. Target individual agents or a cohort and provide the add-on parameters
-validated by the package schema.
+validated by the package schema. `enabled: true` is enough for process
+attribution and `in:attributed_flows`. Add a
+[Visibility Profile](./visibility-profiles.md) only when you also want
+per-device packet capture, DPI, or fingerprint bindings.
 
 A minimal host configuration should include:
 

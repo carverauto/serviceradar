@@ -99,7 +99,7 @@ ServiceRadar currently ships these native add-ons:
 
 | Add-on | Binary / unit | Primary capability | Typical target |
 | --- | --- | --- | --- |
-| `netprobe` | `serviceradar-netprobe.service` | Host network visibility and NetFlow-to-process attribution | Linux hosts and Kubernetes worker-node agents |
+| `netprobe` | `serviceradar-netprobe.service` | Host network visibility and NetFlow-to-process attribution. Policy is [Visibility Profiles](./visibility-profiles.md). | Linux hosts and Kubernetes worker-node agents |
 | `workload-identity` | `serviceradar-workload-identity.service` | Container, pod, namespace, image, and runtime metadata | Kubernetes workers, Docker hosts, and Docker Compose hosts |
 | `powerdns` | `serviceradar-powerdns-addon` | PowerDNS Recursor protobuf ingest and RPZ-to-OCSF DNS Activity mapping | DNS resolver hosts running ServiceRadar Agent |
 
