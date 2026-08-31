@@ -400,7 +400,6 @@ defmodule ServiceRadarWebNGWeb.CoreComponents do
           class={@class}
           datetime={@iso}
           phx-hook="UserTime"
-          phx-update="ignore"
           data-user-time-iso={@iso}
           data-user-time-zone={@zone}
           data-user-time-style={@style}

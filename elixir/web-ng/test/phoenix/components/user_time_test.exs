@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.Components.UserTimeTest do
     assert LazyHTML.attribute(time, "data-user-time-style") == ["full"]
     assert LazyHTML.attribute(time, "data-user-time-fallback") == ["2026-08-30T18:00:00Z"]
     assert LazyHTML.attribute(time, "phx-hook") == ["UserTime"]
-    assert LazyHTML.attribute(time, "phx-update") == ["ignore"]
+    assert LazyHTML.attribute(time, "phx-update") == []
     assert LazyHTML.attribute(time, "title") == ["2026-08-30T18:00:00Z (UTC); display zone America/Chicago"]
     assert LazyHTML.attribute(time, "aria-label") == ["2026-08-30T18:00:00Z UTC; display zone America/Chicago"]
     assert LazyHTML.text(time) == "2026-08-30T18:00:00Z"
