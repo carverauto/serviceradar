@@ -5,9 +5,14 @@
 - [x] 1.1 Extend the `role_mappings` entry shape in `AuthorizationSettings` with an optional
       `role_profile_id` and an optional `user_group_id`, keeping `role` optional-but-present for
       existing entries.
-- [ ] 1.2 Add validation: an entry must name at least one of `role`, `role_profile_id`,
+- [x] 1.2 Add validation: an entry must name at least one of `role`, `role_profile_id`,
       `user_group_id`; referenced ids must exist at write time.
-- [ ] 1.3 Migration for the new entry shape. Existing entries must round-trip unchanged.
+      DONE: `validate_grants/1` rejects an entry naming none of them. An entry that grants
+      nothing used to be accepted and silently did nothing.
+- [x] 1.3 Migration for the new entry shape. Existing entries must round-trip unchanged.
+      DONE: no schema migration is needed -- `role_mappings` is a JSON column, so the new keys
+      are additive. Round-trip is covered by test rather than asserted: pre-change entries are
+      stored, resolved, and left intact when a new-shape entry is added alongside.
 - [x] 1.4 Update `RoleMappingSupport` accessors for the new keys.
       DONE: `RoleMappingSupport` gains `role_rank/1`, `highest_role/1`, `presence/1`. Ranking is explicit because atom comparison sorts :admin below :helpdesk.
 
@@ -23,10 +28,17 @@
       DONE: Profile and group ids union; role is the highest matched by `role_rank/1`.
       Define the role ordering explicitly rather than relying on atom comparison.
 - [x] 2.4 Keep `resolve_role/2` as a thin wrapper for any caller that only wants the role.
-- [ ] 2.5 Decide and implement the no-match case: fall back to `default_role` and clear
+- [x] 2.5 Decide and implement the no-match case: fall back to `default_role` and clear
       IdP-granted profiles, or retain the prior profile. See the proposal's open question.
-- [ ] 2.6 Preserve the existing "do not demote an existing `:admin`" guard
+      DONE: no match resolves to the configured `default_role` and revokes an IdP-granted role
+      profile. A manually assigned profile is left alone -- see 2.4.
+- [x] 2.6 Preserve the existing "do not demote an existing `:admin`" guard
       (`sso_provisioning.ex:108-110`) under union semantics, and state the rule in a comment.
+      DONE: the guard is intact -- an existing `:admin` is never demoted by a mapping.
+      NOTE, worth a decision: this means role revocation does not apply to admins, while profile
+      revocation does. The guard predates this change and exists so a misconfigured mapping cannot
+      lock every admin out. Flagged rather than removed, since removing it makes a bad mapping
+      unrecoverable through the UI.
 
 ## 3. SSO application
 
@@ -128,7 +140,18 @@
 
 ## 7. Verification
 
-- [ ] 7.1 `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix`
-- [ ] 7.2 `./scripts/elixir_quality.sh --project elixir/serviceradar_core`
+- [x] 7.1 `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix`
+      DONE: format + Credo clean (1247 files, 59 checks, no issues).
+- [x] 7.2 `./scripts/elixir_quality.sh --project elixir/serviceradar_core`
+      DONE: format + Credo clean (2262 files, 50 checks, no issues).
 - [ ] 7.3 `make test`
-- [ ] 7.4 `openspec validate add-idp-group-permission-mapping --strict`
+      BLOCKED locally, not skipped: every Bazel target on this machine fails toolchain
+      resolution because the shared repo cache cannot extract the LLVM toolchain archive
+      (`@@llvm++llvm+llvm-project`: "Failed to extract archive", empty stderr). Unrelated to
+      this change and reproducible on a clean staging checkout; the archive itself is intact
+      (extracts by hand with the same bsdtar). Run in CI. Verified instead, directly:
+      migrations_expected_version_test 4/4, settings catalog gate 38/38, and a script check
+      that the disposition TSV and its bzl projection agree (async 131/131, serial 161/161,
+      no load_only leaks, no duplicates).
+- [x] 7.4 `openspec validate add-idp-group-permission-mapping --strict`
+      DONE: strict validation passes.
