@@ -32,7 +32,7 @@ The bootstrap script itself supports four input modes for the primary registry:
 2. `OCI_DOCKER_AUTH` - a base64 encoded `username:token` pair for the registry.
 3. `OCI_USERNAME` and `OCI_TOKEN` - the script performs the base64 encoding for you. Optional `OCI_REGISTRY` overrides `registry.carverauto.dev`.
 4. `HARBOR_USERNAME` and `HARBOR_TOKEN` - the BuildBuddy secret-store names, accepted as mode 3
-   when neither `OCI_USERNAME` nor `OCI_TOKEN` is set. The Forgejo workflows do the same mapping
+   when neither `OCI_USERNAME` nor `OCI_TOKEN` is set. The GitHub Actions workflows do the same mapping
    declaratively in their job-level `env:` block, from `HARBOR_ROBOT_USERNAME` /
    `HARBOR_ROBOT_SECRET`; BuildBuddy has no equivalent, which is why the script accepts both.
 
@@ -47,7 +47,7 @@ phase, on a target that has nothing to do with containers. With `OCI_AUTH_REQUIR
 script instead requires `OCI_REGISTRY` to be set and an entry for it to have been written, and
 exits 1 naming what is missing.
 
-Leave it unset for the Forgejo pull-request workflow, which legitimately runs with Docker Hub
+Leave it unset for the GitHub pull-request workflow, which legitimately runs with Docker Hub
 credentials alone on fork PRs, and for `build/buildbuddy/release_pipeline.sh`, which calls the
 script best-effort.
 

@@ -212,7 +212,7 @@ Common SRQL entry points:
 in:attributed_flows time:last_1h attribution_status:attributed sort:time:desc limit:50
 in:attributed_flows time:last_1h protocol_name:udp sort:time:desc limit:50
 in:attributed_flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
-in:attributed_flows time:last_24h service_name:forgejo-http sort:time:desc limit:50
+in:attributed_flows time:last_24h service_name:serviceradar-web sort:time:desc limit:50
 in:attributed_flows time:last_24h port:22 sort:time:desc limit:50
 in:flows time:last_24h port:22 sort:time:desc limit:50
 in:public_endpoints port:22 limit:50

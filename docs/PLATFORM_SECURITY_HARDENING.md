@@ -132,5 +132,5 @@ If a specific route serves third-party content that violates CSP:
   `priv/repo/migrations/`. The Ash codegen workflow described in
   `elixir/serviceradar_core/CLAUDE.md` is currently unusable
   because `priv/resource_snapshots/` was gitignored in the January
-  cleanup PR — settling that convention is tracked in Forgejo
-  issue #3269.
+  cleanup PR. Settling that convention is tracked in GitHub
+  issue [#3456](https://github.com/carverauto/serviceradar/issues/3456).

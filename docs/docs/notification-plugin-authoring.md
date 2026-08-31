@@ -406,8 +406,8 @@ The reason is the command path. `AgentCommandBus` is **at-most-once with no
 store-and-forward**: if the target agent has no live control session at the
 moment of dispatch, the command is marked offline and returns an error, and
 nothing re-drains offline commands when the agent reconnects. This is tracked as
-forgejo issue #4902 and it is a property of the current command plane, not a
-transient bug.
+[GitHub issue #3565](https://github.com/carverauto/serviceradar/issues/3565).
+It is a property of the current command plane, not a transient bug.
 
 An agent-offline reply is therefore *retryable*, not an immediate failover - a
 site that was briefly disconnected is not abandoned on the first missed

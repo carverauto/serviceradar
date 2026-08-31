@@ -8,9 +8,10 @@ Current state:
 - OCI release signing uses a Cosign-compatible public key published at
   `docs/cosign.pub`.
 - The intended long-term release signer is the OpenBao Transit-backed
-  `hashivault://cosign-release` key exposed to Forgejo runner jobs.
-- Full self-hosted keyless signing remains blocked by the deployed Forgejo
-  `14.0.3` release, which does not yet expose Forgejo Actions OIDC.
+  `hashivault://cosign-release` key exposed to GitHub Actions runner jobs.
+- Full self-hosted keyless signing needs Actions OIDC that Fulcio can
+  map into a certificate SAN. Use `scripts/inspect-actions-oidc.sh` to
+  inspect the token before locking issuer policy.
 
 Populate these files from the active Fulcio/Rekor deployment:
 
@@ -35,14 +36,14 @@ Before locking the issuer choice, inspect the workflow token claims with:
 ./scripts/inspect-actions-oidc.sh | jq .
 ```
 
-If the raw Forgejo Actions token does not map cleanly to the Fulcio issuer mode
+If the raw GitHub Actions token does not map cleanly to the Fulcio issuer mode
 you choose, use Authentik or another federation layer to mint a Fulcio-friendly
 subject instead of hardcoding policy around an incompatible token shape.
 
 ## CI/CD configuration
 
-Forgejo workflows and local helpers support these variables for self-hosted
-keyless signing:
+GitHub Actions workflows and local helpers support these variables for
+self-hosted keyless signing:
 
 - `SIGSTORE_FULCIO_URL`
 - `SIGSTORE_REKOR_URL`
@@ -56,25 +57,25 @@ keyless signing:
 - `COSIGN_CERTIFICATE_IDENTITY` or `COSIGN_CERTIFICATE_IDENTITY_REGEXP`
 - `COSIGN_CERTIFICATE_OIDC_ISSUER` or `COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP`
 
-In Forgejo Actions, `id-token: write` must be granted to the job so the runner
+In GitHub Actions, `id-token: write` must be granted to the job so the runner
 can mint an OIDC token for Cosign.
 
 ## OpenBao signing boundary
 
-Forgejo runners only need OpenBao access for the OCI signing step. They must not
-receive general OpenBao access or reusable signing key material.
+GitHub Actions runners only need OpenBao access for the OCI signing step. They
+must not receive general OpenBao access or reusable signing key material.
 
 Current hardening requirements:
 
-- Forgejo jobs use the OpenBao Transit-backed `hashivault://cosign-release` key
+- Release jobs use the OpenBao Transit-backed `hashivault://cosign-release` key
   for signing. The matching public key is the one used by Kyverno admission in
   the `demo` namespace.
 - CI workflows must authenticate to OpenBao immediately before signing. The
   token must stay in the current shell step and must not be written to
   `GITHUB_ENV`.
-- Forgejo workflows must not expose `COSIGN_PRIVATE_KEY` or `COSIGN_PASSWORD`
-  as job-wide environment variables. CI signing uses the centrally managed
-  OpenBao key.
+- GitHub Actions workflows must not expose `COSIGN_PRIVATE_KEY` or
+  `COSIGN_PASSWORD` as job-wide environment variables. CI signing uses the
+  centrally managed OpenBao key.
 - The OpenBao role used by runners should be bound to a dedicated signing
   runner service account, preferably in a protected signing environment, not a
   shared runner service account that executes arbitrary jobs.

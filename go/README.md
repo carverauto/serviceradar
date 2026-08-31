@@ -43,10 +43,9 @@ published SDK. The root module does not require that SDK at all, so merging them
 and each plugin's own dependencies into the root `go.sum` for code that only ever compiles to
 `wasip1`.
 
-All nine require `github.com/carverauto/serviceradar-sdk-go v0.3.0`. That tag
-restores the GitHub module path after the Forgejo vanity detour; `v0.2.0` is the
-last pre-move GitHub release and does not include later SDK contracts. Keep the
-plugins on one path and one version.
+All nine require `github.com/carverauto/serviceradar-sdk-go v0.3.0`.
+`v0.2.0` is the previous GitHub release and does not include later SDK
+contracts. Keep the plugins on one path and one version.
 
 `go_deps.from_file` accepts a `go_work` label, so a `go.work` listing all eleven
 modules would give one MVS resolution and let Gazelle generate `go_library` and

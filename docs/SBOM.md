@@ -112,7 +112,7 @@ Per image:
 
 ## Release Assets
 
-For tagged releases, the workflows upload bundles to the Forgejo release:
+For tagged releases, the workflows upload bundles to the GitHub release:
 
 - `serviceradar-source-security.tar.gz`
 - `serviceradar-image-security-<tag>.tar.gz`
@@ -138,4 +138,4 @@ These exclusions remove bulky or generated trees such as:
 
 - Syft produces the SBOMs; it does not decide vulnerability severity.
 - OSV-Scanner reports vulnerabilities based on the OSV database.
-- Harbor stores the released images, but the trust and scanning policy is driven by the Forgejo workflows in this repository.
+- Harbor stores the released images, but the trust and scanning policy is driven by the GitHub Actions workflows in this repository.

@@ -151,8 +151,8 @@ The command path to an agent - `AgentCommandBus` - is **at-most-once with no
 store-and-forward**. If the target agent has no live control session at the
 moment of dispatch, the command is marked offline and returns an error; nothing
 re-drains queued or offline commands when the agent reconnects. This is tracked
-as forgejo issue #4902 and it is a property of the current command plane, not a
-transient bug.
+as [GitHub issue #3565](https://github.com/carverauto/serviceradar/issues/3565).
+It is a property of the current command plane, not a transient bug.
 
 Three consequences you must design around:
 
