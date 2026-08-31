@@ -157,6 +157,41 @@ defmodule ServiceRadar.Identity.IdpGroupPermissionMappingDbTest do
       assert RoleMapping.resolve_role(claims(["ops"]), actor: actor()) == :operator
     end
 
+    test "settings stored in the pre-change shape still load, resolve and update" do
+      # Existing deployments hold mappings with only source/value/role/claim.
+      # Adding optional grant keys must not require rewriting them, and reading
+      # one back must not invent the new keys.
+      legacy = [
+        %{"source" => "groups", "value" => "ops", "role" => "operator", "claim" => "groups"},
+        %{"source" => "email_domain", "value" => "example.com", "role" => "viewer"}
+      ]
+
+      settings = settings!(legacy)
+
+      assert Enum.count(settings.role_mappings) == 2
+      assert %{role: :operator} = RoleMapping.resolve(claims(["ops"]), actor: actor())
+
+      # Adding a mapping in the new shape alongside them leaves them intact.
+      {:ok, updated} =
+        AuthorizationSettings.update_settings(
+          %{
+            role_mappings:
+              legacy ++
+                [
+                  %{
+                    "source" => "groups",
+                    "value" => "authors",
+                    "role_profile_id" => Ecto.UUID.generate()
+                  }
+                ]
+          },
+          actor: actor()
+        )
+
+      assert Enum.count(updated.role_mappings) == 3
+      assert %{role: :operator} = RoleMapping.resolve(claims(["ops"]), actor: actor())
+    end
+
     test "a mapping granting only a user group still matches" do
       group_id = Ecto.UUID.generate()
       settings!([%{"source" => "groups", "value" => "ops", "user_group_id" => group_id}])

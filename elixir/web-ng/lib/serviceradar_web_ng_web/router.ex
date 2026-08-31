@@ -1203,6 +1203,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/auth/users", Settings.AuthUsersLive, :index)
       live("/settings/auth/users/:id", Settings.AuthUserLive.Show, :show)
       live("/settings/auth/rbac", Settings.RbacLive, :index)
+      live("/settings/auth/authorization", Settings.AuthorizationLive, :index)
 
       # Ansible settings (controllers, repositories, and retention)
       live("/settings/ansible", Settings.AnsibleLive, :index)

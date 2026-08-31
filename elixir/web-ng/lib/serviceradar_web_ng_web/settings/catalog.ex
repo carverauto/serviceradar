@@ -319,6 +319,26 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       hidden_from_nav: false
     },
     %{
+      id: :authorization_mappings,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Users & Access",
+      title: "Authorization",
+      description: "Map identity provider groups to roles, permission sets, and user groups.",
+      icon: "hero-user-group",
+      route: "/settings/auth/authorization",
+      live_view: ServiceRadarWebNGWeb.Settings.AuthorizationLive,
+      permission: "settings.auth.manage",
+      order: 145,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["authorization", "groups", "claims", "mapping", "sso", "entra", "default role"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
       id: :policy_editor,
       category: :system,
       parent_group: :sys_security,

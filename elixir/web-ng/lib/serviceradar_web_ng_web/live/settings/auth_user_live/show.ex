@@ -40,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
         |> assign(:password_form, to_form(%{"password" => ""}, as: :password))
         |> assign(:events_page, nil)
         |> assign(:events, [])
+        |> assign(:role_mapping_event, nil)
 
       case AdminApi.get_user(scope, id) do
         {:ok, user} ->
@@ -50,7 +51,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
            |> assign(:user, user)
            |> assign(:form, to_form(default_form(user, role_profiles), as: :user))
            |> assign(:events, events)
-           |> assign(:events_page, events_page)}
+           |> assign(:events_page, events_page)
+           |> assign(:role_mapping_event, load_role_mapping_event(scope, user.id))}
 
         {:error, error} ->
           {:ok,
@@ -407,6 +409,52 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
               </div>
             </div>
 
+            <div :if={@role_mapping_event} class="sr-ui-card bg-sr-surface border border-sr-line">
+              <div class="sr-ui-card-body space-y-4">
+                <div class="flex items-center justify-between gap-3">
+                  <h2 class="sr-ui-card-title text-base">Access from group mappings</h2>
+                  <span class="text-xs opacity-60 font-mono">
+                    {format_datetime(@role_mapping_event.inserted_at)}
+                  </span>
+                </div>
+
+                <div class="text-xs opacity-70">
+                  Applied at this user's last single sign-on. Removing them from a mapped group
+                  revokes what it granted at their next sign-in. A role profile or group an
+                  operator assigned by hand is not shown here and is never revoked automatically.
+                </div>
+
+                <div class="text-sm">
+                  Resolved role:
+                  <span class="font-mono">
+                    {@role_mapping_event.metadata["resolved_role"]}
+                  </span>
+                </div>
+
+                <div class="sr-ui-table-shell">
+                  <table class={ui_table_class(size: "sm", zebra: true)}>
+                    <thead>
+                      <tr>
+                        <th>Matched on</th>
+                        <th>Granted</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr :for={mapping <- mapping_summaries(@role_mapping_event)}>
+                        <td class="text-sm font-mono">{mapping_match(mapping)}</td>
+                        <td class="text-sm font-mono">{mapping_grant(mapping)}</td>
+                      </tr>
+                      <tr :if={mapping_summaries(@role_mapping_event) == []}>
+                        <td colspan="2" class="text-center opacity-60 py-6">
+                          No mapping details recorded.
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
             <div class="sr-ui-card bg-sr-surface border border-sr-line">
               <div class="sr-ui-card-body space-y-4">
                 <div class="flex items-center justify-between gap-3">
@@ -584,6 +632,46 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
   defp blank_to_dash(nil), do: "—"
   defp blank_to_dash(""), do: "—"
   defp blank_to_dash(value), do: value
+
+  # What the identity provider last granted this user, and which mappings did it.
+  # The events feed shows that a role_mapping event happened but not what was in
+  # it, which is the half that answers "why does this user have this access".
+  defp load_role_mapping_event(scope, user_id) do
+    case UserAuthEvent.latest_of_type(user_id, "role_mapping", scope: scope) do
+      {:ok, [event | _]} -> event
+      _ -> nil
+    end
+  end
+
+  defp mapping_summaries(nil), do: []
+
+  defp mapping_summaries(event) do
+    case event.metadata do
+      %{"matched" => matched} when is_list(matched) -> matched
+      _ -> []
+    end
+  end
+
+  defp mapping_grant(%{} = mapping) do
+    [
+      mapping["role"] && "role #{mapping["role"]}",
+      mapping["role_profile_id"] && "profile #{mapping["role_profile_id"]}",
+      mapping["user_group_id"] && "group #{mapping["user_group_id"]}"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(", ")
+  end
+
+  defp mapping_grant(_mapping), do: ""
+
+  defp mapping_match(%{} = mapping) do
+    case mapping["source"] do
+      "claim" -> "#{mapping["claim"]} = #{mapping["value"]}"
+      source -> "#{source} = #{mapping["value"]}"
+    end
+  end
+
+  defp mapping_match(_mapping), do: ""
 
   defp load_events(scope, user_id, after_token, before_token) do
     query = Ash.Query.for_read(UserAuthEvent, :for_user, %{user_id: user_id}, scope: scope)

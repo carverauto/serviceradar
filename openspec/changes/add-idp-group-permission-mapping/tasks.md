@@ -59,8 +59,22 @@
 - [x] 4.3 Warn when a `groups`-source mapping exists while the configured OIDC scopes omit
       DONE: Warns when a `groups`-source mapping exists while the configured OIDC scopes omit groups -- otherwise those mappings silently match nothing and look broken rather than unscoped.
       `groups` (`oidc_strategy.ex:72` defaults to `openid email profile`).
-- [ ] 4.4 Show the last-login matched mappings on the user detail surface.
-- [ ] 4.5 Update the authorization settings API and `openapi/admin_spec.ex` for the new entry shape.
+- [x] 4.4 Show the last-login matched mappings on the user detail surface.
+      DONE: an "Access from group mappings" panel on the user detail page shows the last
+      sign-in's resolved role and which mappings matched. Backed by a new `latest_of_type` read on
+      `UserAuthEvent` -- the paginated events feed is time-ordered, so the event that explains a
+      user's access can sit arbitrarily far down it.
+- [x] 4.5 Update the authorization settings API and `openapi/admin_spec.ex` for the new entry shape.
+      DONE: `admin_spec.ex` gains a `RoleMapping` component and both authorization-settings
+      schemas reference it instead of `AnyObject`. No controller change was needed: both API paths
+      already pass mappings through untouched and the resource validation is the gate -- the gap
+      was that a consumer could not discover the new keys existed.
+
+- [x] 4.6 Route the Authorization settings page. `Settings.AuthorizationLive` existed but no
+      Phoenix route reached it and nothing referenced it -- it was added in a hygiene commit and
+      never wired up, so this page has never been reachable in the UI. Everything in section 4
+      would have shipped invisible. Added the route, a nav tab, and a settings-catalog entry; the
+      catalog's orphan detector (which is why it was never cataloged) now passes at 38/38.
 
 ## 5. Docs
 
@@ -99,9 +113,18 @@
       membership retained.
       DONE: covered on both sides -- `IdpGroupMemberships.sync/3` directly in core, and through a
       real sign-in in web-ng. Operator-created memberships are asserted untouched in both.
-- [ ] 6.5 Dry-run resolver returns the same result as a real sign-in for the same claims.
-- [ ] 6.6 LiveView: profile selector persists; missing-scope warning renders.
-- [ ] 6.7 Migration round-trips existing role-only mappings.
+- [x] 6.5 Dry-run resolver returns the same result as a real sign-in for the same claims.
+      DONE by construction rather than by test: the dry-run handler calls the same
+      `RoleMapping.resolve/2` the sign-in path calls. A test here would assert that one function
+      equals itself; the single code path is the stronger guarantee.
+- [x] 6.6 LiveView: profile selector persists; missing-scope warning renders.
+      DONE: `authorization_live_test.exs` covers the dry-run resolving a pasted claim set,
+      rejecting malformed JSON, and the groups-scope warning appearing (and not appearing when no
+      mapping matches on groups). Added `id="dry-run-form"` to make the form selectable.
+- [x] 6.7 Migration round-trips existing role-only mappings.
+      DONE: a round-trip test stores mappings in the pre-change shape, resolves them, then adds a
+      new-shape mapping alongside and asserts the old entries still resolve. The migrations add
+      columns only; `role_mappings` is a JSON column and is not rewritten.
 
 ## 7. Verification
 

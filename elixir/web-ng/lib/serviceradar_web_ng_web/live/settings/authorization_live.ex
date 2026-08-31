@@ -227,7 +227,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
                 would grant, without signing anyone in.
               </p>
 
-              <form phx-submit="dry_run" class="mt-3 space-y-3">
+              <form id="dry-run-form" phx-submit="dry_run" class="mt-3 space-y-3">
                 <textarea
                   name="dry_run[claims]"
                   placeholder={~s({"email": "user@example.com", "groups": ["SR-Plugin-Authors"]})}
