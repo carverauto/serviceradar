@@ -82,11 +82,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.ComponentsTest do
     }
   end
 
-  defp render_deliveries(rows) do
+  defp render_deliveries(rows, timezone \\ "Etc/UTC") do
     assigns = %{
       streams: %{deliveries: Enum.with_index(rows, &{"deliveries-#{&2}", &1})},
       filters: DeliveryFilters.empty(),
-      channel_index: channel_index()
+      channel_index: channel_index(),
+      timezone: timezone
     }
 
     rendered_to_string(~H"""
@@ -97,11 +98,55 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.ComponentsTest do
       selected={nil}
       limit={100}
       loading={false}
+      timezone={@timezone}
     />
     """)
   end
 
+  defp assert_user_time(html, id, datetime, timezone) do
+    time = html |> LazyHTML.from_fragment() |> LazyHTML.query("time##{id}")
+
+    assert LazyHTML.attribute(time, "datetime") == [datetime]
+    assert LazyHTML.attribute(time, "data-user-time-zone") == [timezone]
+  end
+
   describe "delivery log" do
+    test "absolute delivery times use the saved timezone without changing their canonical instants" do
+      html =
+        render_deliveries(
+          [
+            delivery(%{
+              state: :suppressed,
+              suppression_reason: :silence,
+              occurrence_count: 2,
+              last_evaluated_at: ~U[2026-08-09 12:01:00.000000Z],
+              next_attempt_at: ~U[2026-08-09 12:02:00.000000Z],
+              queued_at: ~U[2026-08-09 12:03:00.000000Z],
+              started_at: ~U[2026-08-09 12:04:00.000000Z],
+              finished_at: ~U[2026-08-09 12:05:00.000000Z]
+            })
+          ],
+          "America/Chicago"
+        )
+
+      delivery_id = "018f7a10-0000-7000-8000-00000000000a"
+
+      for {field, datetime} <- [
+            {"last-evaluated-at", "2026-08-09T12:01:00.000000Z"},
+            {"next-attempt-at", "2026-08-09T12:02:00.000000Z"},
+            {"queued-at", "2026-08-09T12:03:00.000000Z"},
+            {"started-at", "2026-08-09T12:04:00.000000Z"},
+            {"finished-at", "2026-08-09T12:05:00.000000Z"}
+          ] do
+        assert_user_time(
+          html,
+          "notification-delivery-#{delivery_id}-#{field}",
+          datetime,
+          "America/Chicago"
+        )
+      end
+    end
+
     test "a suppressed delivery is displayed with its reason and its explanation" do
       html =
         render_deliveries([
@@ -420,6 +465,57 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.ComponentsTest do
   end
 
   describe "channels list" do
+    test "health timestamps use the saved timezone and stable channel identity" do
+      channel = %{
+        id: "chan-timezone",
+        name: "Timezone channel",
+        description: nil,
+        enabled: true,
+        health: :healthy,
+        last_success_at: ~U[2026-08-09 12:00:00.000000Z],
+        last_failure_at: ~U[2026-08-09 13:00:00.000000Z],
+        last_error: nil,
+        max_attempts: 3,
+        rate_limit_per_minute: nil,
+        execution_route: :control_plane,
+        agent_uid: nil,
+        partition_id: nil,
+        fail_closed: false,
+        fallback_channel_id: nil,
+        provider: %{display_name: "Webhook", provider_type: :native}
+      }
+
+      assigns = %{
+        streams: %{channels: [{"channels-timezone", channel}]},
+        channel_index: %{"chan-timezone" => channel},
+        timezone: "America/Chicago"
+      }
+
+      html =
+        rendered_to_string(~H"""
+        <Components.channels_tab
+          streams={@streams}
+          can_manage={false}
+          channel_index={@channel_index}
+          timezone={@timezone}
+        />
+        """)
+
+      assert_user_time(
+        html,
+        "notification-channel-chan-timezone-last-success-at",
+        "2026-08-09T12:00:00.000000Z",
+        "America/Chicago"
+      )
+
+      assert_user_time(
+        html,
+        "notification-channel-chan-timezone-last-failure-at",
+        "2026-08-09T13:00:00.000000Z",
+        "America/Chicago"
+      )
+    end
+
     test "health is conveyed by text, not colour alone, and the last error is on demand" do
       channel = %{
         id: "chan-1",
@@ -557,6 +653,88 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.ComponentsTest do
     end
   end
 
+  describe "notification schedule presentation" do
+    test "silence windows use the saved timezone and stable silence identity" do
+      silence = %{
+        id: "silence-timezone",
+        name: "Maintenance",
+        created_by: "operator",
+        state: :scheduled,
+        starts_at: ~U[2026-08-09 12:00:00.000000Z],
+        ends_at: ~U[2026-08-09 14:00:00.000000Z],
+        matchers: %{},
+        comment: "Maintenance window"
+      }
+
+      assigns = %{
+        streams: %{silences: [{"silences-timezone", silence}]},
+        timezone: "America/Chicago"
+      }
+
+      html =
+        rendered_to_string(~H"""
+        <Components.silences_tab
+          streams={@streams}
+          can_manage={false}
+          timezone={@timezone}
+        />
+        """)
+
+      assert_user_time(
+        html,
+        "notification-silence-silence-timezone-starts-at",
+        "2026-08-09T12:00:00.000000Z",
+        "America/Chicago"
+      )
+
+      assert_user_time(
+        html,
+        "notification-silence-silence-timezone-ends-at",
+        "2026-08-09T14:00:00.000000Z",
+        "America/Chicago"
+      )
+    end
+
+    test "provider definition history uses the saved timezone and version identity" do
+      assigns = %{
+        versions: %{
+          provider: %{
+            id: "provider-timezone",
+            display_name: "Webhook",
+            definition_version: 2
+          },
+          channels: [],
+          entries: [
+            %{
+              number: 2,
+              current?: true,
+              recorded_at: ~U[2026-08-09 15:00:00.000000Z],
+              action: "update",
+              definition: %{}
+            }
+          ]
+        },
+        timezone: "America/Chicago"
+      }
+
+      html =
+        rendered_to_string(~H"""
+        <Components.provider_versions_panel
+          versions={@versions}
+          can_manage={false}
+          timezone={@timezone}
+        />
+        """)
+
+      assert_user_time(
+        html,
+        "notification-provider-provider-timezone-version-2-recorded-at",
+        "2026-08-09T15:00:00.000000Z",
+        "America/Chicago"
+      )
+    end
+  end
+
   describe "channel editor failover section" do
     defp render_failover(params, index \\ %{}) do
       assigns = %{params: params, channel_index: index}
@@ -672,7 +850,30 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.ComponentsTest do
       "widgets" => [
         %{
           "type" => "facts",
-          "fields" => [%{"label" => "Upstream status", "path" => "last_error"}]
+          "fields" => [
+            %{"label" => "Upstream status", "path" => "last_error"},
+            %{
+              "label" => "Last success",
+              "path" => "last_success_at",
+              "format" => "timestamp"
+            }
+          ]
+        }
+      ]
+    }
+
+    @delivery_contract %{
+      "id" => "com.thirdparty.pageco.delivery.display",
+      "version" => "1.0.0",
+      "schema_id" => "pageco",
+      "schema_version" => "1.0.0",
+      "surface" => "notification_delivery",
+      "widgets" => [
+        %{
+          "type" => "facts",
+          "fields" => [
+            %{"label" => "Completed", "path" => "completed_at", "format" => "timestamp"}
+          ]
         }
       ]
     }
@@ -681,7 +882,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.ComponentsTest do
       id: @package_id,
       plugin_id: "pageco",
       version: "2.0.0",
-      display_contracts: %{"com.thirdparty.pageco.health.display@1.0.0" => @health_contract},
+      display_contracts: %{
+        "com.thirdparty.pageco.health.display@1.0.0" => @health_contract,
+        "com.thirdparty.pageco.delivery.display@1.0.0" => @delivery_contract
+      },
       manifest: %{
         "id" => "pageco",
         "name" => "PageCo",
@@ -809,7 +1013,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.ComponentsTest do
         description: nil,
         enabled: true,
         health: :failing,
-        last_success_at: nil,
+        last_success_at: ~U[2026-08-09 12:00:00.000000Z],
         last_failure_at: nil,
         last_error: "upstream 503",
         max_attempts: 3,
@@ -838,12 +1042,59 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.ComponentsTest do
           channel_index={@channel_index}
           test_result={nil}
           loading={false}
+          timezone="America/Chicago"
         />
         """)
 
       # The package's own label for the field, which nothing in web-ng knows.
       assert html =~ "Upstream status"
       assert html =~ "upstream 503"
+
+      assert_user_time(
+        html,
+        "channel-chan-pageco-health-contract-widget-0-field-1-time",
+        "2026-08-09T12:00:00.000000Z",
+        "America/Chicago"
+      )
+    end
+
+    test "delivery detail passes the saved timezone to a package contract" do
+      install([@package])
+
+      selected = %{
+        delivery:
+          delivery(%{
+            result_summary: %{"completed_at" => "2026-08-09T13:00:00.000000Z"}
+          }),
+        chain: %{origin: nil, successors: []}
+      }
+
+      assigns = %{
+        selected: selected,
+        channel_index: %{
+          "chan-1" => %{
+            id: "chan-1",
+            name: "PageCo primary",
+            provider: @provider
+          }
+        }
+      }
+
+      html =
+        rendered_to_string(~H"""
+        <Components.delivery_detail
+          selected={@selected}
+          channel_index={@channel_index}
+          timezone="America/Chicago"
+        />
+        """)
+
+      assert_user_time(
+        html,
+        "delivery-018f7a10-0000-7000-8000-00000000000a-contract-widget-0-field-0-time",
+        "2026-08-09T13:00:00.000000Z",
+        "America/Chicago"
+      )
     end
   end
 end

@@ -463,10 +463,20 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                         <.status_badge status={package.status} />
                       </td>
                       <td class="text-xs text-sr-muted">
-                        {format_datetime(package.created_at)}
+                        <.user_time
+                          id={"admin-edge-package-#{package.id}-created-at"}
+                          value={package.created_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                        />
                       </td>
                       <td class="text-xs text-sr-muted">
-                        {format_datetime(package.download_token_expires_at)}
+                        <.user_time
+                          id={"admin-edge-package-#{package.id}-download-token-expires-at"}
+                          value={package.download_token_expires_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                        />
                       </td>
                       <td>
                         <div class="flex gap-1">
@@ -516,6 +526,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         :if={@show_details_modal}
         package={@selected_package}
         events={@package_events}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
       />
     </Layouts.app>
     """
@@ -935,7 +946,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       diff < 0 -> "Expired"
       diff < 24 -> "#{diff}h remaining"
       diff < 48 -> "Tomorrow"
-      true -> Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+      true -> "in #{div(diff, 24)}d"
     end
   end
 
@@ -972,6 +983,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp cert_cn(_), do: "N/A"
+
+  attr :package, :map, required: true
+  attr :events, :list, required: true
+  attr :timezone, :string, required: true
 
   defp details_modal(assigns) do
     ~H"""
@@ -1014,11 +1029,23 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             </div>
             <div>
               <div class="text-xs uppercase tracking-wide text-sr-muted">Created</div>
-              <div class="text-sm">{format_datetime(@package.created_at)}</div>
+              <.user_time
+                id={"admin-edge-package-#{@package.id}-detail-created-at"}
+                value={@package.created_at}
+                timezone={@timezone}
+                style={:compact}
+                class="text-sm"
+              />
             </div>
             <div>
               <div class="text-xs uppercase tracking-wide text-sr-muted">Token Expires</div>
-              <div class="text-sm">{format_datetime(@package.download_token_expires_at)}</div>
+              <.user_time
+                id={"admin-edge-package-#{@package.id}-detail-download-token-expires-at"}
+                value={@package.download_token_expires_at}
+                timezone={@timezone}
+                style={:compact}
+                class="text-sm"
+              />
             </div>
           </div>
 
@@ -1077,7 +1104,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                         </.ui_badge>
                       </td>
                       <td class="text-xs">{event.actor || "system"}</td>
-                      <td class="text-xs font-mono">{format_datetime(event.event_time)}</td>
+                      <td class="text-xs font-mono">
+                        <.user_time
+                          id={"admin-edge-package-#{@package.id}-event-#{event.id}-event-time"}
+                          value={event.event_time}
+                          timezone={@timezone}
+                          style={:compact}
+                        />
+                      </td>
                     </tr>
                   <% end %>
                 </tbody>
@@ -1155,18 +1189,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       "deleted" -> "ghost"
       _ -> "ghost"
     end
-  end
-
-  defp format_datetime(nil), do: "-"
-
-  defp format_datetime(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  end
-
-  defp format_datetime(%NaiveDateTime{} = dt) do
-    dt
-    |> DateTime.from_naive!("Etc/UTC")
-    |> format_datetime()
   end
 
   # Build AshPhoenix.Form for creating OnboardingPackage

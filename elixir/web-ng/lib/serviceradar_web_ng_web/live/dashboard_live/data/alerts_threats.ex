@@ -44,8 +44,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.AlertsThreats do
                   status: status,
                   source_type: source_type,
                   device_uid: device_uid,
-                  observed_at: observed_at,
-                  observed_label: format_alert_time(observed_at)
+                  observed_at: observed_at
                 }
               end)
 
@@ -198,7 +197,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.AlertsThreats do
           max_severity: to_int(max_severity),
           sources: decode_threat_intel_sources(sources),
           looked_up_at: looked_up_at,
-          looked_up_label: format_sync_time(looked_up_at),
           device_uid: blank_to_nil(device_uid),
           hostname: blank_to_nil(hostname)
         }
@@ -256,9 +254,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.AlertsThreats do
                 latest_success_at: success_at,
                 latest_sync_indicators: to_int(indicators),
                 latest_sync_skipped: to_int(skipped),
-                latest_sync_total: to_int(total),
-                latest_attempt_label: format_sync_time(attempted_at),
-                latest_success_label: format_sync_time(success_at)
+                latest_sync_total: to_int(total)
               }
 
             _ ->

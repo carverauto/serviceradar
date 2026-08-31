@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
 
   alias ServiceRadar.Notifications.NotificationChannel
   alias ServiceRadarWebNG.AccountsFixtures
+  alias ServiceRadarWebNG.NotificationsFixtures
 
   require Ash.Query
 
@@ -74,6 +75,53 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLiveTest do
       {:ok, _lv, html} = live(conn, ~p"/settings/notifications/#{crafted}")
 
       assert html =~ "Channels"
+    end
+  end
+
+  describe "user timezone boundary" do
+    test "persisted profile timezone reaches timestamp-bearing silence rows", %{conn: conn} do
+      user = AccountsFixtures.user_fixture(%{role: :admin})
+
+      user =
+        Ash.update!(user, %{timezone: "America/Chicago"},
+          action: :update_timezone_preference,
+          actor: user
+        )
+
+      starts_at = ~U[2030-08-09 12:00:00.000000Z]
+      ends_at = ~U[2030-08-09 14:00:00.000000Z]
+
+      silence =
+        NotificationsFixtures.silence_fixture(%{
+          name: "Chicago maintenance",
+          starts_at: starts_at,
+          ends_at: ends_at
+        })
+
+      {:ok, view, _html} =
+        conn
+        |> log_in_user(user)
+        |> live(~p"/settings/notifications/silences")
+
+      assert has_element?(
+               view,
+               ~s(time#notification-silence-#{silence.id}-starts-at[datetime="2030-08-09T12:00:00.000000Z"])
+             )
+
+      assert has_element?(
+               view,
+               ~s(time#notification-silence-#{silence.id}-starts-at[data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               view,
+               ~s(time#notification-silence-#{silence.id}-ends-at[datetime="2030-08-09T14:00:00.000000Z"])
+             )
+
+      assert has_element?(
+               view,
+               ~s(time#notification-silence-#{silence.id}-ends-at[data-user-time-zone="America/Chicago"])
+             )
     end
   end
 

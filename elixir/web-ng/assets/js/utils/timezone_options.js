@@ -21,7 +21,9 @@ export function filterTimezoneOptions(serverZones, currentZone, options = {}) {
   if (typeof intl.supportedValuesOf === "function") {
     try {
       const browserZones = new Set(intl.supportedValuesOf("timeZone"))
-      candidates = candidates.filter((zone) => zone === "Etc/UTC" || browserZones.has(zone))
+      candidates = candidates.filter(
+        (zone) => zone === "Etc/UTC" || browserZones.has(zone) || canFormatTimeZone(intl, zone),
+      )
     } catch (_error) {
       // Older or partial Intl implementations can expose this API but reject the
       // timeZone key. Probe the server-approved values instead of discarding them.

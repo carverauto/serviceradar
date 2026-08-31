@@ -20,8 +20,18 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
       {:ok,
        %{
          "results" => [
-           %{"service" => "core", "status" => "ok", "value" => 1},
-           %{"service" => "web-ng", "status" => "ok", "value" => 1}
+           %{
+             "service" => "core",
+             "status" => "ok",
+             "value" => 1,
+             "observed_at" => ~U[2026-08-30 18:00:00Z]
+           },
+           %{
+             "service" => "web-ng",
+             "status" => "ok",
+             "value" => 1,
+             "observed_at" => ~U[2026-08-30 18:01:00Z]
+           }
          ]
        }}
     end
@@ -44,6 +54,13 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
     ensure_oban_started!()
 
     user = admin_user_fixture()
+
+    user =
+      Ash.update!(user, %{timezone: "America/Chicago"},
+        action: :update_timezone_preference,
+        actor: user
+      )
+
     scope = Scope.for_user(user)
 
     {:ok, dashboard} =
@@ -127,10 +144,12 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
 
     assert :ok = ReportDeliveryWorker.perform(%Oban.Job{args: %{"delivery_id" => delivery.id}})
 
-    assert_email_sent(
-      to: [{"", "noc@example.com"}],
-      subject: "ServiceRadar dashboard report: #{dashboard.title}"
-    )
+    assert_email_sent(fn email ->
+      assert email.to == [{"", "noc@example.com"}]
+      assert email.subject == "ServiceRadar dashboard report: #{dashboard.title}"
+      assert email.text_body =~ "2026-08-30T18:00:00Z"
+      assert email.html_body =~ "2026-08-30T18:00:00Z"
+    end)
 
     delivery = get_delivery!(delivery.id)
     assert delivery.status == :sent

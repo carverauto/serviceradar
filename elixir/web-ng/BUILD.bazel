@@ -44,6 +44,17 @@ package(default_visibility = ["//visibility:public"])
 # filegroup membership would break the test the moment one of those globs is reorganised.
 exports_files(["config/config.exs"])
 
+# Standalone HEEx templates scanned at runtime by TimestampFormatterInventoryTest.
+# Keep this a named input so a broad unit-test data-glob refactor cannot silently
+# remove production templates from the audit.
+filegroup(
+    name = "timestamp_formatter_audit_heex_srcs",
+    srcs = glob(
+        ["lib/**/*.heex"],
+        allow_empty = True,
+    ),
+)
+
 filegroup(
     name = "srcs",
     srcs = glob(
@@ -359,7 +370,14 @@ ex_unit_tests(
             "test/**",
         ],
         allow_empty = True,
-        exclude = ["test/**/*_test.exs"],
+        exclude = [
+            # Named explicitly below as an audit runfile.
+            "lib/**/*.heex",
+            "test/**/*_test.exs",
+            # Named explicitly below so the timestamp audit cannot lose its
+            # checked classification artifact in a broad data-glob refactor.
+            "test/fixtures/timestamp_formatter_inventory.json",
+        ],
     ) + [
         # Runtime inputs for ContractRegistryTest's actual first-party package
         # reachability checks. mix_app compile inputs do not automatically become
@@ -369,6 +387,11 @@ ex_unit_tests(
         # assets/ is its own package; glob() here cannot see css/app.css.
         # DashboardLayoutTest reads it at runtime.
         "//elixir/web-ng/assets:css/app.css",
+        # TimestampFormatterInventoryTest scans production JavaScript at runtime.
+        # assets/ is a separate package, so these sources must be explicit runfiles.
+        "//elixir/web-ng/assets:timestamp_formatter_audit_js_srcs",
+        ":timestamp_formatter_audit_heex_srcs",
+        "test/fixtures/timestamp_formatter_inventory.json",
         # PluginConfigFormTest reads the live OpenText schema via Path.expand
         # from __DIR__. ex_unit_test mirrors the workspace layout, so this
         # declared input is what makes that relative path exist in the sandbox.

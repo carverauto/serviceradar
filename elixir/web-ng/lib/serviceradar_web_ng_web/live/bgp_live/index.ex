@@ -243,7 +243,10 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
           <.data_sources_panel sources={@data_sources} />
 
           <!-- Traffic Time Series -->
-          <.traffic_timeseries_chart timeseries={@traffic_timeseries} />
+          <.traffic_timeseries_chart
+            timeseries={@traffic_timeseries}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
+          />
 
           <!-- Main Statistics Grid -->
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -69,6 +69,19 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventsPanelTest do
     assert_present(selector, ".sr-ops-events-axis + [data-range-overlay]")
     assert_present(selector, ".sr-ops-events-legend")
 
+    axis_times = LazyHTML.query(selector, ".sr-ops-events-axis text[phx-hook='UserTime']")
+
+    assert LazyHTML.attribute(axis_times, "data-user-time-iso") == [
+             "2026-08-27T10:00:00Z",
+             "2026-08-27T12:00:00Z",
+             "2026-08-27T13:00:00Z"
+           ]
+
+    assert LazyHTML.attribute(axis_times, "data-user-time-zone") ==
+             List.duplicate("America/Chicago", 3)
+
+    assert axis_times |> LazyHTML.attribute("id") |> Enum.uniq() |> length() == 3
+
     assert selector
            |> LazyHTML.query(".sr-ops-events-line")
            |> LazyHTML.attribute("points") == ["36,149 326,103 616,26"]
@@ -120,7 +133,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventsPanelTest do
     for {trend, max_total} <- [
           {[Map.put(valid, :total, "4")], 10},
           {[Map.put(valid, :low, "4")], 10},
-          {[Map.put(valid, :label, nil)], 10},
           {[valid], "10"}
         ] do
       trend
@@ -166,7 +178,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventsPanelTest do
         security_trend_max: security_trend_max,
         time_window_label: "24h"
       },
-      embedded: true
+      embedded: true,
+      timezone: "America/Chicago"
     )
     |> LazyHTML.from_fragment()
   end

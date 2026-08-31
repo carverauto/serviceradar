@@ -14,6 +14,16 @@ defmodule ServiceRadar.Identity.Validations.ProfileTimezoneTest do
     assert normalized.data.timezone == "America/New_York"
   end
 
+  test "normalizes the pending timezone in the atomic update path" do
+    assert {:ok, normalized} =
+             " GMT "
+             |> changeset()
+             |> NormalizeTimezonePreference.atomic([], %{})
+
+    assert Ash.Changeset.get_attribute(normalized, :timezone) == "Etc/UTC"
+    assert normalized.data.timezone == "America/New_York"
+  end
+
   test "returns a timezone field error for an invalid profile timezone" do
     assert ProfileTimezone.validate(changeset("Etc/GMT+5"), [], %{}) ==
              {:error, field: :timezone, message: "is not a supported timezone"}
@@ -33,9 +43,20 @@ defmodule ServiceRadar.Identity.Validations.ProfileTimezoneTest do
     assert changeset.data.timezone == "America/New_York"
   end
 
-  test "reports the PostgreSQL catalog read as non-atomic" do
-    assert ProfileTimezone.atomic(changeset("America/Chicago"), [], %{}) ==
-             {:not_atomic, "profile timezone validation requires a PostgreSQL catalog read"}
+  test "validates the pending timezone during an atomic update" do
+    catalog_query = fn _sql, _params -> {:ok, %{rows: [["America/Chicago"]]}} end
+
+    valid = "America/Chicago" |> changeset() |> put_time_zone_query(catalog_query)
+    invalid = "America/New_York" |> changeset() |> put_time_zone_query(catalog_query)
+
+    assert ProfileTimezone.atomic(valid, [], %{}) == :ok
+
+    assert ProfileTimezone.atomic(invalid, [], %{}) ==
+             {:error, field: :timezone, message: "is not a supported timezone"}
+  end
+
+  test "keeps the user timezone update action atomic" do
+    assert Ash.Resource.Info.action(User, :update_timezone_preference).require_atomic?
   end
 
   defp changeset(timezone) do

@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
   attr :running, :list, required: true
   attr :recent, :list, required: true
   attr :groups, :list, required: true
+  attr :timezone, :string, required: true
 
   def scan_statistics(assigns) do
     # Calculate stats from recent executions
@@ -56,7 +57,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
             <% end %>
             {format_number(@available_hosts)} available
             <%= if @latest_completed do %>
-              • {format_last_run(@latest_completed.completed_at || @latest_completed.updated_at)}
+              •
+              <.user_time
+                id={"settings-active-scan-#{@latest_completed.id}-completed-at"}
+                value={@latest_completed.completed_at || @latest_completed.updated_at}
+                timezone={@timezone}
+                style={:compact}
+              />
             <% end %>
           </div>
         </div>
@@ -285,6 +292,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
   attr :execution, :map, required: true
   attr :group, :map, default: nil
   attr :progress, :map, default: nil
+  attr :timezone, :string, required: true
 
   def running_scan_card(assigns) do
     progress_data = compute_scan_progress(assigns.execution, assigns.progress)
@@ -316,7 +324,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
                 <.icon name="hero-server" class="size-3 inline" />
                 {Map.get(@execution, :agent_id)}
               </span>
-              <span>Started {format_relative_time(Map.get(@execution, :started_at))}</span>
+              <span>
+                Started
+                <.relative_time
+                  id={"settings-active-scan-#{@execution.id}-started-at"}
+                  value={Map.get(@execution, :started_at)}
+                  timezone={@timezone}
+                />
+              </span>
             </div>
           </div>
         </div>
@@ -359,6 +374,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
   # Recent Execution Row Component
   attr :execution, :map, required: true
   attr :group, :map, default: nil
+  attr :timezone, :string, required: true
 
   def recent_execution_row(assigns) do
     has_metrics = assigns.execution.scanner_metrics && assigns.execution.scanner_metrics != %{}
@@ -378,7 +394,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
         </div>
       </td>
       <td class="text-xs text-sr-muted">
-        {format_relative_time(@execution.started_at)}
+        <.relative_time
+          id={"settings-active-scan-#{@execution.id}-recent-started-at"}
+          value={@execution.started_at}
+          timezone={@timezone}
+        />
       </td>
       <td class="font-mono text-xs">
         {format_duration(@execution.duration_ms)}
@@ -584,11 +604,41 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
       diff_seconds < 60 -> "#{diff_seconds}s ago"
       diff_seconds < 3600 -> "#{div(diff_seconds, 60)}m ago"
       diff_seconds < 86_400 -> "#{div(diff_seconds, 3600)}h ago"
-      true -> Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+      true -> "#{div(diff_seconds, 86_400)}d ago"
     end
   end
 
   def format_relative_time(_), do: "—"
+
+  attr :id, :string, required: true
+  attr :value, :any, required: true
+  attr :timezone, :string, required: true
+
+  defp relative_time(assigns) do
+    absolute? =
+      case assigns.value do
+        %DateTime{} = value -> DateTime.diff(DateTime.utc_now(), value, :second) >= 86_400
+        _ -> false
+      end
+
+    assigns
+    |> assign(:absolute?, absolute?)
+    |> then(fn assigns ->
+      ~H"""
+      <%= if @absolute? do %>
+        <.user_time
+          id={@id}
+          value={@value}
+          timezone={@timezone}
+          style={:compact}
+          fallback="—"
+        />
+      <% else %>
+        {format_relative_time(@value)}
+      <% end %>
+      """
+    end)
+  end
 
   def format_duration(nil), do: "—"
   def format_duration(ms) when is_integer(ms) and ms < 1000, do: "#{ms}ms"
@@ -602,14 +652,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
   end
 
   def format_duration(_), do: "—"
-
-  def format_last_run(nil), do: "Never"
-
-  def format_last_run(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  end
-
-  def format_last_run(_), do: "—"
 
   def group_last_run_at(%{last_run_at: %DateTime{} = last_run_at}), do: last_run_at
 

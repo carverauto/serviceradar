@@ -4,7 +4,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
   use ServiceRadarWebNGWeb, :html
 
   import ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents,
-    only: [format_last_run: 1, group_last_run_at: 1]
+    only: [group_last_run_at: 1]
 
   import ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponents
 
@@ -685,6 +685,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
   # Group Detail View
   attr :group, :map, required: true
   attr :summary_agents, :map, default: %{}
+  attr :timezone, :string, required: true
 
   def group_detail(assigns) do
     ~H"""
@@ -739,7 +740,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           </div>
           <div>
             <div class="text-xs text-sr-muted uppercase">Last Run</div>
-            <div class="mt-1">{format_last_run(group_last_run_at(@group))}</div>
+            <div class="mt-1">
+              <.user_time
+                id={"settings-sweep-group-#{@group.id}-detail-last-run-at"}
+                value={group_last_run_at(@group)}
+                timezone={@timezone}
+                style={:compact}
+                fallback="Never"
+              />
+            </div>
           </div>
         </div>
       </.ui_panel>

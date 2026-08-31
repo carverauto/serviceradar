@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
   attr(:pending_jobs, :list, required: true)
   attr(:filter_target, :string, required: true)
   attr(:filter_agent, :string, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def render(assigns) do
     ~H"""
@@ -47,8 +48,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
           </tr>
         </thead>
         <tbody>
-          <.pending_rows pending_jobs={@pending_jobs} />
-          <.trace_rows traces={@traces} />
+          <.pending_rows pending_jobs={@pending_jobs} timezone={@timezone} />
+          <.trace_rows traces={@traces} timezone={@timezone} />
           <tr :if={@pending_jobs == [] and @traces == []}>
             <td colspan="8" class="text-center py-8 sr-mtr-muted">
               No MTR traces found. Traces will appear once agents run MTR checks.
@@ -61,11 +62,20 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
   end
 
   attr(:pending_jobs, :list, required: true)
+  attr(:timezone, :string, required: true)
 
   defp pending_rows(assigns) do
     ~H"""
     <tr :for={job <- @pending_jobs} class="hover opacity-80">
-      <td class="whitespace-nowrap text-xs">{format_time(job.inserted_at)}</td>
+      <td class="whitespace-nowrap text-xs">
+        <.user_time
+          id={"mtr-pending-job-#{job.id}-inserted-at"}
+          value={job.inserted_at}
+          timezone={@timezone}
+          style={:compact}
+          fallback="-"
+        />
+      </td>
       <td>
         <div class="font-mono text-sm">{job.payload[Config.payload_target_key()] || "-"}</div>
       </td>
@@ -94,11 +104,20 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
   end
 
   attr(:traces, :list, required: true)
+  attr(:timezone, :string, required: true)
 
   defp trace_rows(assigns) do
     ~H"""
-    <tr :for={trace <- @traces} class="hover">
-      <td class="whitespace-nowrap text-xs">{format_time(trace["time"])}</td>
+    <tr :for={{trace, trace_index} <- Enum.with_index(@traces)} class="hover">
+      <td class="whitespace-nowrap text-xs">
+        <.user_time
+          id={"mtr-trace-#{trace_identity(trace, trace_index)}-time"}
+          value={trace["time"]}
+          timezone={@timezone}
+          style={:compact}
+          fallback="-"
+        />
+      </td>
       <td>
         <div class="font-mono text-sm">{trace[Config.payload_target_key()]}</div>
         <div
@@ -173,5 +192,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
       </td>
     </tr>
     """
+  end
+
+  defp trace_identity(trace, index) do
+    Enum.find(
+      [Map.get(trace, "id"), Map.get(trace, "trace_id"), Map.get(trace, :id), Map.get(trace, :trace_id)],
+      index,
+      &(&1 not in [nil, ""])
+    )
   end
 end

@@ -217,7 +217,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                         >
                           {source_device_label(row, @device_uid, @device_display_name)}
                         </span>
-                        <span>{format_timestamp(value(row, "time"))}</span>
+                        <.user_time
+                          id={timestamp_row_id("device-anomaly", row, index)}
+                          value={parse_timestamp(value(row, "time"))}
+                          timezone={@timezone}
+                          style={:compact}
+                          fallback="n/a"
+                        />
                       </div>
                     </div>
                     <.ui_badge
@@ -309,7 +315,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
                         </div>
                       </td>
                       <td class="whitespace-nowrap">
-                        {format_timestamp(value(row, "projected_exhaustion_at"))}
+                        <.user_time
+                          id={timestamp_row_id("device-capacity-exhaustion", row, index)}
+                          value={parse_timestamp(value(row, "projected_exhaustion_at"))}
+                          timezone={@timezone}
+                          style={:compact}
+                          fallback="n/a"
+                        />
                         <div :if={capacity_horizon_label(row)} class="text-xs text-sr-muted">
                           horizon {capacity_horizon_label(row)}
                         </div>
@@ -469,8 +481,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
             value={detail_series(@detail)}
             title={detail_series_title(@detail)}
           />
-          <.detail_item label={detail_time_label(@detail)} value={detail_time(@detail)} />
-          <.detail_item label="Projected crossing" value={detail_projected_crossing(@detail)} />
+          <.detail_time_item
+            id="anomaly-capacity-detail-observed-time"
+            label={detail_time_label(@detail)}
+            value={detail_time(@detail)}
+            timezone={@timezone}
+          />
+          <.detail_time_item
+            id="anomaly-capacity-detail-projected-crossing"
+            label="Projected crossing"
+            value={detail_projected_crossing(@detail)}
+            timezone={@timezone}
+          />
           <.detail_item label="Confidence" value={detail_confidence(@detail)} />
         </div>
 
@@ -539,10 +561,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
               {detail_marker_description(@detail)}
             </p>
           </div>
-          <div :for={section <- @detail_chart_sections} class="rounded-lg border border-sr-line p-3">
+          <div
+            :for={{section, section_index} <- Enum.with_index(@detail_chart_sections)}
+            class="rounded-lg border border-sr-line p-3"
+          >
             <div class="mb-2 flex items-center gap-2">
               <span class="text-sm font-semibold">{section.title}</span>
               <span class="text-xs text-sr-muted">{section.subtitle}</span>
+              <span
+                :if={Map.get(section, :subtitle_time)}
+                class="text-xs text-sr-muted"
+              >
+                · centered at
+                <.user_time
+                  id={"anomaly-capacity-detail-#{section.key}-#{section_index}-subtitle-time"}
+                  value={Map.get(section, :subtitle_time)}
+                  timezone={@timezone}
+                  style={:compact}
+                  fallback=""
+                />
+              </span>
             </div>
             <%= for {panel, idx} <- Enum.with_index(section.panels) do %>
               <.live_component
@@ -580,6 +618,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
       <div class="mt-1 break-words text-sm [overflow-wrap:anywhere]" title={@title_value}>
         {@display_value}
       </div>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+  attr :timezone, :string, required: true
+
+  defp detail_time_item(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-sr-line p-3">
+      <div class="text-xs font-semibold uppercase tracking-normal text-sr-muted">
+        {@label}
+      </div>
+      <.user_time
+        id={@id}
+        value={@value}
+        timezone={@timezone}
+        style={:compact}
+        fallback="n/a"
+        class="mt-1 break-words text-sm [overflow-wrap:anywhere]"
+      />
     </div>
     """
   end
@@ -1333,13 +1394,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   defp detail_time(%{kind: "capacity", row: row}) do
     row
     |> first_present([["forecasted_at"], ["time"], ["timestamp"], ["window_ended_at"]])
-    |> format_timestamp()
+    |> parse_timestamp()
   end
 
   defp detail_time(%{kind: "capacity_notice", row: row}) do
     row
     |> first_present([["time"], ["forecasted_at"], ["window_ended_at"]])
-    |> format_timestamp()
+    |> parse_timestamp()
   end
 
   defp detail_time(%{kind: "anomaly", row: row}) do
@@ -1350,22 +1411,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
         value(row, "time")
       end
 
-    format_timestamp(timestamp)
+    parse_timestamp(timestamp)
   end
 
-  defp detail_time(%{row: row}), do: format_timestamp(value(row, "time"))
+  defp detail_time(%{row: row}), do: parse_timestamp(value(row, "time"))
   defp detail_time(_), do: nil
 
   defp detail_projected_crossing(%{kind: "capacity", row: row}) do
     row
     |> first_present([["projected_exhaustion_at"], ["horizon_ends_at"]])
-    |> format_timestamp()
+    |> parse_timestamp()
   end
 
   defp detail_projected_crossing(%{kind: "capacity_notice", row: row}) do
     row
     |> first_present([["projected_exhaustion_at"], ["horizon_ends_at"]])
-    |> format_timestamp()
+    |> parse_timestamp()
   end
 
   defp detail_projected_crossing(_), do: nil
@@ -1627,28 +1688,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
 
   defp format_percent(_), do: "n/a"
 
-  defp format_timestamp(nil), do: "n/a"
-  defp format_timestamp(""), do: "n/a"
-
-  defp format_timestamp(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M UTC")
-  end
-
-  defp format_timestamp(%NaiveDateTime{} = ndt) do
-    ndt
-    |> DateTime.from_naive!("Etc/UTC")
-    |> format_timestamp()
-  end
-
-  defp format_timestamp(value) when is_binary(value) do
-    case parse_timestamp(value) do
-      %DateTime{} = dt -> format_timestamp(dt)
-      nil -> value
-    end
-  end
-
-  defp format_timestamp(value), do: to_string(value)
-
   defp parse_timestamp(nil), do: nil
   defp parse_timestamp(""), do: nil
   defp parse_timestamp(%DateTime{} = dt), do: dt
@@ -1668,6 +1707,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
   end
 
   defp parse_timestamp(_), do: nil
+
+  defp timestamp_row_id(prefix, row, index) do
+    identity =
+      first_present(row, [
+        ["finding_uid"],
+        ["episode_uid"],
+        ["id"],
+        ["resource_key"],
+        ["series_key"],
+        ["time"],
+        ["projected_exhaustion_at"]
+      ]) || index
+
+    "#{prefix}-#{dom_id_segment(identity, index)}-time"
+  end
+
+  defp dom_id_segment(value, fallback) do
+    segment =
+      value
+      |> to_string()
+      |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+      |> String.trim("-")
+      |> String.slice(0, 96)
+
+    if segment == "", do: to_string(fallback), else: segment
+  end
 
   defp first_present(row, paths) do
     Enum.find_value(paths, &nested_value(row, &1))

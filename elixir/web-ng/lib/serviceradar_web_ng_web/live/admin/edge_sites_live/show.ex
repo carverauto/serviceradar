@@ -197,7 +197,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
         </div>
         <div>
           <div class="text-xs uppercase tracking-wide text-sr-muted">Created</div>
-          <span>{format_datetime(@site.inserted_at)}</span>
+          <.user_time
+            id={"admin-edge-site-#{@site.id}-inserted-at"}
+            value={@site.inserted_at}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
+            style={:compact}
+          />
         </div>
         <div>
           <div class="text-xs uppercase tracking-wide text-sr-muted">Last Seen</div>
@@ -243,11 +248,21 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
             </div>
             <div>
               <div class="text-xs uppercase tracking-wide text-sr-muted">Provisioned</div>
-              <span>{format_datetime(@leaf_server.provisioned_at)}</span>
+              <.user_time
+                id={"admin-edge-site-#{@site.id}-leaf-provisioned-at"}
+                value={@leaf_server.provisioned_at}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                style={:compact}
+              />
             </div>
             <div>
               <div class="text-xs uppercase tracking-wide text-sr-muted">Connected</div>
-              <span>{format_datetime(@leaf_server.connected_at)}</span>
+              <.user_time
+                id={"admin-edge-site-#{@site.id}-leaf-connected-at"}
+                value={@leaf_server.connected_at}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                style={:compact}
+              />
             </div>
           </div>
 
@@ -630,18 +645,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
       nil -> {:error, :no_server_key}
       ciphertext -> ServiceRadar.Vault.decrypt(ciphertext)
     end
-  end
-
-  defp format_datetime(nil), do: "-"
-
-  defp format_datetime(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  end
-
-  defp format_datetime(%NaiveDateTime{} = dt) do
-    dt
-    |> DateTime.from_naive!("Etc/UTC")
-    |> format_datetime()
   end
 
   defp format_relative_time(nil), do: "Never"

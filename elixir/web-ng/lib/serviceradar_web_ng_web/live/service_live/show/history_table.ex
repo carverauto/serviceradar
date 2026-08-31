@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.HistoryTable do
   attr :services, :list, default: []
   attr :page, :integer, default: 1
   attr :per_page, :integer, default: 20
+  attr :timezone, :string, required: true
 
   def render(assigns) do
     total = length(assigns.services)
@@ -45,15 +46,22 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.HistoryTable do
             </td>
           </tr>
 
-          <%= for {service, index} <- Enum.with_index(@page_services) do %>
+          <%= for service <- @page_services do %>
             <% path = Service.details_path(service) %>
+            <% entry_id = history_entry_id(service) %>
             <tr
-              id={"service-history-row-#{index}"}
+              id={"service-history-row-#{entry_id}"}
               class="hover:bg-sr-subtle/40 cursor-pointer"
               phx-click={JS.navigate(path)}
             >
               <td class="whitespace-nowrap text-xs font-mono">
-                {format_timestamp(service)}
+                <.user_time
+                  id={"service-history-#{entry_id}-timestamp"}
+                  value={history_timestamp(service)}
+                  timezone={@timezone}
+                  style={:full}
+                  fallback={Service.timestamp_fallback(service)}
+                />
               </td>
               <td class="whitespace-nowrap text-xs">
                 <.status_badge available={Map.get(service, "available")} />
@@ -117,12 +125,43 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.HistoryTable do
     """
   end
 
-  defp format_timestamp(service) do
-    timestamp = Map.get(service, "timestamp")
+  defp history_entry_id(service) do
+    case first_history_identity(service) do
+      nil -> Integer.to_string(:erlang.phash2(service))
+      "" -> Integer.to_string(:erlang.phash2(service))
+      id -> dom_id_fragment(id, service)
+    end
+  end
 
-    case Query.parse_datetime(timestamp) do
-      {:ok, datetime} -> Calendar.strftime(datetime, "%Y-%m-%d %H:%M:%S")
-      _ -> timestamp || "—"
+  defp first_history_identity(service) do
+    Enum.find(
+      [
+        Map.get(service, "id"),
+        Map.get(service, :id),
+        Map.get(service, "service_id"),
+        Map.get(service, :service_id),
+        Map.get(service, "uid"),
+        Map.get(service, :uid)
+      ],
+      fn value -> not blank_identity?(value) end
+    )
+  end
+
+  defp blank_identity?(nil), do: true
+  defp blank_identity?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank_identity?(_value), do: false
+
+  defp dom_id_fragment(value, service) do
+    case value |> to_string() |> String.replace(~r/[^A-Za-z0-9_-]+/, "-") |> String.trim("-") do
+      "" -> Integer.to_string(:erlang.phash2(service))
+      fragment -> fragment
+    end
+  end
+
+  defp history_timestamp(service) do
+    case Query.parse_datetime(Map.get(service, "timestamp")) do
+      {:ok, datetime} -> datetime
+      _ -> Service.timestamp(service)
     end
   end
 

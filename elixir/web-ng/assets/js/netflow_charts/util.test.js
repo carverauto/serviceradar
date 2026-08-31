@@ -5,6 +5,7 @@ import {
   clientXToScaleX,
   netflowAxisTimeFormatter,
   netflowRangeSelectionStatus,
+  netflowTooltipTimeHtml,
   netflowTooltipTimeLabel,
   yTickValues,
 } from "./util"
@@ -55,11 +56,20 @@ describe("explicit-zone NetFlow time presentation", () => {
     expect(input.toISOString()).toBe("2026-08-27T10:00:00.000Z")
   })
 
+  it("keeps canonical UTC metadata on localized shared chart tooltips", () => {
+    const html = netflowTooltipTimeHtml(new Date(start), "America/Chicago")
+
+    expect(html).toContain('<time datetime="2026-08-27T10:00:00.000Z"')
+    expect(html).toContain('data-canonical-utc="2026-08-27T10:00:00.000Z"')
+    expect(html).toContain("canonical UTC 2026-08-27T10:00:00.000Z")
+    expect(html).toContain("GMT-5")
+  })
+
   it("uses Etc/UTC only for missing metadata and restores canonical text for unsupported zones", () => {
     expect(netflowAxisTimeFormatter("")(start)).toBe(netflowAxisTimeFormatter("Etc/UTC")(start))
     expect(netflowTooltipTimeLabel(start, "Mars/Olympus")).toBe(start)
     expect(netflowRangeSelectionStatus({start, end}, "Mars/Olympus")).toBe(
-      `Selected ${start} to ${end}`,
+      `Selected ${start} to ${end}; display zone Mars/Olympus; canonical UTC ${start} to ${end}`,
     )
   })
 
@@ -69,6 +79,8 @@ describe("explicit-zone NetFlow time presentation", () => {
 
     expect(chicago).not.toBe(utc)
     expect(chicago).toContain("GMT-5")
+    expect(chicago).toContain("display zone America/Chicago")
+    expect(chicago).toContain(`canonical UTC ${start} to ${end}`)
     expect(utc).toContain("GMT+0")
     expect(start).toBe("2026-08-27T10:00:00Z")
     expect(end).toBe("2026-08-27T10:04:59.999999Z")

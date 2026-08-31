@@ -139,13 +139,24 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     refute dashboard_js =~ "Trivy Vulnerabilities"
   end
 
-  test "bundled dashboard routes load the package host", %{conn: conn} do
+  test "bundled dashboard routes load the package host with the saved display zone", %{
+    conn: conn,
+    user: user
+  } do
+    timezone = user.timezone || "Etc/UTC"
+
     for route_slug <- ["security-findings", "endpoint-inventory"] do
       {:ok, view, _html} = live(conn, ~p"/dashboards/#{route_slug}")
       html = render_async(view, 5_000)
 
       assert html =~ "dashboard-package-host"
       assert has_element?(view, "[phx-hook='DashboardWasmHost'][data-host]")
+
+      assert has_element?(
+               view,
+               "[phx-hook='DashboardWasmHost'][data-timezone='#{timezone}']"
+             )
+
       refute html =~ "Dashboard package unavailable"
       refute html =~ "Dashboard package failed to load"
     end

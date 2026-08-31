@@ -38,7 +38,7 @@
 - Create `elixir/serviceradar_core/lib/serviceradar/time_zone.ex`: neutral PostgreSQL catalog, UTC normalization, profile validation, and existing local-wall-clock conversion.
 - Modify `elixir/serviceradar_core/lib/serviceradar/notifications/time_zone.ex`: compatibility delegates only; notification callers keep their current contract.
 - Create `elixir/serviceradar_core/lib/serviceradar/identity/changes/normalize_timezone_preference.ex`: pure Ash change that trims and normalizes the pending field.
-- Create `elixir/serviceradar_core/lib/serviceradar/identity/validations/profile_timezone.ex`: catalog-backed field validation; explicitly non-atomic because it performs a PostgreSQL catalog read.
+- Create `elixir/serviceradar_core/lib/serviceradar/identity/validations/profile_timezone.ex`: catalog-backed field validation for both ordinary and atomic Ash update paths; the catalog lookup runs before the single-row update is issued.
 - Modify `elixir/serviceradar_core/lib/serviceradar/identity/user.ex`: public attribute, code interface, dedicated action, and self-only policy.
 - Generate `elixir/serviceradar_core/priv/repo/migrations/*_add_user_timezone_preference.exs`: `platform.ng_users.timezone`, constant `Etc/UTC` default/backfill, non-null constraint.
 - Modify `elixir/serviceradar_core/test/serviceradar/notifications/time_zone_test.exs`: compatibility delegation coverage.
@@ -195,7 +195,7 @@ end
 
 - [ ] **Step 4: Write failing Ash change/validation tests**
 
-Build an update changeset over `%User{timezone: "America/New_York"}`. Assert the change normalizes `" GMT "` to `Etc/UTC`, the validation attaches a `:timezone` field error for `Etc/GMT+5`, and a query function supplied through `context.source_context[:private][:time_zone_query]` makes catalog failure leave `changeset.data.timezone` unchanged. Assert `ProfileTimezone.atomic/3` returns `{:not_atomic, reason}` rather than claiming a PostgreSQL row read is atomic.
+Build an update changeset over `%User{timezone: "America/New_York"}`. Assert the change normalizes `" GMT "` to `Etc/UTC`, the validation attaches a `:timezone` field error for `Etc/GMT+5`, and a query function supplied through `context.source_context[:private][:time_zone_query]` makes catalog failure leave `changeset.data.timezone` unchanged. Exercise both change and validation callbacks through their atomic paths, and assert the resource action retains Ash's default `require_atomic? true` contract.
 
 - [ ] **Step 5: Run the validation tests and observe RED**
 
@@ -215,7 +215,6 @@ Add the action outside `@self_service_actions`:
 update :update_timezone_preference do
   description "Update only the acting user's display timezone preference"
   accept [:timezone]
-  require_atomic? false
   change ServiceRadar.Identity.Changes.NormalizeTimezonePreference
   validate ServiceRadar.Identity.Validations.ProfileTimezone
 end
@@ -229,7 +228,7 @@ policy action(:update_timezone_preference) do
 end
 ```
 
-The normalization change uses `Ash.Changeset.fetch_change/2`, changes only the pending `:timezone` value, and adds a field error for invalid syntax. The catalog validation uses the normalized pending value, forwards a private `time_zone_query` from `context.source_context` as `query: query` when present, returns a field-level message for both missing catalog membership and catalog unavailability, and returns `{:not_atomic, "profile timezone validation requires a PostgreSQL catalog read"}` from `atomic/3`. The explicit `require_atomic? false` is justified by that cross-row system-catalog read, not used to avoid implementing an atomic expression.
+The normalization change uses `Ash.Changeset.fetch_change/2`, changes only the pending `:timezone` value, and adds a field error for invalid syntax. Its `atomic/3` callback applies the same pure normalization to the pending atomic changeset. The catalog validation reads the normalized pending value from atomics, ordinary changes, or existing data in that order; forwards a private `time_zone_query` from `context.source_context` as `query: query` when present; and returns a field-level message for both missing catalog membership and catalog unavailability. Its atomic callback performs the catalog lookup before the database update, preserving the resource's default atomic-update requirement instead of opting the action out.
 
 - [ ] **Step 7: Generate and review the AshPostgres migration**
 

@@ -209,6 +209,37 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert has_element?(alerts, ~s(#alerts time[datetime="2026-08-30T18:00:00Z"]))
   end
 
+  test "identified trace metric and alert time ids remain attached after reordering", %{conn: conn} do
+    on_exit(fn -> :persistent_term.erase({__MODULE__, :identified_signal_row_order}) end)
+
+    for {path, table, expected} <- [
+          {~p"/observability/traces", "traces",
+           %{
+             "2026-08-30T18:00:00Z" => "trace-time-traces-row-s-aabbccddeeff00112233445566778899",
+             "2026-08-30T18:01:00Z" => "trace-time-traces-row-s-11f067aa0ba902b8"
+           }},
+          {~p"/observability/metrics", "metrics",
+           %{
+             "2026-08-30T18:00:00Z" => "metric-time-metrics-row-s-00f067aa0ba902b7",
+             "2026-08-30T18:01:00Z" => "metric-time-metrics-row-s-bbccddeeff00112233445566778899aa"
+           }},
+          {~p"/observability/alerts", "alerts",
+           %{
+             "2026-08-30T18:00:00Z" => "alert-time-alerts-row-s-alert-primary-1",
+             "2026-08-30T18:01:00Z" => "alert-time-alerts-row-s-alert-2"
+           }}
+        ] do
+      :persistent_term.put({__MODULE__, :identified_signal_row_order}, :forward)
+      {:ok, forward, _html} = live(conn, path)
+
+      :persistent_term.put({__MODULE__, :identified_signal_row_order}, :reverse)
+      {:ok, reversed, _html} = live(conn, path)
+
+      assert time_ids_by_datetime(forward, table) == expected
+      assert time_ids_by_datetime(reversed, table) == expected
+    end
+  end
+
   test "identical id-less trace metric and alert rows get stable unique rendered time ids", %{conn: conn} do
     :persistent_term.put({__MODULE__, :duplicate_idless_signal_rows?}, true)
     on_exit(fn -> :persistent_term.erase({__MODULE__, :duplicate_idless_signal_rows?}) end)
@@ -506,6 +537,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     end
   end
 
+  defp time_ids_by_datetime(live_view, table) do
+    times =
+      live_view
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("##{table} time")
+
+    times
+    |> LazyHTML.attribute("datetime")
+    |> Enum.zip(LazyHTML.attribute(times, "id"))
+    |> Map.new()
+  end
+
   defmodule RecordingSRQLStub do
     @moduledoc false
     @behaviour ServiceRadarWebNG.SRQLBehaviour
@@ -682,7 +726,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
         }
       ]
 
-      duplicate_idless_rows(rows, %{
+      identified_rows =
+        List.update_at(rows, 1, &Map.put(&1, "trace_id", "bbccddeeff00112233445566778899aa"))
+
+      rows
+      |> ordered_identified_rows(identified_rows)
+      |> duplicate_idless_rows(%{
         "timestamp" => "2026-08-30T18:00:00Z",
         "service_name" => "identical-metric",
         "metric_type" => "gauge",
@@ -712,7 +761,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
         }
       ]
 
-      duplicate_idless_rows(rows, %{
+      identified_rows = List.update_at(rows, 1, &Map.put(&1, "span_id", "11f067aa0ba902b8"))
+
+      rows
+      |> ordered_identified_rows(identified_rows)
+      |> duplicate_idless_rows(%{
         "timestamp" => "2026-08-30T18:00:00Z",
         "root_service_name" => "identical-trace",
         "root_span_name" => "id-less",
@@ -827,12 +880,34 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
         }
       ]
 
-      duplicate_idless_rows(rows, %{
+      identified_rows =
+        List.update_at(rows, 0, &Map.put(&1, "alert_id", "alert-primary-1")) ++
+          [
+            %{
+              "id" => "alert-2",
+              "triggered_at" => "2026-08-30T18:01:00Z",
+              "severity" => "warning",
+              "status" => "pending",
+              "title" => "Second alert"
+            }
+          ]
+
+      rows
+      |> ordered_identified_rows(identified_rows)
+      |> duplicate_idless_rows(%{
         "triggered_at" => "2026-08-30T18:00:00Z",
         "severity" => "critical",
         "status" => "pending",
         "title" => "Identical id-less alert"
       })
+    end
+
+    defp ordered_identified_rows(default_rows, identified_rows) do
+      case :persistent_term.get({IndexTest, :identified_signal_row_order}, nil) do
+        :forward -> identified_rows
+        :reverse -> Enum.reverse(identified_rows)
+        nil -> default_rows
+      end
     end
 
     defp duplicate_idless_rows(rows, idless_row) do

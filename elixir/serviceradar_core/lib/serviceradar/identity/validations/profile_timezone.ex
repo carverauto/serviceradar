@@ -11,8 +11,21 @@ defmodule ServiceRadar.Identity.Validations.ProfileTimezone do
   end
 
   @impl true
-  def atomic(_changeset, _opts, _context),
-    do: {:not_atomic, "profile timezone validation requires a PostgreSQL catalog read"}
+  def atomic(changeset, _opts, context) do
+    validate_timezone(pending_timezone(changeset), changeset, context)
+  end
+
+  defp pending_timezone(changeset) do
+    with :error <- Keyword.fetch(changeset.atomics, :timezone),
+         :error <- Ash.Changeset.fetch_change(changeset, :timezone) do
+      case changeset.data do
+        %{timezone: timezone} -> timezone
+        _other -> nil
+      end
+    else
+      {:ok, value} -> value
+    end
+  end
 
   defp validate_timezone(timezone, changeset, context) do
     case TimeZone.validate_preference(timezone, query_option(changeset, context)) do

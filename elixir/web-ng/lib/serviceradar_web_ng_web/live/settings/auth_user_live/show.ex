@@ -364,7 +364,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                       <div class="text-xs opacity-60 font-semibold uppercase tracking-wide">
                         Last login
                       </div>
-                      <div class="font-mono">{format_datetime(@user.last_login_at)}</div>
+                      <div class="font-mono">
+                        <.user_time
+                          id={"settings-auth-user-#{@user.id}-last-login-at"}
+                          value={canonical_datetime(@user.last_login_at)}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                          fallback="—"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -496,7 +504,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
                     <tbody>
                       <tr :for={event <- @events}>
                         <td class="whitespace-nowrap font-mono text-xs opacity-80">
-                          {format_datetime(event.inserted_at)}
+                          <.user_time
+                            id={"settings-auth-user-event-#{event.id}-inserted-at"}
+                            value={canonical_datetime(event.inserted_at)}
+                            timezone={@current_scope.user.timezone || "Etc/UTC"}
+                            style={:compact}
+                            fallback="—"
+                          />
                         </td>
                         <td class="text-sm">{event.event_type}</td>
                         <td class="text-sm font-mono">{blank_to_dash(event.auth_method)}</td>
@@ -613,21 +627,27 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUserLive.Show do
     Map.put(attrs, :role, role)
   end
 
-  defp format_datetime(nil), do: "—"
+  defp canonical_datetime(nil), do: nil
 
-  defp format_datetime(value) when is_binary(value) do
+  defp canonical_datetime(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
-      {:ok, dt, _} -> Calendar.strftime(dt, "%b %d, %Y %H:%M")
-      _ -> "—"
+      {:ok, dt, _} -> dt
+      _ -> canonical_naive_datetime(value)
     end
   end
 
-  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%b %d, %Y %H:%M")
+  defp canonical_datetime(%DateTime{} = dt), do: dt
 
-  defp format_datetime(%NaiveDateTime{} = dt),
-    do: Calendar.strftime(DateTime.from_naive!(dt, "Etc/UTC"), "%b %d, %Y %H:%M")
+  defp canonical_datetime(%NaiveDateTime{} = dt), do: DateTime.from_naive!(dt, "Etc/UTC")
 
-  defp format_datetime(_), do: "—"
+  defp canonical_datetime(_), do: nil
+
+  defp canonical_naive_datetime(value) do
+    case NaiveDateTime.from_iso8601(value) do
+      {:ok, ndt} -> DateTime.from_naive!(ndt, "Etc/UTC")
+      _ -> nil
+    end
+  end
 
   defp blank_to_dash(nil), do: "—"
   defp blank_to_dash(""), do: "—"

@@ -268,11 +268,27 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
                 </div>
                 <div>
                   <dt class="text-xs uppercase tracking-wide">Last success</dt>
-                  <dd class="text-sr-ink">{format_dt(@settings && @settings.last_success_at)}</dd>
+                  <dd class="text-sr-ink">
+                    <.user_time
+                      id="settings-device-hostname-rdns-last-success-at"
+                      value={@settings && @settings.last_success_at}
+                      timezone={@current_scope.user.timezone || "Etc/UTC"}
+                      style={:compact}
+                      fallback="—"
+                    />
+                  </dd>
                 </div>
                 <div>
                   <dt class="text-xs uppercase tracking-wide">Next run</dt>
-                  <dd class="text-sr-ink">{format_dt(@settings && @settings.next_run_at)}</dd>
+                  <dd class="text-sr-ink">
+                    <.user_time
+                      id="settings-device-hostname-rdns-next-run-at"
+                      value={@settings && @settings.next_run_at}
+                      timezone={@current_scope.user.timezone || "Etc/UTC"}
+                      style={:compact}
+                      fallback="—"
+                    />
+                  </dd>
                 </div>
                 <div>
                   <dt class="text-xs uppercase tracking-wide">SRQL rows / eligible</dt>
@@ -426,10 +442,6 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
   end
 
   defp parse_int(_value, default), do: default
-
-  defp format_dt(nil), do: "—"
-  defp format_dt(%DateTime{} = datetime), do: Calendar.strftime(datetime, "%Y-%m-%d %H:%M UTC")
-  defp format_dt(_), do: "—"
 
   defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
   defp format_error(reason) when is_binary(reason), do: reason

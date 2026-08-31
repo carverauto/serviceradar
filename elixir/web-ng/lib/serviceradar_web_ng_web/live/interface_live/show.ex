@@ -609,6 +609,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             entries={@northbound_history}
             error={@northbound_history_error}
             empty_message="No action invocations have been recorded for this interface yet."
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
 
           <%!-- Properties Grid --%>

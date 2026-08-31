@@ -3,6 +3,7 @@ import {
   netflowAxisTimeFormatter,
   netflowDisplayTimeZone,
   netflowRangeSelectionStatus,
+  netflowTooltipTimeHtml,
   netflowTooltipTimeLabel,
   parseJSON as nfParseJSON,
 } from "../../netflow_charts/util"
@@ -57,7 +58,7 @@ export default {
       const bps = (bytes * 8.0) / bucketSeconds
 
       tooltip.innerHTML = `
-        <div class="text-[10px] text-base-content/60 font-mono">${escapeHtml(netflowTooltipTimeLabel(point.start || "", timeZone))} → ${escapeHtml(netflowTooltipTimeLabel(point.end || "", timeZone))}</div>
+        <div class="text-[10px] text-base-content/60 font-mono">${netflowTooltipTimeHtml(point.start || "", timeZone)} → ${netflowTooltipTimeHtml(point.end || "", timeZone)}</div>
         <div class="mt-1 flex items-center justify-between gap-3">
           <span>Bytes</span><span class="font-mono">${escapeHtml(nfFormatRateValue("Bps", bytes))}</span>
         </div>
@@ -181,7 +182,10 @@ function localizeRangeTitleMarkers(root) {
     if (localizedStart === start || localizedEnd === end) continue
 
     const [_windowLine, ...remainingLines] = fallback.split("\n")
-    node.textContent = [`window: ${localizedStart} → ${localizedEnd}`, ...remainingLines].join("\n")
+    const localizedWindow =
+      `window: ${localizedStart} (canonical UTC ${start}) → ` +
+      `${localizedEnd} (canonical UTC ${end}); display zone ${timeZone}`
+    node.textContent = [localizedWindow, ...remainingLines].join("\n")
   }
 }
 

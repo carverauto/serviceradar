@@ -191,7 +191,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
                         {format_relative_time(site.last_seen_at)}
                       </td>
                       <td class="text-xs text-sr-muted">
-                        {format_datetime(site.inserted_at)}
+                        <.user_time
+                          id={"admin-edge-site-#{site.id}-inserted-at"}
+                          value={site.inserted_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                        />
                       </td>
                       <td>
                         <.ui_button
@@ -413,18 +418,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
       %{user: user} when not is_nil(user) -> user
       _ -> nil
     end
-  end
-
-  defp format_datetime(nil), do: "-"
-
-  defp format_datetime(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  end
-
-  defp format_datetime(%NaiveDateTime{} = dt) do
-    dt
-    |> DateTime.from_naive!("Etc/UTC")
-    |> format_datetime()
   end
 
   defp format_relative_time(nil), do: "Never"

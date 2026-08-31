@@ -240,6 +240,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert has_element?(lv, "#settings-view-tree")
       assert has_element?(lv, "#settings-nav-drawer")
       assert has_element?(lv, ".sr-settings-shell section #timezone_form")
+      refute has_element?(lv, "#timezone_form[phx-change]")
       assert has_element?(lv, "#user_timezone[list='timezone_catalog'][phx-hook='TimezoneSelect']")
       assert has_element?(lv, "#timezone_catalog option[value='Etc/UTC']")
       assert has_element?(lv, "#timezone_catalog option[value='America/Chicago']")

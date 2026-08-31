@@ -221,7 +221,6 @@ defmodule ServiceRadar.Identity.User do
     update :update_timezone_preference do
       description "Update only the acting user's display timezone preference"
       accept [:timezone]
-      require_atomic? false
       change NormalizeTimezonePreference
       validate ProfileTimezone
     end

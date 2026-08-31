@@ -194,6 +194,13 @@ describe("NetflowTrafficTooltip shared range integration", () => {
       expect(tooltip.innerHTML).toContain("05:05:00")
       expect(tooltip.innerHTML).toContain("05:09:59")
       expect(tooltip.innerHTML).toContain("GMT-5")
+      expect(tooltip.innerHTML.match(/<time /g)).toHaveLength(2)
+      expect(tooltip.innerHTML).toContain('<time datetime="2026-08-27T10:05:00Z"')
+      expect(tooltip.innerHTML).toContain(
+        'data-canonical-utc="2026-08-27T10:09:59.999999Z"',
+      )
+      expect(tooltip.innerHTML).toContain("canonical UTC 2026-08-27T10:05:00Z")
+      expect(tooltip.innerHTML).toContain("canonical UTC 2026-08-27T10:09:59.999999Z")
 
       ctx.destroyed()
       expect(root.totalListenerCount()).toBe(0)
@@ -218,6 +225,9 @@ describe("NetflowTrafficTooltip shared range integration", () => {
       expect(axisTime.textContent).not.toBe(axisFallback)
       expect(rangeTitle.textContent).toContain("05:00:00")
       expect(rangeTitle.textContent).toContain("05:04:59")
+      expect(rangeTitle.textContent).toContain("display zone America/Chicago")
+      expect(rangeTitle.textContent).toContain(`canonical UTC ${buckets[0].start}`)
+      expect(rangeTitle.textContent).toContain(`canonical UTC ${buckets[0].end}`)
       expect(rangeTitle.textContent.split("\n")).toEqual([
         expect.stringContaining("GMT-5"),
         "bytes: 100 B",

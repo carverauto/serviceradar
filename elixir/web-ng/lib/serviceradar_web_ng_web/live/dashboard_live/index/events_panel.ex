@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
 
   attr(:dashboard, :map, required: true)
   attr(:embedded, :boolean, default: false)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def render(%{dashboard: dashboard} = assigns) do
     assigns =
@@ -31,6 +32,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
         security_trend={@security_trend}
         security_trend_max={@security_trend_max}
         range_buckets_json={@range_buckets_json}
+        timezone={@timezone}
       />
     </Common.panel>
 
@@ -39,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
       security_trend={@security_trend}
       security_trend_max={@security_trend_max}
       range_buckets_json={@range_buckets_json}
+      timezone={@timezone}
     />
     """
   end
@@ -46,6 +49,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
   attr(:security_trend, :list, required: true)
   attr(:security_trend_max, :any, required: true)
   attr(:range_buckets_json, :string, default: nil)
+  attr(:timezone, :string, required: true)
 
   defp events_body(assigns) do
     ~H"""
@@ -129,8 +133,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
               >
                 {tick.text}
               </text>
-              <text :for={label <- event_axis_labels(@security_trend)} x={label.x} y="204">
-                {label.text}
+              <text
+                :for={label <- event_axis_labels(@security_trend)}
+                id={label.id}
+                x={label.x}
+                y="204"
+                phx-hook="UserTime"
+                data-user-time-iso={label.iso}
+                data-user-time-zone={@timezone}
+                data-user-time-style="axis"
+                data-user-time-fallback={label.iso}
+                title={"#{label.iso} (UTC); display zone #{@timezone}"}
+                aria-label={"#{label.iso} UTC; display zone #{@timezone}"}
+              >
+                {label.iso}
               </text>
             </g>
             <rect
@@ -189,9 +205,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
 
   defp event_trend_renderable?(_points, _max_total), do: false
 
-  defp event_point_renderable?(%{label: label, total: total} = point)
-       when is_binary(label) and is_number(total) and total >= 0 do
-    Enum.all?(@event_layers, fn layer -> non_negative_number?(Map.get(point, layer, 0)) end)
+  defp event_point_renderable?(%{bucket: bucket, total: total} = point) when is_number(total) and total >= 0 do
+    not is_nil(canonical_bucket(bucket)) and
+      Enum.all?(@event_layers, fn layer -> non_negative_number?(Map.get(point, layer, 0)) end)
   end
 
   defp event_point_renderable?(_point), do: false
@@ -216,9 +232,25 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
     |> Enum.filter(fn {_point, idx} -> idx == 0 or idx == count - 1 or rem(idx, step) == 0 end)
     |> Enum.map(fn {point, idx} ->
       {x, _y} = event_xy(idx, count, 0, 1)
-      %{x: x, text: point.label}
+      canonical = canonical_bucket(point.bucket)
+
+      %{
+        x: x,
+        id: "dashboard-events-axis-#{DateTime.to_unix(canonical)}",
+        iso: DateTime.to_iso8601(canonical)
+      }
     end)
   end
+
+  defp canonical_bucket(%DateTime{} = bucket), do: DateTime.truncate(bucket, :second)
+
+  defp canonical_bucket(%NaiveDateTime{} = bucket) do
+    bucket
+    |> NaiveDateTime.truncate(:second)
+    |> DateTime.from_naive!("Etc/UTC")
+  end
+
+  defp canonical_bucket(_bucket), do: nil
 
   defp event_y_axis_ticks(max_total) do
     max_total = max(to_int(max_total), 0)

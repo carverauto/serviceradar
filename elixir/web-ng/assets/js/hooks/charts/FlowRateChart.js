@@ -5,6 +5,20 @@
  *   data-points — JSON array of {t: timestamp, v: number}
  *   data-color  — stroke/fill color
  */
+import {
+  axisUserTimeFormatter,
+  canonicalUtcInstant,
+  formatUserTime,
+} from "../../utils/user_time"
+
+const DEFAULT_TIME_ZONE = "Etc/UTC"
+
+function displayTimeZone(timeZone) {
+  return typeof timeZone === "string" && timeZone.trim() !== ""
+    ? timeZone
+    : DEFAULT_TIME_ZONE
+}
+
 export function numberOrNull(value) {
   if (value === null || value === undefined || value === "") return null
 
@@ -61,11 +75,51 @@ function formatRate(value) {
   return `${Math.round(value)}`
 }
 
-function formatTimeLabel(raw) {
-  if (!raw) return ""
-  const d = new Date(raw)
-  if (Number.isNaN(d.getTime())) return ""
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+export function flowRateTimeLabel(raw, {timeZone = "Etc/UTC", locale} = {}) {
+  return axisUserTimeFormatter({timeZone, locale})(raw)
+}
+
+export function flowRateAccessibility(points, {timeZone = DEFAULT_TIME_ZONE, locale} = {}) {
+  const zone = displayTimeZone(timeZone)
+  const canonical = (Array.isArray(points) ? points : [])
+    .map(point => canonicalUtcInstant(point?.t))
+    .filter(Boolean)
+
+  if (canonical.length === 0) {
+    return {
+      start: null,
+      end: null,
+      timeZone: zone,
+      ariaLabel: `Flow rate chart; no canonical time range; display zone ${zone}`,
+    }
+  }
+
+  const start = canonical[0]
+  const end = canonical[canonical.length - 1]
+  const label = instant =>
+    formatUserTime(instant, {timeZone: zone, style: "tooltip", locale})?.text || instant
+
+  return {
+    start,
+    end,
+    timeZone: zone,
+    ariaLabel: `Flow rate from ${label(start)} to ${label(end)}; display zone ${zone}; canonical UTC range ${start} to ${end}`,
+  }
+}
+
+function applyFlowRateAccessibility(el, metadata) {
+  el.setAttribute("role", "img")
+  el.setAttribute("aria-label", metadata.ariaLabel)
+  el.setAttribute("title", metadata.ariaLabel)
+  el.dataset.timeAxisZone = metadata.timeZone
+
+  if (metadata.start && metadata.end) {
+    el.dataset.timeAxisStart = metadata.start
+    el.dataset.timeAxisEnd = metadata.end
+  } else {
+    delete el.dataset.timeAxisStart
+    delete el.dataset.timeAxisEnd
+  }
 }
 
 export default {
@@ -88,6 +142,10 @@ export default {
     if (!canvas) return
 
     const points = parsePoints(this.el.dataset.points)
+    applyFlowRateAccessibility(
+      this.el,
+      flowRateAccessibility(points, {timeZone: this.el.dataset.timezone}),
+    )
 
     const dpr = window.devicePixelRatio || 1
     const rect = this.el.getBoundingClientRect()
@@ -212,7 +270,9 @@ export default {
     ctx.textAlign = "center"
     ctx.textBaseline = "top"
     for (const idx of xTicks) {
-      const label = formatTimeLabel(points[idx]?.t)
+      const label = flowRateTimeLabel(points[idx]?.t, {
+        timeZone: this.el.dataset.timezone || "Etc/UTC",
+      })
       if (!label) continue
       ctx.fillText(label, xFor(idx), h - padBottom + 6)
     }

@@ -119,7 +119,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.EventShow do
                   </div>
                   <div>
                     <dt class="text-xs uppercase text-sr-muted">Time</dt>
-                    <dd class="font-mono text-xs">{format_dt(@event.occurred_at)}</dd>
+                    <dd class="font-mono text-xs">
+                      <.user_time
+                        id={"settings-audit-event-#{@event.id}-occurred-at"}
+                        value={@event.occurred_at}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="-"
+                      />
+                    </dd>
                   </div>
                   <div>
                     <dt class="text-xs uppercase text-sr-muted">Kind</dt>
@@ -157,12 +165,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.EventShow do
       </Shell.settings_chrome>
     </Layouts.app>
     """
-  end
-
-  defp format_dt(nil), do: "-"
-
-  defp format_dt(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
   end
 
   defp pretty_details(details) when is_map(details) do

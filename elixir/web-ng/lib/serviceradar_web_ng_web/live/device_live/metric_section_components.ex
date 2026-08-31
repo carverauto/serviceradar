@@ -30,12 +30,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
       </div>
     </div>
 
-    <%= for section <- @sections do %>
+    <%= for {section, section_index} <- Enum.with_index(@sections) do %>
       <div class="rounded-xl border border-sr-line bg-sr-surface">
         <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
           <div class="flex items-center gap-3">
             <span class="text-sm font-semibold">{section.title}</span>
             <span class="text-xs text-sr-muted">{section.subtitle}</span>
+            <span
+              :if={Map.get(section, :subtitle_time)}
+              class="text-xs text-sr-muted"
+            >
+              · centered at
+              <.user_time
+                id={"device-#{@device_uid}-#{section.key}-#{section_index}-subtitle-time"}
+                value={Map.get(section, :subtitle_time)}
+                timezone={@timezone}
+                style={:compact}
+                fallback=""
+              />
+            </span>
           </div>
           <div class="flex items-center gap-3">
             <div

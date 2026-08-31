@@ -11,7 +11,7 @@ const DATE_PART_OPTIONS = Object.freeze({
 })
 
 const OFFSET_PATTERN = /(?:GMT|UTC)[+-]\d{1,2}(?::?\d{2})?/
-const ISO_INSTANT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/
+const ISO_INSTANT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/
 
 export const STYLE_OPTIONS = Object.freeze({
   full: Object.freeze({
@@ -134,6 +134,28 @@ function validInstant(iso) {
   return !Number.isNaN(new Date(iso).getTime())
 }
 
+export function canonicalUtcInstant(value) {
+  let instant
+
+  if (typeof value === "string") {
+    if (!validInstant(value)) return null
+    const match = ISO_INSTANT_PATTERN.exec(value)
+    if (match[8] === "Z") return value
+    instant = new Date(value)
+
+    const canonical = instant.toISOString()
+    return match[7] ? `${canonical.slice(0, 19)}${match[7]}Z` : canonical
+  } else if (value instanceof Date) {
+    instant = value
+  } else if (typeof value === "number" && Number.isFinite(value)) {
+    instant = new Date(value)
+  } else {
+    return null
+  }
+
+  return Number.isNaN(instant.getTime()) ? null : instant.toISOString()
+}
+
 export function formatUserTime(iso, {timeZone, style = "full", locale, intl = globalThis.Intl} = {}) {
   if (!timeZone || !STYLE_OPTIONS[style] || !intl?.DateTimeFormat || !validInstant(iso)) return null
 
@@ -167,11 +189,15 @@ function axisCanonicalValue(value) {
   return Number.isNaN(instant.getTime()) ? null : instant.toISOString()
 }
 
-export function axisUserTimeFormatter(options = {}) {
+export function userTimeFormatter(options = {}) {
   return (value) => {
     const canonical = axisCanonicalValue(value)
     if (!canonical) return ""
 
-    return formatUserTime(canonical, {...options, style: "axis"})?.text || canonical
+    return formatUserTime(canonical, options)?.text || canonical
   }
+}
+
+export function axisUserTimeFormatter(options = {}) {
+  return userTimeFormatter({...options, style: "axis"})
 }

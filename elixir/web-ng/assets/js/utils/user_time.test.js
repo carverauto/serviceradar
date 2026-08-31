@@ -1,8 +1,26 @@
 import {describe, expect, it} from "vitest"
 
-import {axisUserTimeFormatter, formatUserTime, STYLE_OPTIONS} from "./user_time"
+import {
+  axisUserTimeFormatter,
+  canonicalUtcInstant,
+  formatUserTime,
+  STYLE_OPTIONS,
+  userTimeFormatter,
+} from "./user_time"
 
 describe("formatUserTime", () => {
+  it("formats chart Date values through the shared explicit-zone contract", () => {
+    const formatTooltip = userTimeFormatter({
+      timeZone: "America/Chicago",
+      style: "tooltip",
+      locale: "en-US",
+    })
+    const label = formatTooltip(new Date("2026-08-30T18:00:00Z"))
+
+    expect(label).toContain("01:00:00 PM")
+    expect(label).toContain("GMT-5")
+  })
+
   it.each([
     ["2026-11-01T06:30:00Z", "GMT-5"],
     ["2026-11-01T07:30:00Z", "GMT-6"],
@@ -22,6 +40,9 @@ describe("formatUserTime", () => {
     expect(formatUserTime(canonical, {timeZone: "America/Chicago", style: "full", locale: "en-US"})).toMatchObject({
       canonical,
     })
+
+    expect(canonicalUtcInstant(canonical)).toBe(canonical)
+    expect(canonicalUtcInstant("2026-08-30T13:00:00.123456-05:00")).toBe(canonical)
   })
 
   it("requires an explicit IANA timezone and a named style", () => {

@@ -141,8 +141,24 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts do
                 <%= for lockout <- @lockouts do %>
                   <tr class="hover:bg-sr-subtle/40">
                     <td class="px-4 py-2 font-mono text-xs">{lockout.actor_id}</td>
-                    <td class="px-4 py-2 font-mono text-xs">{format_dt(lockout.locked_at)}</td>
-                    <td class="px-4 py-2 font-mono text-xs">{format_dt(lockout.expires_at)}</td>
+                    <td class="px-4 py-2 font-mono text-xs">
+                      <.user_time
+                        id={"settings-audit-lockout-#{lockout.id}-locked-at"}
+                        value={lockout.locked_at}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="—"
+                      />
+                    </td>
+                    <td class="px-4 py-2 font-mono text-xs">
+                      <.user_time
+                        id={"settings-audit-lockout-#{lockout.id}-expires-at"}
+                        value={lockout.expires_at}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="—"
+                      />
+                    </td>
                     <td class="px-4 py-2">{lockout.reason || "—"}</td>
                     <td class="px-4 py-2">{status_label(lockout)}</td>
                     <td class="px-4 py-2">
@@ -196,7 +212,4 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Lockouts do
       true -> "Expired"
     end
   end
-
-  defp format_dt(nil), do: "—"
-  defp format_dt(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M UTC")
 end

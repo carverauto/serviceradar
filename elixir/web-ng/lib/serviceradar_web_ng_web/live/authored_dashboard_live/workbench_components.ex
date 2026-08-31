@@ -111,6 +111,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.WorkbenchComponents do
           :if={AccessControls.can_schedule_dashboard?(@dashboard, access_assigns(assigns))}
           dashboard={@dashboard}
           report_schedule_form={@report_schedule_form}
+          timezone={@current_scope.user.timezone || "Etc/UTC"}
         />
       </div>
     </section>

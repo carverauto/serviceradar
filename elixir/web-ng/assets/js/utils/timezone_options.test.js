@@ -51,7 +51,7 @@ describe("filterTimezoneOptions", () => {
       .toEqual(["Etc/UTC", "America/Chicago"])
   })
 
-  it("intersects the server catalog with browser values without inventing a zone", () => {
+  it("formatter-probes every server-approved candidate when supportedValuesOf is available", () => {
     const calls = []
     const intl = {
       supportedValuesOf: () => ["America/Chicago", "Asia/Tokyo"],
@@ -65,8 +65,23 @@ describe("filterTimezoneOptions", () => {
 
     expect(filterTimezoneOptions(["Europe/London", "Mars/Olympus", "America/Chicago", "Asia/Tokyo"], "Europe/London", {intl}))
       .toEqual(["Etc/UTC", "America/Chicago", "Europe/London"])
-    expect(calls).toEqual(expect.arrayContaining(["America/Chicago", "Asia/Tokyo"]))
-    expect(calls).not.toContain("Europe/London")
+    expect(calls).toEqual(expect.arrayContaining(["Europe/London", "Mars/Olympus", "America/Chicago", "Asia/Tokyo"]))
+  })
+
+  it("retains a server-approved alias omitted by supportedValuesOf when DateTimeFormat accepts it", () => {
+    const intl = {
+      supportedValuesOf: () => ["America/Chicago"],
+      DateTimeFormat: class {
+        constructor(_locale, {timeZone}) {
+          if (!["Etc/UTC", "America/Chicago", "US/Central"].includes(timeZone)) {
+            throw new RangeError("unsupported zone")
+          }
+        }
+      },
+    }
+
+    expect(filterTimezoneOptions(["America/Chicago", "US/Central", "Mars/Olympus"], "America/Chicago", {intl}))
+      .toEqual(["Etc/UTC", "America/Chicago", "US/Central"])
   })
 
   it("retains a saved legacy timezone even when it is absent from the server catalog and browser rejects it", () => {

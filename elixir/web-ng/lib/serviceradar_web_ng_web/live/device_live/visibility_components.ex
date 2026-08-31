@@ -38,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   # ---------------------------------------------------------------------------
 
   attr(:device_row, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def metadata_summary_section(assigns) do
     groups = metadata_summary_groups(assigns.device_row)
@@ -81,6 +82,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
                 mono={item.mono}
                 href={Map.get(item, :href)}
                 external_href={Map.get(item, :external_href)}
+                timezone={@timezone}
+                time_id={
+                  "device-metadata-#{visibility_device_key(@device_row)}-#{time_key(group.title)}-#{time_key(item.label)}"
+                }
               />
             </div>
           </div>
@@ -91,10 +96,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   end
 
   attr(:label, :string, required: true)
-  attr(:value, :string, required: true)
+  attr(:value, :any, required: true)
   attr(:mono, :boolean, default: false)
   attr(:href, :string, default: nil)
   attr(:external_href, :string, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
+  attr(:time_id, :string, default: nil)
 
   def metadata_kv(assigns) do
     ~H"""
@@ -107,7 +114,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
           "min-w-0 text-right text-sm font-medium text-sr-brand hover:underline break-words",
           @mono && "font-mono text-xs"
         ]}
-        title={@value}
+        title={format_metadata_value(@value)}
       >
         {@value}
       </.link>
@@ -120,25 +127,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
           "min-w-0 text-right text-sm font-medium text-sr-brand hover:underline break-words",
           @mono && "font-mono text-xs"
         ]}
-        title={@value}
+        title={format_metadata_value(@value)}
       >
         {@value}
       </a>
       <span
-        :if={is_nil(@href) and is_nil(@external_href)}
+        :if={
+          is_nil(@href) and is_nil(@external_href) and
+            not match?(%DateTime{}, @value) and not match?(%NaiveDateTime{}, @value)
+        }
         class={[
           "min-w-0 text-right text-sm font-medium text-sr-ink break-words",
           @mono && "font-mono text-xs"
         ]}
-        title={@value}
+        title={format_metadata_value(@value)}
       >
-        {@value}
+        {format_metadata_value(@value)}
       </span>
+      <.user_time
+        :if={
+          is_nil(@href) and is_nil(@external_href) and
+            (match?(%DateTime{}, @value) or match?(%NaiveDateTime{}, @value))
+        }
+        id={@time_id || "device-metadata-#{time_key(@label)}"}
+        value={@value}
+        timezone={@timezone}
+        style={:compact}
+        class="min-w-0 text-right text-sm font-medium text-sr-ink break-words font-mono text-xs"
+      />
     </div>
     """
   end
 
   attr(:device_row, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def network_visibility_section(assigns) do
     fingerprints = passive_fingerprint_rows(assigns.device_row)
@@ -183,6 +205,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
               label={item.label}
               value={item.value}
               mono={item.mono}
+              timezone={@timezone}
+              time_id={
+                "device-visibility-#{visibility_device_key(@device_row)}-#{time_key(fingerprint.protocol)}-#{time_key(item.label)}"
+              }
             />
           </div>
         </div>
@@ -202,6 +228,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
               label={item.label}
               value={item.value}
               mono={item.mono}
+              timezone={@timezone}
+              time_id={
+                "device-visibility-#{visibility_device_key(@device_row)}-dpi-#{time_key(dpi.protocol)}-#{time_key(item.label)}"
+              }
             />
           </div>
         </div>
@@ -211,6 +241,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   end
 
   attr(:device_row, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def active_fingerprint_tab_content(assigns) do
     summary = active_fingerprint_summary(assigns.device_row)
@@ -241,6 +272,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
             label={item.label}
             value={item.value}
             mono={item.mono}
+            timezone={@timezone}
+            time_id={
+              "device-active-fingerprint-#{visibility_device_key(@device_row)}-summary-#{time_key(item.label)}"
+            }
           />
         </div>
       </div>
@@ -281,7 +316,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
                 <td>{row.version}</td>
                 <td>{row.os}</td>
                 <td class="text-xs">{row.source}</td>
-                <td class="text-xs font-mono">{row.observed_at}</td>
+                <td class="text-xs font-mono">
+                  <.user_time
+                    id={"device-active-fingerprint-#{visibility_device_key(@device_row)}-#{time_key(row.protocol)}-observed-at"}
+                    value={row.observed_at}
+                    timezone={@timezone}
+                    style={:compact}
+                  />
+                </td>
               </tr>
             </tbody>
           </table>
@@ -294,6 +336,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   attr(:device_row, :map, required: true)
   attr(:search, :string, default: "")
   attr(:page, :integer, default: 1)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def process_listeners_tab_content(assigns) do
     snapshot = process_listener_snapshot(assigns.device_row)
@@ -328,9 +371,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
             <span :if={metadata_present?(@snapshot.fingerprint)} class="font-mono">
               {@snapshot.fingerprint}
             </span>
-            <span :if={metadata_present?(@snapshot.observed_at)} class="font-mono">
-              {@snapshot.observed_at}
-            </span>
+            <.user_time
+              :if={metadata_present?(@snapshot.observed_at)}
+              id={"device-process-listeners-#{visibility_device_key(@device_row)}-observed-at"}
+              value={@snapshot.observed_at}
+              timezone={@timezone}
+              style={:compact}
+              class="font-mono"
+            />
           </div>
         </div>
 
@@ -799,7 +847,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
     if metadata_present?(value) do
       %{
         label: label,
-        value: format_metadata_value(value),
+        value:
+          if(match?(%DateTime{}, value) or match?(%NaiveDateTime{}, value),
+            do: value,
+            else: format_metadata_value(value)
+          ),
         mono: Keyword.get(opts, :mono, false),
         href: Keyword.get(opts, :href),
         external_href: Keyword.get(opts, :external_href)
@@ -893,8 +945,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
         version: format_metadata_value(version),
         os: active_os_label(os_family, vendor),
         source: format_metadata_value(active_row_source(metadata, payload, protocol)),
-        observed_at:
-          format_metadata_value(metadata_timestamp(active_observed_at(metadata, payload, protocol)) || observed_at)
+        observed_at: metadata_timestamp(active_observed_at(metadata, payload, protocol)) || observed_at
       }
     end
   end
@@ -1207,13 +1258,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   defp process_listener_protocol(_value), do: nil
 
   defp process_listener_observed_at(payload, metadata) do
-    metadata_lookup(payload, "observed_at") ||
-      metadata_lookup(metadata, "local_processes.observed_at") ||
-      process_listener_unix_nano_timestamp(
-        metadata_lookup(payload, "observed_at_unix_nano") ||
-          metadata_lookup(payload, "observedAtUnixNano") ||
-          metadata_lookup(metadata, "local_processes.observed_at_unix_nano")
-      )
+    value =
+      metadata_lookup(payload, "observed_at") ||
+        metadata_lookup(metadata, "local_processes.observed_at") ||
+        process_listener_unix_nano_timestamp(
+          metadata_lookup(payload, "observed_at_unix_nano") ||
+            metadata_lookup(payload, "observedAtUnixNano") ||
+            metadata_lookup(metadata, "local_processes.observed_at_unix_nano")
+        )
+
+    metadata_timestamp(value)
   end
 
   defp process_listener_unix_nano_timestamp(nil), do: nil
@@ -1230,7 +1284,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   defp process_listener_unix_nano_timestamp(value) when is_integer(value) do
     case DateTime.from_unix(value, :nanosecond) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      {:ok, dt} -> dt
       _ -> nil
     end
   end
@@ -1299,9 +1353,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   defp metadata_timestamp(nil), do: nil
 
   defp metadata_timestamp(value) do
-    case format_timestamp(value) do
-      "—" -> value
-      formatted -> formatted
+    case parse_datetime(value) do
+      {:ok, %DateTime{} = datetime} -> datetime
+      _ -> value
     end
   end
 
@@ -1440,15 +1494,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   defp summarize_metadata_value(value), do: value
 
-  defp format_timestamp(nil), do: "—"
-
-  defp format_timestamp(value) do
-    case parse_datetime(value) do
-      {:ok, %DateTime{} = dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> "—"
-    end
-  end
-
   defp parse_datetime(%DateTime{} = dt), do: {:ok, dt}
 
   defp parse_datetime(%NaiveDateTime{} = ndt) do
@@ -1456,8 +1501,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   end
 
   defp parse_datetime(value) when is_binary(value) do
-    DateTime.from_iso8601(value)
+    with {:error, _} <- DateTime.from_iso8601(value),
+         {:ok, naive} <- NaiveDateTime.from_iso8601(value) do
+      {:ok, DateTime.from_naive!(naive, "Etc/UTC")}
+    else
+      {:ok, datetime, _offset} -> {:ok, datetime}
+      {:error, _} -> {:error, :invalid_datetime}
+    end
   end
 
   defp parse_datetime(_), do: {:error, :invalid_datetime}
+
+  defp visibility_device_key(row) do
+    time_key(Map.get(row, "uid") || Map.get(row, "device_uid") || Map.get(row, "id") || "device")
+  end
+
+  defp time_key(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
+  end
 end

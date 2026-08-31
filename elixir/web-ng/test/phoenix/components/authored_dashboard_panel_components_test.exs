@@ -5,6 +5,60 @@ defmodule ServiceRadarWebNGWeb.Components.AuthoredDashboardPanelComponentsTest d
 
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents
 
+  @moduletag :db_free
+
+  test "table localizes ISO string values from datetime-typed SRQL fields" do
+    html =
+      render_component(&PanelComponents.render_visual/1, %{
+        panel: %{
+          id: "panel-iso-time",
+          visual_type: :table,
+          title: "Recent events",
+          data_binding: %{},
+          display_config: %{},
+          visual_config: %{}
+        },
+        rows: [%{"id" => "event-1", "observed_at" => "2026-08-30T18:00:00Z"}],
+        fields: [%{name: "id", type: :string}, %{name: "observed_at", type: :datetime}],
+        timezone: "America/Chicago"
+      })
+
+    document = LazyHTML.from_fragment(html)
+    time = LazyHTML.query(document, "time")
+
+    assert LazyHTML.attribute(time, "datetime") == ["2026-08-30T18:00:00Z"]
+    assert LazyHTML.attribute(time, "data-user-time-zone") == ["America/Chicago"]
+  end
+
+  test "table timestamp hook ids do not collide after DOM-safe normalization" do
+    html =
+      render_component(&PanelComponents.render_visual/1, %{
+        panel: %{
+          id: "panel-collisions",
+          visual_type: :table,
+          title: "Recent events",
+          data_binding: %{},
+          display_config: %{},
+          visual_config: %{}
+        },
+        rows: [
+          %{"id" => "event a", "observed at" => "2026-08-30T18:00:00Z"},
+          %{"id" => "event-a", "observed at" => "2026-08-30T19:00:00Z"}
+        ],
+        fields: [%{name: "observed at", type: :datetime}],
+        timezone: "America/Chicago"
+      })
+
+    ids =
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("time")
+      |> LazyHTML.attribute("id")
+
+    assert length(ids) == 2
+    assert length(Enum.uniq(ids)) == 2
+  end
+
   test "stat trend compares oldest and newest rows by time" do
     html =
       render_component(&PanelComponents.render_visual/1, %{

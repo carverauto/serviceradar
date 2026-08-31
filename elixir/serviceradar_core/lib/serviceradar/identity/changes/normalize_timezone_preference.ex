@@ -24,4 +24,7 @@ defmodule ServiceRadar.Identity.Changes.NormalizeTimezonePreference do
         changeset
     end
   end
+
+  @impl true
+  def atomic(changeset, opts, context), do: {:ok, change(changeset, opts, context)}
 end

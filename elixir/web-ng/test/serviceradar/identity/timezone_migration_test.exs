@@ -12,5 +12,12 @@ defmodule ServiceRadarWebNG.TimezoneMigrationTest do
 
     assert [migration] = migration
     assert File.read!(migration) =~ "add :timezone, :text, null: false, default: \"Etc/UTC\""
+
+    baseline =
+      "../../../../serviceradar_core/priv/repo/baseline/platform_schema.sql"
+      |> Path.expand(__DIR__)
+      |> File.read!()
+
+    assert baseline =~ "timezone text DEFAULT 'Etc/UTC'::text NOT NULL"
   end
 end

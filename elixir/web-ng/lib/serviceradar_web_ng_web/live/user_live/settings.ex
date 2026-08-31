@@ -132,7 +132,6 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
               for={@timezone_form}
               id="timezone_form"
               phx-submit="update_timezone"
-              phx-change="validate_timezone"
             >
               <.input
                 field={@timezone_form[:timezone]}
@@ -365,15 +364,6 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
        |> put_flash(:error, "Sudo mode required. Please re-authenticate.")
        |> push_navigate(to: ~p"/settings/profile")}
     end
-  end
-
-  def handle_event("validate_timezone", %{"timezone_preference" => params}, socket) do
-    ash_form = AshPhoenix.Form.validate(socket.assigns.timezone_ash_form, params)
-
-    {:noreply,
-     socket
-     |> assign(:timezone_ash_form, ash_form)
-     |> assign(:timezone_form, to_form(ash_form))}
   end
 
   def handle_event("update_timezone", %{"timezone_preference" => params}, socket) do

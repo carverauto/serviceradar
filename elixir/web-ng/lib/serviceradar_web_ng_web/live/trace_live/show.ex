@@ -323,18 +323,18 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                         <.kv label="Kind" value={span_kind_label(row.kind)} />
                         <.kv label="Status" value={span_status_detail(row)} />
                         <.time_kv
-                          id={"trace-span-#{row.span_id || "row-#{idx}"}-start-time"}
+                          id={"trace-span-#{span_identity(row, idx)}-start-time"}
                           label="Start"
                           value={datetime_from_ns(row.start_ns)}
-                          fallback={format_ns_time(row.start_ns)}
-                          timezone={@current_scope.user.timezone}
+                          fallback="—"
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
                         />
                         <.time_kv
-                          id={"trace-span-#{row.span_id || "row-#{idx}"}-end-time"}
+                          id={"trace-span-#{span_identity(row, idx)}-end-time"}
                           label="End"
                           value={datetime_from_ns(row.end_ns)}
-                          fallback={format_ns_time(row.end_ns)}
-                          timezone={@current_scope.user.timezone}
+                          fallback="—"
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
                         />
                         <.kv label="Duration" value={format_duration_ms(row.duration_ms)} mono />
                         <.kv label="Service" value={row.service} />
@@ -431,11 +431,11 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                     <td class="whitespace-nowrap text-xs font-mono">
                       <% timestamp = effective_log_timestamp(log) %>
                       <.user_time
-                        id={"trace-log-#{Map.get(log, "id") || "row-#{idx}"}-time"}
+                        id={"trace-log-#{log_identity(log, idx)}-time"}
                         value={timestamp}
-                        timezone={@current_scope.user.timezone}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
                         style={:full}
-                        fallback={log_timestamp(log)}
+                        fallback="—"
                         class="font-mono text-xs"
                       />
                     </td>
@@ -873,17 +873,19 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
     end
   end
 
-  defp log_timestamp(log) do
-    timestamp = effective_log_timestamp(log)
-
-    case parse_timestamp(timestamp) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> timestamp || "—"
-    end
-  end
-
   defp effective_log_timestamp(log) do
     Map.get(log, "observed_timestamp") || Map.get(log, "timestamp")
+  end
+
+  defp span_identity(row, index) do
+    if row.span_id in [nil, ""], do: "row-#{index}", else: row.span_id
+  end
+
+  defp log_identity(log, index) do
+    case Map.get(log, "id") do
+      id when id not in [nil, ""] -> id
+      _id -> "row-#{index}"
+    end
   end
 
   defp log_severity(log) do
@@ -967,21 +969,6 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
       message -> "#{status_label(row.status_code)} — #{message}"
     end
   end
-
-  defp format_ns_time(ns) when is_integer(ns) do
-    case DateTime.from_unix(ns, :nanosecond) do
-      {:ok, dt} ->
-        millis = ns |> rem(@nanos_per_second) |> div(1_000_000) |> abs()
-
-        Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S") <>
-          "." <> String.pad_leading(Integer.to_string(millis), 3, "0")
-
-      _ ->
-        Integer.to_string(ns)
-    end
-  end
-
-  defp format_ns_time(_ns), do: "—"
 
   defp datetime_from_ns(ns) when is_integer(ns) do
     case DateTime.from_unix(ns, :nanosecond) do

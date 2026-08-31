@@ -61,7 +61,13 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLiveTest do
     assert html =~ "alert: flapping"
     assert html =~ "notification policy: standard_alert (camera_analysis_worker_routed_alert)"
     assert html =~ "notification policy: inactive"
-    assert html =~ "notification audit: 2 sent, last 2027-01-15 08:02:00 UTC, alert pending"
+    assert html =~ "notification audit: 2 sent, last"
+    assert html =~ "alert pending"
+
+    assert html =~
+             ~s(id="camera-analysis-worker-00000000-0000-0000-0000-000000000102-last-notification-at")
+
+    assert html =~ ~s(datetime="2027-01-15T08:02:00Z")
     assert html =~ "notification audit: none"
     assert html =~ "status_transitions_threshold"
     assert html =~ "observability key: camera_analysis_worker:worker-beta:flapping"

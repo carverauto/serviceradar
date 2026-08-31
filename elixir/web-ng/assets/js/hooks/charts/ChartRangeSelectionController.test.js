@@ -140,7 +140,9 @@ describe("ChartRangeSelectionController", () => {
     config.svg.dispatch(pointer("pointerup", 100, 17))
 
     expect(config.status.textContent).toContain("GMT-5")
-    expect(config.status.textContent).not.toContain("2026-08-27T10:00:00Z")
+    expect(config.status.textContent).toContain("display zone America/Chicago")
+    expect(config.status.textContent).toContain("2026-08-27T10:00:00Z")
+    expect(config.status.textContent).toContain("2026-08-27T12:59:59.999999Z")
     expect(config.emit).toHaveBeenCalledWith({
       start: "2026-08-27T10:00:00Z",
       end: "2026-08-27T12:59:59.999999Z",
@@ -153,7 +155,7 @@ describe("ChartRangeSelectionController", () => {
     })
 
     expect(config.status.textContent).toBe(
-      "Selected 2026-08-27T10:00:00Z to 2026-08-27T12:59:59.999999Z",
+      "Selected 2026-08-27T10:00:00Z to 2026-08-27T12:59:59.999999Z; display zone Mars/Olympus; canonical UTC 2026-08-27T10:00:00Z to 2026-08-27T12:59:59.999999Z",
     )
     expect(config.emit).toHaveBeenCalledOnce()
   })

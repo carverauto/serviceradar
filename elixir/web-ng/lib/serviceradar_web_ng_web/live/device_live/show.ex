@@ -1869,6 +1869,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         disk_metrics_limit: 500
       )
       |> SysmonMetrics.annotate_metric_sections(socket.assigns.anomaly_capacity, selected_anomaly_row(detail))
+      |> put_detail_section_subtitle_time(row)
     else
       _ -> []
     end
@@ -1893,6 +1894,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           key: "interfaces",
           title: "Interface metrics",
           subtitle: detail_window_label(row),
+          subtitle_time: detail_center_time(row),
           error: nil,
           panels: panels
         }
@@ -1924,15 +1926,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp detail_window_label(row) do
-    case {detail_center_time(row), detail_time_range(row)} do
-      {%DateTime{} = center, range} when is_binary(range) ->
-        "around #{Calendar.strftime(center, "%b %d %H:%M UTC")}"
+  defp detail_window_label(_row), do: "selected finding window"
+
+  defp put_detail_section_subtitle_time(sections, row) when is_list(sections) do
+    case detail_center_time(row) do
+      %DateTime{} = center ->
+        Enum.map(sections, fn
+          section when is_map(section) -> Map.put(section, :subtitle_time, center)
+          section -> section
+        end)
 
       _ ->
-        "selected finding window"
+        sections
     end
   end
+
+  defp put_detail_section_subtitle_time(sections, _row), do: sections
 
   defp detail_window_bounds(row, center) do
     start_dt = parse_detail_datetime(Map.get(row, "triggered_at") || Map.get(row, "window_started_at"))

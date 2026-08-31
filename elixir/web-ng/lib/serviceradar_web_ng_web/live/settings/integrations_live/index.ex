@@ -854,7 +854,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                           </div>
                         <% end %>
                         <div class="mt-1 text-xs text-sr-muted">
-                          {format_datetime(source.last_sync_at)}
+                          <.user_time
+                            id={"settings-integration-source-#{source.id}-last-sync-at"}
+                            value={source.last_sync_at}
+                            timezone={@current_scope.user.timezone || "Etc/UTC"}
+                            style={:compact}
+                            fallback="-"
+                          />
                         </div>
                       </td>
                       <td>
@@ -865,7 +871,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                             result={source.northbound_last_result}
                           />
                           <div class="mt-1 text-xs text-sr-muted">
-                            {format_datetime(source.northbound_last_run_at)}
+                            <.user_time
+                              id={"settings-integration-source-#{source.id}-northbound-last-run-at"}
+                              value={source.northbound_last_run_at}
+                              timezone={@current_scope.user.timezone || "Etc/UTC"}
+                              style={:compact}
+                              fallback="-"
+                            />
                           </div>
                           <div class="mt-1 text-xs text-sr-muted">
                             {source.northbound_last_updated_count || 0} updated
@@ -1125,6 +1137,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         agent_index={@agent_index}
         selected_source_runs={@selected_source_runs}
         selected_source_config_diagnostics={@selected_source_config_diagnostics}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
       />
     </Layouts.app>
     """
@@ -1703,7 +1716,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <%= if @source.last_sync_at do %>
             <div>
               <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Last Sync</div>
-              <div class="text-sm">{format_datetime(@source.last_sync_at)}</div>
+              <div class="text-sm">
+                <.user_time
+                  id={"settings-integration-source-details-#{@source.id}-last-sync-at"}
+                  value={@source.last_sync_at}
+                  timezone={@timezone}
+                  style={:compact}
+                  fallback="-"
+                />
+              </div>
             </div>
           <% end %>
 
@@ -1741,7 +1762,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                   <%= for diagnostic <- @selected_source_config_diagnostics do %>
                     <tr>
                       <td class="text-xs text-sr-muted">
-                        {format_datetime(Map.get(diagnostic, :recorded_at))}
+                        <.user_time
+                          id={
+                            "settings-integration-diagnostic-#{diagnostic_dom_id(diagnostic)}-recorded-at"
+                          }
+                          value={Map.get(diagnostic, :recorded_at)}
+                          timezone={@timezone}
+                          style={:compact}
+                          fallback="-"
+                        />
                       </td>
                       <td class="text-xs text-sr-muted">
                         {Map.get(diagnostic, :config_type)}
@@ -1835,7 +1864,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
             <div>
               <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Last Run</div>
-              <div class="text-sm">{format_datetime(@source.northbound_last_run_at)}</div>
+              <div class="text-sm">
+                <.user_time
+                  id={"settings-integration-source-details-#{@source.id}-northbound-last-run-at"}
+                  value={@source.northbound_last_run_at}
+                  timezone={@timezone}
+                  style={:compact}
+                  fallback="-"
+                />
+              </div>
             </div>
 
             <%= if @source.northbound_last_error_message do %>
@@ -1869,7 +1906,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                       <%= for run <- @selected_source_runs do %>
                         <tr>
                           <td class="text-xs text-sr-muted">
-                            {format_datetime(run.started_at)}
+                            <.user_time
+                              id={"settings-integration-run-#{run.id}-started-at"}
+                              value={run.started_at}
+                              timezone={@timezone}
+                              style={:compact}
+                              fallback="-"
+                            />
                           </td>
                           <td><.run_status_badge status={run.status} /></td>
                           <td class="font-mono text-xs text-sr-muted">
@@ -2219,10 +2262,24 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp maybe_put_filter(filters, _key, ""), do: filters
   defp maybe_put_filter(filters, key, value), do: Map.put(filters, key, value)
 
-  defp format_datetime(nil), do: "-"
+  defp diagnostic_dom_id(diagnostic) do
+    identity =
+      Map.get(diagnostic, :id) ||
+        Enum.map_join(
+          [
+            Map.get(diagnostic, :resource_id),
+            Map.get(diagnostic, :config_type),
+            Map.get(diagnostic, :action_type),
+            Map.get(diagnostic, :recorded_at)
+          ],
+          "-",
+          &to_string/1
+        )
 
-  defp format_datetime(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+    identity
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
   end
 
   defp format_affected_agents(:all_online), do: "All online"

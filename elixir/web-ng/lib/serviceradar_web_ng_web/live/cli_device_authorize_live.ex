@@ -174,7 +174,12 @@ defmodule ServiceRadarWebNGWeb.CliDeviceAuthorizeLive do
                 <div>
                   <div class="text-sm font-medium text-sr-ink">Expires</div>
                   <div class="text-sm">
-                    {Calendar.strftime(@row.expires_at, "%Y-%m-%d %H:%M:%S UTC")}
+                    <.user_time
+                      id={"cli-device-authorization-#{@row.user_code}-expires-at"}
+                      value={@row.expires_at}
+                      timezone={@current_scope.user.timezone || "Etc/UTC"}
+                      style={:compact}
+                    />
                   </div>
                 </div>
               </div>

@@ -87,8 +87,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.EmptyDefaults do
           latest_sync_indicators: 0,
           latest_sync_skipped: 0,
           latest_sync_total: 0,
-          latest_attempt_label: "",
-          latest_success_label: "",
           recent_matches: []
         }
 

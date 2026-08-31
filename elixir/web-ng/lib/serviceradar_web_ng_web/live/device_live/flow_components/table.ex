@@ -76,7 +76,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Table do
                         value={flow_time(flow)}
                         timezone={@timezone}
                         style={:compact}
-                        fallback={format_timestamp(flow_time(flow))}
                       />
                     </td>
                     <td class="font-mono">

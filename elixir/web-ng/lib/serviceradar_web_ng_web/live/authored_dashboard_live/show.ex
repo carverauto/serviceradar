@@ -819,6 +819,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.Show do
             expanded_srql?={MapSet.member?(@expanded_srql_panel_ids, entry.panel.id)}
             can_manage?={AccessControls.can_manage?(@dashboard, assigns)}
             csv_data_url={panel_csv_export_url(@dashboard, entry.panel, @variable_values)}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
         </section>
 

@@ -4292,7 +4292,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <td class="whitespace-nowrap text-xs font-mono">
                 <% time = timestamp_meta(Map.get(trace, "timestamp")) %>
                 <.user_time
-                  id={"trace-time-#{@id}-row-#{idx}"}
+                  id={
+                    "trace-time-#{@id}-row-#{signal_time_key(trace, ["trace_id", "span_id"], idx)}"
+                  }
                   value={time.value}
                   timezone={@timezone}
                   style={:full}
@@ -4478,7 +4480,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <td class="whitespace-nowrap text-xs font-mono">
                 <% time = timestamp_meta(Map.get(metric, "timestamp")) %>
                 <.user_time
-                  id={"metric-time-#{@id}-row-#{idx}"}
+                  id={
+                    "metric-time-#{@id}-row-#{signal_time_key(metric, ["span_id", "trace_id"], idx)}"
+                  }
                   value={time.value}
                   timezone={@timezone}
                   style={:full}
@@ -5050,7 +5054,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               >
                 <% time = timestamp_meta(alert_timestamp(alert)) %>
                 <.user_time
-                  id={"alert-time-#{@id}-row-#{idx}"}
+                  id={
+                    "alert-time-#{@id}-row-#{signal_time_key(alert, ["alert_id", "id"], idx)}"
+                  }
                   value={time.value}
                   timezone={@timezone}
                   style={:full}
@@ -7657,6 +7663,42 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp uuid_to_string(_), do: "unknown"
+
+  defp signal_time_key(row, identity_fields, index) when is_map(row) do
+    identity =
+      Enum.find_value(identity_fields, fn field ->
+        case Map.get(row, field) do
+          value when is_binary(value) ->
+            case String.trim(value) do
+              "" -> nil
+              trimmed -> trimmed
+            end
+
+          nil ->
+            nil
+
+          value ->
+            value
+        end
+      end)
+
+    case identity do
+      nil -> "i-#{index}"
+      value -> signal_dom_token(value)
+    end
+  end
+
+  defp signal_time_key(_row, _identity_fields, index), do: "i-#{index}"
+
+  defp signal_dom_token(value) do
+    value = to_string(value)
+
+    if Regex.match?(~r/\A[a-zA-Z0-9_-]+\z/, value) do
+      "s-#{value}"
+    else
+      "e-#{Base.url_encode64(value, padding: false)}"
+    end
+  end
 
   defp timestamp_meta(%DateTime{} = value), do: timestamp_meta_value(value)
   defp timestamp_meta(%NaiveDateTime{} = value), do: timestamp_meta_value(value)

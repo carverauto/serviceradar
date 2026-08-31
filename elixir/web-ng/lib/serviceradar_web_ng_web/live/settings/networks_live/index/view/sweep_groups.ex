@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
   use ServiceRadarWebNGWeb, :html
 
   import ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents,
-    only: [format_last_run: 1, group_last_run_at: 1, persisted_sweep_command_status: 1]
+    only: [group_last_run_at: 1, persisted_sweep_command_status: 1]
 
   import ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.CommandStatus
@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
   attr :summary_agents, :map, default: %{}
   attr :sweep_command_statuses, :map, default: %{}
   attr :can_manage_networks, :boolean, default: false
+  attr :timezone, :string, required: true
 
   def render(assigns) do
     ~H"""
@@ -88,7 +89,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
                   {agent_assignment_summary(group.agent_ids, @summary_agents)}
                 </td>
                 <td class="text-xs text-sr-muted">
-                  {format_last_run(group_last_run_at(group))}
+                  <.user_time
+                    id={"settings-sweep-group-#{group.id}-last-run-at"}
+                    value={group_last_run_at(group)}
+                    timezone={@timezone}
+                    style={:compact}
+                    fallback="Never"
+                  />
                 </td>
                 <td class="text-xs">
                   <%= if status =

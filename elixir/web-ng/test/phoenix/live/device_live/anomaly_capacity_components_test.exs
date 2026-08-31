@@ -247,7 +247,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
     assert html =~ "value 97.50"
     assert html =~ "score 4.20"
     assert html =~ "Observed"
-    assert html =~ "2026-06-19 00:06 UTC"
+
+    document = LazyHTML.from_fragment(html)
+    observed_time = LazyHTML.query(document, "#anomaly-capacity-detail-observed-time")
+
+    assert LazyHTML.attribute(observed_time, "datetime") == ["2026-06-19T00:06:00Z"]
+    assert LazyHTML.attribute(observed_time, "data-user-time-zone") == ["Etc/UTC"]
     assert html =~ "breach confirmed after 8/5 consecutive anomalous slots"
   end
 
@@ -434,10 +439,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponentsTest do
         timezone: "Etc/UTC"
       )
 
+    document = LazyHTML.from_fragment(html)
+
     assert html =~ "Metric context"
-    assert html =~ "2:00 PM"
-    assert html =~ "4:00 PM"
-    assert html =~ "6:00 PM"
+
+    panel_selector = "#panel-anomaly-capacity-detail-memory-memory-context-0"
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, panel_selector),
+             "data-timezone"
+           ) == ["Etc/UTC"]
+
+    assert LazyHTML.attribute(
+             LazyHTML.query(document, "#{panel_selector} [data-time-axis-iso]"),
+             "data-time-axis-iso"
+           ) == [
+             "2026-06-22T14:00:00Z",
+             "2026-06-22T16:00:00Z",
+             "2026-06-22T18:00:00Z"
+           ]
   end
 
   test "renders an explicit note when the detail marker is outside the metric context window" do
