@@ -1,6 +1,6 @@
 id: axis-camera
 name: AXIS Camera
-version: 0.1.2
+version: 0.1.3
 description: Collects AXIS VAPIX camera health, inventory and stream metadata
 entrypoint: run_check
 runtime: wasi-preview1
@@ -43,7 +43,7 @@ signal_schemas:
     payload_schema: schemas/ocsf_event_log_activity.schema.json
     display_contract: display/event_log_activity.display.json
     display_contract_id: com.carverauto.axis_camera.event_log.display
-    display_contract_version: 1.0.0
+    display_contract_version: 1.1.0
     ocsf_schema_version: 1.5.0
     class_uid: 1008
     type_uid: 100801

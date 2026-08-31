@@ -89,7 +89,7 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
   @external_resource @falco_contract_path
   @powerdns_signal_schema_ref %{
     "producer_id" => "powerdns",
-    "producer_version" => "0.1.1",
+    "producer_version" => "0.1.7",
     "schema_id" => "com.carverauto.powerdns.dns_activity",
     "schema_version" => "1.0.0"
   }
@@ -110,11 +110,19 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
       @powerdns_contract_path |> File.read!() |> Jason.decode!(),
     {"powerdns", "0.1.1", "com.carverauto.powerdns.dns_activity", "1.0.0"} =>
       @powerdns_contract_path |> File.read!() |> Jason.decode!(),
+    {"powerdns", "0.1.7", "com.carverauto.powerdns.dns_activity", "1.0.0"} =>
+      @powerdns_contract_path |> File.read!() |> Jason.decode!(),
     {"axis-camera", "0.1.0", "com.carverauto.axis_camera.event_log", "1.0.0"} =>
+      @axis_contract_path |> File.read!() |> Jason.decode!(),
+    {"axis-camera", "0.1.3", "com.carverauto.axis_camera.event_log", "1.0.0"} =>
       @axis_contract_path |> File.read!() |> Jason.decode!(),
     {"unifi-protect-camera", "0.1.0", "com.carverauto.unifi_protect.camera_event", "1.0.0"} =>
       @protect_contract_path |> File.read!() |> Jason.decode!(),
+    {"unifi-protect-camera", "0.1.4", "com.carverauto.unifi_protect.camera_event", "1.0.0"} =>
+      @protect_contract_path |> File.read!() |> Jason.decode!(),
     {"proxmox-inventory", "0.1.1", "com.carverauto.proxmox.resource_event", "1.0.0"} =>
+      @proxmox_contract_path |> File.read!() |> Jason.decode!(),
+    {"proxmox-inventory", "0.1.7", "com.carverauto.proxmox.resource_event", "1.0.0"} =>
       @proxmox_contract_path |> File.read!() |> Jason.decode!(),
     {"trivy", "0.69.1", "com.carverauto.trivy.vulnerability_report", "1.0.0"} =>
       @trivy_contract_path |> File.read!() |> Jason.decode!(),

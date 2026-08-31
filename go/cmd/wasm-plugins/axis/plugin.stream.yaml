@@ -1,6 +1,6 @@
 id: axis-camera-stream
 name: AXIS Camera Stream
-version: 0.1.1
+version: 0.1.2
 description: Reference AXIS camera streaming plugin path using the ServiceRadar media host bridge
 entrypoint: stream_camera
 runtime: wasi-preview1

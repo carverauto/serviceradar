@@ -15,6 +15,39 @@ defmodule ServiceRadar.Plugins.DisplayContractTest do
     "integrations/falco/display/runtime_event.display.json"
   ]
 
+  @packaged_contracts [
+    %{
+      manifest: "addons/anomaly-addon/addon.yaml",
+      contract: "addons/anomaly-addon/display/detection_finding.display.json",
+      producer_id: "anomaly",
+      producer_version: "0.3.6"
+    },
+    %{
+      manifest: "addons/powerdns/addon.yaml",
+      contract: "addons/powerdns/display/dns_activity.display.json",
+      producer_id: "powerdns",
+      producer_version: "0.1.7"
+    },
+    %{
+      manifest: "go/cmd/wasm-plugins/axis/plugin.yaml",
+      contract: "go/cmd/wasm-plugins/axis/display/event_log_activity.display.json",
+      producer_id: "axis-camera",
+      producer_version: "0.1.3"
+    },
+    %{
+      manifest: "go/cmd/wasm-plugins/proxmox/plugin.yaml",
+      contract: "go/cmd/wasm-plugins/proxmox/display/resource_event.display.json",
+      producer_id: "proxmox-inventory",
+      producer_version: "0.1.7"
+    },
+    %{
+      manifest: "go/cmd/wasm-plugins/unifi-protect/plugin.yaml",
+      contract: "go/cmd/wasm-plugins/unifi-protect/display/camera_event.display.json",
+      producer_id: "unifi-protect-camera",
+      producer_version: "0.1.4"
+    }
+  ]
+
   @valid %{
     "id" => "com.example.thing.display",
     "version" => "1.0.0",
@@ -39,6 +72,36 @@ defmodule ServiceRadar.Plugins.DisplayContractTest do
 
         assert contract["surface"] == "signal"
         assert contract["widgets"] != []
+      end
+    end
+
+    test "timestamp-aware contracts ship as revision 1.1 without changing their payload schema" do
+      for relative <- @first_party_contracts do
+        contract = @repo_root |> Path.join(relative) |> File.read!() |> Jason.decode!()
+
+        assert contract["version"] == "1.1.0", "#{relative} did not bump its document revision"
+        assert contract["schema_version"] == "1.0.0", "#{relative} changed its payload schema"
+      end
+    end
+
+    test "package manifests bind their exact producer and display contract revisions" do
+      for binding <- @packaged_contracts do
+        manifest_path = Path.join(@repo_root, binding.manifest)
+        manifest = manifest_path |> File.read!() |> YamlElixir.read_from_string!()
+        contract = @repo_root |> Path.join(binding.contract) |> File.read!() |> Jason.decode!()
+
+        relative_contract = Path.relative_to(binding.contract, Path.dirname(binding.manifest))
+
+        signal =
+          Enum.find(manifest["signal_schemas"], &(&1["display_contract"] == relative_contract))
+
+        assert manifest["id"] == binding.producer_id
+        assert manifest["version"] == binding.producer_version
+        assert %{} = signal, "#{binding.manifest} does not declare #{relative_contract}"
+        assert signal["id"] == contract["schema_id"]
+        assert signal["version"] == contract["schema_version"]
+        assert signal["display_contract_id"] == contract["id"]
+        assert signal["display_contract_version"] == contract["version"]
       end
     end
   end

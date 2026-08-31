@@ -4,11 +4,11 @@ import "github.com/carverauto/serviceradar-sdk-go/sdk"
 
 const (
 	axisSignalSchemaProducerID             = "axis-camera"
-	axisSignalSchemaProducerVersion        = "0.1.0"
+	axisSignalSchemaProducerVersion        = "0.1.3"
 	axisSignalSchemaID                     = "com.carverauto.axis_camera.event_log"
 	axisSignalSchemaVersion                = "1.0.0"
 	axisSignalSchemaDisplayContractID      = "com.carverauto.axis_camera.event_log.display"
-	axisSignalSchemaDisplayContractVersion = "1.0.0"
+	axisSignalSchemaDisplayContractVersion = "1.1.0"
 	axisSignalSchemaDisplayContractPath    = "display/event_log_activity.display.json"
 )
 

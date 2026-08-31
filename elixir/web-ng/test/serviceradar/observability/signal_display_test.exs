@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
   @event %{
     "message" => "RPZ blocked suspicious.example",
     "severity" => "High",
+    "time" => "2027-06-08T12:00:00Z",
     "log_provider" => "ns03",
     "query" => %{"hostname" => "suspicious.example", "type" => "A"},
     "metadata" => %{
@@ -37,16 +38,20 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
     assert %{format: "unix_nano"} = Enum.find(timeline.fields, &(&1.label == "Observed"))
   end
 
-  test "renders current PowerDNS producer version" do
-    event =
-      put_in(
-        @event,
-        ["metadata", "service_radar", "signal_schema", "producer_version"],
-        "0.1.1"
-      )
+  test "renders legacy and current exact PowerDNS producer versions" do
+    for producer_version <- ["0.1.0", "0.1.1", "0.1.7"] do
+      event =
+        put_in(
+          @event,
+          ["metadata", "service_radar", "signal_schema", "producer_version"],
+          producer_version
+        )
 
-    assert {:ok, [%{type: :summary} = summary | _]} = SignalDisplay.render_record(event)
-    assert summary.title == "suspicious.example"
+      assert {:ok, contract, :built_in} = SignalDisplay.resolve_contract_with_source(event)
+      assert contract["version"] == "1.1.0"
+      assert {:ok, [%{type: :summary} = summary | _]} = SignalDisplay.render_record(event)
+      assert summary.title == "suspicious.example"
+    end
   end
 
   test "infers PowerDNS contract for legacy OCSF rows without signal schema" do
@@ -98,6 +103,30 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
              Enum.find(fact_fields, &(&1.label == "Policy Match"))
 
     assert %{value: "ns03"} = Enum.find(fact_fields, &(&1.label == "Server Identity"))
+  end
+
+  test "infers the baked Trivy contract revision" do
+    event = %{
+      "log_provider" => "trivy",
+      "log_name" => "trivy.report.vulnerability",
+      "metadata" => %{"report_kind" => "VulnerabilityReport"}
+    }
+
+    assert {:ok, contract, :built_in} = SignalDisplay.resolve_contract_with_source(event)
+    assert contract["id"] == "com.carverauto.trivy.vulnerability_report.display"
+    assert contract["version"] == "1.1.0"
+  end
+
+  test "infers the baked Falco contract revision" do
+    event = %{
+      "log_provider" => "falco",
+      "log_name" => "falco.runtime",
+      "metadata" => %{"security_signal" => %{"source" => "falco"}}
+    }
+
+    assert {:ok, contract, :built_in} = SignalDisplay.resolve_contract_with_source(event)
+    assert contract["id"] == "com.carverauto.falco.runtime_event.display"
+    assert contract["version"] == "1.1.0"
   end
 
   test "resolves and renders built-in Wasm plugin contract" do

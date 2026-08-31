@@ -361,6 +361,11 @@ ex_unit_tests(
         allow_empty = True,
         exclude = ["test/**/*_test.exs"],
     ) + [
+        # Runtime inputs for ContractRegistryTest's actual first-party package
+        # reachability checks. mix_app compile inputs do not automatically become
+        # an ex_unit_test's runfiles.
+        "//addons/anomaly-addon:anomaly_manifest",
+        "//addons/powerdns:powerdns_manifest",
         # assets/ is its own package; glob() here cannot see css/app.css.
         # DashboardLayoutTest reads it at runtime.
         "//elixir/web-ng/assets:css/app.css",
@@ -368,6 +373,9 @@ ex_unit_tests(
         # from __DIR__. ex_unit_test mirrors the workspace layout, so this
         # declared input is what makes that relative path exist in the sandbox.
         "//go/cmd/wasm-plugins/opentext-nom:config.schema.json",
+        "//go/cmd/wasm-plugins/axis:srcs",
+        "//go/cmd/wasm-plugins/proxmox:srcs",
+        "//go/cmd/wasm-plugins/unifi-protect:srcs",
         # TimezoneMigrationTest asserts on the generated core migration from the
         # database-free shard, so the cross-package source must be in runfiles.
         "//elixir/serviceradar_core:migrations",
