@@ -27,9 +27,9 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     unsupported =
       Catalog.entities()
       |> Enum.map(& &1.id)
-      |> Enum.reject(&MapSet.member?(@non_rust_srql_entities, &1))
       |> Enum.reject(fn entity ->
-        match?({:ok, _ast_json}, Native.parse_ast("in:#{entity} limit:1"))
+        MapSet.member?(@non_rust_srql_entities, entity) or
+          match?({:ok, _ast_json}, Native.parse_ast("in:#{entity} limit:1"))
       end)
 
     assert unsupported == []
