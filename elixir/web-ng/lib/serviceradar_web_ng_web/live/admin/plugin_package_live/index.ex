@@ -3583,9 +3583,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   # A package with no recorded origin cannot be attributed to any repository.
   # It stays visible in the "Imported packages" list above, which is not scoped.
-  defp package_from_repository?(%{source_repo_url: origin}, _repository)
-       when origin in [nil, ""],
-       do: false
+  defp package_from_repository?(%{source_repo_url: origin}, _repository) when origin in [nil, ""], do: false
 
   defp package_from_repository?(package, repository) do
     normalize_repo_url(package.source_repo_url) == normalize_repo_url(repository.repo_url)
