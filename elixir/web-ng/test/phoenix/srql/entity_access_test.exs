@@ -1,11 +1,16 @@
 defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadarSRQL.Native
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.SRQL.EntityAccess
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   @moduletag :db_free
+
+  # Interface settings are managed through the Ash-backed
+  # ServiceRadar.Inventory.InterfaceSettings context, not the Rust SRQL engine.
+  @non_rust_srql_entities MapSet.new(["interface_settings"])
 
   test "every catalog entity other than dashboards has a permission mapping" do
     unmapped =
@@ -16,6 +21,18 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
       end)
 
     assert unmapped == []
+  end
+
+  test "every Rust-backed catalog entity is accepted by the shared Rust parser" do
+    unsupported =
+      Catalog.entities()
+      |> Enum.map(& &1.id)
+      |> Enum.reject(fn entity ->
+        MapSet.member?(@non_rust_srql_entities, entity) or
+          match?({:ok, _ast_json}, Native.parse_ast("in:#{entity} limit:1"))
+      end)
+
+    assert unsupported == []
   end
 
   test "parser aliases resolve to the same catalog key as the canonical entity" do
