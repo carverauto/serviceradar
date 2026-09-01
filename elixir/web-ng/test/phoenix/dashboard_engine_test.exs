@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
 
   import Phoenix.LiveViewTest
 
+  alias Phoenix.LiveView.Socket
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins
 
@@ -104,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
     panels = Engine.build_panels(response)
     assert %{plugin: Plugins.Table, assigns: assigns} = Enum.find(panels, &(&1.plugin == Plugins.Table))
 
-    socket = %Phoenix.LiveView.Socket{
+    socket = %Socket{
       assigns: Map.merge(assigns, %{__changed__: %{}, sort_col: "count", sort_dir: :asc})
     }
 
@@ -115,9 +116,19 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
   end
 
   test "table plugin defaults omitted timezone to UTC" do
-    socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}}}
+    socket = %Socket{assigns: %{__changed__: %{}}}
 
     assert {:ok, updated_socket} = Plugins.Table.update(%{panel_assigns: %{}}, socket)
     assert updated_socket.assigns.timezone == "Etc/UTC"
+
+    assert {:ok, updated_socket} =
+             Plugins.Table.update(%{panel_assigns: %{timezone: nil}}, socket)
+
+    assert updated_socket.assigns.timezone == "Etc/UTC"
+
+    assert {:ok, updated_socket} =
+             Plugins.Table.update(%{panel_assigns: %{timezone: false}}, socket)
+
+    assert updated_socket.assigns.timezone == false
   end
 end
