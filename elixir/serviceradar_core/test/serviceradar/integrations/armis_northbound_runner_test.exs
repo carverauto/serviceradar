@@ -390,11 +390,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                request: request
              )
 
-    assert result.device_count == 3
-    assert result.updated_count == 3
+    assert result.device_count == 5
+    assert result.updated_count == 5
     assert result.skipped_count == 0
     assert result.error_count == 0
-    assert result.batch_count == 2
+    assert result.batch_count == 3
 
     assert_received {:token_source, ^source}
     assert_received {:request, "/api/v1/devices/custom-properties/_bulk/", :post, headers1, body1}
@@ -402,13 +402,17 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert_received {:request, "/api/v1/devices/custom-properties/_bulk/", :post, _headers2,
                      body2}
 
+    assert_received {:request, "/api/v1/devices/custom-properties/_bulk/", :post, _headers3,
+                     body3}
+
     # Armis requires the raw access token; a "Bearer " prefix triggers a 401
     # "Invalid access token." (see authorization_header/1).
     assert headers1["Authorization"] == "token-abc"
     assert headers1["Content-Type"] == "application/json"
     assert headers1["Accept"] == "application/json"
     assert length(body1) == 2
-    assert length(body2) == 1
+    assert length(body2) == 2
+    assert length(body3) == 1
   end
 
   test "execute_batches preserves tokens that already include an auth scheme" do
@@ -668,6 +672,20 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
         device_ids: ["d3"],
         sync_service_ids: ["source-1"],
         metadata: %{}
+      },
+      %{
+        armis_device_id: "armis-4",
+        is_available: true,
+        device_ids: ["d4"],
+        sync_service_ids: ["source-1"],
+        metadata: %{}
+      },
+      %{
+        armis_device_id: "armis-5",
+        is_available: true,
+        device_ids: ["d5"],
+        sync_service_ids: ["source-1"],
+        metadata: %{}
       }
     ]
 
@@ -807,7 +825,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                      }}
 
     assert message =~ "finished with success"
-    assert message =~ "2/2 devices updated"
+    assert message =~ "2/2 source IDs accepted by Armis"
     assert raw_data =~ ~s("integration_type":"armis")
     assert raw_data =~ "\"updated_count\":2"
   end
@@ -1254,7 +1272,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                        device_count: 0,
                        updated_count: 0,
                        skipped_count: 0,
-                       error_count: 1,
+                       error_count: 0,
                        error_message: error_message,
                        metadata: %{batch_count: 0, errors: [%{reason: serialized_reason}]}
                      }, %{status: :failed}}
@@ -1267,7 +1285,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                        result: :failed,
                        device_count: 0,
                        updated_count: 0,
-                       skipped_count: 1,
+                       skipped_count: 0,
                        error_message: source_error
                      }}
 
@@ -1279,7 +1297,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
                        raw_data: raw_data
                      }}
 
-    assert raw_data =~ "\"error_count\":1"
+    assert raw_data =~ "\"error_count\":0"
   end
 
   test "run_for_source finalizes started run when bulk execution raises" do

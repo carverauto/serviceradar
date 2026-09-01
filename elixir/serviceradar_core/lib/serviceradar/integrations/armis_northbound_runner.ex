@@ -420,7 +420,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
               device_count: length(collapsed),
               updated_count: 0,
               skipped_count: 0,
-              error_count: max(length(collapsed), 1),
+              error_count: length(collapsed),
               batch_count: 0,
               errors: [%{reason: reason}],
               accepted_ids: [],
@@ -565,7 +565,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           device_count: length(collapsed),
           updated_count: 0,
           skipped_count: 0,
-          error_count: max(length(collapsed), 1),
+          error_count: length(collapsed),
           batch_count: 0,
           errors: [%{reason: reason}],
           accepted_ids: [],
@@ -595,11 +595,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   end
 
   defp failure_result(device_count, reason) do
+    # error_count is a source-ID outcome count. Keep run-level failures in
+    # errors instead of inventing one failed device for an empty population.
     %{
       device_count: device_count,
       updated_count: 0,
       skipped_count: 0,
-      error_count: max(device_count, 1),
+      error_count: device_count,
       batch_count: 0,
       errors: [%{reason: reason}]
     }
