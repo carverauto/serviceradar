@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
   @repo_url "https://github.com/carverauto/serviceradar"
   @external_repo_url "https://github.com/carverauto/serviceradar-plugin-example-inventory"
+  @per_plugin_repo_url "https://github.com/carverauto/serviceradar-plugin-per-plugin-tags"
   @manifest_yaml """
   id: live-first-party-plugin
   name: Live First-party Plugin
@@ -77,6 +78,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
         ) ->
           {:ok, %Req.Response{status: 200, body: PluginPackageLiveTest.external_release()}}
 
+        String.contains?(
+          url,
+          "api.github.com/repos/carverauto/serviceradar-plugin-per-plugin-tags/releases?per_page="
+        ) ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: PluginPackageLiveTest.per_plugin_releases()
+           }}
+
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
           {:ok,
            %Req.Response{
@@ -95,6 +106,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
             cond do
               String.contains?(url, "serviceradar-plugin-example-inventory") ->
                 PluginPackageLiveTest.external_index()
+
+              String.contains?(url, "/alpha-sensor-v0.1.0/") ->
+                PluginPackageLiveTest.per_plugin_index("alpha-sensor", "Alpha Sensor", "0.1.0")
+
+              String.contains?(url, "/beta-sensor-v0.2.0/") ->
+                PluginPackageLiveTest.per_plugin_index("beta-sensor", "Beta Sensor", "0.2.0")
 
               String.contains?(url, "/v1.0.0/") ->
                 PluginPackageLiveTest.old_index()
@@ -266,6 +283,57 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert package.source_type == :first_party
     assert package.source_repo_url == @external_repo_url
     assert package.source_release_tag == "v2.0.0"
+  end
+
+  test "a repository tagging one release per plugin shows all of its plugins", %{conn: conn} do
+    # Every tag here is per-plugin (`alpha-sensor-v0.1.0`), so none matches the
+    # first-party `vX.Y.Z` shape. Filtering the release options by that shape
+    # discarded them all, the selector fell back to an imported package's tag
+    # from a different repository, and the catalog then filtered its own entries
+    # against that foreign tag and reported finding nothing.
+    repository = create_repository!("per-plugin", @per_plugin_repo_url)
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+
+    lv
+    |> form("#select-first-party-repository-form", %{"repository_id" => repository.id})
+    |> render_change()
+
+    html = lv |> element("#plugin-catalog") |> render()
+
+    refute html =~ "no import-ready plugin entries were found"
+    assert html =~ "Alpha Sensor"
+    assert html =~ "Beta Sensor"
+    assert html =~ "All releases"
+  end
+
+  test "a repository's catalog does not show packages imported from another repository", %{
+    conn: conn
+  } do
+    unique = System.unique_integer([:positive])
+    repository = create_repository!("per-plugin", @per_plugin_repo_url)
+
+    # Imported from the built-in ServiceRadar repository, not from the
+    # per-plugin one being browsed. With "All releases" selected, a release-tag
+    # comparison alone no longer excludes it -- only its origin does.
+    create_catalog_package!(
+      system_actor(),
+      "v2.0.0",
+      "foreign-imported-plugin-#{unique}",
+      "2.0.0",
+      @repo_url
+    )
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+
+    lv
+    |> form("#select-first-party-repository-form", %{"repository_id" => repository.id})
+    |> render_change()
+
+    html = lv |> element("#plugin-catalog") |> render()
+
+    assert html =~ "Alpha Sensor"
+    refute html =~ "foreign-imported-plugin-#{unique}"
   end
 
   test "plugin catalog defaults to latest official release and can select older releases", %{
@@ -1223,6 +1291,54 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     }
   end
 
+  # A repository that publishes one release per plugin, which is the documented
+  # third-party pattern: the tag names the plugin, so it never matches the
+  # first-party `vX.Y.Z` shape.
+  def per_plugin_releases do
+    [
+      per_plugin_release("alpha-sensor", "0.1.0"),
+      per_plugin_release("beta-sensor", "0.2.0")
+    ]
+  end
+
+  def per_plugin_release(plugin_id, version) do
+    tag = "#{plugin_id}-v#{version}"
+
+    %{
+      "tag_name" => tag,
+      "name" => "#{plugin_id} #{version}",
+      "html_url" => "https://github.com/carverauto/serviceradar-plugin-per-plugin-tags/releases/tag/#{tag}",
+      "assets" => [
+        %{
+          "name" => "serviceradar-wasm-plugin-index.json",
+          "browser_download_url" =>
+            "https://github.com/carverauto/serviceradar-plugin-per-plugin-tags/releases/download/#{tag}/serviceradar-wasm-plugin-index.json"
+        }
+      ]
+    }
+  end
+
+  def per_plugin_index(plugin_id, name, version) do
+    tag = "#{plugin_id}-v#{version}"
+
+    %{
+      "schema_version" => 1,
+      "release_tag" => tag,
+      "plugins" => [
+        %{
+          "plugin_id" => plugin_id,
+          "name" => name,
+          "version" => version,
+          "bundle_url" =>
+            "https://github.com/carverauto/serviceradar-plugin-per-plugin-tags/releases/download/#{tag}/#{plugin_id}.zip",
+          "upload_signature_url" =>
+            "https://github.com/carverauto/serviceradar-plugin-per-plugin-tags/releases/download/#{tag}/#{plugin_id}.upload-signature.json",
+          "bundle_digest" => Storage.sha256(bundle())
+        }
+      ]
+    }
+  end
+
   def external_index do
     %{
       "schema_version" => 1,
@@ -1562,7 +1678,33 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
-  defp create_catalog_package!(actor, release_tag, plugin_id, version) do
+  defp create_repository!(name, repo_url) do
+    {public_key, _private_key} = :crypto.generate_key(:eddsa, :ed25519)
+
+    ServiceRadar.Plugins.PluginRepository
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: name,
+        repo_url: repo_url,
+        index_asset_name: "serviceradar-wasm-plugin-index.json",
+        signing_key_id: "#{name}-signing-key",
+        signing_public_key: Base.encode64(public_key),
+        enabled: true
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+  end
+
+  # A real first-party import always records the repository it came from, and the
+  # catalog is scoped by that origin, so the default has to be the built-in repo
+  # rather than nil -- a nil-origin package cannot be attributed to any
+  # repository and is deliberately absent from every repository's catalog.
+  defp create_catalog_package!(actor, release_tag, plugin_id, version),
+    do: create_catalog_package!(actor, release_tag, plugin_id, version, @repo_url)
+
+  defp create_catalog_package!(actor, release_tag, plugin_id, version, source_repo_url) do
     ensure_plugin!(actor, plugin_id)
 
     assert package =
@@ -1581,6 +1723,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
                  display_contract: %{},
                  signature: %{},
                  source_type: :first_party,
+                 source_repo_url: source_repo_url,
                  source_release_tag: release_tag,
                  source_oci_ref: "registry.carverauto.dev/serviceradar/wasm-plugin-#{plugin_id}:#{release_tag}",
                  source_oci_digest: "sha256:#{plugin_id}-#{version}",

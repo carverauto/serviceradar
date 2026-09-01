@@ -31,6 +31,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   @package_page_size 10
   @first_party_catalog_page_size 10
   @official_release_tag_regex ~r/^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$/
+
+  # Sentinel release option meaning "every release this repository publishes".
+  # A repository that tags per plugin (one release per plugin, the pattern
+  # third-party repositories are documented to use) has no single release
+  # holding its whole catalog, so selecting one tag would show one plugin and
+  # hide the rest.
+  @all_releases_tag "__all_releases__"
   @plugin_assignment_manage_permission "settings.plugins.manage"
   @credential_manage_permission "settings.credentials.manage"
   # Deliberately not implied by plugins.stage: staging imports from a source the
@@ -520,7 +527,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     catalog_row_count =
       socket.assigns.first_party_catalog
       |> combined_catalog_rows(
-        socket.assigns.catalog_packages,
+        repository_packages(socket.assigns.catalog_packages, socket.assigns.selected_repository),
         socket.assigns.first_party_release_tag
       )
       |> length()
@@ -1346,7 +1353,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
     case result do
       {:ok, summary} ->
-        release_label = socket.assigns.first_party_release_tag || "the selected release"
+        release_label = release_flash_label(socket.assigns.first_party_release_tag)
 
         {:noreply,
          socket
@@ -1520,7 +1527,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         <% catalog_rows =
           combined_catalog_rows(
             @first_party_catalog,
-            @catalog_packages,
+            repository_packages(@catalog_packages, @selected_repository),
             @first_party_release_tag
           ) %>
         <% import_state = catalog_import_state(catalog_rows) %>
@@ -1632,7 +1639,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                     value={release_tag}
                     selected={release_tag == @first_party_release_tag}
                   >
-                    {release_tag}
+                    {release_option_label(release_tag)}
                   </option>
                 </select>
               </form>
@@ -3402,7 +3409,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp assign_first_party_catalog_view(socket, plugins, requested_release_tag) do
-    packages = socket.assigns[:catalog_packages] || []
+    packages =
+      repository_packages(
+        socket.assigns[:catalog_packages] || [],
+        socket.assigns[:selected_repository]
+      )
+
     release_options = combined_release_options(plugins, packages)
     selected_release_tag = selected_first_party_release(release_options, requested_release_tag)
     visible_plugins = filter_first_party_plugins(plugins, selected_release_tag)
@@ -3415,13 +3427,24 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     |> assign(:first_party_catalog_page, 1)
   end
 
+  # Every tag the entries actually carry. Filtering these by
+  # `official_release_tag?/1` discarded every tag from a repository that names
+  # its releases per plugin (`clearpass-policy-manager-v0.1.0`), which left the
+  # options list to fall back on an *imported* package's tag from a different
+  # repository -- and the catalog then filtered its own entries against that
+  # foreign tag and reported "no import-ready plugin entries were found".
   defp first_party_release_options(plugins) do
     plugins
     |> Enum.map(& &1.release_tag)
-    |> Enum.filter(&official_release_tag?/1)
+    |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.uniq()
   end
 
+  # Imported packages keep the official-tag filter that discovered entries must
+  # not have. A discovered entry's tag is a release the repository actually
+  # published, so every one belongs in the selector; an imported package's
+  # provenance tag can be a one-off dev build (`sha-abc1234`), which would only
+  # clutter it.
   defp package_release_options(packages) do
     packages
     |> Enum.map(& &1.source_release_tag)
@@ -3430,11 +3453,23 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp combined_release_options(plugins, packages) do
-    plugins
-    |> first_party_release_options()
-    |> Kernel.++(package_release_options(packages))
-    |> Enum.uniq()
-    |> Enum.sort_by(&release_sort_key/1, :desc)
+    tags =
+      plugins
+      |> first_party_release_options()
+      |> Kernel.++(package_release_options(packages))
+      |> Enum.uniq()
+
+    # Official tags stay newest-first so the first-party default is unchanged;
+    # per-plugin tags have no meaningful version order between them, so they
+    # follow in a stable alphabetical order.
+    {official, other} = Enum.split_with(tags, &official_release_tag?/1)
+    sorted = Enum.sort_by(official, &release_sort_key/1, :desc) ++ Enum.sort(other)
+
+    case sorted do
+      [] -> []
+      [_only] -> sorted
+      _ -> [@all_releases_tag | sorted]
+    end
   end
 
   defp selected_first_party_release([], _requested), do: nil
@@ -3443,15 +3478,32 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     if requested in release_options do
       requested
     else
-      List.first(release_options)
+      default_release_option(release_options)
     end
+  end
+
+  # First-party keeps its old default: the newest official release, which
+  # `combined_release_options/2` has already sorted to the front. A repository
+  # with no official tag defaults to "all releases" rather than to one arbitrary
+  # per-plugin tag, which would present one plugin as the whole catalog.
+  defp default_release_option(release_options) do
+    Enum.find(release_options, &official_release_tag?/1) || List.first(release_options)
   end
 
   defp filter_first_party_plugins(_plugins, nil), do: []
 
+  defp filter_first_party_plugins(plugins, @all_releases_tag), do: plugins
+
   defp filter_first_party_plugins(plugins, release_tag) do
     Enum.filter(plugins, &(&1.release_tag == release_tag))
   end
+
+  defp release_option_label(@all_releases_tag), do: "All releases"
+  defp release_option_label(release_tag), do: release_tag
+
+  defp release_flash_label(nil), do: "the selected release"
+  defp release_flash_label(@all_releases_tag), do: "all releases"
+  defp release_flash_label(release_tag), do: release_tag
 
   defp first_party_catalog_status(summary, visible_plugins, all_plugins) do
     cond do
@@ -3469,10 +3521,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp selected_release_status_label([]), do: "the selected release"
 
   defp selected_release_status_label(plugins) do
-    plugins
-    |> first_party_release_options()
-    |> case do
-      [release_tag | _] -> "release #{release_tag}"
+    case first_party_release_options(plugins) do
+      [release_tag] -> "release #{release_tag}"
+      [_ | _] -> "all releases"
       [] -> "the selected release"
     end
   end
@@ -3520,7 +3571,36 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {package.plugin_id, package.version, package.source_release_tag}
   end
 
+  # Imported packages are shown alongside discovered entries, but only the ones
+  # that came from the repository being browsed. Without this an "All releases"
+  # selection matches every package, so a package imported from the built-in
+  # repository appears inside a third-party repository's catalog.
+  defp repository_packages(packages, nil), do: packages
+
+  defp repository_packages(packages, repository) do
+    Enum.filter(packages, &package_from_repository?(&1, repository))
+  end
+
+  # A package with no recorded origin cannot be attributed to any repository.
+  # It stays visible in the "Imported packages" list above, which is not scoped.
+  defp package_from_repository?(%{source_repo_url: origin}, _repository) when origin in [nil, ""], do: false
+
+  defp package_from_repository?(package, repository) do
+    normalize_repo_url(package.source_repo_url) == normalize_repo_url(repository.repo_url)
+  end
+
+  defp normalize_repo_url(url) do
+    url
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace_suffix(".git", "")
+    |> String.trim_trailing("/")
+  end
+
   defp package_matches_release?(_package, nil), do: false
+
+  defp package_matches_release?(_package, @all_releases_tag), do: true
 
   defp package_matches_release?(package, release_tag), do: package.source_release_tag == release_tag
 
