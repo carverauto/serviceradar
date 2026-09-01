@@ -70,6 +70,13 @@ Both report the candidate uids, so the caller can say which devices are in confl
 than only that something is. That is not a leak: a caller permitted to resolve an address
 is permitted to learn the devices at it.
 
+Ambiguity turns out to be unreachable today, which was discovered by trying to test it:
+`ocsf_devices_unique_active_ip_idx` makes an active device's address unique, and
+`DeviceIdentifier` is unique per type, value and partition, so neither branch that returns
+it can fire. It stays handled. The resolver declares the outcome, a schema constraint is
+not the contract, and relaxing that index later should not convert a documented answer
+into a 500.
+
 ### Decision: Its own permission key
 `validation_runs.execute` currently gates the only path to a resolution, and it should not
 be what a caller needs to look up an id. Reading an identity is closer to reading the

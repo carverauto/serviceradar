@@ -74,6 +74,12 @@ defmodule ServiceRadarWebNGWeb.Api.IdentityController do
   # identity continuously, not faults. Both name the devices involved, so a caller can
   # report which ones disagree rather than only that something did. That is not a leak:
   # a caller permitted to resolve an address may learn the devices at it.
+  #
+  # `ambiguous` cannot currently occur: an active device's address is unique
+  # (ocsf_devices_unique_active_ip_idx) and an identifier is unique per type, value and
+  # partition, so neither resolver branch that returns it can fire. It is handled anyway
+  # because the resolver declares it, and a database constraint is not the contract --
+  # relaxing that index later should not turn a documented outcome into a 500.
   defp outcome(:not_found), do: %{"error" => "not_found"}
   defp outcome(:invalid_ip), do: %{"error" => "invalid_ip"}
   defp outcome({:ambiguous, uids}), do: %{"error" => "ambiguous", "uids" => uids}

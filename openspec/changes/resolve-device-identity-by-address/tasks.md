@@ -16,21 +16,23 @@
   than it does; keep it separate from `validation_runs.execute`.
 
 ## 3. Tests
-- [ ] 3.1 A known address resolves; a corroborating MAC is accepted; an unknown MAC is
+- [x] 3.1 A known address resolves; a corroborating MAC is accepted; an unknown MAC is
   ignored.
-- [ ] 3.2 Ambiguity names its candidates; a MAC/IP conflict names both devices.
-- [ ] 3.3 An unknown address is not found, not a server error; a malformed one is rejected.
-- [ ] 3.4 A mixed batch reports every outcome and does not fail as a whole.
-- [ ] 3.5 An over-long batch is refused with the limit stated.
-- [ ] 3.6 Resolution requires the new permission and not validation-run execution.
-- [ ] 3.7 Resolving starts no probe and creates no validation run.
+- [x] 3.2 A MAC/IP conflict names both devices. Ambiguity is handled but **not tested**:
+  an active device's address is unique and an identifier is unique per type/value/
+  partition, so no state this suite can build reaches it.
+- [x] 3.3 An unknown address is not found, not a server error; a malformed one is rejected.
+- [x] 3.4 A mixed batch reports every outcome and does not fail as a whole.
+- [x] 3.5 An over-long batch is refused with the limit stated.
+- [x] 3.6 Resolution requires the new permission and not validation-run execution.
+- [x] 3.7 Resolving starts no probe and creates no validation run.
 
 ## 4. Documentation
-- [ ] 4.1 Document both routes in the API reference.
-- [ ] 4.2 Correct `nco-device-facts.md`, which currently tells a caller to start a
-  validation run to learn the uid it needs before writing a fact.
-- [ ] 4.3 Note in `nco-validation-runs.md` that identity resolution is separately
-  available for callers that want an id and not a probe.
+- [x] 4.1 Document both routes in the API reference.
+- [x] 4.2 Correct `device-facts.md`, which told a caller to start a validation run to
+  learn the uid it needs before writing a fact.
+- [x] 4.3 Note in `validation-runs.md` that identity resolution is separately available
+  for callers that want an id and not a probe.
 
 ## 5. Confirm before building
 - [x] 5.1 Batch bound is 128, matching the ceiling validation runs already apply.

@@ -132,6 +132,9 @@ endpoints, including:
 - `GET /api/devices` and `GET /api/devices/{uid}` — browse the device
   inventory.
 - `GET /api/devices/ocsf/export` — export devices as OCSF Device objects.
+- `GET` and `POST /api/v1/identity/resolve` — turn an address into a device
+  UID without probing it. See [Resolve a Device
+  Identity](./identity-resolve.md).
 - `GET /api/v1/source-inventory` — read a collection-consistent, cursor-paginated
   snapshot emitted by an approved inventory plugin. The `source` and `instance`
   query parameters are required.

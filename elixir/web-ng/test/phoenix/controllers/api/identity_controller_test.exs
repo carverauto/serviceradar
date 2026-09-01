@@ -20,6 +20,14 @@ defmodule ServiceRadarWebNGWeb.Api.IdentityControllerTest do
     %{conn: log_in_api_user(conn, user), user: user, device: device, ip: ip}
   end
 
+  # There is deliberately no test for the `ambiguous` outcome. Two active devices cannot
+  # share an address: `ocsf_devices_unique_active_ip_idx` is a unique index on `ip` where
+  # `deleted_at IS NULL`, and `DeviceIdentifier` is unique on
+  # (identifier_type, identifier_value, partition). Both resolver branches that can return
+  # `{:ambiguous, _}` are therefore unreachable through any state this suite can create.
+  # The controller still handles it, because the resolver declares it in its error type
+  # and a schema constraint is not a contract.
+
   defp unique_ip do
     n = System.unique_integer([:positive])
     "10.#{rem(n, 250) + 1}.#{rem(div(n, 250), 250) + 1}.#{rem(div(n, 62_500), 253) + 1}"
