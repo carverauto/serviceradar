@@ -399,10 +399,8 @@ ex_unit_tests(
         "//go/cmd/wasm-plugins/axis:srcs",
         "//go/cmd/wasm-plugins/proxmox:srcs",
         "//go/cmd/wasm-plugins/unifi-protect:srcs",
-        # TimezoneMigrationTest asserts on the generated core migration and checked-in
-        # baseline from the database-free shard, so both cross-package sources must be
-        # in runfiles.
-        "//elixir/serviceradar_core:priv/repo/baseline/platform_schema.sql",
+        # TimezoneMigrationTest asserts on the generated core migration, so its
+        # cross-package source must be in runfiles.
         "//elixir/serviceradar_core:migrations",
     ],
     # web-ng already defines a database-free tier: with ALLOW_DB_FREE_TESTS set and neither

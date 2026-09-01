@@ -5928,8 +5928,7 @@ CREATE TABLE platform.ng_users (
     last_login_at timestamp(0) without time zone,
     last_auth_method text,
     role_profile_id uuid,
-    local_login_enabled boolean DEFAULT false NOT NULL,
-    timezone text DEFAULT 'Etc/UTC'::text NOT NULL
+    local_login_enabled boolean DEFAULT false NOT NULL
 );
 
 
