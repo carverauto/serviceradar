@@ -329,6 +329,155 @@ paths:
               schema:
                 type: string
                 example: not ready
+  /api/v1/identity/resolve:
+    get:
+      tags:
+        - Devices
+      summary: Resolve a device identity from an address
+      description: |
+        Returns the canonical `sr:` device UID at an address, without probing
+        the device. The IP is authoritative; an optional MAC corroborates it.
+        A MAC no device holds is ignored, and a MAC held by a different device
+        is reported as a conflict rather than used as a tiebreak. No identity
+        is ever created.
+
+        Composite check validation runs resolve identity too, but additionally
+        re-probe the device from every vantage-point agent on a named check.
+        Use this endpoint when you want the identifier and not the scan.
+
+        Requires the `identity.resolve` permission.
+      operationId: resolveDeviceIdentity
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      parameters:
+        - name: ip
+          in: query
+          description: The address to resolve.
+          required: true
+          schema:
+            type: string
+            example: "192.168.1.55"
+        - name: partition
+          in: query
+          description: The partition to resolve within. Defaults to `default`.
+          required: false
+          schema:
+            type: string
+            default: default
+        - name: mac
+          in: query
+          description: |
+            Optional MAC to corroborate the address. Ignored when no device
+            holds it; a conflict when another device does.
+          required: false
+          schema:
+            type: string
+            example: "aa:bb:cc:dd:ee:ff"
+      responses:
+        '200':
+          description: The device at that address
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/ResolvedIdentity'
+        '400':
+          description: No address was supplied (`missing_ip`), or it is not a valid address (`invalid_ip`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+        '403':
+          description: Caller lacks `identity.resolve`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+        '404':
+          description: No device holds that address (`not_found`)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+        '409':
+          description: |
+            More than one device holds the address (`ambiguous`, with `uids`),
+            or the MAC belongs to a different device (`mac_ip_conflict`, with
+            `ip_uid` and `mac_uid`). Both are states a continuously reconciled
+            inventory can legitimately hold, not faults.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+    post:
+      tags:
+        - Devices
+      summary: Resolve several device identities from their addresses
+      description: |
+        The batch form of the resolve endpoint, taking the same `devices`
+        shape composite check validation runs accept, with the same limit of
+        128 per request.
+
+        Returns `200` and reports each address separately: one address that
+        cannot be resolved does not fail the request, because a caller
+        resolving a long list still needs the entries that worked. Every entry
+        echoes the address it is for, so results can be matched to the request
+        without relying on ordering.
+
+        Requires the `identity.resolve` permission.
+      operationId: resolveDeviceIdentities
+      security:
+        - bearerAuth: []
+        - sessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IdentityResolveRequest'
+      responses:
+        '200':
+          description: |
+            One outcome per submitted address, each carrying either a `uid` or
+            an `error`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IdentityResolveResult'
+        '400':
+          description: |
+            The list is empty (`empty_devices`) or longer than 128
+            (`too_many_devices`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
+        '403':
+          description: Caller lacks `identity.resolve`
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IdentityError'
   /api/admin/users:
     get:
       tags:
@@ -844,6 +993,112 @@ components:
           type: boolean
           description: Whether this is a built-in (non-editable) profile.
       additionalProperties: true
+    ResolvedIdentity:
+      type: object
+      description: A resolved device identity, echoing the address it is for.
+      properties:
+        ip:
+          type: string
+          description: The address that was resolved.
+          example: "192.168.1.55"
+        partition:
+          type: string
+          description: The partition it was resolved within.
+          example: default
+        uid:
+          type: string
+          description: The canonical device identifier.
+          example: "sr:8cad4cc3-e9f8-4873-a1fe-cf2529b246a0"
+    IdentityResolveRequest:
+      type: object
+      required:
+        - devices
+      properties:
+        partition:
+          type: string
+          description: |
+            Partition applied to every entry that does not name its own.
+            Defaults to `default`.
+          default: default
+        devices:
+          type: array
+          description: The addresses to resolve. At most 128.
+          maxItems: 128
+          items:
+            type: object
+            required:
+              - ip
+            properties:
+              ip:
+                type: string
+                example: "192.168.1.55"
+              mac:
+                type: string
+                description: Optional MAC to corroborate this address.
+              partition:
+                type: string
+                description: Overrides the request's partition for this entry.
+    IdentityResolveResult:
+      type: object
+      description: |
+        One address's outcome within a batch. Carries `uid` when resolved and
+        `error` when not; `ip` and `partition` are always present so the entry
+        can be matched to its input.
+      properties:
+        ip:
+          type: string
+          example: "192.168.1.55"
+        partition:
+          type: string
+          example: default
+        uid:
+          type: string
+          description: Present when the address resolved.
+          example: "sr:8cad4cc3-e9f8-4873-a1fe-cf2529b246a0"
+        error:
+          type: string
+          description: Present when it did not.
+          enum:
+            - not_found
+            - invalid_ip
+            - ambiguous
+            - mac_ip_conflict
+        uids:
+          type: array
+          description: With `ambiguous`, the devices holding the address.
+          items:
+            type: string
+        ip_uid:
+          type: string
+          description: With `mac_ip_conflict`, the device at the address.
+        mac_uid:
+          type: string
+          description: With `mac_ip_conflict`, the device holding the MAC.
+    IdentityError:
+      type: object
+      description: |
+        A failed identity resolution. `error` is a stable machine-readable
+        code and `message` is the human-readable explanation.
+      properties:
+        error:
+          type: string
+          description: Machine-readable code.
+          example: ambiguous
+        message:
+          type: string
+          description: Human-readable explanation.
+          example: more than one device holds that address
+        uids:
+          type: array
+          description: With `ambiguous`, the devices holding the address.
+          items:
+            type: string
+        ip_uid:
+          type: string
+          description: With `mac_ip_conflict`, the device at the address.
+        mac_uid:
+          type: string
+          description: With `mac_ip_conflict`, the device holding the MAC.
     ErrorResponse:
       type: object
       description: Error payload returned by the API on a failed request.

@@ -662,6 +662,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/validation-runs", ValidationRunController, :create)
     get("/validation-runs/:id", ValidationRunController, :show)
     get("/validation-runs/:id/results", ValidationRunController, :results)
+
+    # Address -> device uid, without the probe. A validation run also resolves identity,
+    # but only as a step before scanning; a caller that wants the id and not the scan
+    # had no way to ask for it.
+    get("/identity/resolve", IdentityController, :resolve)
+    post("/identity/resolve", IdentityController, :resolve_batch)
   end
 
   # Edge onboarding admin API (API key or bearer token auth)
