@@ -8,6 +8,8 @@
   ambiguous with candidates, MAC/IP conflict naming both.
 - [x] 1.5 Report a batch per address, at 200, with each outcome identifying its input.
 - [x] 1.6 Bound the batch and refuse an over-long one with the limit in the message.
+- [x] 1.7 Refuse a batch entry carrying no address rather than dropping it, and coalesce a
+  blank partition to the request's rather than to the global default.
 
 ## 2. Authorization
 - [x] 2.1 Add an `identity.resolve` permission key beside `devices.facts.write`.
@@ -23,7 +25,10 @@
   partition, so no state this suite can build reaches it.
 - [x] 3.3 An unknown address is not found, not a server error; a malformed one is rejected.
 - [x] 3.4 A mixed batch reports every outcome and does not fail as a whole.
-- [x] 3.5 An over-long batch is refused with the limit stated.
+- [x] 3.5 An over-long batch is refused with the limit stated; so is one holding an entry
+  with no address.
+- [x] 3.8 A blank partition falls back to the request's, and a blank request partition to
+  the global default.
 - [x] 3.6 Resolution requires the new permission and not validation-run execution.
 - [x] 3.7 Resolving starts no probe and creates no validation run.
 

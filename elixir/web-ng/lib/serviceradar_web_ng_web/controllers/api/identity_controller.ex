@@ -99,38 +99,54 @@ defmodule ServiceRadarWebNGWeb.Api.IdentityController do
   defp batch_targets(params) do
     default = default_partition(params)
 
-    targets =
-      case params["devices"] || params[:devices] do
-        devices when is_list(devices) -> Enum.map(devices, &normalize(&1, default))
-        _ -> []
-      end
-      |> Enum.reject(&(&1.ip in [nil, ""]))
+    case params["devices"] || params[:devices] do
+      devices when is_list(devices) -> finalize_batch(Enum.map(devices, &normalize(&1, default)))
+      _ -> {:error, :empty_devices}
+    end
+  end
 
+  # An entry with no address is a malformed request, not an unresolvable one. `ip` is
+  # required on each entry in the published schema, so the request is refused rather than
+  # the entry being dropped -- dropping it would return fewer results than addresses
+  # submitted, which breaks the promise that every entry can be matched to its input, and
+  # would hide a caller's bug behind a shorter list.
+  defp finalize_batch(targets) do
     cond do
       targets == [] -> {:error, :empty_devices}
+      Enum.any?(targets, &(&1.ip in [nil, ""])) -> {:error, :missing_ip}
       length(targets) > @max_devices -> {:error, :too_many_devices}
       true -> {:ok, targets}
     end
   end
 
   defp normalize(target, default_partition) when is_map(target) do
-    partition = target["partition"] || target[:partition] || default_partition
-
     %{
       ip: trimmed(target["ip"] || target[:ip]),
       mac: target["mac"] || target[:mac],
-      partition: if(is_binary(partition) and partition != "", do: partition, else: @default_partition)
+      # Each level is coalesced on presence rather than on truthiness. In Elixir only nil
+      # and false are falsy, so `target["partition"] || default` keeps a blank string and
+      # would then fall through to "default" -- silently ignoring the partition the
+      # request asked for.
+      partition: present(target["partition"] || target[:partition]) || default_partition
     }
   end
 
-  defp normalize(_target, default_partition),
-    do: %{ip: nil, mac: nil, partition: default_partition}
+  defp normalize(_target, default_partition), do: %{ip: nil, mac: nil, partition: default_partition}
 
   defp trimmed(value) when is_binary(value), do: String.trim(value)
   defp trimmed(value), do: value
 
+  defp present(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp present(_value), do: nil
+
   defp default_partition(params) do
-    params["partition"] || params[:partition] || @default_partition
+    present(params["partition"] || params[:partition]) || @default_partition
   end
 
   defp actor, do: SystemActor.system(:identity_resolve_api)
@@ -152,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.Api.IdentityController do
   defp render_error(conn, :missing_ip) do
     conn
     |> put_status(:bad_request)
-    |> json(%{"error" => "missing_ip", "message" => "an ip is required"})
+    |> json(%{"error" => "missing_ip", "message" => "an ip is required for every device"})
   end
 
   defp render_error(conn, :empty_devices) do

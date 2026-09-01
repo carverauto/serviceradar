@@ -69,6 +69,16 @@ that cannot be resolved SHALL NOT prevent the others from being reported.
 - **THEN** the request SHALL be rejected
 - **AND** the response SHALL state the limit
 
+#### Scenario: A batch entry with no address is refused, not dropped
+- **WHEN** a batch holds an entry carrying no address
+- **THEN** the request SHALL be rejected as malformed
+- **AND** the entry SHALL NOT be silently discarded
+
+#### Scenario: A blank partition means the one the request supplied
+- **GIVEN** a batch naming a partition, holding an entry whose own partition is blank
+- **WHEN** the batch is resolved
+- **THEN** the entry SHALL be resolved within the partition the request named
+
 ### Requirement: Resolving an identity is separately authorized
 Resolving a device identity SHALL require its own permission, distinct from the permission
 to execute a validation run.

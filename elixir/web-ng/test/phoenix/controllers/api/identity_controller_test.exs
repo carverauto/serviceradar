@@ -68,6 +68,16 @@ defmodule ServiceRadarWebNGWeb.Api.IdentityControllerTest do
       assert response["data"]["partition"] == "default"
     end
 
+    test "treats a blank partition as absent", %{conn: conn, device: device, ip: ip} do
+      response =
+        conn
+        |> get(~p"/api/v1/identity/resolve", %{"ip" => ip, "partition" => ""})
+        |> json_response(200)
+
+      assert response["data"]["uid"] == device.uid
+      assert response["data"]["partition"] == "default"
+    end
+
     test "starts no validation run", %{conn: conn, ip: ip} do
       before = count_validation_runs()
 
@@ -209,6 +219,54 @@ defmodule ServiceRadarWebNGWeb.Api.IdentityControllerTest do
       assert response["message"] =~ "128"
     end
 
+    test "a blank per-device partition falls back to the request's, not to default",
+         %{conn: conn, ip: ip} do
+      # Only nil and false are falsy in Elixir, so a blank string is a value: coalescing
+      # on truthiness kept it and then fell through to "default", quietly ignoring the
+      # partition the request asked for.
+      response =
+        conn
+        |> post(~p"/api/v1/identity/resolve", %{
+          "partition" => "other",
+          "devices" => [%{"ip" => ip, "partition" => ""}]
+        })
+        |> json_response(200)
+
+      assert [%{"partition" => "other"}] = response["data"]
+    end
+
+    test "a blank request partition falls back to default", %{conn: conn, ip: ip} do
+      response =
+        conn
+        |> post(~p"/api/v1/identity/resolve", %{
+          "partition" => "",
+          "devices" => [%{"ip" => ip}]
+        })
+        |> json_response(200)
+
+      assert [%{"partition" => "default"}] = response["data"]
+    end
+
+    test "refuses a batch holding an entry with no address", %{conn: conn, ip: ip} do
+      # Dropping it would return one result for a two-entry request, which breaks the
+      # promise that every entry can be matched to its input.
+      response =
+        conn
+        |> post(~p"/api/v1/identity/resolve", %{"devices" => [%{"ip" => ip}, %{}]})
+        |> json_response(400)
+
+      assert response["error"] == "missing_ip"
+    end
+
+    test "refuses a batch whose only entry has a blank address", %{conn: conn} do
+      response =
+        conn
+        |> post(~p"/api/v1/identity/resolve", %{"devices" => [%{"ip" => "   "}]})
+        |> json_response(400)
+
+      assert response["error"] == "missing_ip"
+    end
+
     test "refuses an empty batch", %{conn: conn} do
       response =
         conn |> post(~p"/api/v1/identity/resolve", %{"devices" => []}) |> json_response(400)
@@ -233,7 +291,7 @@ defmodule ServiceRadarWebNGWeb.Api.IdentityControllerTest do
     end
 
     test "an unauthenticated caller is refused", %{ip: ip} do
-      conn = build_conn() |> get(~p"/api/v1/identity/resolve", %{"ip" => ip})
+      conn = get(build_conn(), ~p"/api/v1/identity/resolve", %{"ip" => ip})
 
       assert conn.status in [401, 403]
     end

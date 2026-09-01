@@ -61,6 +61,16 @@ The single read does use status codes, because there is exactly one outcome to r
 200 with the uid, 400 for an unparseable address, 404 for not found, 409 for ambiguity or
 a MAC/IP conflict.
 
+### Decision: A malformed entry fails the request; an unresolvable one does not
+These look alike and are not. An address that resolves to nothing is an answer about the
+inventory, and belongs in its slot beside the ones that did resolve. An entry carrying no
+address at all is a broken request: `ip` is required per entry in the published schema,
+and there is no address to report an outcome for.
+
+Dropping such an entry -- the first implementation did -- returns fewer results than
+addresses submitted, which quietly breaks the guarantee that every entry can be matched to
+its input, and hides the caller's bug behind a shorter list.
+
 ### Decision: Ambiguity and conflict are answers, not failures
 Two devices claiming an address, or a MAC that points somewhere else, are real conditions
 in an inventory that reconciles identity continuously. Flattening them to "not found"
