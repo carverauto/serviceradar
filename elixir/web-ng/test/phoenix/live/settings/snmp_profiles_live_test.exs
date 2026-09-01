@@ -290,5 +290,46 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLiveTest do
 
       assert profile.credential_secret_id == nil
     end
+
+    test "credential promotion failures expose only a fixed redacted message", %{
+      conn: conn,
+      scope: scope
+    } do
+      unique = System.unique_integer([:positive])
+      credential_name = "Duplicate SNMP credential #{unique}"
+      submitted_secret = "community-must-not-render-#{unique}"
+
+      {:ok, _secret} =
+        NetworkCredentialSecret
+        |> Ash.Changeset.for_create(:create, %{
+          name: credential_name,
+          provider: "snmp",
+          credential_kind: :snmp,
+          secret_payload: Jason.encode!(%{"community" => "already-stored"}),
+          metadata: %{"auth_method" => "community"}
+        })
+        |> Ash.create(scope: scope)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/snmp/new")
+
+      html =
+        lv
+        |> form("form[phx-submit='save_profile']", %{
+          "form" => %{
+            "name" => "Profile with duplicate credential #{unique}",
+            "version" => "v2c",
+            "community" => submitted_secret,
+            "save_credential_as_reusable" => "true",
+            "credential_name" => credential_name,
+            "agent_ids" => [""]
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "Could not save the credential for reuse. Check the fields and try again."
+      refute html =~ submitted_secret
+      refute html =~ "Ash.Error"
+      refute html =~ "already been taken"
+    end
   end
 end

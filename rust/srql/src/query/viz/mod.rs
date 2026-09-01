@@ -142,6 +142,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::ScanActivity => events::scan_activity(),
         Entity::DnsActivity => events::dns_activity(),
         Entity::BmpEvents => network::bmp_events(),
+        Entity::MtrTraces => observability::mtr_traces(),
         Entity::FieldSurveySessions => fieldsurvey::sessions(),
         Entity::FieldSurveyRasters => fieldsurvey::rasters(),
         Entity::FieldSurveyArtifacts => fieldsurvey::artifacts(),

@@ -124,6 +124,7 @@ defmodule ServiceRadar.Integrations.Validations.CompositeExportTest do
 
   describe "atomic/3" do
     test "is implemented so Ash cannot skip the rule on an atomic update" do
+      assert {:module, CompositeExport} = Code.ensure_loaded(CompositeExport)
       assert function_exported?(CompositeExport, :atomic, 3)
     end
   end

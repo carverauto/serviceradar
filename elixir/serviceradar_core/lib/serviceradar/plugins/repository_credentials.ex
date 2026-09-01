@@ -36,6 +36,7 @@ defmodule ServiceRadar.Plugins.RepositoryCredentials do
   alias ServiceRadar.Plugins.PluginRepository
 
   @provider "github"
+  @lifecycle_actor SystemActor.system(:plugin_repository_credentials_lifecycle)
 
   @doc """
   Stores `token` for `repository`, replacing any token already bound.
@@ -156,8 +157,8 @@ defmodule ServiceRadar.Plugins.RepositoryCredentials do
     with {:ok, secret} <- NetworkCredentialSecret.get_by_id(secret_id, actor: actor),
          {:ok, _secret} <-
            secret
-           |> Ash.Changeset.for_update(:disable_rotation, %{}, actor: actor)
-           |> Ash.update() do
+           |> Ash.Changeset.for_update(:disable_rotation, %{}, actor: @lifecycle_actor)
+           |> Ash.update(actor: @lifecycle_actor) do
       :ok
     end
   end

@@ -12,6 +12,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionLifecycleDbTest do
   alias ServiceRadar.Automation.Ansible.SecureExecutionLifecycle
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @moduletag :integration
   @actor SystemActor.system(:secure_execution_lifecycle_db_test)
@@ -153,7 +154,14 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionLifecycleDbTest do
       VALUES (($1::text)::uuid, $2, 'https://awx.example.test', 'edge-secure-db',
               ($3::text)::uuid, ($3::text)::uuid, ($4::text)::uuid)
       """,
-      [controller_id, "secure-execution-db-#{suffix}", Ash.UUID.generate(), Ash.UUID.generate()]
+      [
+        controller_id,
+        "secure-execution-db-#{suffix}",
+        # ansible_controllers.*credential_secret_id are foreign keys onto
+        # network_credential_secrets; a generated UUID references nothing.
+        CredentialIntegrationFixtures.secret_id!(),
+        CredentialIntegrationFixtures.secret_id!()
+      ]
     )
 
     SQL.query!(

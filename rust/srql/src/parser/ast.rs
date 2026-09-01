@@ -17,6 +17,7 @@ pub enum Entity {
     ScanActivity,
     DnsActivity,
     BmpEvents,
+    MtrTraces,
     FieldSurveySessions,
     FieldSurveyRasters,
     FieldSurveyArtifacts,

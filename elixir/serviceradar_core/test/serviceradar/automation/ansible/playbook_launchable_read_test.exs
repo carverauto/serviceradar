@@ -34,6 +34,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookLaunchableReadTest do
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @moduletag :integration
 
@@ -116,7 +117,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookLaunchableReadTest do
       name: "launchable-test-#{tag}-#{suffix}",
       base_url: "https://awx.test.invalid",
       agent_id: "agent-launchable-test",
-      credential_secret_id: Ash.UUID.generate()
+      credential_secret_id: CredentialIntegrationFixtures.secret_id!()
     })
   end
 
