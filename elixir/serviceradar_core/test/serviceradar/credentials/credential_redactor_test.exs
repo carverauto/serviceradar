@@ -37,6 +37,26 @@ defmodule ServiceRadar.Credentials.CredentialRedactorTest do
     refute inspect(redacted) =~ "PRIVATE KEY"
   end
 
+  test "oauth inject field_password metadata is not treated as a secret" do
+    payload = %{
+      "inject" => %{
+        "type" => "oauth2_password_bearer",
+        "field_username" => "username",
+        "field_password" => "password",
+        "fixed_grant_type" => "password",
+        "token_path" => "/idp/oauth2/token"
+      },
+      "password" => "actual-secret"
+    }
+
+    redacted = CredentialRedactor.redact(payload)
+
+    assert redacted["inject"]["field_password"] == "password"
+    assert redacted["inject"]["field_username"] == "username"
+    assert redacted["password"] == "REDACTED"
+    assert CredentialRedactor.redact(payload)["inject"] == payload["inject"]
+  end
+
   defp private_key_fixture do
     private_key_fixture_header() <>
       """
