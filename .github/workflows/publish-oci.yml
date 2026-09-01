@@ -28,7 +28,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.inputs.release_tag || github.ref || github.run_id }}
+  group: ${{ github.workflow }}
   cancel-in-progress: false
 
 permissions:
@@ -79,6 +79,19 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
+
+      - name: Validate publish scope
+        env:
+          PUBLISH_SCOPE: ${{ github.event.inputs.publish_scope }}
+        run: |
+          set -euo pipefail
+          case "${PUBLISH_SCOPE}" in
+            full|web-stack-commit-only) ;;
+            *)
+              printf 'unsupported publish_scope: %s\n' "${PUBLISH_SCOPE}" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Validate selective publish commit
         if: ${{ github.event.inputs.publish_scope == 'web-stack-commit-only' }}
@@ -131,13 +144,13 @@ jobs:
         run: ./scripts/install-bazelisk.sh
 
       - name: Setup Go
-        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
 
       - name: Install Cosign
-        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
         run: ./scripts/install-cosign.sh
 
       - name: Install ORAS
@@ -200,7 +213,7 @@ jobs:
           ./buildbuddy_setup_docker_auth.sh
 
       - name: Derive managed agent release public key
-        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
         env:
           SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
         run: |
@@ -223,7 +236,7 @@ jobs:
       # a bash `\` continuation into a `#` comment drops the rest of the command
       # and leaves `--config=remote` as a new executable.
       - name: Build (no publish)
-        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
         run: |
           bazel build \
             -c opt \
@@ -231,11 +244,11 @@ jobs:
             //:images
 
       - name: Verify managed agent release key stamp
-        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
         run: ./scripts/verify-agent-release-key-stamp.sh -c opt --config=remote
 
       - name: Publish images
-        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
         env:
           EXTRA_TAG: ${{ steps.release.outputs.tag }}
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
@@ -284,13 +297,29 @@ jobs:
           resolve_digest() {
             local ref="$1"
             local descriptor digest
-            descriptor="$(oras manifest fetch --descriptor "${ref}")"
-            digest="$(jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))' <<<"${descriptor}")"
+            if ! descriptor="$(oras manifest fetch --descriptor "${ref}")"; then
+              printf 'unable to resolve OCI descriptor for %s\n' "${ref}" >&2
+              return 1
+            fi
+            if ! digest="$(jq -er '.digest // empty' <<<"${descriptor}")"; then
+              printf 'invalid OCI descriptor JSON for %s\n' "${ref}" >&2
+              return 1
+            fi
+            if [[ ! "${digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              printf 'invalid OCI descriptor digest for %s\n' "${ref}" >&2
+              return 1
+            fi
             printf '%s\n' "${digest}"
           }
 
-          core_digest="$(resolve_digest "${core_ref}")"
-          web_digest="$(resolve_digest "${web_ref}")"
+          if ! core_digest="$(resolve_digest "${core_ref}")"; then
+            printf 'failed to verify %s\n' "${core_ref}" >&2
+            exit 1
+          fi
+          if ! web_digest="$(resolve_digest "${web_ref}")"; then
+            printf 'failed to verify %s\n' "${web_ref}" >&2
+            exit 1
+          fi
           {
             printf '### Web stack commit images\n\n'
             printf -- '- %s -> %s\n' "${core_ref}" "${core_digest}"
@@ -298,7 +327,7 @@ jobs:
           } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Summarize pushed tags
-        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
+        if: ${{ github.event.inputs.publish_scope == 'full' }}
         env:
           EXTRA_TAG: ${{ steps.release.outputs.tag }}
         run: |
