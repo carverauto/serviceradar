@@ -612,9 +612,9 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
   # operator leaves token_url blank: NNMi-integrated installs use
   # {nnm_url}/idp/oauth2/token; standalone NA uses {api_url origin}/nom-na/idp/oauth2/token.
   defp schedule_token_endpoint(schedule, token_url_param) do
-    case schedule_https_endpoint(schedule, token_url_param) do
-      {:ok, endpoint} -> {:ok, endpoint}
-      {:error, _} -> derive_oauth_token_endpoint(schedule, token_url_param)
+    case schedule_param(schedule, token_url_param) do
+      nil -> derive_oauth_token_endpoint(schedule, token_url_param)
+      _present -> schedule_https_endpoint(schedule, token_url_param)
     end
   end
 

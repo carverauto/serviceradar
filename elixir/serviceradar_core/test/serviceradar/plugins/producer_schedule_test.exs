@@ -386,6 +386,22 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
     assert grant.inject["token_path"] == "/idp/oauth2/token"
     assert grant.inject["host"] == "na.example.com"
     assert grant.inject["path"] == "/nom/api/automation/v1/wrapper"
+
+    invalid = %{
+      schedule
+      | params: Map.put(schedule.params, "token_url", "http://nnm.example.com/idp/oauth2/token")
+    }
+
+    assert {:error, {:producer_schedule_dispatch_failed, [%{reason: reason}]}} =
+             ProducerScheduleDispatcher.dispatch(invalid,
+               actor: actor,
+               command_bus: __MODULE__,
+               grant_issuer: fn _attrs ->
+                 flunk("must not issue a grant for an invalid token_url")
+               end
+             )
+
+    assert reason == {:invalid_schedule_credential_endpoint, "token_url"}
   end
 
   test "run_now records commandbus dispatch errors for offline agents", %{actor: actor, uid: uid} do
