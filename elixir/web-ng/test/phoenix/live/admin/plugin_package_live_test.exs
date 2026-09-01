@@ -1697,8 +1697,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     |> Ash.create!()
   end
 
+  # A real first-party import always records the repository it came from, and the
+  # catalog is scoped by that origin, so the default has to be the built-in repo
+  # rather than nil -- a nil-origin package cannot be attributed to any
+  # repository and is deliberately absent from every repository's catalog.
   defp create_catalog_package!(actor, release_tag, plugin_id, version),
-    do: create_catalog_package!(actor, release_tag, plugin_id, version, nil)
+    do: create_catalog_package!(actor, release_tag, plugin_id, version, @repo_url)
 
   defp create_catalog_package!(actor, release_tag, plugin_id, version, source_repo_url) do
     ensure_plugin!(actor, plugin_id)
