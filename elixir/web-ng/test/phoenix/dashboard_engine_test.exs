@@ -113,4 +113,11 @@ defmodule ServiceRadarWebNGWeb.DashboardEngineTest do
     assert Enum.map(sorted_socket.assigns.results, & &1["name"]) == ["high", "low", "blank", "nil"]
     assert sorted_socket.assigns.sort_dir == :desc
   end
+
+  test "table plugin defaults omitted timezone to UTC" do
+    socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}}}
+
+    assert {:ok, updated_socket} = Plugins.Table.update(%{panel_assigns: %{}}, socket)
+    assert updated_socket.assigns.timezone == "Etc/UTC"
+  end
 end
