@@ -20,6 +20,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   alias ServiceRadar.Inventory.Identity.EndpointInventoryMoves
   alias ServiceRadar.Inventory.Identity.MergePolicy
   alias ServiceRadar.Inventory.Identity.Reassignments
+  alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Monitoring.Alert
@@ -37,27 +38,44 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         end)
     }
 
-    if MergePolicy.merge_allowed_for_matches?(matches) do
-      device_ids
-      |> Enum.reject(&(&1 == canonical_id))
-      |> Enum.each(fn from_id ->
+    cond do
+      source_conflict = SourceAuthorityGuard.conflict_details(device_ids) ->
         _ =
-          merge_devices(from_id, canonical_id,
-            actor: actor,
-            reason: "identifier_conflict",
-            details: details
+          SourceAuthorityGuard.record_blocked(
+            source_conflict,
+            "identifier_conflict",
+            details
           )
-      end)
-    else
-      blocked_reason = MergePolicy.blocked_merge_reason(matches)
 
-      Logger.warning(
-        "Blocked merge: shared identifiers are not eligible for auto-merge. " <>
-          "Devices: #{inspect(device_ids)}, " <>
-          "identifiers: #{inspect(details.identifiers)}"
-      )
+        emit_merge_guard_telemetry(
+          :source_authority_conflict,
+          "identifier_conflict",
+          Enum.join(device_ids, ","),
+          canonical_id
+        )
 
-      MergePolicy.emit_blocked_merge_telemetry(blocked_reason, device_ids, details.identifiers)
+      MergePolicy.merge_allowed_for_matches?(matches) ->
+        device_ids
+        |> Enum.reject(&(&1 == canonical_id))
+        |> Enum.each(fn from_id ->
+          _ =
+            merge_devices(from_id, canonical_id,
+              actor: actor,
+              reason: "identifier_conflict",
+              details: details
+            )
+        end)
+
+      true ->
+        blocked_reason = MergePolicy.blocked_merge_reason(matches)
+
+        Logger.warning(
+          "Blocked merge: shared identifiers are not eligible for auto-merge. " <>
+            "Devices: #{inspect(device_ids)}, " <>
+            "identifiers: #{inspect(details.identifiers)}"
+        )
+
+        MergePolicy.emit_blocked_merge_telemetry(blocked_reason, device_ids, details.identifiers)
     end
   end
 
@@ -98,6 +116,11 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
       AliasGuard.distinct_agent_identity_conflict?(from_device_id, to_device_id, actor) ->
         :distinct_agent_identity
+
+      source_conflict =
+          SourceAuthorityGuard.conflict_details([from_device_id, to_device_id]) ->
+        _ = SourceAuthorityGuard.record_blocked(source_conflict, reason)
+        :source_authority_conflict
 
       guard = provisional_topology_merge_violation(from_device_id, to_device_id, actor) ->
         guard
@@ -239,6 +262,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
       with {:ok, %Device{} = from_device} <-
              Device.get_by_uid(from_device_id, false, actor: actor),
            {:ok, %Device{} = to_device} <- Device.get_by_uid(to_device_id, false, actor: actor),
+           :ok <-
+             source_authority_transaction_guard(from_device_id, to_device_id, reason),
            audit_details = merge_audit_details(details, from_device),
            :ok <- preserve_survivor_attributes(from_device_id, to_device_id),
            :ok <- Reassignments.reassign_device_identifiers(from_device_id, to_device_id, actor),
@@ -298,10 +323,30 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         other
 
       {:error, _} = error ->
+        maybe_record_transaction_source_conflict(error, reason, details)
         emit_merge_failed_telemetry(reason, from_device_id, to_device_id, error)
         error
     end
   end
+
+  defp source_authority_transaction_guard(from_device_id, to_device_id, reason) do
+    if manual_override_merge_reason?(reason) or reason == "unmerge" do
+      :ok
+    else
+      SourceAuthorityGuard.ensure_merge_allowed([from_device_id, to_device_id], lock: true)
+    end
+  end
+
+  defp maybe_record_transaction_source_conflict(
+         {:error, {:source_authority_conflict, conflict}},
+         reason,
+         details
+       ) do
+    _ = SourceAuthorityGuard.record_blocked(conflict, reason, details)
+    :ok
+  end
+
+  defp maybe_record_transaction_source_conflict(_error, _reason, _details), do: :ok
 
   # A merge retires one row but must not retire operator-owned classification
   # with it. Tags are user data (CSV imports are a common source), metadata is

@@ -15,6 +15,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.Integrations.ArmisNorthboundLedger
+  alias ServiceRadar.Integrations.ArmisNorthboundPopulation
   alias ServiceRadar.Integrations.CompositeNorthboundValues
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
@@ -181,6 +183,15 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     record_event = Keyword.get(opts, :record_event, &default_record_event/2)
     load_candidates_fun = Keyword.get(opts, :load_candidates, &load_candidates/2)
 
+    load_population_fun =
+      Keyword.get_lazy(opts, :load_population, fn ->
+        if Keyword.has_key?(opts, :load_candidates) do
+          legacy_population_loader(load_candidates_fun)
+        else
+          &ArmisNorthboundPopulation.load/2
+        end
+      end)
+
     load_identity_conflicts_fun =
       Keyword.get(
         opts,
@@ -200,7 +211,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           update_source,
           finish_run,
           record_event,
-          load_candidates_fun,
+          load_population_fun,
           load_identity_conflicts_fun,
           execute_batches_fun
         )
@@ -218,7 +229,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
          update_source,
          finish_run,
          record_event,
-         load_candidates_fun,
+         load_population_fun,
          load_identity_conflicts_fun,
          execute_batches_fun
        ) do
@@ -227,31 +238,34 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       run_id: inspect(Map.get(run, :id))
     )
 
-    case load_candidates_fun.(source, opts) do
-      {:ok, candidates} ->
+    load_result =
+      with :ok <- northbound_ready?(source, opts) do
+        load_population_fun.(source, opts)
+      end
+
+    case load_result do
+      {:ok, population} ->
         identity_conflicts = load_identity_conflicts_fun.(source, opts)
-        # Fold only withholding conflicts into device/skip counts so they stay
-        # disjoint from the devices actually sent; the full report (total_count,
-        # categories, examples) is still surfaced in run metadata/events.
-        identity_conflict_count = SourceIdentityDrift.withheld_conflict_count(identity_conflicts)
-        collapsed = collapse_candidates(candidates)
-        device_count = length(collapsed) + identity_conflict_count
+        collapsed = collapse_candidates(population.candidates)
+        population = complete_population(population, collapsed, identity_conflicts)
+        device_count = population.distinct_source_ids
 
         Logger.info("Loaded Armis northbound candidates",
           integration_source_id: inspect(Map.get(source, :id)),
           run_id: inspect(Map.get(run, :id)),
           device_count: device_count,
           outbound_device_count: length(collapsed),
-          identity_conflict_count: identity_conflict_count,
+          withheld_count: population.withheld_count,
           identity_conflict_total: SourceIdentityDrift.conflict_count(identity_conflicts)
         )
 
-        case update_source.(source, :northbound_start, %{device_count: device_count}, actor) do
-          {:ok, _source} ->
-            execute_started_run(
+        case ArmisNorthboundLedger.bind(run, population, actor) do
+          {:ok, bound_run} ->
+            start_bound_run(
               source,
-              run,
+              bound_run,
               collapsed,
+              population,
               actor,
               opts,
               finish_run,
@@ -297,10 +311,75 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       )
   end
 
+  defp start_bound_run(
+         source,
+         run,
+         collapsed,
+         population,
+         actor,
+         opts,
+         finish_run,
+         update_source,
+         record_event,
+         identity_conflicts,
+         execute_batches_fun
+       ) do
+    case update_source.(
+           source,
+           :northbound_start,
+           %{device_count: population.distinct_source_ids},
+           actor
+         ) do
+      {:ok, _source} ->
+        execute_started_run(
+          source,
+          run,
+          collapsed,
+          population,
+          actor,
+          opts,
+          finish_run,
+          update_source,
+          record_event,
+          identity_conflicts,
+          execute_batches_fun
+        )
+
+      {:error, reason} ->
+        fail_bound_run(
+          source,
+          run,
+          collapsed,
+          population,
+          identity_conflicts,
+          reason,
+          actor,
+          finish_run,
+          update_source,
+          record_event
+        )
+    end
+  rescue
+    exception ->
+      fail_bound_run(
+        source,
+        run,
+        collapsed,
+        population,
+        identity_conflicts,
+        {exception.__struct__, Exception.message(exception)},
+        actor,
+        finish_run,
+        update_source,
+        record_event
+      )
+  end
+
   defp execute_started_run(
          source,
          run,
          collapsed,
+         population,
          actor,
          opts,
          finish_run,
@@ -311,40 +390,151 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
        ) do
     case execute_batches_fun.(source, collapsed, opts) do
       {:ok, result} ->
-        result = attach_identity_conflicts(result, identity_conflicts)
-        finalize_success(source, run, result, actor, finish_run, update_source, record_event)
+        result = prepare_result(result, population, collapsed, identity_conflicts)
+
+        case ArmisNorthboundLedger.finalize(run, population, result) do
+          {:ok, result} ->
+            finalize_success(source, run, result, actor, finish_run, update_source, record_event)
+
+          {:error, reason} ->
+            result = ledger_failure_result(result, reason)
+            finalize_error(source, run, result, actor, finish_run, update_source, record_event)
+        end
 
       {:error, result} when is_map(result) ->
-        result = attach_identity_conflicts(result, identity_conflicts)
-        finalize_error(source, run, result, actor, finish_run, update_source, record_event)
+        result = prepare_result(result, population, collapsed, identity_conflicts)
+
+        case ArmisNorthboundLedger.finalize(run, population, result) do
+          {:ok, result} ->
+            finalize_error(source, run, result, actor, finish_run, update_source, record_event)
+
+          {:error, reason} ->
+            result = ledger_failure_result(result, reason)
+            finalize_error(source, run, result, actor, finish_run, update_source, record_event)
+        end
 
       {:error, reason} ->
         result =
-          attach_identity_conflicts(
+          prepare_result(
             %{
               device_count: length(collapsed),
               updated_count: 0,
               skipped_count: 0,
-              error_count: max(length(collapsed), 1),
+              error_count: length(collapsed),
               batch_count: 0,
-              errors: [%{reason: reason}]
+              errors: [%{reason: reason}],
+              accepted_ids: [],
+              failed_ids: [],
+              unattempted_ids: candidate_ids(collapsed)
             },
+            population,
+            collapsed,
             identity_conflicts
           )
 
-        finalize_error(source, run, result, actor, finish_run, update_source, record_event)
+        case ArmisNorthboundLedger.finalize(run, population, result) do
+          {:ok, result} ->
+            finalize_error(source, run, result, actor, finish_run, update_source, record_event)
+
+          {:error, ledger_reason} ->
+            result = ledger_failure_result(result, ledger_reason)
+            finalize_error(source, run, result, actor, finish_run, update_source, record_event)
+        end
     end
   rescue
     exception ->
-      fail_started_run(
+      fail_bound_run(
         source,
         run,
-        failure_result(length(collapsed), {exception.__struct__, Exception.message(exception)}),
+        collapsed,
+        population,
+        identity_conflicts,
+        {exception.__struct__, Exception.message(exception)},
         actor,
         finish_run,
         update_source,
         record_event
       )
+  end
+
+  defp legacy_population_loader(load_candidates_fun) do
+    fn source, opts ->
+      with {:ok, candidates} <- load_candidates_fun.(source, opts) do
+        {:ok, %{accounted?: false, candidates: candidates}}
+      end
+    end
+  end
+
+  defp complete_population(%{accounted?: true} = population, _collapsed, _conflicts),
+    do: population
+
+  defp complete_population(population, collapsed, identity_conflicts) do
+    withheld = SourceIdentityDrift.withheld_conflict_count(identity_conflicts)
+
+    population
+    |> Map.put(:distinct_source_ids, length(collapsed) + withheld)
+    |> Map.put(:eligible_count, length(collapsed))
+    |> Map.put(:withheld_count, withheld)
+  end
+
+  defp prepare_result(result, population, collapsed, identity_conflicts) do
+    result
+    |> ensure_outcome_ids(collapsed)
+    |> attach_population(population)
+    |> attach_identity_conflicts(identity_conflicts)
+  end
+
+  defp ensure_outcome_ids(result, collapsed) do
+    if Enum.all?([:accepted_ids, :failed_ids, :unattempted_ids], &Map.has_key?(result, &1)) do
+      result
+    else
+      ids = candidate_ids(collapsed)
+
+      cond do
+        Map.get(result, :errors, []) == [] and Map.get(result, :updated_count, 0) == length(ids) ->
+          Map.merge(result, %{accepted_ids: ids, failed_ids: [], unattempted_ids: []})
+
+        Map.get(result, :updated_count, 0) == 0 ->
+          Map.merge(result, %{accepted_ids: [], failed_ids: [], unattempted_ids: ids})
+
+        true ->
+          result
+      end
+    end
+  end
+
+  defp attach_population(result, %{accounted?: true} = population) do
+    accepted_count = result |> Map.get(:accepted_ids, []) |> length()
+    failed_count = result |> Map.get(:failed_ids, []) |> length()
+    unattempted_count = result |> Map.get(:unattempted_ids, []) |> length()
+
+    result
+    |> Map.put(:device_count, population.distinct_source_ids)
+    |> Map.put(:eligible_count, population.eligible_count)
+    |> Map.put(:withheld_count, population.withheld_count)
+    |> Map.put(:accepted_count, accepted_count)
+    |> Map.put(:failed_count, failed_count)
+    |> Map.put(:unattempted_count, unattempted_count)
+    |> Map.put(:updated_count, accepted_count)
+    |> Map.put(:skipped_count, population.withheld_count)
+    |> Map.put(:error_count, failed_count + unattempted_count)
+    |> Map.put(:collection, population.accounting)
+    |> Map.put(:withheld_reason_counts, population.reason_counts)
+  end
+
+  defp attach_population(result, %{accounted?: false} = population) do
+    result
+    |> Map.put(:device_count, population.distinct_source_ids)
+    |> Map.put(:skipped_count, population.withheld_count)
+    |> Map.put(:identity_withholding_included, true)
+  end
+
+  defp attach_population(result, _population), do: result
+
+  defp ledger_failure_result(result, reason) do
+    result
+    |> Map.update(:errors, [%{reason: reason}], &(&1 ++ [%{reason: reason}]))
+    |> Map.put(:reconciliation_status, :failed)
   end
 
   defp fail_started_run(source, run, result, actor, finish_run, update_source, record_event) do
@@ -357,12 +547,61 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     finalize_error(source, run, result, actor, finish_run, update_source, record_event)
   end
 
+  defp fail_bound_run(
+         source,
+         run,
+         collapsed,
+         population,
+         identity_conflicts,
+         reason,
+         actor,
+         finish_run,
+         update_source,
+         record_event
+       ) do
+    result =
+      prepare_result(
+        %{
+          device_count: length(collapsed),
+          updated_count: 0,
+          skipped_count: 0,
+          error_count: length(collapsed),
+          batch_count: 0,
+          errors: [%{reason: reason}],
+          accepted_ids: [],
+          failed_ids: [],
+          unattempted_ids: candidate_ids(collapsed)
+        },
+        population,
+        collapsed,
+        identity_conflicts
+      )
+
+    result =
+      case ArmisNorthboundLedger.finalize(run, population, result) do
+        {:ok, finalized} -> finalized
+        {:error, ledger_reason} -> ledger_failure_result(result, ledger_reason)
+      end
+
+    fail_started_run(
+      source,
+      run,
+      result,
+      actor,
+      finish_run,
+      update_source,
+      record_event
+    )
+  end
+
   defp failure_result(device_count, reason) do
+    # error_count is a source-ID outcome count. Keep run-level failures in
+    # errors instead of inventing one failed device for an empty population.
     %{
       device_count: device_count,
       updated_count: 0,
       skipped_count: 0,
-      error_count: max(device_count, 1),
+      error_count: device_count,
       batch_count: 0,
       errors: [%{reason: reason}]
     }
@@ -389,10 +628,16 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     else
       # Fold only withholding conflicts into the counts (disjoint from the sent
       # candidates), but always attach the full report for operator visibility.
-      result
-      |> Map.update(:device_count, withheld_count, &(&1 + withheld_count))
-      |> Map.update(:skipped_count, withheld_count, &(&1 + withheld_count))
-      |> Map.put(:identity_conflicts, identity_conflicts)
+      result = Map.put(result, :identity_conflicts, identity_conflicts)
+
+      if Map.get(result, :identity_withholding_included, false) or
+           Map.has_key?(result, :collection) do
+        result
+      else
+        result
+        |> Map.update(:device_count, withheld_count, &(&1 + withheld_count))
+        |> Map.update(:skipped_count, withheld_count, &(&1 + withheld_count))
+      end
     end
   end
 
@@ -416,7 +661,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
        skipped_count: 0,
        error_count: 0,
        batch_count: 0,
-       errors: []
+       errors: [],
+       accepted_ids: [],
+       failed_ids: [],
+       unattempted_ids: []
      }}
   end
 
@@ -465,7 +713,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
            skipped_count: 0,
            error_count: max(length(candidates), 1),
            batch_count: length(batches),
-           errors: [%{reason: reason}]
+           errors: [%{reason: reason}],
+           accepted_ids: [],
+           failed_ids: [],
+           unattempted_ids: candidate_ids(candidates)
          }}
     end
   end
@@ -478,6 +729,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       error_count: 0,
       batch_count: length(batches),
       errors: [],
+      accepted_ids: [],
+      failed_ids: [],
+      unattempted_ids: [],
       token: token
     }
 
@@ -514,7 +768,12 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
               status: status
             )
 
-            {:cont, %{acc | updated_count: acc.updated_count + length(batch)}}
+            {:cont,
+             %{
+               acc
+               | updated_count: acc.updated_count + length(batch),
+                 accepted_ids: acc.accepted_ids ++ candidate_ids(batch)
+             }}
 
           {:ok, %{status: status, body: body}} ->
             Logger.warning("Armis northbound bulk update batch rejected",
@@ -532,6 +791,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
              %{
                acc
                | error_count: acc.error_count + length(batch),
+                 failed_ids: acc.failed_ids ++ candidate_ids(batch),
                  errors: acc.errors ++ [error]
              }}
 
@@ -550,17 +810,34 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
              %{
                acc
                | error_count: acc.error_count + length(batch),
+                 failed_ids: acc.failed_ids ++ candidate_ids(batch),
                  errors: acc.errors ++ [error]
              }}
         end
       end)
       |> Map.delete(:token)
+      |> put_unattempted_ids(candidates)
 
     if result.errors == [] do
       {:ok, result}
     else
       {:error, result}
     end
+  end
+
+  defp put_unattempted_ids(result, candidates) do
+    terminal = MapSet.new(result.accepted_ids ++ result.failed_ids)
+
+    unattempted_ids =
+      candidates
+      |> candidate_ids()
+      |> Enum.reject(&MapSet.member?(terminal, &1))
+
+    %{result | unattempted_ids: unattempted_ids}
+  end
+
+  defp candidate_ids(candidates) do
+    Enum.map(candidates, &to_string(Map.fetch!(&1, :armis_device_id)))
   end
 
   # Sends one bulk batch. Armis access tokens are short-lived, so a token minted
@@ -998,6 +1275,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       source
       |> availability_source_run_metadata()
       |> Map.merge(%{batch_count: result.batch_count, errors: serialize_errors(result.errors)})
+      |> maybe_put_population(result)
       |> maybe_put_identity_conflicts(result)
       |> maybe_put_composite_export(source)
 
@@ -1026,6 +1304,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       source
       |> availability_source_run_metadata()
       |> Map.merge(%{batch_count: result.batch_count, errors: serialize_errors(result.errors)})
+      |> maybe_put_population(result)
       |> maybe_put_identity_conflicts(result)
       |> maybe_put_composite_export(source)
 
@@ -1104,6 +1383,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
       updated_count: result.updated_count,
       skipped_count: result.skipped_count,
       error_count: result.error_count,
+      eligible_count:
+        Map.get(result, :eligible_count, result.device_count - result.skipped_count),
+      withheld_count: Map.get(result, :withheld_count, result.skipped_count),
+      accepted_count: Map.get(result, :accepted_count, result.updated_count),
+      failed_count: Map.get(result, :failed_count, result.error_count),
+      unattempted_count: Map.get(result, :unattempted_count, 0),
+      reconciliation_status: Map.get(result, :reconciliation_status, :unavailable),
       error_message: Map.get(metadata, :error_message),
       metadata: metadata
     }
@@ -1190,6 +1476,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
         "error_message",
         Map.get(result, :error_message)
       )
+      |> maybe_put_population(result)
       |> maybe_put_identity_conflicts(result)
 
     %{
@@ -1219,7 +1506,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
     base =
       "Armis northbound run for #{source_name} finished with #{status}: " <>
-        "#{result.updated_count}/#{result.device_count} devices updated"
+        "#{result.updated_count}/#{result.device_count} source IDs accepted by Armis"
 
     if blank?(Map.get(result, :error_message)) do
       base
@@ -1291,6 +1578,25 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     end
   end
 
+  defp maybe_put_population(metadata, result) do
+    case Map.get(result, :collection) do
+      collection when is_map(collection) ->
+        Map.merge(metadata, %{
+          collection: collection,
+          eligible_count: Map.get(result, :eligible_count, 0),
+          withheld_count: Map.get(result, :withheld_count, 0),
+          accepted_count: Map.get(result, :accepted_count, 0),
+          failed_count: Map.get(result, :failed_count, 0),
+          unattempted_count: Map.get(result, :unattempted_count, 0),
+          reconciliation_status: Map.get(result, :reconciliation_status, :unavailable),
+          withheld_reason_counts: Map.get(result, :withheld_reason_counts, %{})
+        })
+
+      _ ->
+        metadata
+    end
+  end
+
   defp default_start_run(source, actor, opts) do
     oban_job_id = Keyword.get(opts, :oban_job_id)
     :ok = reconcile_stale_runs(source, actor, opts)
@@ -1354,41 +1660,68 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     |> Enum.filter(&stale_running_run?(&1, now, cutoff_seconds))
     |> Enum.each(fn run ->
       if orphaned_oban_state?(oban_state.(run.oban_job_id), now, cutoff_seconds) do
-        attrs = %{
-          device_count: run.device_count || 0,
-          updated_count: run.updated_count || 0,
-          skipped_count: run.skipped_count || 0,
-          error_count: run.error_count || 0,
-          error_message: "Marked timed out after orphaned Oban job",
-          metadata:
-            Map.merge(run.metadata || %{}, %{
-              "reconciled" => true,
-              "reason" => "orphaned_oban_job"
-            })
-        }
+        case stale_run_result(run) do
+          {:ok, result} ->
+            finish_stale_run(source, run, result, actor, finish_run, update_source)
 
-        case finish_run.(run, :finish_timeout, attrs, actor, %{status: :timeout}) do
-          {:ok, _finished_run} ->
-            timeout_attrs = %{
-              result: :timeout,
-              device_count: run.device_count || 0,
-              updated_count: run.updated_count || 0,
-              skipped_count: (run.skipped_count || 0) + (run.error_count || 0),
-              error_message: "Marked timed out after orphaned Oban job"
-            }
-
-            case update_source.(source, :northbound_failed, timeout_attrs, actor) do
-              {:ok, _source} -> :ok
-              {:error, _reason} -> :ok
-            end
-
-          {:error, _reason} ->
-            :ok
+          {:error, reason} ->
+            Logger.warning("Could not finalize stale Armis northbound ledger",
+              integration_source_id: inspect(Map.get(source, :id)),
+              run_id: inspect(Map.get(run, :id)),
+              reason: inspect(reason)
+            )
         end
       end
     end)
 
     :ok
+  end
+
+  defp stale_run_result(%{collection_id: collection_id} = run)
+       when is_binary(collection_id) and collection_id != "" do
+    ArmisNorthboundLedger.abort_pending(run)
+  end
+
+  defp stale_run_result(run) do
+    {:ok,
+     %{
+       device_count: Map.get(run, :device_count) || 0,
+       updated_count: Map.get(run, :updated_count) || 0,
+       skipped_count: Map.get(run, :skipped_count) || 0,
+       error_count: Map.get(run, :error_count) || 0,
+       reconciliation_status: :unavailable
+     }}
+  end
+
+  defp finish_stale_run(source, run, result, actor, finish_run, update_source) do
+    error_message = "Marked timed out after orphaned Oban job"
+
+    metadata =
+      Map.merge(run.metadata || %{}, %{
+        "reconciled" => false,
+        "reason" => "orphaned_oban_job"
+      })
+
+    attrs = build_run_attrs(result, Map.put(metadata, :error_message, error_message))
+
+    case finish_run.(run, :finish_timeout, attrs, actor, %{status: :timeout}) do
+      {:ok, _finished_run} ->
+        timeout_attrs = %{
+          result: :timeout,
+          device_count: result.device_count,
+          updated_count: result.updated_count,
+          skipped_count: result.skipped_count + result.error_count,
+          error_message: error_message
+        }
+
+        case update_source.(source, :northbound_failed, timeout_attrs, actor) do
+          {:ok, _source} -> :ok
+          {:error, _reason} -> :ok
+        end
+
+      {:error, _reason} ->
+        :ok
+    end
   end
 
   defp list_recent_runs(source, actor) do

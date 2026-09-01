@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
+  alias ServiceRadar.Integrations.IntegrationUpdateRunTarget
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
@@ -262,8 +264,177 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     assert html =~ "availability_status"
     assert html =~ "Recent Runs"
     assert html =~ "bulk update rejected"
-    assert html =~ "Last Updated"
+    assert html =~ "Collection accounting unavailable"
+    assert html =~ "Accepted"
     assert html =~ "9"
+  end
+
+  test "details modal shows an exact collection reconciliation funnel", %{
+    conn: conn,
+    scope: scope
+  } do
+    source =
+      create_armis_source!(scope, %{
+        name: "Armis Reconciled Source",
+        custom_fields: ["availability_status"],
+        northbound_enabled: true
+      })
+
+    run =
+      IntegrationUpdateRun
+      |> Ash.Changeset.for_create(:start_run, %{
+        integration_source_id: source.id,
+        run_type: :armis_northbound,
+        metadata: %{}
+      })
+      |> Ash.create!(scope: scope)
+
+    run =
+      run
+      |> Ash.Changeset.for_update(:bind_collection, %{
+        collection_id: "collection-2026-09-01",
+        collection_content_hash: String.duplicate("a", 64),
+        collection_observed_at: ~U[2026-09-01 08:00:00.000000Z],
+        raw_rows: 15,
+        excluded_rows: 0,
+        invalid_rows: 1,
+        valid_occurrences: 14,
+        distinct_source_ids: 12,
+        duplicate_occurrences: 2,
+        conflicting_duplicate_ids: 1,
+        eligible_count: 9,
+        withheld_count: 3,
+        reconciliation_status: :pending,
+        metadata: %{"accounting_status" => "exact"}
+      })
+      |> Ash.update!(scope: scope)
+
+    _run =
+      run
+      |> Ash.Changeset.for_update(:finish_success, %{
+        device_count: 12,
+        updated_count: 9,
+        skipped_count: 3,
+        error_count: 0,
+        eligible_count: 9,
+        withheld_count: 3,
+        accepted_count: 9,
+        failed_count: 0,
+        unattempted_count: 0,
+        reconciliation_status: :degraded,
+        metadata: %{
+          "accounting_status" => "exact",
+          "collection" => %{
+            "duplicate_source_id_examples" => ["armis-101", "armis-202"],
+            "invalid_row_examples" => ["query=main page=1 row=7"]
+          },
+          "withheld_reason_counts" => %{"multiple_typed_ids_per_device" => 3}
+        }
+      })
+      |> Ash.update!(scope: scope)
+
+    {:ok, lv, html} = live(conn, ~p"/settings/networks/integrations/#{source.id}")
+
+    assert has_element?(lv, "#armis-reconciliation-funnel")
+    assert has_element?(lv, "#armis-reconciliation-statuses")
+    assert has_element?(lv, "#armis-withheld-reasons")
+    assert has_element?(lv, "#armis-run-target-export")
+    assert has_element?(lv, "#armis-duplicate-examples")
+    assert has_element?(lv, "#armis-invalid-examples")
+    assert html =~ "Distinct Armis IDs"
+    assert html =~ "Accepted by Armis"
+    assert html =~ "Unattempted IDs"
+    assert html =~ "multiple typed ids per device: 3"
+    refute has_element?(lv, "#armis-accounting-unavailable")
+  end
+
+  test "authorized operator can export a complete per-source-ID ledger", %{
+    conn: conn,
+    scope: scope
+  } do
+    source =
+      create_armis_source!(scope, %{
+        name: "Armis Ledger Export",
+        custom_fields: ["availability_status"],
+        northbound_enabled: true
+      })
+
+    run =
+      IntegrationUpdateRun
+      |> Ash.Changeset.for_create(:start_run, %{
+        integration_source_id: source.id,
+        run_type: :armis_northbound,
+        metadata: %{}
+      })
+      |> Ash.create!(scope: scope)
+
+    run =
+      run
+      |> Ash.Changeset.for_update(:bind_collection, %{
+        collection_id: "collection-export",
+        collection_content_hash: String.duplicate("b", 64),
+        collection_observed_at: ~U[2026-09-01 08:00:00.000000Z],
+        raw_rows: 1,
+        excluded_rows: 0,
+        invalid_rows: 0,
+        valid_occurrences: 1,
+        distinct_source_ids: 1,
+        duplicate_occurrences: 0,
+        conflicting_duplicate_ids: 0,
+        eligible_count: 0,
+        withheld_count: 1,
+        reconciliation_status: :pending,
+        metadata: %{"accounting_status" => "exact"}
+      })
+      |> Ash.update!(scope: scope)
+
+    now = DateTime.utc_now()
+
+    filler_targets =
+      Enum.map(1..1_001, fn index ->
+        %{
+          id: Ecto.UUID.bingenerate(),
+          integration_update_run_id: run.id,
+          collection_id: run.collection_id,
+          source_object_id: "armis-#{String.pad_leading(to_string(index), 4, "0")}",
+          canonical_device_uid: "device-export-#{index}",
+          eligibility: :eligible,
+          outcome: :accepted,
+          reason: nil,
+          is_available: true,
+          metadata: %{},
+          inserted_at: now,
+          updated_at: now
+        }
+      end)
+
+    {1_002, _} =
+      Repo.insert_all(IntegrationUpdateRunTarget, [
+        %{
+          id: Ecto.UUID.bingenerate(),
+          integration_update_run_id: run.id,
+          collection_id: run.collection_id,
+          source_object_id: "=armis-formula",
+          canonical_device_uid: "device-export",
+          eligibility: :withheld,
+          outcome: :withheld,
+          reason: "multiple_typed_ids_per_device",
+          is_available: nil,
+          metadata: %{"typed_ids" => ["101", "202"]},
+          inserted_at: now,
+          updated_at: now
+        }
+        | filler_targets
+      ])
+
+    conn = get(conn, ~p"/settings/networks/integrations/runs/#{run.id}/export.csv")
+    body = response(conn, 200)
+
+    assert get_resp_header(conn, "content-type") == ["text/csv; charset=utf-8"]
+    assert body =~ "source_object_id"
+    assert body =~ "\"'=armis-formula\""
+    assert body =~ "multiple_typed_ids_per_device"
+    assert body =~ "armis-1001"
   end
 
   test "details modal shows armis credential presence without revealing the secret", %{
