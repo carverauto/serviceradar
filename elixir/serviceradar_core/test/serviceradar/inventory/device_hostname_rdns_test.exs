@@ -217,6 +217,8 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
            }}
 
         "page-2" ->
+          assert_received {:loaded_batch, ["sr:a", "sr:b"]}
+
           {:ok,
            %{
              rows: [
@@ -245,10 +247,38 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
                cache?: false
              )
 
-    assert_received {:loaded_batch, ["sr:a", "sr:b"]}
     assert_received {:loaded_batch, ["sr:c", "sr:d"]}
     assert_received {:loaded_batch, ["sr:e"]}
     refute_received {:loaded_batch, _batch}
+  end
+
+  test "run stops with a clear error when SRQL pagination exceeds its safety limit" do
+    query_page = fn _query, opts ->
+      page = opts[:cursor] || "page-1"
+
+      {:ok,
+       %{
+         rows: [%{"uid" => "sr:#{page}", "ip" => "10.0.0.1", "hostname" => nil}],
+         next_cursor: "#{page}-next"
+       }}
+    end
+
+    assert {:error, {:srql_page_limit_exceeded, %{max_pages: 2, scanned_rows: 2}}} =
+             DeviceHostnameRdns.run(
+               %{
+                 srql_query: "in:devices",
+                 batch_size: 1,
+                 timeout_ms: 250,
+                 overwrite_existing: false,
+                 retry_after_minutes: 1_440
+               },
+               query_page: query_page,
+               load_devices: fn candidates, _actor -> {:ok, candidates} end,
+               lookup: fn _ip, _opts -> {"host.lan", "ok", nil} end,
+               persist: fn _device, _hostname, _status, _error, _now, _actor -> :updated end,
+               max_srql_pages: 2,
+               cache?: false
+             )
   end
 
   test "run fails instead of silently returning a partial cohort when pagination stalls" do
