@@ -224,6 +224,42 @@ func TestSyncMarksSamePageConflictWithoutEmittingDuplicateUpsert(t *testing.T) {
 	}
 }
 
+func TestDuplicateConflictUpdateDropsLargeDescriptiveFields(t *testing.T) {
+	update := map[string]interface{}{
+		"agent_id":           "agent-a",
+		"gateway_id":         "gateway-a",
+		"partition":          "partition-a",
+		"device_id":          "partition-a:10.0.0.101",
+		"ip":                 "10.0.0.101",
+		"source":             SourceType,
+		"timestamp":          "2026-09-01T08:00:00Z",
+		"network_interfaces": []map[string]interface{}{{"name": "eth0"}},
+		"metadata": map[string]string{
+			"integration_type":   SourceType,
+			"armis_device_id":    "101",
+			"integration_id":     "101",
+			"serial_numbers":     "SERIAL-A",
+			"network_interfaces": `[{"name":"eth0"}]`,
+			"site":               `{"name":"large-site-payload"}`,
+		},
+	}
+
+	correction := duplicateConflictUpdate(update)
+	if _, exists := correction["network_interfaces"]; exists {
+		t.Fatalf("correction retained top-level network interfaces: %#v", correction)
+	}
+	metadata, _ := correction["metadata"].(map[string]string)
+	if _, exists := metadata["network_interfaces"]; exists {
+		t.Fatalf("correction retained metadata network interfaces: %#v", metadata)
+	}
+	if _, exists := metadata["site"]; exists {
+		t.Fatalf("correction retained descriptive site metadata: %#v", metadata)
+	}
+	if metadata["armis_device_id"] != "101" || metadata["source_duplicate_conflict"] != duplicateConflictFlagValue {
+		t.Fatalf("correction identity metadata = %#v", metadata)
+	}
+}
+
 func TestDuplicateIdentityConflictRequiresDisjointValuesForSameField(t *testing.T) {
 	tests := []struct {
 		name     string

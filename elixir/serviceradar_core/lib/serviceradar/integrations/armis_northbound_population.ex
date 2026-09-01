@@ -130,6 +130,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundPopulation do
         where:
           snapshot.partition == ^partition and snapshot.source == "armis" and
             snapshot.source_instance == ^source_instance,
+        order_by: [desc: snapshot.activated_at, desc: snapshot.observed_at, desc: snapshot.id],
         limit: 1
       )
     )

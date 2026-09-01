@@ -390,7 +390,25 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
 
     now = DateTime.utc_now()
 
-    {1, _} =
+    filler_targets =
+      Enum.map(1..1_001, fn index ->
+        %{
+          id: Ecto.UUID.bingenerate(),
+          integration_update_run_id: run.id,
+          collection_id: run.collection_id,
+          source_object_id: "armis-#{String.pad_leading(to_string(index), 4, "0")}",
+          canonical_device_uid: "device-export-#{index}",
+          eligibility: :eligible,
+          outcome: :accepted,
+          reason: nil,
+          is_available: true,
+          metadata: %{},
+          inserted_at: now,
+          updated_at: now
+        }
+      end)
+
+    {1_002, _} =
       Repo.insert_all(IntegrationUpdateRunTarget, [
         %{
           id: Ecto.UUID.bingenerate(),
@@ -406,6 +424,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
           inserted_at: now,
           updated_at: now
         }
+        | filler_targets
       ])
 
     conn = get(conn, ~p"/settings/networks/integrations/runs/#{run.id}/export.csv")
@@ -415,6 +434,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     assert body =~ "source_object_id"
     assert body =~ "\"'=armis-formula\""
     assert body =~ "multiple_typed_ids_per_device"
+    assert body =~ "armis-1001"
   end
 
   test "details modal shows armis credential presence without revealing the secret", %{

@@ -23,12 +23,13 @@ import (
 )
 
 const (
-	syncServiceType      = "sync"
-	syncServiceName      = "sync"
-	syncMetaKey          = "sync_meta"
-	syncControlKey       = "_sync_control"
-	syncCollectionFinal  = "collection_final"
-	syncRuntimeStatePath = "/var/lib/serviceradar/cache/sync-runtime-runs.json"
+	syncServiceType            = "sync"
+	syncServiceName            = "sync"
+	syncMetaKey                = "sync_meta"
+	syncControlKey             = "_sync_control"
+	syncCollectionFinal        = "collection_final"
+	syncRuntimeStatePath       = "/var/lib/serviceradar/cache/sync-runtime-runs.json"
+	syncPopulationExampleLimit = 100
 )
 
 var (
@@ -415,8 +416,8 @@ type syncRunEmitter struct {
 
 func (e *syncRunEmitter) reportPopulation(stats syncsources.PopulationStats) {
 	copyStats := stats
-	copyStats.DuplicateSourceIDExamples = append([]string(nil), stats.DuplicateSourceIDExamples...)
-	copyStats.InvalidRowExamples = append([]string(nil), stats.InvalidRowExamples...)
+	copyStats.DuplicateSourceIDExamples = boundedPopulationExamples(stats.DuplicateSourceIDExamples)
+	copyStats.InvalidRowExamples = boundedPopulationExamples(stats.InvalidRowExamples)
 	copyStats.ConflictingDuplicateIDs = append([]string(nil), stats.ConflictingDuplicateIDs...)
 	e.population = &copyStats
 }
@@ -765,10 +766,6 @@ func buildSyncMeta(meta syncChunkMeta, chunkIndex int, totalChunks int, isFinal 
 	}
 
 	if isFinal && meta.population != nil {
-		examples := meta.population.ConflictingDuplicateIDs
-		if len(examples) > 100 {
-			examples = examples[:100]
-		}
 		result["population"] = map[string]interface{}{
 			"raw_rows":                       meta.population.RawRows,
 			"excluded_rows":                  meta.population.ExcludedRows,
@@ -776,14 +773,22 @@ func buildSyncMeta(meta syncChunkMeta, chunkIndex int, totalChunks int, isFinal 
 			"valid_occurrences":              meta.population.ValidOccurrences,
 			"distinct_source_ids":            meta.population.DistinctSourceIDs,
 			"duplicate_occurrences":          meta.population.DuplicateOccurrences,
-			"duplicate_source_id_examples":   append([]string(nil), meta.population.DuplicateSourceIDExamples...),
-			"invalid_row_examples":           append([]string(nil), meta.population.InvalidRowExamples...),
+			"duplicate_source_id_examples":   boundedPopulationExamples(meta.population.DuplicateSourceIDExamples),
+			"invalid_row_examples":           boundedPopulationExamples(meta.population.InvalidRowExamples),
 			"conflicting_duplicate_ids":      len(meta.population.ConflictingDuplicateIDs),
-			"conflicting_duplicate_examples": append([]string(nil), examples...),
+			"conflicting_duplicate_examples": boundedPopulationExamples(meta.population.ConflictingDuplicateIDs),
 		}
 	}
 
 	return result
+}
+
+func boundedPopulationExamples(values []string) []string {
+	if len(values) > syncPopulationExampleLimit {
+		values = values[:syncPopulationExampleLimit]
+	}
+
+	return append([]string(nil), values...)
 }
 
 func firstPopulation(values []*syncsources.PopulationStats) *syncsources.PopulationStats {

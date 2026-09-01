@@ -75,6 +75,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisSourceIdentityRepair do
     WHERE source = 'armis'
       AND source_instance = $1
       AND metadata->>'accounting_status' = 'exact'
+    ORDER BY activated_at DESC, observed_at DESC, id DESC
     LIMIT 1
     """
 

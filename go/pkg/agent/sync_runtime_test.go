@@ -559,8 +559,8 @@ func TestBuildSyncResultsChunksPublishesBoundedPopulationOnlyOnRunFinal(t *testi
 	population := &syncsources.PopulationStats{
 		RawRows: 130, ExcludedRows: 2, InvalidRows: 3, ValidOccurrences: 125,
 		DistinctSourceIDs: 120, DuplicateOccurrences: 5,
-		DuplicateSourceIDExamples: []string{"12", "17"},
-		InvalidRowExamples:        []string{"query=a page=0 row=4"},
+		DuplicateSourceIDExamples: examples,
+		InvalidRowExamples:        examples,
 		ConflictingDuplicateIDs:   examples,
 	}
 	source := models.SourceConfig{SyncServiceID: "source-a"}
@@ -593,11 +593,11 @@ func TestBuildSyncResultsChunksPublishesBoundedPopulationOnlyOnRunFinal(t *testi
 	if gotExamples, _ := got["conflicting_duplicate_examples"].([]interface{}); len(gotExamples) != 100 {
 		t.Fatalf("conflicting duplicate examples = %d, want bounded 100", len(gotExamples))
 	}
-	if gotExamples, _ := got["duplicate_source_id_examples"].([]interface{}); len(gotExamples) != 2 {
-		t.Fatalf("duplicate source-ID examples = %d, want 2", len(gotExamples))
+	if gotExamples, _ := got["duplicate_source_id_examples"].([]interface{}); len(gotExamples) != 100 {
+		t.Fatalf("duplicate source-ID examples = %d, want bounded 100", len(gotExamples))
 	}
-	if gotExamples, _ := got["invalid_row_examples"].([]interface{}); len(gotExamples) != 1 {
-		t.Fatalf("invalid row examples = %d, want 1", len(gotExamples))
+	if gotExamples, _ := got["invalid_row_examples"].([]interface{}); len(gotExamples) != 100 {
+		t.Fatalf("invalid row examples = %d, want bounded 100", len(gotExamples))
 	}
 }
 

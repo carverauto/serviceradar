@@ -35,7 +35,11 @@ import (
 // SourceType identifies the Armis integration in the sync-source registry.
 const SourceType = "armis"
 
-const defaultPageSize = 100
+const (
+	defaultPageSize            = 100
+	populationExampleLimit     = 100
+	duplicateConflictFlagValue = "true"
+)
 
 var errNoQueriesConfigured = errors.New("armis source has no queries configured")
 
@@ -67,12 +71,11 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 	tokenRefreshes := 0
 	population := syncsources.PopulationStats{}
 	seen := make(map[string]duplicateIdentity)
-	seenUpdates := make(map[string]map[string]interface{})
-	emittedIDs := make(map[string]struct{})
+	conflictUpdates := make(map[string]map[string]interface{})
 	conflictingDuplicateIDs := make(map[string]struct{})
 	conflictSignalsEmitted := make(map[string]struct{})
-	duplicateExamples := make([]string, 0, 100)
-	invalidExamples := make([]string, 0, 100)
+	duplicateExamples := make([]string, 0, populationExampleLimit)
+	invalidExamples := make([]string, 0, populationExampleLimit)
 
 	var assetToken string
 	if len(assetConfig.fields) > 0 {
@@ -144,6 +147,7 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 			logDeviceShape(run, queryLabel, from, filtered)
 
 			updates := make([]map[string]interface{}, 0, len(filtered))
+			pendingUpdates := make(map[string]map[string]interface{}, len(filtered))
 			for itemIndex, item := range filtered {
 				update := buildUpdate(run, item, queryLabel)
 				if update == nil {
@@ -173,11 +177,10 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 					if conflictingDuplicateSignature(existingSignature, signature) {
 						conflictingDuplicateIDs[armisID] = struct{}{}
 						if _, emitted := conflictSignalsEmitted[armisID]; !emitted {
-							firstUpdate := seenUpdates[armisID]
-							if _, alreadyStreamed := emittedIDs[armisID]; alreadyStreamed {
-								updates = append(updates, duplicateConflictUpdate(firstUpdate))
-							} else {
+							if firstUpdate, pending := pendingUpdates[armisID]; pending {
 								markDuplicateConflict(firstUpdate)
+							} else {
+								updates = append(updates, conflictUpdates[armisID])
 							}
 							conflictSignalsEmitted[armisID] = struct{}{}
 						}
@@ -187,7 +190,8 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 				}
 
 				seen[armisID] = signature
-				seenUpdates[armisID] = update
+				conflictUpdates[armisID] = duplicateConflictUpdate(update)
+				pendingUpdates[armisID] = update
 				updates = append(updates, update)
 			}
 
@@ -202,11 +206,6 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 			if len(updates) > 0 {
 				if err := run.Emit(updates); err != nil {
 					return totalUpdates, err
-				}
-				for _, update := range updates {
-					if armisID := armisIDFromUpdate(update); armisID != "" {
-						emittedIDs[armisID] = struct{}{}
-					}
 				}
 				totalUpdates += len(updates)
 			}
@@ -248,17 +247,37 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 	return totalUpdates, nil
 }
 
-// duplicateConflictUpdate re-emits the first observation with a monotonic
-// conflict marker. The ingestor upserts the same source ID, so collection
-// membership remains one row per ID while northbound can withhold the exact
-// conflicting ID without relying on a bounded examples list.
+// duplicateConflictUpdate retains only the identity fields needed to re-emit
+// a monotonic conflict marker after the first observation has been streamed.
+// Large descriptive fields such as network_interfaces must not be retained
+// for every distinct source ID for the lifetime of a collection.
 func duplicateConflictUpdate(update map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{}, len(update))
-	for key, value := range update {
-		result[key] = value
+	result := make(map[string]interface{}, 10)
+	for _, key := range []string{
+		"agent_id", "gateway_id", "partition", "device_id", "ip", "source", "timestamp", "mac", "hostname",
+	} {
+		if value, ok := update[key]; ok {
+			result[key] = value
+		}
 	}
 
-	markDuplicateConflict(result)
+	metadata, _ := update["metadata"].(map[string]string)
+	result["metadata"] = duplicateConflictMetadata(metadata)
+
+	return result
+}
+
+func duplicateConflictMetadata(metadata map[string]string) map[string]string {
+	result := make(map[string]string, 7)
+	for _, key := range []string{
+		"integration_type", "armis_device_id", "integration_id", "source_device_id", "serial_number",
+		"serial_numbers", "mac_addresses",
+	} {
+		if value := metadata[key]; value != "" {
+			result[key] = value
+		}
+	}
+	result["source_duplicate_conflict"] = duplicateConflictFlagValue
 
 	return result
 }
@@ -269,7 +288,7 @@ func markDuplicateConflict(update map[string]interface{}) {
 	for key, value := range metadata {
 		metadataCopy[key] = value
 	}
-	metadataCopy["source_duplicate_conflict"] = "true"
+	metadataCopy["source_duplicate_conflict"] = duplicateConflictFlagValue
 	update["metadata"] = metadataCopy
 }
 
