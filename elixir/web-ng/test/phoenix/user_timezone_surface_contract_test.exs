@@ -261,10 +261,14 @@ defmodule ServiceRadarWebNGWeb.UserTimezoneSurfaceContractTest do
     assert times |> LazyHTML.attribute("id") |> Enum.uniq() |> length() == 2
   end
 
-  test "service history prefers stable service identities and preserves them across reordering" do
+  test "service history derives unique stable ids for repeated service identities" do
     services = [
       %{"service_id" => "check-a", "timestamp" => @canonical, "available" => true},
-      %{"uid" => "check-b", "timestamp" => @canonical, "available" => false}
+      %{
+        "service_id" => "check-a",
+        "timestamp" => "2026-08-30T18:01:00Z",
+        "available" => false
+      }
     ]
 
     render = fn rows ->
@@ -278,13 +282,31 @@ defmodule ServiceRadarWebNGWeb.UserTimezoneSurfaceContractTest do
 
     html = render.(services)
     document = LazyHTML.from_fragment(html)
+    rows = LazyHTML.query(document, "tr[id^='service-history-row-']")
     times = LazyHTML.query(document, "time[data-user-time-zone='#{@timezone}']")
 
-    expected_ids = ["service-history-check-a-timestamp", "service-history-check-b-timestamp"]
+    row_ids = LazyHTML.attribute(rows, "id")
+    time_ids = LazyHTML.attribute(times, "id")
 
-    assert LazyHTML.attribute(times, "id") == expected_ids
-    assert user_time_id_set(render.(Enum.reverse(services))) == MapSet.new(expected_ids)
-    assert LazyHTML.attribute(times, "datetime") == [@canonical, @canonical]
+    assert length(row_ids) == 2
+    assert length(Enum.uniq(row_ids)) == 2
+    assert length(time_ids) == 2
+    assert length(Enum.uniq(time_ids)) == 2
+
+    rerendered_document = services |> Enum.reverse() |> render.() |> LazyHTML.from_fragment()
+
+    assert MapSet.new(row_ids) ==
+             rerendered_document
+             |> LazyHTML.query("tr[id^='service-history-row-']")
+             |> LazyHTML.attribute("id")
+             |> MapSet.new()
+
+    assert MapSet.new(time_ids) == user_time_id_set(render.(Enum.reverse(services)))
+
+    assert LazyHTML.attribute(times, "datetime") == [
+             @canonical,
+             "2026-08-30T18:01:00Z"
+           ]
   end
 
   test "northbound device action history keeps resource ids when rows reorder" do

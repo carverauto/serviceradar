@@ -89,6 +89,16 @@ defmodule ServiceRadarWebNGWeb.TimestampFormatterInventoryTest do
     assert duplicate_keys == [],
            "duplicate timestamp formatter inventory keys:\n" <> format_keys(duplicate_keys)
 
+    discovered_duplicate_keys = duplicate_discovered_keys(discovered)
+
+    assert discovered_duplicate_keys == [], """
+    duplicate discovered timestamp formatter identities:
+    #{format_keys(discovered_duplicate_keys)}
+
+    Repeated direct formatter calls must have distinct source fingerprints so each
+    call site remains independently represented in the checked inventory.
+    """
+
     discovered_by_key = Map.new(discovered, &{entry_key(&1), &1})
     inventory_key_set = MapSet.new(inventory_keys)
     discovered_key_set = MapSet.new(Map.keys(discovered_by_key))
@@ -151,6 +161,29 @@ defmodule ServiceRadarWebNGWeb.TimestampFormatterInventoryTest do
 
     refute entry_key(original) == entry_key(replacement)
     assert entry_key(original) == entry_key(reordered)
+  end
+
+  test "discovered formatter identity collisions remain visible to the audit" do
+    fingerprint = String.duplicate("a", 64)
+
+    discovered = [
+      %{
+        path: "assets/component/index.js",
+        matcher: "js_to_iso_string",
+        occurrence: 1,
+        fingerprint: fingerprint
+      },
+      %{
+        path: "assets/component/index.js",
+        matcher: "js_to_iso_string",
+        occurrence: 2,
+        fingerprint: fingerprint
+      }
+    ]
+
+    assert duplicate_discovered_keys(discovered) == [
+             {"assets/component/index.js", "js_to_iso_string", fingerprint}
+           ]
   end
 
   defp discover_formatter_calls do
@@ -265,6 +298,15 @@ defmodule ServiceRadarWebNGWeb.TimestampFormatterInventoryTest do
 
   defp display_key(entry),
     do: {entry["path"] || entry.path, entry["matcher"] || entry.matcher, entry["occurrence"] || entry.occurrence}
+
+  defp duplicate_discovered_keys(discovered) do
+    discovered
+    |> Enum.map(&entry_key/1)
+    |> Enum.frequencies()
+    |> Enum.filter(fn {_key, count} -> count > 1 end)
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.sort()
+  end
 
   defp source_line(source, offset) do
     source
