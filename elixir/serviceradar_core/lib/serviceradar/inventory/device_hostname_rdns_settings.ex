@@ -61,7 +61,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
     define :get_settings, action: :get_singleton
     define :create_settings, action: :create
     define :update_settings, action: :update
-    define :run_now, action: :run
+    define :run_now, action: :run_now
   end
 
   actions do
@@ -98,11 +98,20 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
     end
 
     update :run do
-      description "Run reverse-DNS hostname enrichment (AshOban or operator Run now)"
+      description "Run scheduled reverse-DNS hostname enrichment"
       require_atomic? false
 
       change fn changeset, _context ->
         apply_run(changeset)
+      end
+    end
+
+    update :run_now do
+      description "Run operator-requested reverse-DNS hostname enrichment without the retry delay"
+      require_atomic? false
+
+      change fn changeset, _context ->
+        apply_run(changeset, ignore_retry?: true)
       end
     end
   end
@@ -119,7 +128,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
     end
 
     read_operator_plus()
-    operator_action([:create, :update, :run])
+    operator_action([:create, :update, :run_now])
   end
 
   attributes do
@@ -166,7 +175,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
       default 200
       public? true
       constraints min: 1, max: 5_000
-      description "Maximum devices to look up per run"
+      description "Devices loaded and processed per batch while exhausting the selected cohort"
     end
 
     attribute :timeout_ms, :integer do
@@ -182,7 +191,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
       default 1_440
       public? true
       constraints min: 5, max: 43_200
-      description "Minimum minutes before retrying a failed or empty PTR lookup"
+      description "Minimum minutes between scheduled PTR lookups for a device"
     end
 
     attribute :overwrite_existing, :boolean do
@@ -278,7 +287,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
     Enum.any?([:enabled, :cron, :timezone], &Ash.Changeset.changing_attribute?(changeset, &1))
   end
 
-  defp apply_run(changeset) do
+  defp apply_run(changeset, opts \\ []) do
     settings = changeset.data
     now = DateTime.utc_now()
 
@@ -288,7 +297,8 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
     # not blocked by a missing devices.view / devices.update grant.
     case DeviceHostnameRdns.run(settings,
            actor: SystemActor.system(:device_hostname_rdns),
-           now: now
+           now: now,
+           ignore_retry?: Keyword.get(opts, :ignore_retry?, false)
          ) do
       {:ok, stats} ->
         changeset
@@ -333,14 +343,8 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsSettings do
     end
   end
 
-  defp next_run_after(settings, now, stats) do
-    batch_size = settings.batch_size || 200
-
-    if stats.looked_up >= batch_size do
-      DateTime.add(now, 60, :second)
-    else
-      next_cron_due(settings.cron, settings.timezone, now) || DateTime.add(now, 3_600, :second)
-    end
+  defp next_run_after(settings, now, _stats) do
+    next_cron_due(settings.cron, settings.timezone, now) || DateTime.add(now, 3_600, :second)
   end
 
   defp next_cron_due(cron, timezone, now) when is_binary(cron) do
