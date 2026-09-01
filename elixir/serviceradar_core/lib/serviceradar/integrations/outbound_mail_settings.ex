@@ -41,6 +41,11 @@ defmodule ServiceRadar.Integrations.OutboundMailSettings do
     repo ServiceRadar.Repo
     schema "platform"
     migrate? false
+
+    references do
+      reference :password_secret, on_delete: :restrict
+      reference :api_key_secret, on_delete: :restrict
+    end
   end
 
   cloak do

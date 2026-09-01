@@ -42,8 +42,38 @@ Descriptor-driven forms serialize secret fields using a bounded package-declared
 
 Consumers receive references or scoped broker grants. The trusted agent/control-plane host resolves material and applies it to an owned protocol adapter. Wasm guests never receive passwords, private keys, API tokens, OAuth bearer tokens, or token-endpoint responses.
 
+## Credential Lifecycle Management
+The credential inventory exposes three separate actions with separate forms and contracts:
+
+- **Edit details** updates only non-secret operator metadata such as name and description. Provider, credential kind, source type, and authentication descriptor remain immutable because changing them can invalidate existing consumers.
+- **Rotate** renders the active descriptor's public and secret fields, but every secret input is write-only and starts blank. Existing secret material is never loaded into the LiveView. A successful submission uses the explicit start/complete rotation lifecycle; validation or persistence failure records the rotation failure without echoing submitted material.
+- **Delete** permanently removes an unused credential. The UI may preview usage, but the authoritative check occurs in the database transaction and PostgreSQL constraints remain the final race-safe guard.
+
+Every management event performs a fresh `settings.credentials.manage` authorization check rather than relying only on authorization performed during LiveView mount.
+
+## Consumer Inventory and Navigation
+A core usage service returns structured, non-secret consumer summaries with stable kind, identifier, label, and edit route where one exists. It includes credential rules, SNMP profiles/targets/device credentials, mapper controllers, integration sources, outbound mail settings, plugin repositories, Ansible controllers/repositories, vulnerability feeds, notification channels, producer schedules, plugin assignments/target policies, and non-expired active broker grants.
+
+The inventory renders zero consumers as plain text, one navigable consumer as a direct named edit link, and multiple navigable consumers as a compact named link list. In particular, a single SNMP profile usage links directly to `/settings/snmp/:id/edit`. If any consumer lookup fails, usage is reported as unavailable and deletion fails closed.
+
+Terminal, revoked, or expired broker grants are operational history rather than live consumers. Historical resolution audits, immutable execution snapshots, OCSF events, and version snapshots are likewise not live consumers and do not by themselves block deletion.
+
+## Race-Safe Deletion Enforcement
+All normalized live consumer UUID columns reference `network_credential_secrets.id` with `ON DELETE RESTRICT`. Existing `SET NULL` live-consumer references are migrated to `RESTRICT`; the five Ansible credential UUID columns gain indexed restrictive foreign keys after an orphan audit. Historical resolution-audit references remain `SET NULL`.
+
+Live references persisted in text or JSON cannot be protected by a direct foreign key. A new Ash-backed `network_credential_secret_bindings` table mirrors those references with `secret_id ... ON DELETE RESTRICT`, consumer identity, source table/row/path, and a uniqueness constraint for the source reference. Database triggers maintain the bindings transactionally for vulnerability feeds, notification channels, producer schedules, plugin assignments, and plugin target policies. Broker grants retain their direct restrictive `secret_id` foreign key and gain consistency enforcement so a network-credential `secret_ref` cannot omit or disagree with `secret_id`.
+
+The sanctioned delete operation locks the credential row, rechecks structured usage, rejects non-expired active grants, removes terminal or expired grants and their owned versions, writes a redacted append-only deletion audit, and deletes the credential. Restrictive foreign keys and binding rows serialize concurrent consumer creation against deletion; an application-level count is never treated as the guard.
+
+`network_credential_secret_versions` is owned secret history and can contain encrypted payload ciphertext. Its source foreign key therefore changes to `ON DELETE CASCADE` so permanent deletion removes all ciphertext-bearing versions. A separate append-only deletion audit retains only the credential UUID, safe public identity fields, actor, and timestamp. Resolution and OCSF audit rows may retain redacted historical context with their credential foreign key nilled, but never secret material.
+
+Credential PaperTrail versions do not persist action input maps. Secret-bearing create and rotation actions otherwise risk copying submitted plaintext into `version_action_inputs` even when the virtual secret attribute is excluded from tracked changes. Action names and the explicitly redacted lifecycle/deletion events provide the audit trail instead.
+
 ## Migration Strategy
 - Keep existing `network_credential_secrets` and `network_credential_rules` tables.
+- Audit live consumer columns for orphans before changing them to restrictive foreign keys.
+- Backfill FK-backed binding rows for all supported text/JSON credential references before enabling guarded deletion, and fail the migration if a network credential reference cannot be resolved safely.
+- Cascade credential-owned version rows and introduce a redacted append-only deletion audit before exposing the destructive UI action.
 - Backfill descriptor/auth metadata for existing secrets and rules where missing or ambiguous.
 - Keep existing records readable while their owning package descriptor is active; do not retain a provider-specific native-profile fallback.
 - Add new AWX controller token creation through `NetworkCredentialSecret` without requiring users to copy UUIDs.
@@ -54,3 +84,7 @@ Consumers receive references or scoped broker grants. The trusted agent/control-
 - Multiple consumers may expect different secret payload shapes. Mitigation: bounded declarative payload encodings and host-owned credential injection primitives, not provider serializers in core.
 - A malicious package could request misleading or unsafe fields. Mitigation: signed-package approval plus a bounded field/control vocabulary, strict limits, and host-owned delivery semantics.
 - Existing users may rely on current defaults. Mitigation: preserve old routes and stored values through compatibility descriptors during rollout.
+- A missed denormalized reference could allow deletion to strand a consumer. Mitigation: enumerate every persisted reference path, normalize it into the FK-backed binding table, test every trigger path, and fail deletion whenever usage lookup is incomplete.
+- A stale UI usage count could race with a new assignment. Mitigation: treat counts as presentation only and rely on restrictive foreign keys/bindings inside the delete transaction.
+- Credential history can itself contain ciphertext. Mitigation: cascade owned secret versions and retain only a separate explicitly redacted deletion audit.
+- PaperTrail action inputs can bypass attribute-level redaction. Mitigation: disable action-input storage for credential secret versions and test the database, events, errors, and rendered HTML for submitted marker values.

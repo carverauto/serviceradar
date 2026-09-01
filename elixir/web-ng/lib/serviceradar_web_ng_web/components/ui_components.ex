@@ -231,6 +231,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :placement, :string, default: "bottom", values: ~w(bottom top)
   attr :class, :any, default: nil
   attr :menu_class, :any, default: nil
+  attr :aria_label, :string, default: nil
   slot :trigger, required: true
   slot :item, required: true
 
@@ -243,7 +244,10 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       table/panel ancestors (overflow-x-auto / rounded panels).
     --%>
     <details class={["sr-ui-dropdown group relative inline-block text-left", @class]}>
-      <summary class="sr-ui-dropdown-trigger list-none cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-sr-focus [&::-webkit-details-marker]:hidden">
+      <summary
+        class="sr-ui-dropdown-trigger list-none cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-sr-focus [&::-webkit-details-marker]:hidden"
+        aria-label={@aria_label}
+      >
         <span class="pointer-events-none inline-flex items-center">
           {render_slot(@trigger)}
         </span>
@@ -590,6 +594,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       phx-hook="DialogTopLayer"
       data-cancel={@on_cancel}
       data-cancel-target={@on_cancel_target}
+      aria-labelledby={if @title != [], do: "#{@id}-title"}
       {@rest}
     >
       <div class={[
@@ -610,7 +615,9 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
           <.icon name="hero-x-mark" class="size-4" />
         </.ui_icon_button>
         <div :if={@title != []} class="mb-3 flex items-start justify-between gap-3 pr-8">
-          <h3 class="text-lg font-semibold tracking-tight text-sr-ink">{render_slot(@title)}</h3>
+          <h3 id={"#{@id}-title"} class="text-lg font-semibold tracking-tight text-sr-ink">
+            {render_slot(@title)}
+          </h3>
         </div>
         <div class="space-y-3">{render_slot(@inner_block)}</div>
         <div :if={@actions != []} class="sr-ui-modal-action">{render_slot(@actions)}</div>

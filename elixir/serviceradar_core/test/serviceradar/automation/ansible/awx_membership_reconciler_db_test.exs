@@ -7,6 +7,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconcilerDbTest do
   alias ServiceRadar.Automation.Ansible.AwxMembershipReconciler
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @fingerprint_one "sha256:1111111111111111111111111111111111111111111111111111111111111111"
   @fingerprint_two "sha256:2222222222222222222222222222222222222222222222222222222222222222"
@@ -38,7 +39,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconcilerDbTest do
         name: "membership-notification-test-#{suffix}",
         base_url: "https://awx.test.invalid",
         agent_id: "membership-notification-agent-#{suffix}",
-        credential_secret_id: Ash.UUID.generate()
+        credential_secret_id: CredentialIntegrationFixtures.secret_id!()
       })
 
     actor = SystemActor.system(:awx_membership_reconciler_test)
