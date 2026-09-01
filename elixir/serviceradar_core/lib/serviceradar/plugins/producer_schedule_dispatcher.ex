@@ -623,11 +623,13 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
 
     cond do
       origin = https_origin(map_get(params, "nnm_url")) ->
-        parse_https_endpoint(origin <> @nnm_token_path)
+        (origin <> @nnm_token_path)
+        |> parse_https_endpoint()
         |> map_endpoint_error("token_url")
 
       origin = https_origin(map_get(params, "api_url")) ->
-        parse_https_endpoint(origin <> @direct_na_token_path)
+        (origin <> @direct_na_token_path)
+        |> parse_https_endpoint()
         |> map_endpoint_error("token_url")
 
       true ->
@@ -639,6 +641,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
     do: {:error, {:invalid_schedule_credential_endpoint, url_param}}
 
   defp map_endpoint_error({:ok, endpoint}, _url_param), do: {:ok, endpoint}
+
   defp map_endpoint_error(:error, url_param),
     do: {:error, {:invalid_schedule_credential_endpoint, url_param}}
 
@@ -673,8 +676,6 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
     if uri.scheme == "https" and valid_credential_endpoint_host?(uri.host) and
          is_nil(uri.userinfo) and is_binary(uri.authority) do
       "https://" <> uri.authority
-    else
-      nil
     end
   end
 
