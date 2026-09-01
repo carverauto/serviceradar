@@ -92,7 +92,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert JetStreamPublisher.retryable?(:misrouted)
     end
 
-    test "a wrong-last-sequence fence is unresolved, not poison" do
+    test "a wrong-last-sequence fence is retryable, not poison" do
       body = ~s({"error":{"code":400,"err_code":10071,"description":"wrong last sequence: 5"}})
       assert {:error, :systemic} = JetStreamPublisher.parse_ack(body)
       assert JetStreamPublisher.retryable?(:systemic)
@@ -475,9 +475,12 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       Process.put(:kill_pool_during_request, pools[:bulk])
 
       # NOT reported durable. The publish reached the broker, but the accounting that authorised
-      # it is gone, so progress is withheld and the record is republished -- Nats-Msg-Id
-      # deduplicates the copy. Reporting {:ok, ack} here would report a fact nothing can account
-      # for.
+      # it is gone, so a RETRYABLE class is returned instead: reporting {:ok, ack} would report a
+      # fact nothing can account for.
+      #
+      # What happens next is NOT established here. Nothing at this layer republishes -- there is
+      # no production caller -- and if a caller does retry, `Nats-Msg-Id` deduplication is scoped
+      # to one stream and one duplicate window, so it is not a general answer either.
       assert {:error, :systemic} =
                JetStreamPublisher.publish_record(publication(),
                  connection: FakeConn,
