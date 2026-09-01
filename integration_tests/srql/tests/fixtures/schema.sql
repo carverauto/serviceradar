@@ -396,6 +396,28 @@ CREATE TABLE otel_traces (
     PRIMARY KEY (timestamp, trace_id, span_id)
 );
 
+DROP TABLE IF EXISTS mtr_traces;
+CREATE TABLE mtr_traces (
+    id              UUID        NOT NULL DEFAULT gen_random_uuid(),
+    time            TIMESTAMPTZ NOT NULL,
+    agent_id        TEXT        NOT NULL,
+    gateway_id      TEXT,
+    check_id        TEXT,
+    check_name      TEXT,
+    device_id       TEXT,
+    target          TEXT        NOT NULL,
+    target_ip       TEXT        NOT NULL,
+    target_reached  BOOLEAN     NOT NULL DEFAULT FALSE,
+    total_hops      INTEGER     NOT NULL DEFAULT 0,
+    protocol        TEXT        NOT NULL DEFAULT 'icmp',
+    ip_version      INTEGER     NOT NULL DEFAULT 4,
+    packet_size     INTEGER,
+    partition       TEXT,
+    error           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (time, id)
+);
+
 DROP TABLE IF EXISTS otel_metrics;
 CREATE TABLE otel_metrics (
     timestamp        TIMESTAMPTZ NOT NULL,

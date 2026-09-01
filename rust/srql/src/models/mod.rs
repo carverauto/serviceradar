@@ -21,5 +21,5 @@ pub use inventory::{
     AddonStatusRow, AgentRow, DeviceRow, GatewayRow, ServiceStatusRow, SourceFactDisagreementRow,
 };
 pub use metrics::{OtelMetricPointRow, OtelMetricRow, TimeseriesMetricRow};
-pub use observability::{CapacityForecastRow, LogRow, TraceSpanRow, TraceSummaryRow};
+pub use observability::{CapacityForecastRow, LogRow, MtrTraceRow, TraceSpanRow, TraceSummaryRow};
 pub use system_metrics::{CpuMetricRow, DiskMetricRow, MemoryMetricRow, ProcessMetricRow};

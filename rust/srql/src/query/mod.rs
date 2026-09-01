@@ -34,6 +34,7 @@ mod graph_cypher;
 mod interfaces;
 mod logs;
 mod memory_metrics;
+mod mtr_traces;
 mod otel_metric_points;
 mod otel_metrics;
 mod process_metrics;

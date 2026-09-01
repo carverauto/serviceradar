@@ -31,6 +31,21 @@ defmodule ServiceRadarWebNG.McpRunnerUnitTest do
     end
   end
 
+  test "execute_srql translates the catalog-advertised mtr_traces entity" do
+    context = %{
+      context: %{scope: %{permissions: MapSet.new(["observability.traces.view"])}}
+    }
+
+    input = %{
+      arguments: %{
+        query: "in:mtr_traces time:last_1h sort:time:desc limit:1"
+      }
+    }
+
+    assert {:ok, %{"pagination" => %{"limit" => 1}}} =
+             Runner.execute_srql(input, context)
+  end
+
   defp restore_srql_module(nil), do: Application.delete_env(:serviceradar_web_ng, :srql_module)
 
   defp restore_srql_module(module), do: Application.put_env(:serviceradar_web_ng, :srql_module, module)
