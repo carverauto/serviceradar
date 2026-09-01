@@ -140,29 +140,149 @@ table, ASCII-only docs.
   made public so the warning cannot drift from the resolver.
 - [x] 5.4 LiveView tests for the badge and the no-credential warning.
 
-## 5b. Known gap: a plugin cannot alert on its own declared OID
+## 5b. A plugin alerting on its own declared OID
 
-- [ ] 5b.1 Decide how an `alert_rules:` entry references a metric produced by
-  the same package's `snmp_requirements:`.
+- [x] 5b.1 **Decided: a manifest-relative `snmp_oid:` reference, validated at
+  import and resolved at materialization.** An `alert_rules` entry refers to an
+  OID by the name the author wrote in the same package's `snmp_requirements`,
+  and core resolves it to the materialized name:
 
-  The catalog namespaces every materialized OID name by `plugin_id`
-  (`snmp_requirement_catalog.ex`), and that namespaced name is what reaches
-  `timeseries_metrics.metric_name` - `parseSNMPMetricName/1` only splits on
-  `::`, so it passes the name through unchanged. A manifest author writes
-  `service_port` but the metric is `clearpass-policy-manager_service_port`,
-  and the manifest has no way to spell "the namespaced form of the OID I
-  declared".
+  ```yaml
+  snmp_requirements:
+    - name: clearpass-service-health
+      oids:
+        - oid: .1.3.6.1.4.1.14823.1.6.1.1.1.1.4
+          name: service_port          # declared name, unqualified
+          data_type: gauge
+          mode: walk
 
-  So a rule can only match by hardcoding the post-namespacing string, which
-  duplicates the catalog's naming rule in every manifest and breaks silently if
-  it ever changes. Surfaced by fjb-network-monitor#32's `service-stopped` rule,
-  which watches `clearpass.service.up` - a metric the REST plugin declares but
-  can never emit, because its only source endpoint is 404 on every ClearPass in
-  the estate (fjb-network-monitor#36).
+  alert_rules:
+    - name: service-port-unreachable
+      signal: metric
+      match:
+        metric_name:
+          snmp_oid: service_port      # -> clearpass-policy-manager_service_port
+        condition:
+          comparison: lt              # NOT `op:` - see 5b.3
+          threshold: 1
+  ```
 
-  Options, none chosen: hardcode the namespaced name; add a manifest-relative
-  reference core resolves at materialization; or stop namespacing and handle
-  OID-name collisions another way.
+  A plain string in `match.metric_name` stays legal and passes through
+  untouched: a rule may legitimately match a metric this package does not
+  declare (a core builtin such as `ifInOctets`, hardcoded in
+  `god_view_stream.ex:63` and `interface_data.ex:609-620`). Nothing written
+  before this change breaks, and no data or DB migration is needed.
+
+  **Why not hardcode the namespaced name (option A).** The materialized name is
+  not a pure function of the entry in front of the author. `oid_namespace/1`
+  slugs `plugin_id` and caps it at 32 chars (`snmp_requirement_catalog.ex:256-265`,
+  `@max_oid_namespace_length` :54); `namespaced_oid_name/2` truncates the joined
+  string to 64 (:267-274, `@max_oid_name_length` :50); and `disambiguate/2`
+  appends 8 hex chars of `sha256(oid)` when truncation collides (:279-287), which
+  the author would have to simulate across sibling OIDs.
+  `clearpass-policy-manager_service_port` happens to be hand-derivable; a longer
+  plugin id or OID name is not. And a wrong literal fails *silently*: the only
+  check on `match` is `is_map(match) and map_size(match) > 0`
+  (`manifest.ex:1153-1160`), and `AlertRuleCatalog` copies it through verbatim
+  (`alert_rule_catalog.ex:103`).
+
+  **Why not stop namespacing (option C).** Namespacing is currently the only
+  thing standing between a duplicate OID name and `errOIDDuplicate`
+  (`go/pkg/agent/snmp/config.go:199`) - task 3.3's compiler-side name-level
+  backstop is marked done but is **absent**: `compile_oids/1`
+  (`snmp_compiler.ex:578-583`) has no name-level `uniq_by`, and the compiler's
+  only two `uniq_by` calls are by `uid` (:315) and by OID string (:363).
+  Un-namespaced names would also collide with metric names core hardcodes for
+  its own panels, and `metric_name` is both SRQL's `default_filter_field` and
+  `default_series_field` (`srql/catalog.ex:1410-1432`) and a component of
+  `series_key` (`timeseries_series_key.ex:45-55`), which participates in the row
+  identity `[:timestamp, :gateway_id, :series_key]` (`timeseries_metric.ex:159-160`).
+  C also would not fix 5b.1: the manifest would still hardcode a literal.
+
+  **Why resolve at materialization, not at import.** `PluginPackage.alert_rules`
+  is stored once and never rewritten, whereas `SNMPOIDTemplate.oids` *is*
+  rewritten on every re-sync (`@template_definition_fields` includes `:oids`).
+  Freezing a resolved name at import would let a future change to the naming rule
+  move the metric while leaving the frozen rule behind - reintroducing the exact
+  silent breakage this task names.
+
+  **Ordering is a non-issue.** Alert rules materialize *before* SNMP requirements
+  (`packages.ex:115-118`), so a DB lookup of the created template cannot work -
+  but a pure call to the naming module needs no row to exist.
+
+### 5b implementation
+
+- [ ] 5b.2 Extract the naming rule into `ServiceRadar.Plugins.SNMPOIDNaming`:
+  `@max_oid_name_length`, `@max_oid_namespace_length`, `namespaced_oids/2`,
+  `oid_namespace/1`, `namespaced_oid_name/2`, `disambiguate/2`, `slug/1`, and
+  add `materialized_oid_names/1 :: %{declared_name => materialized_name}`.
+  `materialized_oid_names/1` MUST derive its values by calling
+  `namespaced_oids/2` - the same function that writes `SNMPOIDTemplate.oids`
+  (`snmp_requirement_catalog.ex:125`) - and zipping, never by re-deriving the
+  string, so it cannot drift through the truncation and disambiguation paths.
+  **Copy, do not move, `normalize_map/1` and `map_get/2`** (or use the existing
+  `MapUtils`): `SNMPRequirementCatalog` uses both outside the naming block, and a
+  literal move breaks its compilation. Point the catalog at the new module.
+  Leave `qualified_name/2` (:222) alone - it builds the template/profile *row*
+  name and protects a different constraint.
+
+- [ ] 5b.3 **Whitelist the keys inside `match`, not just `metric_name`.**
+  `MetricCondition.metric_comparison/1` reads
+  `condition["comparison"] || condition[:comparison] || "gt"`
+  (`observability/stateful_alert_engine/metric_condition.ex:113-114`) and
+  **nothing anywhere reads `"op"`** - verified. So a rule written
+  `condition: {op: lt, ...}` silently evaluates *greater-than*. That is the same
+  bug class 5b.1 exists to kill, one key over, so gating `metric_name` alone is
+  not enough. Reject any key inside `match` outside the matcher's vocabulary,
+  and any key inside `condition` outside `comparison`/`threshold`.
+
+- [ ] 5b.4 **Enforce uniqueness on the MATERIALIZED name, manifest-wide and
+  case-folded** - not on the declared name. `namespaced_oids/2` builds its `seen`
+  MapSet fresh per call and is called once per requirement, so `disambiguate/2`
+  only catches truncation collisions *within* one requirement. Two requirements
+  can materialize two distinct declared names onto one 64-char name with nothing
+  detecting it, which makes a bare reference ambiguous and would let
+  `materialized_oid_names/1`'s `Map.new` silently keep only the last pair.
+  Compute `materialized_oid_names/1` over the whole manifest in
+  `validate_snmp_requirements` and error on any duplicate value.
+
+- [ ] 5b.5 Resolve in `AlertRuleCatalog.sync_rule/3` via `resolve_match/2`.
+  Walk the **whole** `match` map, not just `match["metric_name"]`, and return
+  `{:error, {:misplaced_snmp_oid_reference, path}}` for any `snmp_oid` map found
+  outside the two legal positions (the value of `match.metric_name`, or an
+  element of a list there). Accept both string and atom keys - `normalize_rule/1`
+  stringifies only top-level rule keys, so inner keys stay as YAML parsed them.
+  Trim declared names and the reference value identically so the validator's key
+  space and the resolver's are provably the same.
+
+- [ ] 5b.6 **Resolve before the status change.** Approve is non-transactional and
+  one-shot, so a new error class inside `sync_alert_rules` would leave a package
+  permanently approved with partial materialization and no retry. Run a dry
+  `resolve_match/2` pass over `package.alert_rules` as a precondition in
+  `approve/3`, alongside `enforce_verification_policy/1` (`packages.ex:105`).
+
+- [ ] 5b.7 Add the import-time validation: `validate_snmp_requirements` must run
+  before `validate_alert_rules` in `from_map/1` so the declared names are in
+  scope, mirroring the existing
+  `IntegrationDescriptor.validate(fetch(map, :integrations), producer_schedules)`
+  precedent (`manifest.ex:421`). Note that the create path prefers caller-supplied
+  `attrs[:alert_rules]` over `manifest_struct.alert_rules`, so the resolver's
+  error path is load-bearing rather than merely legacy-facing.
+
+- [ ] 5b.8 **Required, not optional:** make `AlertRuleCatalog`'s row identity
+  version-stable. `qualified_name/2` (:147) builds `plugin:#{package.name}:#{name}`
+  from the *editable display name*, and `find_existing/3` filters on
+  `plugin_package_id`. `PluginPackage` is unique on `(plugin_id, version)`, so a
+  version bump is a new row with a new id: the update branch misses and the create
+  branch collides. Key on `plugin_id` and look up by name alone, as
+  `SNMPRequirementCatalog` already does. Add `disable_package_rules` so deleting a
+  package does not orphan a row holding the unique name.
+
+- [ ] 5b.9 Tests: a resolvable reference validates and materializes to the
+  namespaced string; unknown name, misplaced reference, non-string value and
+  `signal: log` each produce their specific error; a plain literal still passes
+  through unchanged; two requirements whose names truncate to one materialized
+  name are rejected; `snmp_requirement_catalog_test.exs` must pass unchanged.
 
 ## 6. Customer-repo follow-up (does not land in this repo)
 

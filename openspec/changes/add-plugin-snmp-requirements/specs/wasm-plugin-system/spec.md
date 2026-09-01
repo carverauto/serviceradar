@@ -111,10 +111,20 @@ The catalog SHALL prefix every materialized OID `name` with the package
 identifier before writing it.
 
 The agent rejects duplicate OID *names* within a target
-(`config.go:195-199`), while `load_template_oids/2` dedupes by OID *string*
-only. Two templates that name the same metric differently-addressed - a plugin
-shipping `ifInOctets` next to an operator template that already has one - would
-otherwise produce a name collision that rejects the whole agent config.
+(`errOIDDuplicate`, `go/pkg/agent/snmp/config.go:199`), while
+`load_template_oids/2` dedupes by OID *string* only. Two templates that name the
+same metric differently-addressed - a plugin shipping `ifInOctets` next to an
+operator template that already has one - would otherwise collide.
+
+The blast radius is one target, not the agent: `ValidateForAgent` returns
+`([]TargetRejection, error)` and drops the offending target while keeping the
+rest of the config (`config.go:333-380`). An earlier version of this note said
+the collision "rejects the whole agent config"; that was true before
+`ValidateForAgent` was changed to drop targets individually, and is no longer
+the justification. Namespacing still matters, because a dropped target is a
+silently missing metric, and because it is currently the *only* name-level
+defence - the compiler-side backstop in `compile_oids/1`
+(`snmp_compiler.ex:578-583`) does not exist.
 
 #### Scenario: A plugin template cannot collide with an operator template
 
@@ -122,3 +132,27 @@ otherwise produce a name collision that rejects the whole agent config.
   selected on one profile and both declare an OID named `ifInOctets`
 - **THEN** the materialized template's OID SHALL carry a package-qualified name
 - **AND** the compiled agent config SHALL be accepted
+
+#### Scenario: An alert rule references an OID the same package declares
+
+- **WHEN** a package's `alert_rules` entry sets `match.metric_name` to
+  `{snmp_oid: <name>}` naming an OID declared in the same package's
+  `snmp_requirements`
+- **THEN** manifest validation SHALL accept it, and materialization SHALL store
+  the namespaced name the SNMP catalog writes for that OID
+- **AND** the stored name SHALL be derived by calling the same naming function
+  that writes `SNMPOIDTemplate.oids`, never by re-deriving the string
+
+#### Scenario: An unresolvable or misplaced reference is refused at import
+
+- **WHEN** the referenced OID name is not declared by that package, or an
+  `snmp_oid` reference appears anywhere in `match` other than `metric_name`
+- **THEN** manifest validation SHALL reject the package naming the offending path
+- **AND** no rule matching every metric record SHALL ever be materialized
+
+#### Scenario: Two declared names that truncate to one are refused
+
+- **WHEN** two OIDs in different `snmp_requirements` entries have declared names
+  that materialize to the same 64-character name
+- **THEN** manifest validation SHALL reject the package
+- **AND** a bare `snmp_oid` reference SHALL never resolve ambiguously
