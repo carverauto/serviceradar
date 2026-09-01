@@ -49,13 +49,16 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantDbTest do
       Repo.query!(
         """
         INSERT INTO platform.credential_broker_grants
-          (secret_ref, grant_type, consumer_kind, purpose, expires_at)
+          (secret_id, secret_ref, grant_type, consumer_kind, purpose, expires_at)
         VALUES
-          ($1, $2, $3, $4, now() + interval '5 minutes')
+          (($1::text)::uuid, $2, $3, $4, $5, now() + interval '5 minutes')
         RETURNING request_body_policy
         """,
         [
-          "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+          # A ref naming a secret has to agree with secret_id, so both come from
+          # the same row rather than a literal that names nothing.
+          secret.id,
+          "credentialref:network-credential-secret:#{secret.id}",
           "awx_oauth2_token",
           "test",
           "request-body-policy-default-test"
