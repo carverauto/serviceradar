@@ -21,6 +21,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightPersistenceDbTes
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @moduletag :integration
 
@@ -343,8 +344,11 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightPersistenceDbTes
         controller.name,
         controller.base_url,
         controller.agent_id,
-        controller.sync_credential_secret_id,
-        controller.execution_credential_secret_id
+        # The fixture's secret ids are literals with no backing row, which the
+        # foreign key on ansible_controllers now rejects. Only the reference
+        # matters here -- nothing asserts on these values.
+        CredentialIntegrationFixtures.secret_id!(),
+        CredentialIntegrationFixtures.secret_id!()
       ]
     )
   end

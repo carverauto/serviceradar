@@ -5,6 +5,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantDbTest do
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.RequestBodyPolicy
   alias ServiceRadar.Repo
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @moduletag :integration
 
@@ -18,10 +19,15 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantDbTest do
     body = ~s({"limit":"node-1"})
     policy = RequestBodyPolicy.bound_bytes(body, max_bytes: 256 * 1024)
 
+    # Supply secret_id and let issue_attrs/1 derive the ref, which is what every
+    # production caller does. Passing a literal ref left secret_id nil, and the
+    # database now rejects that pair: a ref naming a secret must agree with the
+    # secret it names.
+    secret = CredentialIntegrationFixtures.secret!()
+
     attrs =
       CredentialBrokerGrant.issue_attrs(%{
-        secret_ref:
-          "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc",
+        secret_id: secret.id,
         grant_type: "awx_oauth2_token",
         consumer_kind: :test,
         consumer_id: "request-body-policy-db-test",
