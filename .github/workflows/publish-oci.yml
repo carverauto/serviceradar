@@ -10,6 +10,18 @@ on:
   # per-commit images.
   workflow_dispatch:
     inputs:
+      publish_scope:
+        description: "Images to publish"
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - web-stack-commit-only
+      expected_commit:
+        description: "Required exact commit SHA for web-stack-commit-only"
+        required: false
+        type: string
       release_tag:
         description: "Optional extra tag to apply to all pushed images (e.g. v1.2.3)"
         required: false
@@ -68,6 +80,28 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate selective publish commit
+        if: ${{ github.event.inputs.publish_scope == 'web-stack-commit-only' }}
+        env:
+          EXPECTED_COMMIT: ${{ github.event.inputs.expected_commit }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${EXPECTED_COMMIT}" ]]; then
+            echo "expected_commit is required for web-stack-commit-only" >&2
+            exit 1
+          fi
+          actual_commit="$(git rev-parse HEAD)"
+          if [[ "${EXPECTED_COMMIT}" != "${actual_commit}" ]]; then
+            printf 'expected_commit must exactly equal checkout HEAD\n' >&2
+            printf 'expected=%s checkout=%s event=%s\n' "${EXPECTED_COMMIT}" "${actual_commit}" "${GITHUB_SHA}" >&2
+            exit 1
+          fi
+          if [[ "${EXPECTED_COMMIT}" != "${GITHUB_SHA}" ]]; then
+            printf 'expected_commit must exactly equal GITHUB_SHA\n' >&2
+            printf 'expected=%s checkout=%s event=%s\n' "${EXPECTED_COMMIT}" "${actual_commit}" "${GITHUB_SHA}" >&2
+            exit 1
+          fi
+
       - name: Cache Bazel artifacts
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
@@ -97,11 +131,13 @@ jobs:
         run: ./scripts/install-bazelisk.sh
 
       - name: Setup Go
+        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # actions/setup-go@v7.0.0
         with:
           go-version-file: go.mod
 
       - name: Install Cosign
+        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
         run: ./scripts/install-cosign.sh
 
       - name: Install ORAS
@@ -164,6 +200,7 @@ jobs:
           ./buildbuddy_setup_docker_auth.sh
 
       - name: Derive managed agent release public key
+        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
         env:
           SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
         run: |
@@ -186,6 +223,7 @@ jobs:
       # a bash `\` continuation into a `#` comment drops the rest of the command
       # and leaves `--config=remote` as a new executable.
       - name: Build (no publish)
+        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
         run: |
           bazel build \
             -c opt \
@@ -193,9 +231,11 @@ jobs:
             //:images
 
       - name: Verify managed agent release key stamp
+        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
         run: ./scripts/verify-agent-release-key-stamp.sh -c opt --config=remote
 
       - name: Publish images
+        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
         env:
           EXTRA_TAG: ${{ steps.release.outputs.tag }}
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
@@ -226,7 +266,39 @@ jobs:
           ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
           unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 
+      - name: Publish web stack commit images
+        if: ${{ github.event.inputs.publish_scope == 'web-stack-commit-only' }}
+        run: |
+          set -euo pipefail
+          bazel run -c opt --config=remote --stamp //docker/images:core_elx_image_amd64_push_commit_only
+          bazel run -c opt --config=remote --stamp //docker/images:web_ng_image_amd64_push_commit_only
+
+      - name: Verify web stack commit images
+        if: ${{ github.event.inputs.publish_scope == 'web-stack-commit-only' }}
+        run: |
+          set -euo pipefail
+          tag="sha-${GITHUB_SHA}"
+          core_ref="${OCI_REGISTRY}/${OCI_PROJECT}/serviceradar-core-elx:${tag}"
+          web_ref="${OCI_REGISTRY}/${OCI_PROJECT}/serviceradar-web-ng:${tag}"
+
+          resolve_digest() {
+            local ref="$1"
+            local descriptor digest
+            descriptor="$(oras manifest fetch --descriptor "${ref}")"
+            digest="$(jq -er '.digest | select(test("^sha256:[0-9a-f]{64}$"))' <<<"${descriptor}")"
+            printf '%s\n' "${digest}"
+          }
+
+          core_digest="$(resolve_digest "${core_ref}")"
+          web_digest="$(resolve_digest "${web_ref}")"
+          {
+            printf '### Web stack commit images\n\n'
+            printf -- '- %s -> %s\n' "${core_ref}" "${core_digest}"
+            printf -- '- %s -> %s\n' "${web_ref}" "${web_digest}"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Summarize pushed tags
+        if: ${{ github.event.inputs.publish_scope != 'web-stack-commit-only' }}
         env:
           EXTRA_TAG: ${{ steps.release.outputs.tag }}
         run: |
