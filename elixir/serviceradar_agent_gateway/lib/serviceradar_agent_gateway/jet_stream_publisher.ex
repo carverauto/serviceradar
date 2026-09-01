@@ -30,8 +30,9 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   is entirely valid under the frozen ABI bounds. Proof requires a LOCAL preflight against those
   bounds, which task 3.4 supplies.
 
-  So today `:poison` has no producer here, deliberately. Every refusal leaves the source sequence
-  UNRESOLVED. Sending an unrecognised or ambiguous refusal to the DLQ would discard a record that
+  So today `:poison` has no producer here, deliberately. Every refusal is classified RETRYABLE,
+  which is what obliges a caller to leave the source sequence unresolved -- this module holds no
+  such state. Sending an unrecognised or ambiguous refusal to the DLQ would discard a record that
   was never proven bad and resolve a sequence that was never accepted.
 
   ## No DLQ publication here, deliberately
@@ -189,7 +190,8 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
         {:ok, reservation}
 
       {:error, exhausted} when exhausted in [:frame_credits_exhausted, :byte_credits_exhausted] ->
-        # Withhold progress on publisher saturation rather than publishing past the grant.
+        # Refuse rather than publish past the grant. The RETRYABLE class is what obliges a
+        # caller to withhold progress; nothing is withheld here.
         {:error, :capacity}
 
       # A retry offered while the previous attempt is STILL on the wire. Refused rather than run
@@ -204,7 +206,8 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
         {:error, :systemic}
 
       # The pool did not answer in time. `PublisherPool.admit/4` has already revoked the admission,
-      # so no credit is stranded; nothing was published, so progress is withheld and retried.
+      # so no credit is stranded. Nothing was published, and the retryable class leaves the
+      # decision about progress to the caller.
       {:error, :pool_timeout} ->
         {:error, :systemic}
 
@@ -448,11 +451,14 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   end
 
   @doc """
-  Whether an error class WITHHOLDS SOURCE PROGRESS (true) or is terminal and DLQ-bound (false).
+  Whether an error class OBLIGES A CALLER TO WITHHOLD SOURCE PROGRESS (true) or is terminal and
+  DLQ-bound (false). The obligation is the caller's; this module classifies, it does not advance
+  or withhold anything.
 
   "Retryable" names the disposition, not a prediction that a retry succeeds. `:misrouted` is the
   case that makes the distinction matter: an ack from an unexpected stream is NOT authoritative
-  acceptance, so the source sequence must stay unresolved while publication/readiness is broken.
+  acceptance, so a caller must leave the source sequence unresolved while publication or
+  readiness is broken.
   Classifying it terminal would send a record that may already be durable elsewhere to the DLQ,
   and resolve a sequence that was never authoritatively accepted. It will not clear on retry --
   it clears when the route map or the broker's stream binding is repaired.
@@ -464,13 +470,14 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   #
   # THE DEFAULT IS WITHHOLD, NOT DLQ. A refusal only becomes terminal on PROOF that the record can
   # never be accepted; anything else -- unknown code, unrecognised description, a broker we do not
-  # understand -- leaves the source sequence unresolved. The previous default was `:permanent`,
+  # understand -- is classified retryable, which obliges a caller to leave the source sequence
+  # unresolved. The previous default was `:permanent`,
   # which sent every unrecognised broker answer to the DLQ.
   #
   # `err_code` is preferred over the description because descriptions are prose and change. 10060
   # (JSStreamNotMatchErr) is the REAL expected-stream refusal: NATS answers a mismatched
   # `Nats-Expected-Stream` with this error, not with a successful ack naming another stream. It is
-  # a routing/readiness fault, so it withholds rather than DLQs.
+  # a routing/readiness fault, so it is classified retryable rather than DLQ-bound.
   defp classify_ack_error(%{} = err) do
     # `to_string/1` raises Protocol.UndefinedError on a map or list, and the error object is
     # whatever the broker sent. A malformed description must classify, not crash the publish.
@@ -499,7 +506,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     if capacity?(code, desc), do: :capacity, else: classify_refusal(desc)
   end
 
-  # "The stream cannot take it right now" -- backpressure, always withheld.
+  # "The stream cannot take it right now" -- backpressure, always retryable.
   defp capacity?(code, desc) do
     code == 503 or
       String.contains?(desc, "no responders") or
