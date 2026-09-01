@@ -198,8 +198,8 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles d
         {:error, {:missing_credential_field, field}} ->
           {:error, "#{field} is required to save this credential for reuse."}
 
-        {:error, reason} ->
-          {:error, "Could not save the credential for reuse: #{inspect(reason)}"}
+        {:error, _reason} ->
+          {:error, "Could not save the credential for reuse. Check the fields and try again."}
       end
     end
   end

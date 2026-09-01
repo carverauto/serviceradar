@@ -338,6 +338,30 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    mtr_traces (time, id) {
+        time -> Timestamptz,
+        id -> Uuid,
+        agent_id -> Text,
+        gateway_id -> Nullable<Text>,
+        check_id -> Nullable<Text>,
+        check_name -> Nullable<Text>,
+        device_id -> Nullable<Text>,
+        target -> Text,
+        target_ip -> Text,
+        target_reached -> Bool,
+        total_hops -> Int4,
+        protocol -> Text,
+        ip_version -> Int4,
+        packet_size -> Nullable<Int4>,
+        partition -> Nullable<Text>,
+        error -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     ocsf_events (time, id) {
         time -> Timestamptz,
         id -> Uuid,

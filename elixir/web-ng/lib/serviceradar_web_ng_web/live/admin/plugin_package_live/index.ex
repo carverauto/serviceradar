@@ -79,6 +79,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:current_path, nil)
         |> assign(:plugins_base_path, "/admin/plugins")
         |> assign(:packages, packages)
+        |> assign(:catalog_packages, packages)
         |> assign(:package_page, 1)
         |> assign(:package_page_size, @package_page_size)
         |> assign(:filter_status, nil)
@@ -314,11 +315,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   def handle_event("refresh", _params, socket) do
     scope = socket.assigns.current_scope
-    packages = list_packages(current_filters(socket), scope)
 
     {:noreply,
      socket
-     |> assign(:packages, packages)
+     |> assign_package_views(scope)
      |> assign(:agents, list_agents(scope))
      |> assign_capacity(scope)
      |> assign(:verification_policy, plugin_verification_policy())
@@ -520,7 +520,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     catalog_row_count =
       socket.assigns.first_party_catalog
       |> combined_catalog_rows(
-        socket.assigns.packages,
+        socket.assigns.catalog_packages,
         socket.assigns.first_party_release_tag
       )
       |> length()
@@ -601,7 +601,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply,
          socket
          |> put_flash(:info, "Imported first-party plugin #{package.name} #{package.version}")
-         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign_package_views(scope)
          |> load_first_party_catalog()
          |> push_navigate(to: plugins_show_path(socket, package.id))}
 
@@ -640,7 +640,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
              {:ok, package} <- Packages.create(attrs, scope: scope) do
           {:noreply,
            socket
-           |> assign(:packages, list_packages(current_filters(socket), scope))
+           |> assign_package_views(scope)
            |> assign(:show_create_modal, false)
            |> assign(:create_form, default_create_form())
            |> assign(:create_errors, [])
@@ -734,7 +734,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
              {:ok, package} <- Packages.create(attrs, scope: scope) do
           {:noreply,
            socket
-           |> assign(:packages, list_packages(current_filters(socket), scope))
+           |> assign_package_views(scope)
            |> assign(:show_create_modal, false)
            |> assign(:create_form, default_create_form())
            |> assign(:create_errors, [])
@@ -827,7 +827,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            ) do
       {:noreply,
        socket
-       |> assign(:packages, list_packages(current_filters(socket), scope))
+       |> assign_package_views(scope)
        |> assign(:selected_package, package)
        |> assign(:review_form, build_review_form(package))
        |> put_flash(:info, "Package approved")}
@@ -872,7 +872,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:ok, package} ->
         {:noreply,
          socket
-         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign_package_views(scope)
          |> assign(:selected_package, package)
          |> assign(:review_form, build_review_form(package))
          |> put_flash(:info, "Package denied")}
@@ -894,7 +894,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:ok, package} ->
         {:noreply,
          socket
-         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign_package_views(scope)
          |> assign(:selected_package, package)
          |> assign(:review_form, build_review_form(package))
          |> put_flash(:info, "Package revoked")}
@@ -1046,7 +1046,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:ok, package} ->
         {:noreply,
          socket
-         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign_package_views(scope)
          |> assign(:selected_package, package)
          |> assign(:review_form, build_review_form(package))
          |> put_flash(:info, "Package moved back to staged")}
@@ -1068,7 +1068,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       :ok ->
         {:noreply,
          socket
-         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign_package_views(scope)
+         |> assign_first_party_catalog_view(
+           socket.assigns.first_party_catalog_all,
+           socket.assigns.first_party_release_tag
+         )
          |> assign(:show_details_modal, false)
          |> assign(:selected_package, nil)
          |> assign(:assignments, [])
@@ -1318,7 +1322,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply,
          socket
          |> assign_package_urls(updated, scope)
-         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign_package_views(scope)
          |> assign(:upload_errors, [])
          |> put_flash(:info, "Wasm blob uploaded")}
 
@@ -1347,10 +1351,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply,
          socket
          |> put_flash(import_summary_flash_kind(summary), import_summary_message(summary, release_label))
-         |> assign(
-           :packages,
-           list_packages(current_filters(socket), socket.assigns.current_scope)
-         )
+         |> assign_package_views(socket.assigns.current_scope)
          |> load_first_party_catalog()}
 
       {:error, reason} ->
@@ -1404,15 +1405,127 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           </div>
         </div>
 
+        <.ui_panel id="imported-plugin-packages">
+          <:header>
+            <div>
+              <div class="text-sm font-semibold">Imported packages</div>
+              <p class="text-xs text-sr-muted">
+                {length(@packages)} package(s) available in this ServiceRadar instance.
+              </p>
+            </div>
+            <form
+              id="filter-imported-plugin-packages"
+              phx-change="filter"
+              class="flex flex-wrap items-center justify-end gap-2"
+            >
+              <label for="imported-plugin-status-filter" class="sr-only">Package status</label>
+              <select
+                id="imported-plugin-status-filter"
+                name="status"
+                class={ui_field_class(size: "sm")}
+              >
+                <option value="">All statuses</option>
+                <option value="staged" selected={@filter_status == "staged"}>Staged</option>
+                <option value="approved" selected={@filter_status == "approved"}>Approved</option>
+                <option value="denied" selected={@filter_status == "denied"}>Denied</option>
+                <option value="revoked" selected={@filter_status == "revoked"}>Revoked</option>
+              </select>
+              <label for="imported-plugin-source-filter" class="sr-only">Package source</label>
+              <select
+                id="imported-plugin-source-filter"
+                name="source_type"
+                class={ui_field_class(size: "sm")}
+              >
+                <option value="">All sources</option>
+                <option value="upload" selected={@filter_source_type == "upload"}>Upload</option>
+                <option value="github" selected={@filter_source_type == "github"}>GitHub</option>
+                <option value="first_party" selected={@filter_source_type == "first_party"}>
+                  First-party
+                </option>
+              </select>
+            </form>
+          </:header>
+
+          <%= if @packages == [] do %>
+            <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
+              <div class="text-sm font-semibold text-sr-ink">No packages found</div>
+              <p class="mt-1 text-xs text-sr-muted">
+                Stage a plugin package to begin the review workflow.
+              </p>
+            </div>
+          <% else %>
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
+                <thead>
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
+                    <th>Plugin</th>
+                    <th>Version</th>
+                    <th>Status</th>
+                    <th>Source</th>
+                    <th>Updated</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <%= for package <- paginated_items(@packages, @package_page, @package_page_size) do %>
+                    <tr
+                      id={"imported-plugin-package-#{package.id}"}
+                      class="hover:bg-sr-subtle/30"
+                    >
+                      <td>
+                        <div class="font-medium">{package.name}</div>
+                        <div class="text-xs text-sr-muted font-mono">{package.plugin_id}</div>
+                      </td>
+                      <td class="text-xs">{package.version}</td>
+                      <td>
+                        <.status_badge status={package.status} />
+                      </td>
+                      <td>
+                        <.ui_badge variant="ghost" size="xs">
+                          {package.source_type}
+                        </.ui_badge>
+                      </td>
+                      <td class="text-xs text-sr-muted">
+                        <.user_time
+                          id={"admin-plugin-package-#{package.id}-updated-at"}
+                          value={package.updated_at || package.inserted_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                        />
+                      </td>
+                      <td>
+                        <.ui_button
+                          variant="ghost"
+                          size="xs"
+                          navigate={plugins_show_path(@plugins_base_path, package.id)}
+                        >
+                          View
+                        </.ui_button>
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+              <.pagination_controls
+                id_prefix="plugin-packages"
+                event="package_page"
+                page={@package_page}
+                total_items={length(@packages)}
+                page_size={@package_page_size}
+              />
+            </div>
+          <% end %>
+        </.ui_panel>
+
         <% catalog_rows =
           combined_catalog_rows(
             @first_party_catalog,
-            @packages,
+            @catalog_packages,
             @first_party_release_tag
           ) %>
         <% import_state = catalog_import_state(catalog_rows) %>
 
-        <.ui_panel>
+        <.ui_panel id="plugin-catalog">
           <:header>
             <div>
               <div class="text-sm font-semibold">Plugin catalog</div>
@@ -1421,7 +1534,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   Signed Wasm plugins discovered from {@selected_repository.name} ({@selected_repository.repo_url}), plus imported packages.
                 </span>
                 <span :if={is_nil(@selected_repository)}>
-                  No enabled plugin repository. Imported packages are still listed below.
+                  No enabled plugin repository. Imported packages remain available in their own panel.
                 </span>
               </p>
             </div>
@@ -3024,6 +3137,22 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     Packages.list(filters, scope: scope)
   end
 
+  defp assign_package_views(socket, scope) do
+    catalog_packages = list_packages(%{}, scope)
+    filters = current_filters(socket)
+
+    packages =
+      if map_size(filters) == 0 do
+        catalog_packages
+      else
+        list_packages(filters, scope)
+      end
+
+    socket
+    |> assign(:catalog_packages, catalog_packages)
+    |> assign(:packages, packages)
+  end
+
   defp list_assignments(package_id, scope) do
     Assignments.list(%{"plugin_package_id" => package_id}, scope: scope)
   end
@@ -3206,9 +3335,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp load_first_party_catalog(%{assigns: %{selected_repository: nil}} = socket) do
     socket
-    |> assign(:first_party_catalog, [])
-    |> assign(:first_party_catalog_all, [])
-    |> assign(:first_party_catalog_page, 1)
+    |> assign_first_party_catalog_view([], socket.assigns[:first_party_release_tag])
     |> assign(:first_party_catalog_error, nil)
     |> assign(
       :first_party_catalog_status,
@@ -3248,12 +3375,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:first_party_catalog_page, 1)
         |> assign(
           :first_party_release_options,
-          combined_release_options([], socket.assigns.packages)
+          combined_release_options([], socket.assigns.catalog_packages)
         )
         |> assign(
           :first_party_release_tag,
           selected_first_party_release(
-            combined_release_options([], socket.assigns.packages),
+            combined_release_options([], socket.assigns.catalog_packages),
             socket.assigns[:first_party_release_tag]
           )
         )
@@ -3263,7 +3390,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp assign_first_party_catalog_view(socket, plugins, requested_release_tag) do
-    packages = socket.assigns[:packages] || []
+    packages = socket.assigns[:catalog_packages] || []
     release_options = combined_release_options(plugins, packages)
     selected_release_tag = selected_first_party_release(release_options, requested_release_tag)
     visible_plugins = filter_first_party_plugins(plugins, selected_release_tag)

@@ -21,6 +21,15 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
     "opaque" => :opaque
   }
 
+  @rotatable_states [:active, :rotation_due, :rotation_failed]
+  @rotation_attributes [
+    :secret_payload,
+    :username,
+    :public_fingerprint,
+    :metadata,
+    :next_rotation_due_at
+  ]
+
   @spec build(map(), String.t(), map(), map()) :: {:ok, map()} | {:error, term()}
   def build(profile, auth_method, values, common_attrs)
       when is_map(profile) and is_binary(auth_method) and is_map(values) and is_map(common_attrs) do
@@ -55,6 +64,97 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
 
   def build(_profile, _auth_method, _values, _common_attrs),
     do: {:error, :invalid_credential_descriptor}
+
+  @doc """
+  Builds a complete replacement for one descriptor-backed internal credential.
+
+  The current approved profile must match the credential's stored provider,
+  kind, and authentication method. Existing plaintext is never loaded or
+  merged; all required values must be present in `submitted_values`.
+  """
+  @spec build_rotation(map(), map(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def build_rotation(secret, profile, submitted_values, opts)
+      when is_map(secret) and is_map(profile) and is_map(submitted_values) and is_list(opts) do
+    with :ok <- validate_rotation_source(secret),
+         :ok <- validate_rotation_state(secret),
+         :ok <- validate_rotation_provider(secret, profile),
+         {:ok, auth_method} <- rotation_auth_method(secret, profile),
+         %{} = method <- find_method(profile, auth_method),
+         {:ok, method_kind} <- credential_kind(method["credential_kind"]),
+         :ok <- validate_rotation_kind(secret, method_kind),
+         {:ok, attrs} <- build(profile, auth_method, submitted_values, %{}) do
+      {:ok,
+       attrs
+       |> Map.take(@rotation_attributes)
+       |> Map.put(:next_rotation_due_at, Map.get(secret, :next_rotation_due_at))}
+    else
+      nil -> {:error, :credential_method_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def build_rotation(_secret, _profile, _submitted_values, _opts),
+    do: {:error, :invalid_credential_rotation}
+
+  defp validate_rotation_source(%{source_type: :internal_encrypted}), do: :ok
+  defp validate_rotation_source(_secret), do: {:error, :credential_rotation_not_supported}
+
+  defp validate_rotation_state(%{rotation_state: state}) when state in @rotatable_states, do: :ok
+
+  defp validate_rotation_state(_secret), do: {:error, :credential_rotation_not_allowed}
+
+  defp rotation_auth_method(%{metadata: metadata} = secret, profile) when is_map(metadata) do
+    case {
+      Map.fetch(metadata, "credential_descriptor"),
+      Map.fetch(metadata, "auth_method")
+    } do
+      {{:ok, "package_manifest.v1"}, {:ok, auth_method}}
+      when is_binary(auth_method) and auth_method != "" ->
+        {:ok, auth_method}
+
+      {:error, :error} ->
+        infer_legacy_auth_method(secret, profile)
+
+      _partial_or_stale ->
+        {:error, :credential_descriptor_unavailable}
+    end
+  end
+
+  defp rotation_auth_method(_secret, _profile), do: {:error, :credential_descriptor_unavailable}
+
+  defp infer_legacy_auth_method(%{credential_kind: stored_kind}, %{"auth_methods" => auth_methods})
+       when is_list(auth_methods) do
+    matching_methods =
+      Enum.filter(auth_methods, fn method ->
+        is_map(method) and credential_kind(method["credential_kind"]) == {:ok, stored_kind}
+      end)
+
+    case matching_methods do
+      [%{"id" => auth_method}] when is_binary(auth_method) and auth_method != "" ->
+        {:ok, auth_method}
+
+      [] ->
+        {:error, :credential_descriptor_unavailable}
+
+      [_first, _second | _rest] ->
+        {:error, :credential_auth_method_ambiguous}
+
+      _invalid_method ->
+        {:error, :credential_descriptor_unavailable}
+    end
+  end
+
+  defp infer_legacy_auth_method(_secret, _profile),
+    do: {:error, :credential_descriptor_unavailable}
+
+  defp validate_rotation_provider(%{provider: provider}, %{"provider" => provider})
+       when is_binary(provider), do: :ok
+
+  defp validate_rotation_provider(_secret, _profile), do: {:error, :credential_provider_mismatch}
+
+  defp validate_rotation_kind(%{credential_kind: credential_kind}, credential_kind), do: :ok
+
+  defp validate_rotation_kind(_secret, _method_kind), do: {:error, :credential_kind_mismatch}
 
   defp find_method(profile, auth_method) do
     Enum.find(profile["auth_methods"] || [], &(&1["id"] == auth_method))

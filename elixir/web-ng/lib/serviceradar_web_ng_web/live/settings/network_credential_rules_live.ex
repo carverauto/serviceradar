@@ -18,13 +18,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   alias ServiceRadar.Plugins.IntegrationCatalog
   alias ServiceRadar.Plugins.ProducerSchedule
   alias ServiceRadar.Plugins.SRQLInputResolver
-  alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.PluginConfigForm
+  alias ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInventoryComponents
+  alias ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialManagement
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
-  require Logger
 
   @current_path "/settings/networks/credentials"
   @tls_policies ~w(verify skip_verify)a
@@ -41,8 +41,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
        |> assign(:rules, [])
        |> assign(:secrets, [])
        |> assign(:focused_credential_id, nil)
-       |> assign(:credential_rule_usage_counts, %{})
-       |> assign(:snmp_profile_usage_counts, %{})
+       |> assign(:credential_usage_by_id, %{})
+       |> assign(:credential_modal, nil)
+       |> assign(:credential_form, nil)
+       |> assign(:credential_descriptor, nil)
+       |> assign(:credential_modal_usage, :unavailable)
+       |> assign(:credential_action_error, nil)
        |> assign(:secret_options, [])
        |> assign(:secret_names, %{})
        |> assign(:integration_profiles, %{})
@@ -231,108 +235,115 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  attr :loading?, :boolean, required: true
-  attr :secrets, :list, required: true
-  attr :focused_credential_id, :any, default: nil
-  attr :integration_profiles, :map, required: true
-  attr :credential_rule_usage_counts, :map, required: true
-  attr :snmp_profile_usage_counts, :any, required: true
+  def handle_event("edit_credential", %{"id" => id}, socket) do
+    open_credential_modal(socket, :edit, id)
+  end
 
-  def credential_inventory_table(assigns) do
-    ~H"""
-    <section id="reusable-credentials" class="space-y-2 scroll-mt-24">
-      <div>
-        <h2 class="text-base font-semibold">Reusable Credentials</h2>
-        <p class="mt-1 text-sm text-sr-muted">
-          Shared credential metadata plus SNMP profile and credential-rule usage counts.
-          Secret values are never shown.
-        </p>
-      </div>
+  def handle_event("rotate_credential", %{"id" => id}, socket) do
+    open_credential_modal(socket, :rotate, id)
+  end
 
-      <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
-        <div class="sr-ui-table-shell">
-          <table class={ui_table_class(size: "sm")}>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Provider</th>
-                <th>Type</th>
-                <th>Authentication</th>
-                <th>Public identity</th>
-                <th>Storage</th>
-                <th>Rotation</th>
-                <th>SNMP profiles / Rules</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr :if={@loading?}>
-                <td colspan="8" class="py-8 text-center text-sm text-sr-muted">
-                  Loading reusable credentials.
-                </td>
-              </tr>
-              <tr :if={!@loading? and @secrets == []}>
-                <td colspan="8" class="py-8 text-center text-sm text-sr-muted">
-                  No reusable credentials found.
-                </td>
-              </tr>
-              <%= for secret <- @secrets do %>
-                <tr
-                  id={credential_dom_id(secret.id)}
-                  phx-hook="CredentialDeepLinkFocus"
-                  data-focused={
-                    if credential_focused?(secret.id, @focused_credential_id),
-                      do: "true",
-                      else: "false"
-                  }
-                  aria-current={
-                    if credential_focused?(secret.id, @focused_credential_id),
-                      do: "true",
-                      else: nil
-                  }
-                  tabindex="-1"
-                  class={[
-                    "scroll-mt-24",
-                    credential_focused?(secret.id, @focused_credential_id) &&
-                      "bg-sr-brand/10 ring-1 ring-inset ring-sr-brand/30"
-                  ]}
-                >
-                  <td>
-                    <div class="font-medium">{secret.name}</div>
-                    <div
-                      :if={secret.description not in [nil, ""]}
-                      class="mt-0.5 max-w-72 truncate text-xs text-sr-muted"
-                    >
-                      {secret.description}
-                    </div>
-                  </td>
-                  <td>{credential_provider_label(secret, @integration_profiles)}</td>
-                  <td>{credential_kind_label(secret.credential_kind)}</td>
-                  <td>{credential_auth_method_label(secret, @integration_profiles)}</td>
-                  <td>{credential_public_identity(secret)}</td>
-                  <td>{credential_source_label(secret.source_type)}</td>
-                  <td>
-                    <span class={[
-                      "badge badge-sm",
-                      credential_rotation_badge_class(secret.rotation_state)
-                    ]}>
-                      {credential_rotation_label(secret.rotation_state)}
-                    </span>
-                  </td>
-                  <td class="whitespace-nowrap">
-                    {credential_usage_label(
-                      secret,
-                      @credential_rule_usage_counts,
-                      @snmp_profile_usage_counts
-                    )}
-                  </td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
-    """
+  def handle_event("delete_credential", %{"id" => id}, socket) do
+    open_credential_modal(socket, :delete, id)
+  end
+
+  def handle_event("close_credential_modal", _params, socket) do
+    {:noreply, clear_credential_modal(socket)}
+  end
+
+  def handle_event("save_credential_details", %{"credential_details" => params}, socket) do
+    id = Map.get(params, "id", "")
+
+    case CredentialManagement.edit_details(socket.assigns.current_scope, id, params) do
+      {:ok, _updated} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:info, "Credential details saved")
+         |> reload_page_data()}
+
+      {:error, :not_authorized} ->
+        {:noreply, credential_action_unauthorized(socket)}
+
+      {:error, :credential_not_found} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:error, "Credential not found")
+         |> reload_page_data()}
+
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> assign(
+           :credential_form,
+           credential_details_form(%{
+             "id" => id,
+             "name" => Map.get(params, "name", ""),
+             "description" => Map.get(params, "description", "")
+           })
+         )
+         |> assign(:credential_action_error, "Credential details could not be saved")}
+    end
+  end
+
+  def handle_event("save_credential_rotation", %{"credential_rotation" => params}, socket) do
+    id = if is_binary(params["id"]), do: params["id"], else: ""
+    save_credential_rotation(socket, id, Map.get(params, "fields", %{}))
+  end
+
+  def handle_event("confirm_delete_credential", %{"credential_delete" => params}, socket) do
+    id = Map.get(params, "id", "")
+    confirmation_id = Map.get(params, "confirmation_id", "")
+
+    case CredentialManagement.delete(
+           socket.assigns.current_scope,
+           id,
+           confirmation_id
+         ) do
+      {:ok, _deleted} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:info, "Credential permanently deleted")
+         |> push_patch(to: ~p"/settings/networks/credentials")}
+
+      {:error, :not_authorized} ->
+        {:noreply, credential_action_unauthorized(socket)}
+
+      {:error, :credential_not_found} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:error, "Credential not found")
+         |> reload_page_data()}
+
+      {:error, :credential_confirmation_mismatch} ->
+        {:noreply,
+         socket
+         |> assign(:credential_form, credential_delete_form(id))
+         |> assign(:credential_action_error, "Type the exact credential ID to confirm deletion")}
+
+      {:error, :credential_in_use, context} ->
+        {:noreply, show_delete_block(socket, context, "Credential is still in use")}
+
+      {:error, :credential_usage_unavailable, context} ->
+        {:noreply,
+         show_delete_block(
+           socket,
+           context,
+           "Usage is unavailable; the credential was not deleted"
+         )}
+
+      {:error, :credential_in_use} ->
+        reopen_delete_after_race(socket, id)
+
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> assign(:credential_form, credential_delete_form(id))
+         |> assign(:credential_action_error, "Credential could not be deleted")}
+    end
   end
 
   @impl true
@@ -407,13 +418,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             </div>
           </div>
 
-          <.credential_inventory_table
+          <CredentialInventoryComponents.credential_inventory_table
             loading?={@loading?}
             secrets={@secrets}
             focused_credential_id={@focused_credential_id}
             integration_profiles={@integration_profiles}
-            credential_rule_usage_counts={@credential_rule_usage_counts}
-            snmp_profile_usage_counts={@snmp_profile_usage_counts}
+            usage_by_id={@credential_usage_by_id}
           />
 
           <div id="credential-rules" class="space-y-1 pt-2 scroll-mt-24">
@@ -581,6 +591,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           :if={@secret_form}
           form={@secret_form}
           descriptor={@secret_descriptor}
+        />
+        <CredentialInventoryComponents.credential_action_modal
+          :if={@credential_modal}
+          modal={@credential_modal}
+          form={@credential_form}
+          descriptor={@credential_descriptor}
+          usage={@credential_modal_usage}
+          error={@credential_action_error}
         />
       </Shell.settings_chrome>
     </Layouts.app>
@@ -1268,6 +1286,176 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
+  defp open_credential_modal(socket, operation, id) do
+    case CredentialManagement.open(operation, socket.assigns.current_scope, id) do
+      {:ok, context} ->
+        {:noreply, show_credential_modal(socket, operation, context)}
+
+      {:error, :not_authorized} ->
+        {:noreply, credential_action_unauthorized(socket)}
+
+      {:error, :credential_not_found} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:error, "Credential not found")
+         |> reload_page_data()}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, credential_open_error(reason))}
+    end
+  end
+
+  defp show_credential_modal(socket, :edit, context) do
+    secret = context.secret
+
+    socket
+    |> assign(:current_scope, context.scope)
+    |> assign(:credential_modal, %{kind: :edit, secret: secret})
+    |> assign(
+      :credential_form,
+      credential_details_form(%{
+        "id" => to_string(secret.id),
+        "name" => secret.name,
+        "description" => secret.description || ""
+      })
+    )
+    |> assign(:credential_descriptor, nil)
+    |> assign(:credential_modal_usage, :unavailable)
+    |> assign(:credential_action_error, nil)
+  end
+
+  defp show_credential_modal(socket, :rotate, context) do
+    socket
+    |> assign(:current_scope, context.scope)
+    |> assign(:credential_modal, %{kind: :rotate, secret: context.secret})
+    |> assign(:credential_form, credential_rotation_form(context.secret.id))
+    |> assign(:credential_descriptor, context.descriptor)
+    |> assign(:credential_modal_usage, :unavailable)
+    |> assign(:credential_action_error, nil)
+  end
+
+  defp show_credential_modal(socket, :delete, context) do
+    socket
+    |> assign(:current_scope, context.scope)
+    |> assign(:credential_modal, %{kind: :delete, secret: context.secret})
+    |> assign(:credential_form, credential_delete_form(context.secret.id))
+    |> assign(:credential_descriptor, nil)
+    |> assign(:credential_modal_usage, context.usage)
+    |> assign(:credential_action_error, nil)
+  end
+
+  defp show_delete_block(socket, context, message) do
+    socket
+    |> show_credential_modal(:delete, context)
+    |> assign(:credential_action_error, message)
+  end
+
+  defp reopen_delete_after_race(socket, id) do
+    case CredentialManagement.open(:delete, socket.assigns.current_scope, id) do
+      {:ok, context} ->
+        {:noreply,
+         show_delete_block(
+           socket,
+           context,
+           "Credential became used before deletion completed"
+         )}
+
+      {:error, :not_authorized} ->
+        {:noreply, credential_action_unauthorized(socket)}
+
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:error, "Credential could not be deleted")
+         |> reload_page_data()}
+    end
+  end
+
+  defp clear_credential_modal(socket) do
+    socket
+    |> assign(:credential_modal, nil)
+    |> assign(:credential_form, nil)
+    |> assign(:credential_descriptor, nil)
+    |> assign(:credential_modal_usage, :unavailable)
+    |> assign(:credential_action_error, nil)
+  end
+
+  defp credential_action_unauthorized(socket) do
+    socket
+    |> clear_credential_modal()
+    |> put_flash(:error, "Not authorized to manage credentials")
+    |> redirect(to: ~p"/settings/profile")
+  end
+
+  defp credential_details_form(params), do: to_form(params, as: :credential_details)
+
+  defp credential_rotation_form(id), do: to_form(%{"id" => to_string(id)}, as: :credential_rotation)
+
+  defp credential_delete_form(id), do: to_form(%{"id" => to_string(id), "confirmation_id" => ""}, as: :credential_delete)
+
+  defp save_credential_rotation(socket, id, submitted_values) do
+    case CredentialManagement.rotate(
+           socket.assigns.current_scope,
+           id,
+           submitted_values,
+           credential_management_opts(socket)
+         ) do
+      {:ok, _rotated} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:info, "Credential rotated")
+         |> reload_page_data()}
+
+      {:error, :not_authorized} ->
+        {:noreply, credential_action_unauthorized(socket)}
+
+      {:error, :credential_not_found} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:error, "Credential not found")
+         |> reload_page_data()}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:credential_form, credential_rotation_form(id))
+         |> assign(:credential_action_error, credential_rotation_error(reason))}
+    end
+  end
+
+  defp credential_management_opts(%Phoenix.LiveView.Socket{private: private}) do
+    Map.get(private, :credential_management_opts, [])
+  end
+
+  defp credential_open_error(:credential_rotation_not_supported), do: "This credential cannot be rotated"
+
+  defp credential_open_error(:credential_descriptor_unavailable),
+    do: "The approved credential descriptor is no longer available"
+
+  defp credential_open_error(_reason), do: "Credential action could not be opened"
+
+  defp credential_rotation_error({:missing_credential_field, field}), do: "#{credential_field_label(field)} is required"
+
+  defp credential_rotation_error({:invalid_credential_field, field}), do: "#{credential_field_label(field)} is invalid"
+
+  defp credential_rotation_error(:credential_descriptor_unavailable),
+    do: "The approved credential descriptor is no longer available"
+
+  defp credential_rotation_error(:credential_rotation_not_supported), do: "This credential cannot be rotated"
+
+  defp credential_rotation_error(_reason), do: "Credential rotation failed"
+
+  defp credential_field_label(field) do
+    field
+    |> to_string()
+    |> String.replace("_", " ")
+    |> String.capitalize()
+  end
+
   defp load_page(socket, params) do
     socket =
       socket
@@ -1297,8 +1485,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     secrets = load_secrets(scope)
     agents = load_agents(scope)
     integration_schedules = load_integration_schedules(scope, integration_profiles)
-    credential_rule_usage_counts = Enum.frequencies_by(rules, & &1.secret_id)
-    snmp_profile_usage_counts = load_snmp_profile_usage_counts(scope)
+
+    credential_usage_by_id =
+      case CredentialManagement.usage_for_secrets(scope, secrets) do
+        {:ok, usage_by_id} -> usage_by_id
+        {:error, :credential_usage_unavailable} -> :unavailable
+      end
 
     secret_names = Map.new(secrets, &{&1.id, secret_label(&1)})
 
@@ -1307,8 +1499,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> assign(:secrets, secrets)
     |> assign(:secret_options, Enum.map(secrets, &{secret_label(&1), &1.id}))
     |> assign(:secret_names, secret_names)
-    |> assign(:credential_rule_usage_counts, credential_rule_usage_counts)
-    |> assign(:snmp_profile_usage_counts, snmp_profile_usage_counts)
+    |> assign(:credential_usage_by_id, credential_usage_by_id)
     |> assign(:integration_profiles, integration_profiles)
     |> assign(:integration_schedules, integration_schedules)
     |> assign(:agent_options, agent_options(agents))
@@ -1489,31 +1680,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       _ -> []
     end
   end
-
-  defp load_snmp_profile_usage_counts(scope) do
-    result =
-      SNMPProfile
-      |> Ash.Query.for_read(:read, %{}, scope: scope)
-      |> Ash.Query.filter(not is_nil(credential_secret_id))
-      |> Ash.Query.select([:id, :credential_secret_id])
-      |> Ash.read(scope: scope)
-
-    case result do
-      {:error, reason} ->
-        Logger.warning("Failed to load SNMP profile credential usage: #{inspect(reason)}")
-
-      _result ->
-        :ok
-    end
-
-    snmp_profile_usage_counts(result)
-  end
-
-  @doc false
-  def snmp_profile_usage_counts({:ok, profiles}) when is_list(profiles),
-    do: Enum.frequencies_by(profiles, & &1.credential_secret_id)
-
-  def snmp_profile_usage_counts({:error, _reason}), do: :unavailable
 
   defp load_agents(scope) do
     Agent
@@ -2532,89 +2698,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp focused_credential_id(_value), do: nil
-
-  defp credential_dom_id(id), do: "credential-secret-#{id}"
-
-  defp credential_focused?(_secret_id, focused_id) when focused_id in [nil, ""], do: false
-
-  defp credential_focused?(secret_id, focused_id), do: to_string(secret_id) == to_string(focused_id)
-
-  defp credential_provider_label(secret, integration_profiles) do
-    case Map.get(integration_profiles, to_string(secret.provider)) do
-      %{"label" => label} when is_binary(label) and label != "" -> label
-      _ -> to_string(secret.provider)
-    end
-  end
-
-  defp credential_auth_method_label(secret, integration_profiles) do
-    auth_method =
-      secret
-      |> Map.get(:metadata, %{})
-      |> normalize_metadata()
-      |> Map.get("auth_method")
-
-    profile = Map.get(integration_profiles, to_string(secret.provider))
-
-    case credential_method_descriptor(profile, auth_method) do
-      %{"label" => label} when is_binary(label) and label != "" -> label
-      _ -> credential_auth_method_fallback(auth_method)
-    end
-  end
-
-  defp credential_auth_method_fallback(value) when value in [nil, ""], do: "—"
-  defp credential_auth_method_fallback("api_token"), do: "API token"
-  defp credential_auth_method_fallback("v3"), do: "SNMPv3 user"
-  defp credential_auth_method_fallback("community"), do: "Community string"
-  defp credential_auth_method_fallback(value), do: humanize_credential_value(value)
-
-  defp credential_kind_label(:api_token), do: "API token"
-  defp credential_kind_label(:snmp), do: "SNMP"
-  defp credential_kind_label(value), do: humanize_credential_value(value)
-
-  defp credential_public_identity(%{username: username}) when is_binary(username) and username != "", do: username
-
-  defp credential_public_identity(%{credential_kind: :ssh_private_key, public_fingerprint: fingerprint})
-       when is_binary(fingerprint) and fingerprint != "", do: fingerprint
-
-  defp credential_public_identity(_secret), do: "—"
-
-  defp credential_source_label(:internal_encrypted), do: "Encrypted here"
-  defp credential_source_label(:external_reference), do: "External reference"
-  defp credential_source_label(value), do: humanize_credential_value(value)
-
-  defp credential_rotation_label(value), do: humanize_credential_value(value)
-
-  defp credential_rotation_badge_class(:active), do: "badge-success"
-  defp credential_rotation_badge_class(:rotation_due), do: "badge-warning"
-  defp credential_rotation_badge_class(:rotation_failed), do: "badge-error"
-  defp credential_rotation_badge_class(:rotating), do: "badge-info"
-  defp credential_rotation_badge_class(_value), do: "badge-ghost"
-
-  defp credential_usage_label(secret, rule_counts, :unavailable) do
-    rule_count = Map.get(rule_counts, secret.id, 0)
-
-    "SNMP usage unavailable · " <> usage_count_label(rule_count, "rule", "rules")
-  end
-
-  defp credential_usage_label(secret, rule_counts, snmp_profile_counts) do
-    profile_count = Map.get(snmp_profile_counts, secret.id, 0)
-    rule_count = Map.get(rule_counts, secret.id, 0)
-
-    "#{usage_count_label(profile_count, "SNMP profile", "SNMP profiles")} · " <>
-      usage_count_label(rule_count, "rule", "rules")
-  end
-
-  defp usage_count_label(1, singular, _plural), do: "1 #{singular}"
-  defp usage_count_label(count, _singular, plural), do: "#{count} #{plural}"
-
-  defp humanize_credential_value(nil), do: "—"
-
-  defp humanize_credential_value(value) do
-    value
-    |> to_string()
-    |> String.replace("_", " ")
-    |> String.capitalize()
-  end
 
   defp can_manage?(scope), do: RBAC.can?(scope, "settings.credentials.manage")
 

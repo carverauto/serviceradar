@@ -15,6 +15,12 @@ defmodule ServiceRadarWebNGWeb.TimezoneSurfaceCTest do
                   )
   @external_resource @compare_source
 
+  @plugin_package_source Path.expand(
+                           "../../../lib/serviceradar_web_ng_web/live/admin/plugin_package_live/index.ex",
+                           __DIR__
+                         )
+  @external_resource @plugin_package_source
+
   test "custom MTR datetime controls are visibly UTC and preserve their canonical UTC parser boundary" do
     source = File.read!(@compare_source)
 
@@ -81,6 +87,16 @@ defmodule ServiceRadarWebNGWeb.TimezoneSurfaceCTest do
 
     assert ids.(traces) == ids.(Enum.reverse(traces))
     assert ids.(traces) == ["mtr-trace-trace-a-time", "mtr-trace-trace-b-time"]
+  end
+
+  test "imported plugin package timestamps use the current user's timezone" do
+    source = File.read!(@plugin_package_source)
+
+    assert source =~ ~S|id={"admin-plugin-package-#{package.id}-updated-at"}|
+    assert source =~ "value={package.updated_at || package.inserted_at}"
+    assert source =~ "timezone={@current_scope.user.timezone || \"Etc/UTC\"}"
+
+    refute source =~ "{format_datetime(package.updated_at || package.inserted_at)}"
   end
 
   test "authored dashboard row time IDs prefer stable row identity over row order" do

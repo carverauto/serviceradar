@@ -22,6 +22,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
             Ok(Entity::DnsActivity)
         }
         "bmp_events" | "bmp_event" | "bmp_routing_events" => Ok(Entity::BmpEvents),
+        "mtr_traces" => Ok(Entity::MtrTraces),
         "field_survey_sessions" | "fieldsurvey_sessions" | "survey_sessions" => {
             Ok(Entity::FieldSurveySessions)
         }

@@ -58,6 +58,10 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     table "integration_sources"
     repo ServiceRadar.Repo
     schema "platform"
+
+    references do
+      reference :credential_secret, on_delete: :restrict
+    end
   end
 
   state_machine do
