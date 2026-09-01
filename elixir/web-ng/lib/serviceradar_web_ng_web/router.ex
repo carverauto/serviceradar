@@ -996,6 +996,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/scans/:id/export.csv", ScanExportController, :csv)
     get("/scans/:id/export.xlsx", ScanExportController, :xlsx)
 
+    get(
+      "/settings/networks/integrations/runs/:id/export.csv",
+      ArmisNorthboundRunExportController,
+      :csv
+    )
+
     live_session :require_authenticated_user,
       on_mount: [
         {ServiceRadarWebNGWeb.UserAuth, :require_authenticated},

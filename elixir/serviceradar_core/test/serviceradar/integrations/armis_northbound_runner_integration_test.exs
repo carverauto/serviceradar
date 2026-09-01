@@ -5,12 +5,15 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Integrations.ArmisNorthboundRetention
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
+  alias ServiceRadar.Integrations.IntegrationUpdateRunTarget
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.TestSupport
 
@@ -215,6 +218,73 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
              )
   end
 
+  test "run binds one collection and persists terminal outcome for every source ID", %{
+    actor: actor
+  } do
+    source = create_source!(actor, "armis-accounted-run")
+
+    devices =
+      Enum.map(1..3, fn index ->
+        armis_id = "armis-accounted-#{index}"
+        ip = "192.0.2.#{30 + index}"
+        ingest_armis_update(actor, source.id, ip, armis_id, rem(index, 2) == 0)
+        {:ok, device} = Device.get_by_ip(ip, false, actor: actor)
+        {armis_id, single_result(device)}
+      end)
+
+    activate_collection!(source, devices)
+
+    execute_batches = fn _source, candidates, _opts ->
+      ids = Enum.map(candidates, & &1.armis_device_id)
+
+      {:error,
+       %{
+         device_count: 3,
+         updated_count: 2,
+         skipped_count: 0,
+         error_count: 1,
+         batch_count: 2,
+         errors: [%{reason: :stopped_after_second_batch}],
+         accepted_ids: Enum.take(ids, 2),
+         failed_ids: [],
+         unattempted_ids: Enum.drop(ids, 2)
+       }}
+    end
+
+    assert {:error, %{run: run, result: result}} =
+             ArmisNorthboundRunner.run_for_source(source,
+               actor: actor,
+               execute_batches: execute_batches
+             )
+
+    assert run.collection_id == "collection-accounted"
+    assert run.distinct_source_ids == 3
+    assert run.eligible_count == 3
+    assert run.accepted_count == 2
+    assert run.failed_count == 0
+    assert run.unattempted_count == 1
+    assert run.reconciliation_status == :degraded
+    assert result.device_count == result.accepted_count + result.unattempted_count
+
+    assert {:ok, targets} = IntegrationUpdateRunTarget.list_by_run(run.id, actor: actor)
+    assert length(targets) == 3
+    assert Enum.count(targets, &(&1.outcome == :accepted)) == 2
+    assert Enum.count(targets, &(&1.outcome == :unattempted)) == 1
+    refute Enum.any?(targets, &(&1.outcome == :pending))
+
+    assert {:ok, 2} =
+             ArmisNorthboundRetention.prune(
+               now: ~U[2100-01-01 00:00:00.000000Z],
+               retention_days: 30,
+               batch_size: 100
+             )
+
+    assert {:ok, retained_targets} =
+             IntegrationUpdateRunTarget.list_by_run(run.id, actor: actor)
+
+    assert Enum.map(retained_targets, & &1.outcome) == [:unattempted]
+  end
+
   defp create_source!(actor, name, attrs \\ []) do
     attrs =
       Map.merge(
@@ -246,6 +316,64 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     Agent
     |> Ash.Changeset.for_create(:register_connected, %{uid: uid, name: uid}, actor: actor)
     |> Ash.create!(actor: actor)
+  end
+
+  defp activate_collection!(source, devices) do
+    observed_at = ~U[2026-09-01 08:00:00.000000Z]
+    content_hash = String.duplicate("a", 64)
+
+    snapshot = %{
+      partition: source.partition || "default",
+      source: "armis",
+      source_instance: to_string(source.id),
+      collection_id: "collection-accounted",
+      content_hash: content_hash,
+      query_hash: nil,
+      observed_at: observed_at,
+      metadata: %{
+        "accounting_status" => "exact",
+        "raw_rows" => 4,
+        "excluded_rows" => 0,
+        "invalid_rows" => 0,
+        "valid_occurrences" => 4,
+        "distinct_source_ids" => 3,
+        "duplicate_occurrences" => 1,
+        "conflicting_duplicate_ids" => 0
+      }
+    }
+
+    observations =
+      Enum.map(devices, fn {armis_id, device} ->
+        %{
+          device_id: device.uid,
+          partition: snapshot.partition,
+          source: "armis",
+          source_instance: snapshot.source_instance,
+          source_object_id: armis_id,
+          source_integration_id: "armis:source:#{source.id}:#{armis_id}",
+          collection_id: snapshot.collection_id,
+          content_hash: content_hash,
+          query_hash: nil,
+          present: true,
+          first_observed_at: observed_at,
+          last_observed_at: observed_at,
+          absent_since: nil,
+          hostname: device.hostname,
+          ip: device.ip,
+          mac: device.mac,
+          serial_number: nil,
+          vendor_name: nil,
+          model: nil,
+          device_type: nil,
+          site_name: nil,
+          management_status: nil,
+          metadata: %{
+            "identifier_metadata" => %{"sync_service_id" => to_string(source.id)}
+          }
+        }
+      end)
+
+    assert :ok = DeviceSourceObservationIngestor.activate_resolved(snapshot, observations)
   end
 
   defp create_device!(actor, attrs) do

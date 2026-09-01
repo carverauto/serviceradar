@@ -24,6 +24,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -64,6 +65,14 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 	assetConfig := newAssetEnrichmentConfig(run.Source)
 	totalUpdates := 0
 	tokenRefreshes := 0
+	population := syncsources.PopulationStats{}
+	seen := make(map[string]duplicateIdentity)
+	seenUpdates := make(map[string]map[string]interface{})
+	emittedIDs := make(map[string]struct{})
+	conflictingDuplicateIDs := make(map[string]struct{})
+	conflictSignalsEmitted := make(map[string]struct{})
+	duplicateExamples := make([]string, 0, 100)
+	invalidExamples := make([]string, 0, 100)
 
 	var assetToken string
 	if len(assetConfig.fields) > 0 {
@@ -119,7 +128,9 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 				return totalUpdates, err
 			}
 
+			population.RawRows += len(resp.Data.Results)
 			filtered := filterDevices(resp.Data.Results, run.Source.NetworkBlacklist)
+			population.ExcludedRows += len(resp.Data.Results) - len(filtered)
 			if len(assetConfig.fields) > 0 {
 				filtered, err = apiClient.enrichAssetFields(ctx, assetToken, assetConfig, filtered)
 				if err != nil {
@@ -133,17 +144,69 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 			logDeviceShape(run, queryLabel, from, filtered)
 
 			updates := make([]map[string]interface{}, 0, len(filtered))
-			for _, item := range filtered {
+			for itemIndex, item := range filtered {
 				update := buildUpdate(run, item, queryLabel)
 				if update == nil {
+					population.InvalidRows++
+					invalidExamples = appendBoundedExample(
+						invalidExamples,
+						fmt.Sprintf("query=%s page=%d row=%d", queryLabel, pageIndex, itemIndex),
+					)
 					continue
 				}
+
+				armisID := armisIDFromUpdate(update)
+				if armisID == "" {
+					population.InvalidRows++
+					invalidExamples = appendBoundedExample(
+						invalidExamples,
+						fmt.Sprintf("query=%s page=%d row=%d", queryLabel, pageIndex, itemIndex),
+					)
+					continue
+				}
+
+				population.ValidOccurrences++
+				signature := duplicateIdentitySignature(update)
+				if existingSignature, duplicate := seen[armisID]; duplicate {
+					population.DuplicateOccurrences++
+					duplicateExamples = appendBoundedExample(duplicateExamples, armisID)
+					if conflictingDuplicateSignature(existingSignature, signature) {
+						conflictingDuplicateIDs[armisID] = struct{}{}
+						if _, emitted := conflictSignalsEmitted[armisID]; !emitted {
+							firstUpdate := seenUpdates[armisID]
+							if _, alreadyStreamed := emittedIDs[armisID]; alreadyStreamed {
+								updates = append(updates, duplicateConflictUpdate(firstUpdate))
+							} else {
+								markDuplicateConflict(firstUpdate)
+							}
+							conflictSignalsEmitted[armisID] = struct{}{}
+						}
+					}
+					seen[armisID] = mergeDuplicateIdentity(existingSignature, signature)
+					continue
+				}
+
+				seen[armisID] = signature
+				seenUpdates[armisID] = update
 				updates = append(updates, update)
+			}
+
+			population.DistinctSourceIDs = len(seen)
+			population.DuplicateSourceIDExamples = duplicateExamples
+			population.InvalidRowExamples = invalidExamples
+			population.ConflictingDuplicateIDs = sortedKeys(conflictingDuplicateIDs)
+			if run.ReportPopulation != nil {
+				run.ReportPopulation(population)
 			}
 
 			if len(updates) > 0 {
 				if err := run.Emit(updates); err != nil {
 					return totalUpdates, err
+				}
+				for _, update := range updates {
+					if armisID := armisIDFromUpdate(update); armisID != "" {
+						emittedIDs[armisID] = struct{}{}
+					}
 				}
 				totalUpdates += len(updates)
 			}
@@ -174,7 +237,144 @@ func (d *Driver) Sync(ctx context.Context, run syncsources.RunContext) (int, err
 		}
 	}
 
+	population.DistinctSourceIDs = len(seen)
+	population.DuplicateSourceIDExamples = duplicateExamples
+	population.InvalidRowExamples = invalidExamples
+	population.ConflictingDuplicateIDs = sortedKeys(conflictingDuplicateIDs)
+	if run.ReportPopulation != nil {
+		run.ReportPopulation(population)
+	}
+
 	return totalUpdates, nil
+}
+
+// duplicateConflictUpdate re-emits the first observation with a monotonic
+// conflict marker. The ingestor upserts the same source ID, so collection
+// membership remains one row per ID while northbound can withhold the exact
+// conflicting ID without relying on a bounded examples list.
+func duplicateConflictUpdate(update map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{}, len(update))
+	for key, value := range update {
+		result[key] = value
+	}
+
+	markDuplicateConflict(result)
+
+	return result
+}
+
+func markDuplicateConflict(update map[string]interface{}) {
+	metadata, _ := update["metadata"].(map[string]string)
+	metadataCopy := make(map[string]string, len(metadata)+1)
+	for key, value := range metadata {
+		metadataCopy[key] = value
+	}
+	metadataCopy["source_duplicate_conflict"] = "true"
+	update["metadata"] = metadataCopy
+}
+
+func armisIDFromUpdate(update map[string]interface{}) string {
+	metadata, ok := update["metadata"].(map[string]string)
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(metadata["armis_device_id"])
+}
+
+type duplicateIdentity struct {
+	serials []string
+	macs    []string
+}
+
+// duplicateIdentitySignature intentionally excludes IP, hostname, and other
+// descriptive fields. IPs churn and query projections can differ. A repeated
+// source ID conflicts only when both observations carry disjoint, non-empty
+// values for the same hardware-anchor field.
+func duplicateIdentitySignature(update map[string]interface{}) duplicateIdentity {
+	metadata, ok := update["metadata"].(map[string]string)
+	if !ok {
+		return duplicateIdentity{}
+	}
+
+	return duplicateIdentity{
+		serials: normalizedValues(metadata["serial_numbers"]),
+		macs:    normalizedValues(metadata["mac_addresses"]),
+	}
+}
+
+func conflictingDuplicateSignature(existing, incoming duplicateIdentity) bool {
+	return disjointNonEmpty(existing.serials, incoming.serials) ||
+		disjointNonEmpty(existing.macs, incoming.macs)
+}
+
+func mergeDuplicateIdentity(existing, incoming duplicateIdentity) duplicateIdentity {
+	return duplicateIdentity{
+		serials: mergeNormalizedValues(existing.serials, incoming.serials),
+		macs:    mergeNormalizedValues(existing.macs, incoming.macs),
+	}
+}
+
+func normalizedValues(value string) []string {
+	parts := strings.Split(value, ",")
+	normalized := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		part = strings.ToUpper(strings.TrimSpace(part))
+		if part == "" {
+			continue
+		}
+		if _, duplicate := seen[part]; duplicate {
+			continue
+		}
+		seen[part] = struct{}{}
+		normalized = append(normalized, part)
+	}
+	sort.Strings(normalized)
+	return normalized
+}
+
+func disjointNonEmpty(left, right []string) bool {
+	if len(left) == 0 || len(right) == 0 {
+		return false
+	}
+
+	leftSet := make(map[string]struct{}, len(left))
+	for _, value := range left {
+		leftSet[value] = struct{}{}
+	}
+	for _, value := range right {
+		if _, overlaps := leftSet[value]; overlaps {
+			return false
+		}
+	}
+	return true
+}
+
+func mergeNormalizedValues(left, right []string) []string {
+	merged := append(append([]string(nil), left...), right...)
+	return normalizedValues(strings.Join(merged, ","))
+}
+
+func sortedKeys(values map[string]struct{}) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func appendBoundedExample(examples []string, value string) []string {
+	if len(examples) >= 100 {
+		return examples
+	}
+	for _, existing := range examples {
+		if existing == value {
+			return examples
+		}
+	}
+	return append(examples, value)
 }
 
 func logDeviceShape(run syncsources.RunContext, queryLabel string, from int, devices []device) {

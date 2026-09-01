@@ -108,6 +108,181 @@ func TestSyncRequiresConfiguredQueries(t *testing.T) {
 	}
 }
 
+func TestSyncAccountsAndDeduplicatesAcrossQueries(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case accessTokenPath:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"data":{"access_token":"token-123"},"success":true}`))
+		case searchPath:
+			results := []map[string]interface{}{
+				{"id": 101, "ipAddress": "10.0.0.101", "serial_numbers": []string{"SERIAL-A"}},
+				{"id": 102, "ipAddress": "10.0.0.102", "serial_numbers": []string{"SERIAL-B"}},
+				{"id": 999, "ipAddress": "192.0.2.99", "serial_numbers": []string{"EXCLUDED"}},
+			}
+			if r.URL.Query().Get("aql") == "in:devices query:b" {
+				results = []map[string]interface{}{
+					{"id": 101, "ipAddress": "10.0.1.101", "serial_numbers": []string{"serial-a"}},
+					{"id": 102, "ipAddress": "10.0.1.102", "serial_numbers": []string{"SERIAL-C"}},
+				}
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"data": map[string]interface{}{
+					"count": len(results), "next": 0, "results": results, "total": len(results),
+				},
+				"success": true,
+			})
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	recorder := &emitRecorder{}
+	var population syncsources.PopulationStats
+	run := testRunContext(models.SourceConfig{
+		Type:        SourceType,
+		Endpoint:    server.URL,
+		Credentials: map[string]string{"secret_key": "secret"},
+		Queries: []models.QueryConfig{
+			{Label: "query-a", Query: "in:devices query:a"},
+			{Label: "query-b", Query: "in:devices query:b"},
+		},
+		NetworkBlacklist: []string{"192.0.2.0/24"},
+	}, recorder.emit)
+	run.ReportPopulation = func(stats syncsources.PopulationStats) { population = stats }
+
+	count, err := NewDriver().Sync(context.Background(), run)
+	if err != nil {
+		t.Fatalf("Sync returned error: %v", err)
+	}
+	if count != 3 {
+		t.Fatalf("emitted update count = %d, want 2 first observations plus 1 conflict marker", count)
+	}
+	if population.RawRows != 5 || population.ExcludedRows != 1 || population.InvalidRows != 0 || population.ValidOccurrences != 4 {
+		t.Fatalf("raw accounting = %#v", population)
+	}
+	if population.DistinctSourceIDs != 2 || population.DuplicateOccurrences != 2 {
+		t.Fatalf("ID accounting = %#v", population)
+	}
+	if fmt.Sprint(population.ConflictingDuplicateIDs) != "[102]" {
+		t.Fatalf("conflicting duplicate IDs = %v, want [102]", population.ConflictingDuplicateIDs)
+	}
+
+	var conflictMarkers int
+	for _, update := range recorder.updates() {
+		metadata, _ := update["metadata"].(map[string]string)
+		if metadata["source_duplicate_conflict"] == "true" {
+			conflictMarkers++
+			if metadata["armis_device_id"] != "102" {
+				t.Fatalf("conflict marker attached to ID %q, want 102", metadata["armis_device_id"])
+			}
+		}
+	}
+	if conflictMarkers != 1 {
+		t.Fatalf("conflict markers = %d, want 1", conflictMarkers)
+	}
+}
+
+func TestSyncMarksSamePageConflictWithoutEmittingDuplicateUpsert(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case accessTokenPath:
+			_, _ = w.Write([]byte(`{"data":{"access_token":"token-123"},"success":true}`))
+		case searchPath:
+			_, _ = w.Write([]byte(`{
+				"data":{"count":2,"next":0,"results":[
+					{"id":101,"ipAddress":"10.0.0.101","serial_numbers":["SERIAL-A"]},
+					{"id":101,"ipAddress":"10.0.1.101","serial_numbers":["SERIAL-B"]}
+				],"total":2},"success":true
+			}`))
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	recorder := &emitRecorder{}
+	run := testRunContext(models.SourceConfig{
+		Type: SourceType, Endpoint: server.URL,
+		Credentials: map[string]string{"secret_key": "secret"},
+		Queries:     []models.QueryConfig{{Label: "same-page", Query: testDeviceQuery}},
+	}, recorder.emit)
+
+	count, err := NewDriver().Sync(context.Background(), run)
+	if err != nil {
+		t.Fatalf("Sync returned error: %v", err)
+	}
+	if count != 1 || len(recorder.updates()) != 1 {
+		t.Fatalf("emitted %d updates (%d captured), want one unique source-ID upsert", count, len(recorder.updates()))
+	}
+	metadata, _ := recorder.updates()[0]["metadata"].(map[string]string)
+	if metadata["source_duplicate_conflict"] != "true" {
+		t.Fatalf("same-page conflict marker missing: %#v", metadata)
+	}
+}
+
+func TestDuplicateIdentityConflictRequiresDisjointValuesForSameField(t *testing.T) {
+	tests := []struct {
+		name     string
+		first    map[string]string
+		second   map[string]string
+		conflict bool
+	}{
+		{
+			name:  "same serial with added mac is compatible",
+			first: map[string]string{"serial_numbers": "SERIAL-A"},
+			second: map[string]string{
+				"serial_numbers": "serial-a", "mac_addresses": "00:11:22:33:44:55",
+			},
+		},
+		{
+			name:   "overlapping interface sets are compatible",
+			first:  map[string]string{"mac_addresses": "00:11:22:33:44:55,00:11:22:33:44:66"},
+			second: map[string]string{"mac_addresses": "00:11:22:33:44:66"},
+		},
+		{
+			name:     "disjoint serials conflict",
+			first:    map[string]string{"serial_numbers": "SERIAL-A"},
+			second:   map[string]string{"serial_numbers": "SERIAL-B"},
+			conflict: true,
+		},
+		{
+			name:     "disjoint macs conflict",
+			first:    map[string]string{"mac_addresses": "00:11:22:33:44:55"},
+			second:   map[string]string{"mac_addresses": "00:11:22:33:44:66"},
+			conflict: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			first := duplicateIdentitySignature(map[string]interface{}{"metadata": tt.first})
+			second := duplicateIdentitySignature(map[string]interface{}{"metadata": tt.second})
+			if got := conflictingDuplicateSignature(first, second); got != tt.conflict {
+				t.Fatalf("conflict = %v, want %v", got, tt.conflict)
+			}
+		})
+	}
+}
+
+func TestDuplicateIdentityMergeRetainsLaterEvidence(t *testing.T) {
+	empty := duplicateIdentitySignature(map[string]interface{}{"metadata": map[string]string{}})
+	serialA := duplicateIdentitySignature(map[string]interface{}{
+		"metadata": map[string]string{"serial_numbers": "SERIAL-A"},
+	})
+	serialB := duplicateIdentitySignature(map[string]interface{}{
+		"metadata": map[string]string{"serial_numbers": "SERIAL-B"},
+	})
+
+	merged := mergeDuplicateIdentity(empty, serialA)
+	if !conflictingDuplicateSignature(merged, serialB) {
+		t.Fatal("later disjoint evidence should conflict even when the first repeat had no anchors")
+	}
+}
+
 func TestSyncEmitsFetchedPagesBeforeLaterSearchError(t *testing.T) {
 	var searchCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
