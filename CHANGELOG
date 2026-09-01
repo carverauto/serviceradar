@@ -1,15 +1,48 @@
-# ServiceRadar v1.4.50
+# ServiceRadar v1.4.51
 
-IdP groups can map to role profiles and user groups, and those
-grants go away when membership does. Sweep groups can target a
-selected agent subset instead of all-or-one. Plugin SNMP shows
-where a profile came from, and a version bump no longer collides
-on the display name. Also: VRRP MACs stop stealing device
-identity, MTR headlines report the destination, OpenText NOM
-rules actually provision, and the dashboard profile menu stays
-open.
+UI timestamps follow a user timezone preference. Reusable
+credentials can be edited, rotated, and deleted, and deletion
+is blocked while something still uses them. Third-party plugin
+repositories actually import, and imported packages stay
+visible. Also: NOM Run Now derives a blank token URL, identity
+overmerges need a current MAC, reverse DNS finishes the cohort,
+and MTR traces and profiles query correctly.
 
 ## Whats New
+
+**1.4.51**
+- Web UI: timestamps render in the signed-in user's timezone.
+  Storage, SRQL, exports, and schedules stay UTC. Set it under
+  the profile menu. (PR #4231)
+- Credentials: Settings inventory can edit metadata, rotate
+  secrets, and delete a reusable credential. Deletion is blocked
+  while an SNMP profile, rule, or grant still references it, and
+  usage links go both ways. (PR #4230)
+- Plugins: a third-party repository that publishes release
+  assets (no OCI ref) is import-ready; a pasted URL is refused
+  as a token; duplicate repo URLs get a clean error. (PR #4238)
+- Plugins: imported packages stay visible after catalog
+  discovery instead of disappearing from the manager. (PR #4236)
+- OpenText NOM: Run Now derives `{nnm_url}/idp/oauth2/token`
+  when token_url is blank, and no longer treats OAuth
+  `field_password` inject keys as secrets. (PR #4237)
+- Inventory: automatic identity merges require a current-MAC
+  and same-partition corroboration, so historical MACs stop
+  collapsing unrelated devices. Source tags survive the merge.
+  (PR #4228)
+- Inventory: reverse DNS exhausts the SRQL cohort in batches
+  instead of stopping after the first chunk. Run now bypasses
+  the minimum lookup interval. (PR #4233)
+- MTR: `in:mtr_traces` executes. Automation profiles persist
+  the SRQL query instead of falling back to `in:devices`.
+  (PR #4232, #4235)
+- Schema: the public-to-platform move fails in 15s with the
+  blocking session named, instead of waiting unbounded.
+  (PR #4226)
+- Schema: `20260830211630` (user timezone),
+  `20260830220000` (credential deletion guard),
+  `20260901014554` (timezone verify).
+  `migrations.expectedVersion` is `20260901014554`.
 
 **1.4.50**
 - Identity: an IdP group mapping can name a role profile or a
