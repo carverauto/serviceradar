@@ -228,7 +228,6 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundLedger do
     rows =
       Enum.map(population.eligible ++ population.withheld, fn disposition ->
         %{
-          id: Ecto.UUID.bingenerate(),
           integration_update_run_id: run.id,
           collection_id: population.accounting.collection_id,
           source_object_id: disposition.source_object_id,
