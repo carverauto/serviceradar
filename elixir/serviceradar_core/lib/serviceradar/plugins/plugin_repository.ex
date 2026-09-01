@@ -65,6 +65,12 @@ defmodule ServiceRadar.Plugins.PluginRepository do
     references do
       reference :credential_secret, on_delete: :restrict
     end
+
+    # The identity has to name the index the migration actually created. Ash
+    # otherwise derives "plugin_repositories_unique_repo_url_index", which
+    # matches nothing in Postgres, so the violation still escapes as a raw
+    # Ecto.ConstraintError - the identity looks declared and changes nothing.
+    identity_index_names unique_repo_url: "plugin_repositories_repo_url_index"
   end
 
   code_interface do
@@ -260,6 +266,24 @@ defmodule ServiceRadar.Plugins.PluginRepository do
               expr(not is_nil(credential_secret_id)) do
       public? true
       description "Whether a PAT is bound, without exposing it"
+    end
+  end
+
+  identities do
+    # The unique index has existed since 20260829200000; the resource never
+    # declared it. Without the identity Ash cannot translate the violation, so
+    # adding a second repository for a URL already registered raised a raw
+    # Ecto.ConstraintError - a stack dump rendered into the modal, telling an
+    # operator to call unique_constraint/3 rather than that the repository
+    # already exists and can be edited.
+    #
+    # No pre_check?: AshPostgres enforces this through the existing unique index
+    # and maps the violation itself. Adding one forced every update off the
+    # atomic path and broke :disable/:enable/:record_sync, which are declared
+    # atomic - a pre-check is for identities the data layer cannot enforce, and
+    # this one it can.
+    identity :unique_repo_url, [:repo_url] do
+      message "a plugin repository for this URL already exists; edit that one instead"
     end
   end
 end

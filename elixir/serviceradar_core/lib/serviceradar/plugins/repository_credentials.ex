@@ -51,22 +51,47 @@ defmodule ServiceRadar.Plugins.RepositoryCredentials do
   def put_token(%PluginRepository{} = repository, token, opts) when is_binary(token) do
     token = String.trim(token)
     actor = actor(opts)
+    previous = repository.credential_secret_id
 
-    if token == "" do
-      {:error, :empty_token}
-    else
-      previous = repository.credential_secret_id
+    cond do
+      token == "" ->
+        {:error, :empty_token}
 
-      with {:ok, repository} <- create_secret_and_attach(repository, token, actor) do
-        # Retire the old secret only after the repository points at the new
-        # one, so a failure here leaves a working credential rather than none.
-        retire_secret(previous, actor)
-        {:ok, repository}
-      end
+      # A pasted URL is the mistake this catches. The field sits beside the
+      # repository URL in the form, and anything non-empty used to be accepted,
+      # so a mis-paste was stored, encrypted, and only surfaced later as GitHub
+      # answering "Bad credentials" - a 401 that reads as an expired or
+      # under-scoped token and sends you to regenerate a token that was never
+      # wrong.
+      #
+      # Deliberately NOT a check against known ghp_/github_pat_ prefixes: those
+      # change, and rejecting a valid future format would be worse than
+      # accepting a bad one. A URL can never be a token, which is the whole
+      # claim being made here.
+      url_like?(token) ->
+        {:error, :token_looks_like_url}
+
+      String.contains?(token, [" ", "\t", "\n"]) ->
+        {:error, :token_contains_whitespace}
+
+      true ->
+        with {:ok, repository} <- create_secret_and_attach(repository, token, actor) do
+          # Retire the old secret only after the repository points at the new
+          # one, so a failure here leaves a working credential rather than none.
+          retire_secret(previous, actor)
+          {:ok, repository}
+        end
     end
   end
 
   def put_token(_repository, _token, _opts), do: {:error, :invalid_token}
+
+  defp url_like?(token) do
+    case URI.parse(token) do
+      %URI{scheme: scheme} when scheme in ["http", "https"] -> true
+      _other -> false
+    end
+  end
 
   @doc """
   Detaches the repository's credential and destroys the secret behind it.
