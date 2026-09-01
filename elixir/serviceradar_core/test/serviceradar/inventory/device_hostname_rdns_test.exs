@@ -31,14 +31,23 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
   test "candidate? honors overwrite_existing and retry window" do
     now = ~U[2026-08-13 12:00:00Z]
 
+    recently_looked_up = %{
+      ip: "10.0.0.8",
+      hostname: nil,
+      metadata: %{"rdns" => %{"looked_up_at" => "2026-08-13T11:30:00Z"}}
+    }
+
     refute DeviceHostnameRdns.candidate?(
-             %{
-               ip: "10.0.0.8",
-               hostname: nil,
-               metadata: %{"rdns" => %{"looked_up_at" => "2026-08-13T11:30:00Z"}}
-             },
+             recently_looked_up,
              %{overwrite_existing: false, retry_after_minutes: 1_440},
              now
+           )
+
+    assert DeviceHostnameRdns.candidate?(
+             recently_looked_up,
+             %{overwrite_existing: false, retry_after_minutes: 1_440},
+             now,
+             ignore_retry?: true
            )
 
     assert DeviceHostnameRdns.candidate?(
@@ -185,7 +194,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
              )
   end
 
-  test "run paginates SRQL until the batch is filled" do
+  test "run exhausts the SRQL cohort and processes every device in bounded batches" do
     settings = %{
       srql_query: "in:devices",
       batch_size: 2,
@@ -199,7 +208,11 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
         nil ->
           {:ok,
            %{
-             rows: [%{"uid" => "sr:named", "ip" => "10.0.0.1", "hostname" => "leaf-01"}],
+             rows: [
+               %{"uid" => "sr:a", "ip" => "10.0.0.1", "hostname" => nil},
+               %{"uid" => "sr:b", "ip" => "10.0.0.2", "hostname" => nil},
+               %{"uid" => "sr:c", "ip" => "10.0.0.3", "hostname" => nil}
+             ],
              next_cursor: "page-2"
            }}
 
@@ -207,8 +220,8 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
           {:ok,
            %{
              rows: [
-               %{"uid" => "sr:a", "ip" => "10.0.0.2", "hostname" => nil},
-               %{"uid" => "sr:b", "ip" => "10.0.0.3", "hostname" => nil}
+               %{"uid" => "sr:d", "ip" => "10.0.0.4", "hostname" => nil},
+               %{"uid" => "sr:e", "ip" => "10.0.0.5", "hostname" => nil}
              ],
              next_cursor: nil
            }}
@@ -216,19 +229,47 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdnsTest do
     end
 
     load_devices = fn candidates, _actor ->
-      assert Enum.map(candidates, & &1.uid) == ["sr:a", "sr:b"]
+      send(self(), {:loaded_batch, Enum.map(candidates, & &1.uid)})
       {:ok, candidates}
     end
 
     lookup = fn _ip, _opts -> {"host.lan", "ok", nil} end
     persist = fn _device, _hostname, _status, _error, _now, _actor -> :updated end
 
-    assert {:ok, %{looked_up: 2, updated: 2, cohort_rows: 3, candidates: 2, loaded: 2}} =
+    assert {:ok, %{looked_up: 5, updated: 5, cohort_rows: 5, candidates: 5, loaded: 5}} =
              DeviceHostnameRdns.run(settings,
                query_page: query_page,
                load_devices: load_devices,
                lookup: lookup,
                persist: persist,
+               cache?: false
+             )
+
+    assert_received {:loaded_batch, ["sr:a", "sr:b"]}
+    assert_received {:loaded_batch, ["sr:c", "sr:d"]}
+    assert_received {:loaded_batch, ["sr:e"]}
+    refute_received {:loaded_batch, _batch}
+  end
+
+  test "run fails instead of silently returning a partial cohort when pagination stalls" do
+    query_page = fn _query, _opts ->
+      {:ok,
+       %{
+         rows: [%{"uid" => "sr:a", "ip" => "10.0.0.1", "hostname" => nil}],
+         next_cursor: "same-cursor"
+       }}
+    end
+
+    assert {:error, {:srql_pagination_stalled, "same-cursor"}} =
+             DeviceHostnameRdns.run(
+               %{
+                 srql_query: "in:devices",
+                 batch_size: 2,
+                 timeout_ms: 250,
+                 overwrite_existing: false,
+                 retry_after_minutes: 1_440
+               },
+               query_page: query_page,
                cache?: false
              )
   end
