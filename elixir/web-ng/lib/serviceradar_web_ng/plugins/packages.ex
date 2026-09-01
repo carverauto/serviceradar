@@ -555,7 +555,18 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   defp create_first_party_package(import, attrs, ash_opts) do
     attrs =
       attrs
-      |> Map.drop([:repo_url, "repo_url", :release_tag, "release_tag"])
+      |> Map.drop([
+        :repo_url,
+        "repo_url",
+        :release_tag,
+        "release_tag",
+        :index_asset_name,
+        "index_asset_name",
+        :github_token,
+        "github_token",
+        :trusted_upload_signing_keys,
+        "trusted_upload_signing_keys"
+      ])
       |> Map.put(:manifest, import.manifest)
       |> Map.put_new(:config_schema, import.config_schema || %{})
       |> Map.put_new(:display_contract, import.display_contract || %{})

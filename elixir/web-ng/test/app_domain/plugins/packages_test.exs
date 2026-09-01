@@ -298,7 +298,19 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   end
 
   test "sync_first_party_plugins deduplicates an already imported plugin/version/digest" do
-    opts = [actor: system_actor(), repo_url: @repo_url, limit: 10]
+    trusted_keys =
+      :serviceradar_web_ng
+      |> Application.fetch_env!(:plugin_verification)
+      |> Keyword.fetch!(:trusted_upload_signing_keys)
+
+    opts = [
+      actor: system_actor(),
+      repo_url: @repo_url,
+      index_asset_name: "serviceradar-wasm-plugin-index.json",
+      github_token: "test-token",
+      trusted_upload_signing_keys: trusted_keys,
+      limit: 10
+    ]
 
     assert {:ok, %{imported: 1, failed: []}} = Packages.sync_first_party_plugins(opts)
 
@@ -308,6 +320,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     packages = Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
     assert [%PluginPackage{} = package] = packages
     assert package.source_type == :first_party
+    assert package.source_repo_url == @repo_url
     assert package.source_release_tag == "v1.0.1"
     assert package.source_bundle_digest == Storage.sha256(first_party_bundle())
     assert Storage.blob_exists?(package.wasm_object_key)
@@ -651,6 +664,9 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   end
 
   def first_party_release(tag \\ "v1.0.1") do
+    index_url =
+      "https://github.com/carverauto/serviceradar/releases/download/#{tag}/serviceradar-wasm-plugin-index.json"
+
     %{
       "tag_name" => tag,
       "name" => "ServiceRadar #{tag}",
@@ -658,8 +674,8 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
       "assets" => [
         %{
           "name" => "serviceradar-wasm-plugin-index.json",
-          "browser_download_url" =>
-            "https://github.com/carverauto/serviceradar/releases/download/#{tag}/serviceradar-wasm-plugin-index.json"
+          "url" => index_url,
+          "browser_download_url" => index_url
         }
       ]
     }

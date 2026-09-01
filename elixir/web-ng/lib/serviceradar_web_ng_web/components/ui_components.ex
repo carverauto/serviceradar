@@ -273,6 +273,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
     """
   end
 
+  attr :id, :string, default: nil
   attr :class, :any, default: nil
   attr :header_class, :any, default: nil
   attr :body_class, :any, default: nil
@@ -286,10 +287,13 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       No overflow-hidden on the section: it clips absolute menus (row ⋮ actions).
       Radius still clips painted backgrounds via border-radius + background.
     --%>
-    <section class={[
-      "relative rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface",
-      @class
-    ]}>
+    <section
+      id={@id}
+      class={[
+        "relative rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface",
+        @class
+      ]}
+    >
       <header
         :if={@header != []}
         class={[
