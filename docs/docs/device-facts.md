@@ -11,6 +11,10 @@ this endpoint. Composite service checks consume these facts as
 verdict such as "isolation is observed AND the access-control
 configuration that enforces it is applied".
 
+This endpoint is addressed by the canonical `sr:` device UID. A caller that
+knows only an address can obtain one with [Resolve a Device
+Identity](./identity-resolve.md).
+
 After writing facts, kick a targeted re-probe and read that verdict
 through [Composite Check Validation Runs](./validation-runs.md).
 

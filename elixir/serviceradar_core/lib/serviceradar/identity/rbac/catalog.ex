@@ -194,6 +194,18 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @operator_roles
         },
         %{
+          key: "identity.resolve",
+          section: "devices",
+          resource: "devices.identity",
+          action: "resolve",
+          label: "Resolve a device identity from an address",
+          description:
+            "Look up the device uid at an IP and partition, without probing it. Separate " <>
+              "from validation_runs.execute so a caller that needs an id does not need " <>
+              "the right to start scans. Reveals less than viewing the inventory does.",
+          default_roles: @all_roles
+        },
+        %{
           key: "devices.import",
           section: "devices",
           resource: "devices",

@@ -1,18 +1,19 @@
 ## 1. Route and controller
-- [ ] 1.1 Add `GET /api/v1/identity/resolve` taking an address, a partition and an
+- [x] 1.1 Add `GET /api/v1/identity/resolve` taking an address, a partition and an
   optional MAC, returning the uid.
-- [ ] 1.2 Add `POST /api/v1/identity/resolve` taking the `devices` list shape that
+- [x] 1.2 Add `POST /api/v1/identity/resolve` taking the `devices` list shape that
   validation runs already accept.
-- [ ] 1.3 Call the existing resolver unchanged; do not reimplement its rules.
-- [ ] 1.4 Map its outcomes to distinct responses: resolved, malformed address, not found,
+- [x] 1.3 Call the existing resolver unchanged; do not reimplement its rules.
+- [x] 1.4 Map its outcomes to distinct responses: resolved, malformed address, not found,
   ambiguous with candidates, MAC/IP conflict naming both.
-- [ ] 1.5 Report a batch per address, at 200, with each outcome identifying its input.
-- [ ] 1.6 Bound the batch and refuse an over-long one with the limit in the message.
+- [x] 1.5 Report a batch per address, at 200, with each outcome identifying its input.
+- [x] 1.6 Bound the batch and refuse an over-long one with the limit in the message.
 
 ## 2. Authorization
-- [ ] 2.1 Add an `identity.resolve` permission key beside `devices.facts.write`.
-- [ ] 2.2 Gate both routes on it.
-- [ ] 2.3 Grant it explicitly where it is needed; no role inherits it on upgrade.
+- [x] 2.1 Add an `identity.resolve` permission key beside `devices.facts.write`.
+- [x] 2.2 Gate both routes on it.
+- [x] 2.3 Default it to the roles that may already view the inventory, which reveal more
+  than it does; keep it separate from `validation_runs.execute`.
 
 ## 3. Tests
 - [ ] 3.1 A known address resolves; a corroborating MAC is accepted; an unknown MAC is
@@ -32,5 +33,5 @@
   available for callers that want an id and not a probe.
 
 ## 5. Confirm before building
-- [ ] 5.1 Settle the batch bound.
-- [ ] 5.2 Confirm the response carries the uid and echoes its input, and nothing more.
+- [x] 5.1 Batch bound is 128, matching the ceiling validation runs already apply.
+- [x] 5.2 The response carries the uid and echoes ip and partition, nothing more.

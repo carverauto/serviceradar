@@ -85,6 +85,8 @@ to execute a validation run.
 - **THEN** the request SHALL be refused
 - **AND** it SHALL NOT reveal whether a device exists at that address
 
-#### Scenario: Existing callers do not silently gain it
+#### Scenario: It defaults with the inventory reads it is weaker than
 - **WHEN** the permission catalog is upgraded
-- **THEN** no existing role SHALL acquire identity resolution implicitly
+- **THEN** identity resolution SHALL default to the roles that may already view the device
+  inventory
+- **AND** it SHALL NOT default to any role that may not

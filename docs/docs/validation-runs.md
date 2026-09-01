@@ -13,6 +13,9 @@ Callers do not need the canonical `sr:` device UID. Send IP plus partition
 (and optionally MAC). Identity is resolved in the create request; probes
 and evaluation are polled.
 
+To obtain a UID without starting a run — no probe, no check to name — use
+[Resolve a Device Identity](./identity-resolve.md) instead.
+
 This API is a general HTTP contract. Any client that can POST JSON and
 poll can use it.
 

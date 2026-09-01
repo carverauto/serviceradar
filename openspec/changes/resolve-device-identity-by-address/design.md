@@ -77,8 +77,16 @@ device inventory than to launching probes across a fleet, and a telemetry produc
 should never start a validation run will need exactly this.
 
 So `identity.resolve`, in the `devices` section of the catalog beside `devices.facts.write`.
-An existing NCO service account gets it explicitly rather than inheriting it, so nothing
-silently gains a capability on upgrade.
+
+It defaults to the same roles as `devices.view`, which is every role. That looked wrong
+until the two were compared: `devices.view` lists the whole inventory with each device's
+address and uid, so anyone holding it can already build this mapping by hand. Resolving one
+address returns strictly less than that. Withholding it by default would not protect
+anything, and would leave the endpoint unusable until someone hand-granted a permission
+weaker than one they already had.
+
+The separation that matters is from `validation_runs.execute`, and that is kept: a caller
+may resolve without being able to start probes across a fleet.
 
 ## Risks / Trade-offs
 
