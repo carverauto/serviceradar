@@ -203,9 +203,25 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
     end
   end
 
+  # Mirrors fetch_artifact/2, which tries bundle_url BEFORE oci_ref. Requiring
+  # oci_ref here meant a third-party repository could never produce an
+  # import-ready entry: the release-asset path documented in wasm-plugins.md
+  # publishes bundle_url and upload_signature_url and has no OCI reference at
+  # all, so its entries were fetchable but permanently filtered out, reported as
+  # "scanned N releases, but no import-ready plugin entries were found".
+  #
+  # upload_signature_url is required for the direct path rather than optional,
+  # because fetch_direct_artifact/2 fails without it - treating such an entry as
+  # ready would move the failure from discovery to import, where it reads as a
+  # broken bundle instead of an incomplete index.
   defp import_ready_entry?(entry) do
-    entry_value(entry, "oci_ref") not in [nil, ""] and
-      entry_value(entry, "bundle_digest") not in [nil, ""]
+    entry_value(entry, "bundle_digest") not in [nil, ""] and
+      (direct_artifact_entry?(entry) or entry_value(entry, "oci_ref") not in [nil, ""])
+  end
+
+  defp direct_artifact_entry?(entry) do
+    entry_value(entry, "bundle_url") not in [nil, ""] and
+      entry_value(entry, "upload_signature_url") not in [nil, ""]
   end
 
   defp fetch_release_index(repo, release, attrs) do

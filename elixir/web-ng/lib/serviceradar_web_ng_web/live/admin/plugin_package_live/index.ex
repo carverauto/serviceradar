@@ -2004,9 +2004,21 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                  else: "ghp_… (stored encrypted)"
             }
           />
+          <%!--
+            The hint has to differ for a new repository. "Leave blank to keep
+            the stored token" is true when editing and actively misleading when
+            creating: there is nothing stored, so blank stores nothing, and a
+            private repository then fails with a 404 that reads as a missing
+            release rather than a missing credential.
+          --%>
           <span class="mt-1 block text-xs text-sr-muted">
             A fine-grained token with read-only Contents access to this repository is enough.
-            Leave blank to keep the stored token.
+            <%= if @editing_repository_id &&
+                     repository_credential_attached?(@plugin_repositories, @editing_repository_id) do %>
+              Leave blank to keep the stored token.
+            <% else %>
+              A private repository needs one: without it GitHub answers 404, the same as a missing release.
+            <% end %>
           </span>
         </label>
 
