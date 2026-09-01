@@ -72,6 +72,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.ChartPanel do
                 data-points={@netflow_chart_points_json}
                 data-colors={@netflow_chart_colors_json}
                 data-overlays={@netflow_chart_overlays_json || "[]"}
+                data-timezone={@timezone}
               >
                 <svg class="w-full h-full"></svg>
               </div>
@@ -84,6 +85,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.ChartPanel do
                 data-keys={@netflow_chart_keys_json}
                 data-points={@netflow_chart_points_json}
                 data-colors={@netflow_chart_colors_json}
+                data-timezone={@timezone}
               >
                 <svg class="w-full h-full"></svg>
               </div>
@@ -96,6 +98,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.ChartPanel do
                 data-keys={@netflow_chart_keys_json}
                 data-points={@netflow_chart_points_json}
                 data-colors={@netflow_chart_colors_json}
+                data-timezone={@timezone}
               >
                 <svg class="w-full h-full"></svg>
               </div>
@@ -109,6 +112,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.ChartPanel do
                 data-points={@netflow_chart_points_json}
                 data-colors={@netflow_chart_colors_json}
                 data-overlays={@netflow_chart_overlays_json || "[]"}
+                data-timezone={@timezone}
               >
                 <svg class="w-full h-full"></svg>
               </div>

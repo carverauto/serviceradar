@@ -44,6 +44,17 @@ package(default_visibility = ["//visibility:public"])
 # filegroup membership would break the test the moment one of those globs is reorganised.
 exports_files(["config/config.exs"])
 
+# Standalone HEEx templates scanned at runtime by TimestampFormatterInventoryTest.
+# Keep this a named input so a broad unit-test data-glob refactor cannot silently
+# remove production templates from the audit.
+filegroup(
+    name = "timestamp_formatter_audit_heex_srcs",
+    srcs = glob(
+        ["lib/**/*.heex"],
+        allow_empty = True,
+    ),
+)
+
 filegroup(
     name = "srcs",
     srcs = glob(
@@ -359,15 +370,38 @@ ex_unit_tests(
             "test/**",
         ],
         allow_empty = True,
-        exclude = ["test/**/*_test.exs"],
+        exclude = [
+            # Named explicitly below as an audit runfile.
+            "lib/**/*.heex",
+            "test/**/*_test.exs",
+            # Named explicitly below so the timestamp audit cannot lose its
+            # checked classification artifact in a broad data-glob refactor.
+            "test/fixtures/timestamp_formatter_inventory.json",
+        ],
     ) + [
+        # Runtime inputs for ContractRegistryTest's actual first-party package
+        # reachability checks. mix_app compile inputs do not automatically become
+        # an ex_unit_test's runfiles.
+        "//addons/anomaly-addon:anomaly_manifest",
+        "//addons/powerdns:powerdns_manifest",
         # assets/ is its own package; glob() here cannot see css/app.css.
         # DashboardLayoutTest reads it at runtime.
         "//elixir/web-ng/assets:css/app.css",
+        # TimestampFormatterInventoryTest scans production JavaScript at runtime.
+        # assets/ is a separate package, so these sources must be explicit runfiles.
+        "//elixir/web-ng/assets:timestamp_formatter_audit_js_srcs",
+        ":timestamp_formatter_audit_heex_srcs",
+        "test/fixtures/timestamp_formatter_inventory.json",
         # PluginConfigFormTest reads the live OpenText schema via Path.expand
         # from __DIR__. ex_unit_test mirrors the workspace layout, so this
         # declared input is what makes that relative path exist in the sandbox.
         "//go/cmd/wasm-plugins/opentext-nom:config.schema.json",
+        "//go/cmd/wasm-plugins/axis:srcs",
+        "//go/cmd/wasm-plugins/proxmox:srcs",
+        "//go/cmd/wasm-plugins/unifi-protect:srcs",
+        # TimezoneMigrationTest asserts on the generated core migration, so its
+        # cross-package source must be in runfiles.
+        "//elixir/serviceradar_core:migrations",
     ],
     # web-ng already defines a database-free tier: with ALLOW_DB_FREE_TESTS set and neither
     # CI nor REQUIRE_DB_TESTS, test_helper.exs skips Application.ensure_all_started and runs
@@ -382,15 +416,36 @@ ex_unit_tests(
     deps = [":erlang_app"],
 )
 
-# The database-free unit target above deliberately excludes this file. Run it after the
-# ordinary serviceradar_core integration lanes, when serial_0 is quiescent but still exists,
-# so the guarded CI lifecycle gains coverage without provisioning another database or raising
-# the observer's peak connection budget. This target is manual because Bazel cannot express
-# its required ordering relative to the core lanes and fixture teardown.
+# The database-free unit target above deliberately excludes the tagged cases in these files.
+# Run them after the ordinary serviceradar_core integration lanes, when serial_0 is quiescent
+# but still exists, so the guarded CI lifecycle gains focused coverage without provisioning
+# another database or raising the observer's peak connection budget. This target is manual
+# because Bazel cannot express its required ordering relative to the core lanes and fixture
+# teardown. Its helper selects only `:web_ng_shared_fixture_db`; adding a source alone does not
+# silently opt every pre-existing case in that file into this lane.
 ex_unit_test(
     name = "networks_live_db_test",
     size = "enormous",
-    srcs = ["test/phoenix/live/settings/networks_live_test.exs"],
+    srcs = [
+        "test/app_domain/dashboards/report_jobs_test.exs",
+        "test/phoenix/controllers/api/api_endpoint_integration_test.exs",
+        "test/phoenix/live/alert_live/show_test.exs",
+        "test/phoenix/live/authored_dashboard_live_test.exs",
+        "test/phoenix/live/camera_analysis_worker_live_test.exs",
+        "test/phoenix/live/device_live_test.exs",
+        "test/phoenix/live/event_live/show_test.exs",
+        "test/phoenix/live/log_live/index_test.exs",
+        "test/phoenix/live/log_live/netflows_test.exs",
+        "test/phoenix/live/log_live/show_test.exs",
+        "test/phoenix/live/metric_live/timestamp_rendering_test.exs",
+        "test/phoenix/live/security_dashboard_routes_test.exs",
+        "test/phoenix/live/settings/networks_live_test.exs",
+        "test/phoenix/live/settings/notifications_live_test.exs",
+        "test/phoenix/live/trace_live/show_test.exs",
+        "test/phoenix/live/user_live/settings_test.exs",
+        "test/serviceradar/identity/timezone_migration_db_test.exs",
+        "test/serviceradar/identity/timezone_preference_test.exs",
+    ],
     data = glob(
         [
             "config/**",

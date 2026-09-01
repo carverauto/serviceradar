@@ -47,6 +47,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
             mikrotik={@mapper_mikrotik}
             mapper_command_statuses={@mapper_command_statuses}
             can_manage_networks={@can_manage_networks}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
         <% else %>
           <%= if @show_form in [:new_group, :edit_group] do %>
@@ -77,6 +78,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                 <.group_detail
                   group={@selected_group}
                   summary_agents={@sweep_group_summary_agents}
+                  timezone={@current_scope.user.timezone || "Etc/UTC"}
                 />
               <% else %>
                 <Navigation.render
@@ -93,6 +95,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                       summary_agents={@sweep_group_summary_agents}
                       sweep_command_statuses={@sweep_command_statuses}
                       can_manage_networks={@can_manage_networks}
+                      timezone={@current_scope.user.timezone || "Etc/UTC"}
                     />
                   <% :profiles -> %>
                     <Profiles.render profiles={@sweep_profiles} />
@@ -102,6 +105,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                       recent={@recent_executions}
                       groups={@sweep_groups}
                       execution_progress={@execution_progress}
+                      timezone={@current_scope.user.timezone || "Etc/UTC"}
                     />
                   <% :cleanup -> %>
                     <InventoryCleanup.render form={@cleanup_form} settings={@cleanup_settings} />

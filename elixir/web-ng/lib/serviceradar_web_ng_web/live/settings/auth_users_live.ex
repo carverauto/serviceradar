@@ -257,7 +257,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
                         </.ui_badge>
                       </td>
                       <td class="text-xs font-mono opacity-70 whitespace-nowrap">
-                        {format_last_activity(user)}
+                        <.user_time
+                          id={"settings-auth-user-#{user.id}-last-activity"}
+                          value={last_activity_at(user)}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                          fallback="—"
+                        />
                       </td>
                       <td class="text-right">
                         <%= if show_actions_menu?(user, @active_admin_count) do %>
@@ -468,32 +474,31 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthUsersLive do
     end
   end
 
-  defp format_last_activity(user) do
+  defp last_activity_at(user) do
     [user.last_login_at, user.authenticated_at]
     |> Enum.find(fn value -> not is_nil(value) end)
-    |> format_datetime()
+    |> canonical_datetime()
   end
 
-  defp format_datetime(nil), do: "—"
+  defp canonical_datetime(nil), do: nil
 
-  defp format_datetime(value) when is_binary(value) do
+  defp canonical_datetime(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
-      {:ok, dt, _} -> Calendar.strftime(dt, "%b %d, %Y %H:%M")
-      _ -> format_naive_datetime(value)
+      {:ok, dt, _} -> dt
+      _ -> canonical_naive_datetime(value)
     end
   end
 
-  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%b %d, %Y %H:%M")
+  defp canonical_datetime(%DateTime{} = dt), do: dt
 
-  defp format_datetime(%NaiveDateTime{} = dt),
-    do: Calendar.strftime(DateTime.from_naive!(dt, "Etc/UTC"), "%b %d, %Y %H:%M")
+  defp canonical_datetime(%NaiveDateTime{} = dt), do: DateTime.from_naive!(dt, "Etc/UTC")
 
-  defp format_datetime(_), do: "—"
+  defp canonical_datetime(_), do: nil
 
-  defp format_naive_datetime(value) when is_binary(value) do
+  defp canonical_naive_datetime(value) when is_binary(value) do
     case NaiveDateTime.from_iso8601(value) do
-      {:ok, ndt} -> Calendar.strftime(DateTime.from_naive!(ndt, "Etc/UTC"), "%b %d, %Y %H:%M")
-      _ -> "—"
+      {:ok, ndt} -> DateTime.from_naive!(ndt, "Etc/UTC")
+      _ -> nil
     end
   end
 

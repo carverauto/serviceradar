@@ -284,7 +284,12 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
                       </td>
                       <td><.status_badge status={Map.get(gateway, :status)} /></td>
                       <td class="text-xs text-sr-muted">
-                        {format_timestamp(Map.get(gateway, :last_heartbeat))}
+                        <.user_time
+                          id={"admin-cluster-gateway-#{dom_id_segment(Map.get(gateway, :partition_id, "unknown"))}-last-heartbeat"}
+                          value={Map.get(gateway, :last_heartbeat)}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:time}
+                        />
                       </td>
                     </tr>
                   <% end %>
@@ -340,7 +345,12 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
                       </td>
                       <td><.status_badge status={Map.get(agent, :status)} /></td>
                       <td class="text-xs text-sr-muted">
-                        {format_timestamp(Map.get(agent, :connected_at))}
+                        <.user_time
+                          id={"admin-cluster-agent-#{dom_id_segment(Map.get(agent, :agent_id, "unknown"))}-connected-at"}
+                          value={Map.get(agent, :connected_at)}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:time}
+                        />
                       </td>
                     </tr>
                   <% end %>
@@ -377,7 +387,14 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
                     <td class="font-mono text-xs">
                       {event_details(event)}
                     </td>
-                    <td class="text-xs font-mono">{format_timestamp(event.timestamp)}</td>
+                    <td class="text-xs font-mono">
+                      <.user_time
+                        id={"admin-cluster-event-#{cluster_event_dom_id(event)}-timestamp"}
+                        value={event.timestamp}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:time}
+                      />
+                    </td>
                   </tr>
                 <% end %>
               </tbody>
@@ -529,13 +546,18 @@ defmodule ServiceRadarWebNGWeb.Admin.ClusterLive.Index do
   defp format_node(node) when is_atom(node), do: to_string(node)
   defp format_node(node), do: to_string(node)
 
-  defp format_timestamp(nil), do: "—"
-
-  defp format_timestamp(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%H:%M:%S")
+  defp cluster_event_dom_id(%{timestamp: %DateTime{} = timestamp} = event) do
+    identity = Map.get(event, :node) || Map.get(event, :agent_id) || "unknown"
+    "#{event.type}-#{dom_id_segment(identity)}-#{DateTime.to_unix(timestamp, :microsecond)}"
   end
 
-  defp format_timestamp(_), do: "—"
+  defp cluster_event_dom_id(event), do: dom_id_segment(inspect(event))
+
+  defp dom_id_segment(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^A-Za-z0-9_-]/u, "-")
+  end
 
   defp event_details(%{type: :node_up, node: node}), do: to_string(node)
   defp event_details(%{type: :node_down, node: node}), do: to_string(node)

@@ -1,6 +1,6 @@
 {
   "id": "com.carverauto.falco.runtime_event.display",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "schema_id": "com.carverauto.falco.runtime_event",
   "schema_version": "1.0.0",
   "widgets": [
@@ -47,8 +47,8 @@
     {
       "type": "timeline",
       "fields": [
-        {"label": "Event Time", "path": "metadata.security_signal.diagnostics.event.time"},
-        {"label": "Observed", "path": "time"}
+        {"label": "Event Time", "path": "metadata.security_signal.diagnostics.event.time", "format": "unix_nano"},
+        {"label": "Observed", "path": "time", "format": "timestamp"}
       ]
     },
     {

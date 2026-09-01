@@ -290,7 +290,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
                     </td>
                     <td>{source_label(host_key.source)}</td>
                     <td>{host_key.seen_count}</td>
-                    <td>{format_datetime(host_key.last_seen_at)}</td>
+                    <td>
+                      <.user_time
+                        id={"settings-remote-access-host-key-#{host_key.id}-last-seen-at"}
+                        value={host_key.last_seen_at}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="-"
+                      />
+                    </td>
                     <td class="text-right">
                       <div class="flex flex-wrap justify-end gap-2">
                         <.ui_button
@@ -513,10 +521,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLive do
   defp status_badge_variant(:revoked), do: "ghost"
   defp status_badge_variant(:rejected), do: "ghost"
   defp status_badge_variant(_status), do: "ghost"
-
-  defp format_datetime(nil), do: "-"
-  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-  defp format_datetime(value), do: inspect(value)
 
   defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
   defp format_error(%Ash.Error.Forbidden{} = error), do: Exception.message(error)

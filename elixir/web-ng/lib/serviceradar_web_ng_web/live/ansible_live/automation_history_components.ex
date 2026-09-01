@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
   use ServiceRadarWebNGWeb, :html
 
   attr :bundle, :map, required: true
+  attr :timezone, :string, default: "Etc/UTC"
 
   def operation_detail(assigns) do
     ~H"""
@@ -63,9 +64,24 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
 
           <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
             <.evidence_card label="Target digest" value={@bundle.operation.target_digest} mono />
-            <.evidence_card label="Created" value={format_timestamp(@bundle.operation.inserted_at)} />
-            <.evidence_card label="Started" value={format_timestamp(@bundle.operation.started_at)} />
-            <.evidence_card label="Ended" value={format_timestamp(@bundle.operation.ended_at)} />
+            <.evidence_time_card
+              id={"ansible-operation-#{@bundle.operation.id}-created-at"}
+              label="Created"
+              value={@bundle.operation.inserted_at}
+              timezone={@timezone}
+            />
+            <.evidence_time_card
+              id={"ansible-operation-#{@bundle.operation.id}-started-at"}
+              label="Started"
+              value={@bundle.operation.started_at}
+              timezone={@timezone}
+            />
+            <.evidence_time_card
+              id={"ansible-operation-#{@bundle.operation.id}-ended-at"}
+              label="Ended"
+              value={@bundle.operation.ended_at}
+              timezone={@timezone}
+            />
           </div>
 
           <.diagnostics entries={@bundle.operation.diagnostics} subject="Operation" />
@@ -92,13 +108,18 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
           <span>No child execution evidence has been persisted for this operation.</span>
         </div>
 
-        <.execution_card :for={execution <- @bundle.executions} execution={execution} />
+        <.execution_card
+          :for={execution <- @bundle.executions}
+          execution={execution}
+          timezone={@timezone}
+        />
       </section>
     </div>
     """
   end
 
   attr :execution, :map, required: true
+  attr :timezone, :string, required: true
 
   defp execution_card(assigns) do
     ~H"""
@@ -146,8 +167,18 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
             value={@execution.awx_job_id || "Not bound"}
             mono
           />
-          <.evidence_card label="Started" value={format_timestamp(@execution.started_at)} />
-          <.evidence_card label="Ended" value={format_timestamp(@execution.ended_at)} />
+          <.evidence_time_card
+            id={"ansible-execution-#{@execution.id}-started-at"}
+            label="Started"
+            value={@execution.started_at}
+            timezone={@timezone}
+          />
+          <.evidence_time_card
+            id={"ansible-execution-#{@execution.id}-ended-at"}
+            label="Ended"
+            value={@execution.ended_at}
+            timezone={@timezone}
+          />
         </div>
 
         <div
@@ -161,9 +192,13 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
             <p class="font-medium">Exact controller scope verified</p>
             <p class="text-sm">
               AWX job, inventory, literal limit, immutable revision, execution environment, credentials,
-              dispatch markers, and returned host IDs matched at {format_timestamp(
-                @execution.scope_verified_at
-              )}.
+              dispatch markers, and returned host IDs matched at
+              <.user_time
+                id={"ansible-execution-#{@execution.id}-scope-verified-at"}
+                value={@execution.scope_verified_at}
+                timezone={@timezone}
+                style={:compact}
+              />.
             </p>
           </div>
         </div>
@@ -358,6 +393,26 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
     """
   end
 
+  attr :id, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :any, required: true
+  attr :timezone, :string, required: true
+
+  defp evidence_time_card(assigns) do
+    ~H"""
+    <div class="rounded-sr-surface border border-sr-line p-3 min-w-0">
+      <p class="text-xs uppercase tracking-wide text-sr-muted">{@label}</p>
+      <.user_time
+        id={@id}
+        value={@value}
+        timezone={@timezone}
+        style={:compact}
+        class="mt-1 text-sm break-all"
+      />
+    </div>
+    """
+  end
+
   @doc false
   def state_badge_classes(state) do
     ["badge", "badge-sm", state_badge_class(state)]
@@ -367,15 +422,6 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents do
   def target_badge_classes(status) do
     ["badge", "badge-sm", target_badge_class(status)]
   end
-
-  @doc false
-  def format_timestamp(nil), do: "—"
-
-  def format_timestamp(%DateTime{} = timestamp) do
-    Calendar.strftime(timestamp, "%Y-%m-%d %H:%M:%S UTC")
-  end
-
-  def format_timestamp(_timestamp), do: "—"
 
   defp state_alert_content(:dispatch_partial) do
     %{

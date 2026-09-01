@@ -169,9 +169,11 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                         </td>
                         <td class="text-sm">
                           <%= if client.last_used_at do %>
-                            <span title={DateTime.to_iso8601(client.last_used_at)}>
-                              {format_relative_time(client.last_used_at)}
-                            </span>
+                            <.last_used_time
+                              id={"api-credential-#{client.id}-last-used-at"}
+                              value={client.last_used_at}
+                              timezone={@current_scope.user.timezone || "Etc/UTC"}
+                            />
                           <% else %>
                             <span class="text-sr-muted">Never</span>
                           <% end %>
@@ -670,6 +672,30 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
 
   defp status_label(_), do: "Active"
 
+  attr(:id, :string, required: true)
+  attr(:value, :any, required: true)
+  attr(:timezone, :string, required: true)
+
+  defp last_used_time(assigns) do
+    assigns = assign(assigns, :display, format_relative_time(assigns.value))
+
+    ~H"""
+    <%= case @display do %>
+      <% {:absolute, value} -> %>
+        <.user_time id={@id} value={value} timezone={@timezone} style={:date} />
+      <% relative -> %>
+        <span>{relative}</span>
+        <.user_time
+          id={@id}
+          value={@value}
+          timezone={@timezone}
+          style={:full}
+          class="sr-only"
+        />
+    <% end %>
+    """
+  end
+
   defp format_relative_time(datetime) do
     diff = DateTime.diff(DateTime.utc_now(), datetime, :second)
 
@@ -678,7 +704,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
       diff < 3600 -> "#{div(diff, 60)} min ago"
       diff < 86_400 -> "#{div(diff, 3600)} hours ago"
       diff < 604_800 -> "#{div(diff, 86_400)} days ago"
-      true -> Calendar.strftime(datetime, "%b %d, %Y")
+      true -> {:absolute, datetime}
     end
   end
 end

@@ -87,7 +87,7 @@ function key(key, shiftKey = false) {
   return {key, preventDefault: vi.fn(), shiftKey, type: "keydown"}
 }
 
-function rangeElement({buckets = initialBuckets, eventName = "select_events_range"} = {}) {
+function rangeElement({buckets = initialBuckets, eventName = "select_events_range", timeZone = "Etc/UTC"} = {}) {
   const svg = eventTarget({viewBox: "0 0 640 160"})
   svg.getBoundingClientRect = () => ({left: 0, width: 640})
   const overlay = eventTarget()
@@ -95,6 +95,7 @@ function rangeElement({buckets = initialBuckets, eventName = "select_events_rang
   const root = eventTarget({
     "data-range-buckets": JSON.stringify(buckets),
     "data-range-event": eventName,
+    "data-timezone": timeZone,
     "data-chart-left-pad": "36",
     "data-chart-right-pad": "24",
     "data-chart-width": "640",
@@ -105,6 +106,7 @@ function rangeElement({buckets = initialBuckets, eventName = "select_events_rang
     chartWidth: "640",
     rangeBuckets: JSON.stringify(buckets),
     rangeEvent: eventName,
+    timezone: timeZone,
   }
 
   root.querySelector = (selector) => {
@@ -160,6 +162,21 @@ describe("ChartRangeSelection hook", () => {
     expect(overlay.getAttribute("x")).toBe("36")
     expect(overlay.getAttribute("width")).toBe("580")
     expect(overlay.classList.contains("hidden")).toBe(false)
+  })
+
+  it("localizes accessible status in the selected zone while emitting canonical UTC bounds", () => {
+    const {pushEvent, status, svg} = mount({timeZone: "America/Chicago"})
+
+    drag(svg, 36, 616)
+
+    expect(status.textContent).toContain("GMT-5")
+    expect(status.textContent).toContain("display zone America/Chicago")
+    expect(status.textContent).toContain("2026-08-27T10:00:00Z")
+    expect(status.textContent).toContain("2026-08-27T13:59:59.999999Z")
+    expect(pushEvent).toHaveBeenCalledWith("select_events_range", {
+      start: "2026-08-27T10:00:00Z",
+      end: "2026-08-27T13:59:59.999999Z",
+    })
   })
 
   it("renders the same overlay for a forward drag", () => {

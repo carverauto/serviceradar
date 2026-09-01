@@ -4,7 +4,7 @@ Bazel builds and tests everything here. `go build` and `go test` still work for 
 iteration, but they are not the contract: the binaries that ship come out of the Bazel graph,
 and CI only ever runs Bazel. When the two disagree, Bazel is right.
 
-The tree holds 89 `go_library` targets, 16 `go_binary` targets and 51 test targets across
+The tree holds 75 `go_library` targets, 18 `go_binary` targets and 58 test targets across
 roughly 100 `BUILD.bazel` files.
 
 ## 1. Layout
@@ -33,9 +33,10 @@ go/tools/wasm-plugin-harness
 
 This trips people up, so be clear about what it means. `go test ./...` from the repo root does
 not reach those ten; `go list ./go/cmd/wasm-plugins/...` reports "matched no packages". Their
-tests are not part of the Go test surface at all, and no Bazel target runs them either. Roughly
-300 test functions live there without a gate. If you touch a Wasm plugin, run its tests from
-inside its own directory.
+full suites are not part of the root Go test surface. Bazel has focused signal-contract tests
+for Axis, Proxmox, and UniFi Protect, but roughly 300 other test functions in the nested modules
+still live outside that gate. If you touch a Wasm plugin, run its tests from inside its own
+directory in addition to any focused Bazel target.
 
 The separation is deliberate. Each plugin declares itself under `contrib/plugins/go/`, not
 under the root module path, because it models what an external author writes against the

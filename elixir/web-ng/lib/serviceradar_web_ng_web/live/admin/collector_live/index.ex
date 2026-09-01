@@ -382,7 +382,12 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                         <% end %>
                       </td>
                       <td class="text-xs text-sr-muted">
-                        {format_datetime(package.inserted_at)}
+                        <.user_time
+                          id={"admin-collector-package-#{package.id}-inserted-at"}
+                          value={package.inserted_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                        />
                       </td>
                       <td>
                         <div class="flex gap-1">
@@ -447,8 +452,22 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
                       <td>
                         <.status_badge status={cred.status} size="xs" />
                       </td>
-                      <td class="text-xs">{format_datetime(cred.issued_at)}</td>
-                      <td class="text-xs">{format_datetime(cred.expires_at)}</td>
+                      <td class="text-xs">
+                        <.user_time
+                          id={"admin-collector-credential-#{cred.id}-issued-at"}
+                          value={cred.issued_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                        />
+                      </td>
+                      <td class="text-xs">
+                        <.user_time
+                          id={"admin-collector-credential-#{cred.id}-expires-at"}
+                          value={cred.expires_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                        />
+                      </td>
                     </tr>
                   <% end %>
                 </tbody>
@@ -470,6 +489,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       <.details_modal
         :if={@show_details_modal}
         package={@selected_package}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
       />
     </Layouts.app>
     """
@@ -698,6 +718,9 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
     """
   end
 
+  attr :package, :map, required: true
+  attr :timezone, :string, required: true
+
   defp details_modal(assigns) do
     ~H"""
     <.ui_modal id="details_modal" on_cancel="close_details_modal">
@@ -727,7 +750,13 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
           </div>
           <div>
             <div class="text-xs uppercase tracking-wide text-sr-muted">Created</div>
-            <span class="text-sm">{format_datetime(@package.inserted_at)}</span>
+            <.user_time
+              id={"admin-collector-package-#{@package.id}-detail-inserted-at"}
+              value={@package.inserted_at}
+              timezone={@timezone}
+              style={:compact}
+              class="text-sm"
+            />
           </div>
         </div>
 
@@ -973,18 +1002,6 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLive.Index do
       %{user: user} when not is_nil(user) -> user
       _ -> nil
     end
-  end
-
-  defp format_datetime(nil), do: "-"
-
-  defp format_datetime(%NaiveDateTime{} = dt) do
-    dt
-    |> DateTime.from_naive!("Etc/UTC")
-    |> format_datetime()
-  end
-
-  defp format_datetime(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
   end
 
   defp collector_config_filename("flowgger"), do: "flowgger.toml"

@@ -52,7 +52,10 @@ rust_test(
     # fj#4383: core-emitted config_json contract fixture, include_str!'d by
     # src/config.rs's contract test (regenerated via
     # `mix serviceradar.gen.addon_contract_fixtures`).
-    compile_data = ["//go/pkg/agent:addonconfig_contract_fixtures"],
+    compile_data = [
+        "//addons/anomaly-addon:anomaly_manifest",
+        "//go/pkg/agent:addonconfig_contract_fixtures",
+    ],
     crate = ":serviceradar_anomaly_addon",
     deps = all_crate_deps(
         cargo_only = True,

@@ -7,7 +7,7 @@
 # serviceradar-agent.
 id: powerdns
 name: PowerDNS DNS Telemetry
-version: 0.1.6
+version: 0.1.7
 description: >-
   Local PowerDNS protobuf receiver that maps RPZ policy hits to OCSF DNS
   Activity events and forwards them through the authenticated ServiceRadar agent
@@ -47,6 +47,6 @@ signal_schemas:
     payload_schema: schemas/dns_activity.schema.json
     display_contract: display/dns_activity.display.json
     display_contract_id: com.carverauto.powerdns.dns_activity.display
-    display_contract_version: 1.0.0
+    display_contract_version: 1.1.0
     ocsf_schema_version: 1.5.0
     class_uid: 4003

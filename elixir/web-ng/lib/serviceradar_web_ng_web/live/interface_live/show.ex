@@ -591,7 +591,11 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
                     module={panel.plugin}
                     id={"interface-detail-metrics-#{@interface_uid}-#{panel.id}-#{idx}"}
                     title={panel.title || "Metrics"}
-                    panel_assigns={Map.put(panel.assigns, :compact, false)}
+                    panel_assigns={
+                      panel.assigns
+                      |> Map.put(:compact, false)
+                      |> Map.put(:timezone, @current_scope.user.timezone)
+                    }
                   />
                 <% end %>
               </div>
@@ -605,6 +609,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Show do
             entries={@northbound_history}
             error={@northbound_history_error}
             empty_message="No action invocations have been recorded for this interface yet."
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
 
           <%!-- Properties Grid --%>

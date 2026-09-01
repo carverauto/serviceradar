@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.View do
   alias ServiceRadarWebNGWeb.ServiceLive.Show.HistoryTable
 
   def render(assigns) do
+    assigns = assign(assigns, :timezone, user_timezone(assigns[:current_scope]))
+
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-5xl p-6">
@@ -57,7 +59,14 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.View do
                   <span class="font-semibold">Partition:</span> {Map.get(@service, "partition") || "—"}
                 </div>
                 <div>
-                  <span class="font-semibold">Observed:</span> {Map.get(@service, "timestamp") || "—"}
+                  <span class="font-semibold">Observed:</span>
+                  <.user_time
+                    id={"service-detail-#{service_entry_id(@service)}-observed-at"}
+                    value={Service.timestamp(@service)}
+                    timezone={@timezone}
+                    style={:full}
+                    fallback={Service.timestamp_fallback(@service)}
+                  />
                 </div>
               </div>
 
@@ -80,6 +89,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.View do
               services={@history}
               page={@history_page}
               per_page={@history_per_page}
+              timezone={@timezone}
             />
           </.ui_panel>
         </div>
@@ -97,4 +107,29 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show.View do
       value -> value
     end
   end
+
+  defp service_entry_id(service) do
+    identity =
+      Map.get(service, "id") ||
+        Map.get(service, "service_id") ||
+        Map.get(service, "uid")
+
+    case dom_id_fragment(identity) do
+      "" -> Integer.to_string(:erlang.phash2(service))
+      fragment -> fragment
+    end
+  end
+
+  defp dom_id_fragment(nil), do: ""
+
+  defp dom_id_fragment(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^A-Za-z0-9_-]+/, "-")
+    |> String.trim("-")
+  end
+
+  defp user_timezone(%{user: %{timezone: timezone}}) when is_binary(timezone) and timezone != "", do: timezone
+
+  defp user_timezone(_current_scope), do: "Etc/UTC"
 end

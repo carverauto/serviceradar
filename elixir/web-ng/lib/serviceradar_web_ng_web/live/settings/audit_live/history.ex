@@ -164,9 +164,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
 
   defp resource_label(module), do: module |> Module.split() |> List.last()
 
-  defp format_dt(nil), do: "—"
-  defp format_dt(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-
   defp truncate_json(nil), do: ""
 
   defp truncate_json(value) when is_binary(value) do
@@ -276,7 +273,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
                     phx-value-id={entry.version.id}
                   >
                     <td class="px-4 py-2 font-mono text-xs whitespace-nowrap">
-                      {format_dt(entry.version.version_inserted_at)}
+                      <.user_time
+                        id={"settings-audit-version-#{entry.version.id}-inserted-at"}
+                        value={entry.version.version_inserted_at}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="—"
+                      />
                     </td>
                     <td class="px-4 py-2">{resource_label(entry.resource)}</td>
                     <td class="px-4 py-2">{entry.version.version_action_type}</td>
@@ -299,9 +302,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
             <div class="space-y-3 rounded-lg border border-sr-line bg-sr-surface p-4">
               <div class="flex items-center justify-between">
                 <h2 class="font-semibold">
-                  {resource_label(@selected_version.resource)} · {@selected_version.version.version_action_type} · {format_dt(
-                    @selected_version.version.version_inserted_at
-                  )}
+                  {resource_label(@selected_version.resource)} · {@selected_version.version.version_action_type} ·
+                  <.user_time
+                    id={"settings-audit-selected-version-#{@selected_version.version.id}-inserted-at"}
+                    value={@selected_version.version.version_inserted_at}
+                    timezone={@current_scope.user.timezone || "Etc/UTC"}
+                    style={:compact}
+                    fallback="—"
+                  />
                 </h2>
                 <button type="button" class="ui-button" phx-click="close-version">Close</button>
               </div>

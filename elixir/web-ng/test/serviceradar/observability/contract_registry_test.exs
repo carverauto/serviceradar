@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
 
   @moduletag :db_free
 
+  @repo_root Path.expand("../../../../..", __DIR__)
+
   @third_party_contract %{
     "id" => "com.thirdparty.widgetworks.alarm.display",
     "version" => "1.0.0",
@@ -82,6 +84,59 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
       }
     }
   }
+
+  @first_party_packages [
+    %{
+      manifest: "addons/anomaly-addon/addon.yaml",
+      package_key: :addon_id,
+      ref: %{
+        "producer_id" => "anomaly",
+        "producer_version" => "0.3.6",
+        "schema_id" => "com.carverauto.anomaly.detection_finding",
+        "schema_version" => "1.0.0"
+      }
+    },
+    %{
+      manifest: "addons/powerdns/addon.yaml",
+      package_key: :addon_id,
+      ref: %{
+        "producer_id" => "powerdns",
+        "producer_version" => "0.1.7",
+        "schema_id" => "com.carverauto.powerdns.dns_activity",
+        "schema_version" => "1.0.0"
+      }
+    },
+    %{
+      manifest: "go/cmd/wasm-plugins/axis/plugin.yaml",
+      package_key: :plugin_id,
+      ref: %{
+        "producer_id" => "axis-camera",
+        "producer_version" => "0.1.3",
+        "schema_id" => "com.carverauto.axis_camera.event_log",
+        "schema_version" => "1.0.0"
+      }
+    },
+    %{
+      manifest: "go/cmd/wasm-plugins/proxmox/plugin.yaml",
+      package_key: :plugin_id,
+      ref: %{
+        "producer_id" => "proxmox-inventory",
+        "producer_version" => "0.1.7",
+        "schema_id" => "com.carverauto.proxmox.resource_event",
+        "schema_version" => "1.0.0"
+      }
+    },
+    %{
+      manifest: "go/cmd/wasm-plugins/unifi-protect/plugin.yaml",
+      package_key: :plugin_id,
+      ref: %{
+        "producer_id" => "unifi-protect-camera",
+        "producer_version" => "0.1.4",
+        "schema_id" => "com.carverauto.unifi_protect.camera_event",
+        "schema_version" => "1.0.0"
+      }
+    }
+  ]
 
   describe "index/1" do
     test "indexes a signal contract under the four-part schema ref" do
@@ -214,6 +269,43 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
       assert %{value: "4"} = Enum.find(facts.fields, &(&1.label == "Zone"))
     end
 
+    test "shipped first-party producer refs resolve their exact package contracts at runtime" do
+      packages = Enum.map(@first_party_packages, &first_party_package/1)
+      install(packages)
+
+      for {spec, package} <- Enum.zip(@first_party_packages, packages) do
+        event = event_with_signal_ref(spec.ref)
+
+        assert package.version == spec.ref["producer_version"]
+
+        assert {:ok, contract, :runtime} =
+                 SignalDisplay.resolve_contract_with_source(event),
+               "#{spec.ref["producer_id"]} did not resolve through its installed package"
+
+        assert contract["version"] == "1.1.0"
+      end
+    end
+
+    test "a producer-version mismatch cannot reach another package revision" do
+      anomaly = Enum.find(@first_party_packages, &(&1.ref["producer_id"] == "anomaly"))
+      install([first_party_package(anomaly)])
+
+      mismatched_ref = Map.put(anomaly.ref, "producer_version", "0.3.5")
+
+      assert :error =
+               ContractRegistry.lookup_signal(
+                 mismatched_ref["producer_id"],
+                 mismatched_ref["producer_version"],
+                 mismatched_ref["schema_id"],
+                 mismatched_ref["schema_version"]
+               )
+
+      assert :error =
+               mismatched_ref
+               |> event_with_signal_ref()
+               |> SignalDisplay.resolve_contract_with_source()
+    end
+
     test "the same signal renders nothing once its package is uninstalled" do
       install([@package])
       assert {:ok, _widgets} = SignalDisplay.render_record(@third_party_event)
@@ -296,5 +388,29 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
       install([@package])
       assert %DateTime{} = ContractRegistry.loaded_at()
     end
+  end
+
+  defp first_party_package(spec) do
+    manifest_path = Path.join(@repo_root, spec.manifest)
+    manifest = manifest_path |> File.read!() |> YamlElixir.read_from_string!()
+    signal = Enum.find(manifest["signal_schemas"], &(&1["id"] == spec.ref["schema_id"]))
+    contract_path = Path.join(Path.dirname(manifest_path), signal["display_contract"])
+    contract = contract_path |> File.read!() |> Jason.decode!()
+
+    Map.put(
+      %{
+        id: "fixture-#{manifest["id"]}",
+        version: manifest["version"],
+        display_contracts: %{"#{contract["id"]}@#{contract["version"]}" => contract},
+        signal_schemas: manifest["signal_schemas"],
+        manifest: manifest
+      },
+      spec.package_key,
+      manifest["id"]
+    )
+  end
+
+  defp event_with_signal_ref(ref) do
+    %{"metadata" => %{"service_radar" => %{"signal_schema" => ref}}}
   end
 end

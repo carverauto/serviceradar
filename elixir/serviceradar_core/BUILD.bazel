@@ -415,7 +415,7 @@ ex_unit_tests(
         # Read at runtime by test/serviceradar/plugins/display_contract_test.exs.
         # The three Wasm-plugin display contracts above arrive through their
         # package srcs; these non-Wasm contracts need their own runfile inputs.
-        "//addons/powerdns:display/dns_activity.display.json",
+        "//addons/powerdns:powerdns_manifest",
         "//go/pkg/trivysidecar:display_contracts",
         "//integrations/falco:display_contracts",
         # Read at runtime by test/serviceradar/notifications/edge_command_contract_test.exs,

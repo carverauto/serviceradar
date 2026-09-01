@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   use Phoenix.LiveComponent
 
+  import ServiceRadarWebNGWeb.CoreComponents, only: [user_time: 1]
   import ServiceRadarWebNGWeb.UIComponents, only: [ui_panel: 1]
 
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard
@@ -78,6 +79,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
     combined_title = Map.get(panel_assigns || %{}, :combined_title)
     compact_title = Map.get(panel_assigns || %{}, :compact_title)
     rate_mode = Map.get(panel_assigns || %{}, :rate_mode, :none)
+    timezone = Spec.fetch_panel_value(panel_assigns, :timezone, "Etc/UTC") || "Etc/UTC"
 
     y_scale =
       panel_assigns
@@ -111,6 +113,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
       |> assign(:combined_title, combined_title)
       |> assign(:compact_title, compact_title)
       |> assign(:rate_mode, rate_mode)
+      |> assign(:timezone, timezone)
       |> assign(:y_scale, y_scale)
       |> assign(:chart_width, Paths.chart_width())
       |> assign(:chart_height, Paths.chart_height())
@@ -716,7 +719,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp render_compact(assigns) do
     ~H"""
-    <div id={"panel-#{@id}"} class="p-4">
+    <div id={"panel-#{@id}"} class="p-4" data-timezone={@timezone}>
       <.empty_state_box empty_state={@empty_state} compact={@compact} />
 
       <div
@@ -737,6 +740,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
           chart_top_pad={@chart_top_pad}
           chart_bottom_pad={@chart_bottom_pad}
           compact={true}
+          timezone={@timezone}
         />
       <% end %>
 
@@ -760,6 +764,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             chart_top_pad={@chart_top_pad}
             chart_bottom_pad={@chart_bottom_pad}
             compact={true}
+            timezone={@timezone}
           />
         <% end %>
       </div>
@@ -769,16 +774,28 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
 
   defp render_full(assigns) do
     ~H"""
-    <div id={"panel-#{@id}"}>
+    <div id={"panel-#{@id}"} data-timezone={@timezone}>
       <.ui_panel>
         <:header>
           <div class="min-w-0">
             <div class="text-sm font-semibold">{@title || "Timeseries"}</div>
           </div>
           <div class="text-xs text-sr-muted font-mono">
-            <span :if={is_struct(@first_dt, DateTime)}>{Points.dt_label(@first_dt)}</span>
+            <.user_time
+              :if={is_struct(@first_dt, DateTime)}
+              id={"timeseries-#{@id}-first-time"}
+              value={@first_dt}
+              timezone={@timezone}
+              style={:compact}
+            />
             <span class="px-1">→</span>
-            <span :if={is_struct(@last_dt, DateTime)}>{Points.dt_label(@last_dt)}</span>
+            <.user_time
+              :if={is_struct(@last_dt, DateTime)}
+              id={"timeseries-#{@id}-last-time"}
+              value={@last_dt}
+              timezone={@timezone}
+              style={:compact}
+            />
           </div>
         </:header>
 
@@ -795,6 +812,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
             chart_top_pad={@chart_top_pad}
             chart_bottom_pad={@chart_bottom_pad}
             compact={false}
+            timezone={@timezone}
           />
         <% end %>
 
@@ -817,6 +835,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
               chart_top_pad={@chart_top_pad}
               chart_bottom_pad={@chart_bottom_pad}
               compact={false}
+              timezone={@timezone}
             />
           <% end %>
         </div>

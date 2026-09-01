@@ -352,7 +352,8 @@ defmodule ServiceRadarWebNGWeb.Components.CredentialManagementTest do
 
           {:ok, %{secret | name: name, description: description}}
         end,
-        rotate: fn secret, %{"username" => "operator", "auth_password" => _replacement}, %{fresh_authority: true} ->
+        rotate: fn secret, %{"username" => "operator"} = attrs, %{fresh_authority: true} ->
+          _replacement = Map.fetch!(attrs, "auth_password")
           {:ok, %{secret | username: "operator", rotation_state: :active}}
         end,
         destroy: fn %{id: "credential-1"}, confirmation_id, %{fresh_authority: true} ->

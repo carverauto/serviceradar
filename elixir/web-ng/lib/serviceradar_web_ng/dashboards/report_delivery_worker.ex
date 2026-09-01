@@ -259,9 +259,23 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
   end
 
   defp render_panel_text(_panel, preview) do
-    preview.rows
-    |> Enum.take(10)
-    |> Enum.map_join("\n", &inspect/1)
+    fields = preview.fields || []
+    rows = Enum.take(preview.rows || [], 10)
+
+    headers = Enum.map_join(fields, "\t", &to_string(&1.name))
+
+    body =
+      Enum.map_join(rows, "\n", fn row ->
+        Enum.map_join(fields, "\t", fn field ->
+          row
+          |> Map.get(field.name)
+          |> format_value()
+        end)
+      end)
+
+    [headers, body]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
   end
 
   defp render_panel_html(%{visual_type: type} = panel, preview) when type in [:stat, "stat", :count, "count"] do
@@ -420,8 +434,18 @@ defmodule ServiceRadarWebNG.Dashboards.ReportDeliveryWorker do
 
   defp stringify(value), do: %{"value" => inspect(value)}
 
-  defp format_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp format_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp format_value(%DateTime{} = value) do
+    value
+    |> DateTime.shift_zone!("Etc/UTC")
+    |> DateTime.to_iso8601()
+  end
+
+  defp format_value(%NaiveDateTime{} = value) do
+    value
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.to_iso8601()
+  end
+
   defp format_value(value) when is_binary(value), do: value
   defp format_value(value) when is_number(value), do: to_string(value)
   defp format_value(value) when is_boolean(value), do: to_string(value)

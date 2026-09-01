@@ -78,6 +78,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
        }}
     end
 
+    def query("canonical export" <> _rest, _opts) do
+      {:ok,
+       %{
+         "results" => [
+           %{"time" => "2026-08-30T18:00:00Z", "message" => "raw UTC export"}
+         ]
+       }}
+    end
+
     def query(_query, _opts), do: {:ok, %{"results" => []}}
   end
 
@@ -626,6 +635,37 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLiveTest do
 
     assert response(conn, 200) =~ ~s("service","status","value")
     assert get_resp_header(conn, "content-type") == ["text/csv; charset=utf-8"]
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "CSV export preserves canonical UTC values for a non-UTC dashboard owner", %{
+    conn: conn,
+    user: user
+  } do
+    user =
+      Ash.update!(user, %{timezone: "America/Chicago"},
+        action: :update_timezone_preference,
+        actor: user
+      )
+
+    scope = Scope.for_user(user)
+    conn = log_in_user(conn, user)
+
+    {dashboard, panel} =
+      dashboard_with_panel!(scope,
+        title: "Canonical Export",
+        srql_query: "canonical export",
+        visual_type: :table
+      )
+
+    conn =
+      get(
+        conn,
+        ~p"/dashboard/#{Dashboards.authored_dashboard_route_ref(dashboard)}/panels/#{panel.id}/export.csv"
+      )
+
+    assert response(conn, 200) ==
+             ~s("message","time"\n"raw UTC export","2026-08-30T18:00:00Z"\n)
   end
 
   test "user groups are managed from settings instead of the dashboard creator", %{conn: conn} do

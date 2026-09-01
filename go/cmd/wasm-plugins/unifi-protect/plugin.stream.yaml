@@ -1,6 +1,6 @@
 id: unifi-protect-camera-stream
 name: UniFi Protect Camera Stream
-version: 0.1.1
+version: 0.1.2
 description: Streams UniFi Protect camera media through the ServiceRadar media host bridge
 entrypoint: stream_camera
 runtime: wasi-preview1

@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
   attr(:selected_interfaces, :any, required: true)
   attr(:favorited_interfaces, :any, required: true)
   attr(:device_uid, :string, required: true)
+  attr(:timezone, :string, required: true)
   attr(:interface_metrics, :map, default: nil)
   attr(:loading, :boolean, default: false)
   attr(:metrics_loading, :boolean, default: false)
@@ -84,6 +85,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
       :if={!@loading && @interface_metrics}
       metrics={@interface_metrics}
       device_uid={@device_uid}
+      timezone={@timezone}
       snmp_polling_source={@snmp_polling_source}
     />
 
@@ -111,7 +113,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
             </.ui_badge>
           </div>
           <div class="text-sr-muted">
-            Last run: {format_timestamp(Map.get(@discovery_job, :last_run_at))}
+            Last run:
+            <.user_time
+              id={"device-interface-discovery-#{interface_time_key(@discovery_job)}-last-run-at"}
+              value={Map.get(@discovery_job, :last_run_at)}
+              timezone={@timezone}
+              style={:compact}
+            />
           </div>
           <div
             :if={is_integer(@discovery_job.last_run_interface_count)}
@@ -336,6 +344,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
 
   attr(:metrics, :map, required: true)
   attr(:device_uid, :string, required: true)
+  attr(:timezone, :string, required: true)
   attr(:snmp_polling_source, :map, default: nil)
 
   defp interface_metrics_section(assigns) do
@@ -423,7 +432,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
             module={panel.plugin}
             id={"interface-metrics-#{@device_uid}-#{panel.id}-#{idx}"}
             title={Map.get(panel.assigns, :interface_label, "Interface Metrics")}
-            panel_assigns={Map.put(panel.assigns, :compact, false)}
+            panel_assigns={
+              panel.assigns
+              |> Map.put(:compact, false)
+              |> Map.put(:timezone, @timezone)
+            }
           />
         <% end %>
       </div>
@@ -797,30 +810,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents do
     end
   end
 
-  defp format_timestamp(nil), do: "—"
-
-  defp format_timestamp(value) do
-    case parse_datetime(value) do
-      {:ok, %DateTime{} = dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> "—"
-    end
+  defp interface_time_key(job) do
+    (Map.get(job, :id) || Map.get(job, :name) || "latest")
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
   end
-
-  defp parse_datetime(%DateTime{} = dt), do: {:ok, dt}
-
-  defp parse_datetime(%NaiveDateTime{} = ndt) do
-    {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-  end
-
-  defp parse_datetime(value) when is_binary(value) do
-    with {:error, _} <- DateTime.from_iso8601(value),
-         {:ok, ndt} <- NaiveDateTime.from_iso8601(value) do
-      {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-    else
-      {:ok, dt, _offset} -> {:ok, dt}
-      {:error, _} -> {:error, :invalid_datetime}
-    end
-  end
-
-  defp parse_datetime(_), do: {:error, :invalid_datetime}
 end

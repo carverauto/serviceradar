@@ -66,6 +66,19 @@ py_test(
     data = [":assemble_addon_bundle.py"],
 )
 
+py_test(
+    name = "powerdns_bundle_manifest_files_test",
+    srcs = ["powerdns_bundle_manifest_files_test.py"],
+    args = [
+        "$(rootpath :powerdns_addon_bundle_zip)",
+        "$(rootpath :powerdns_addon_bundle.linux.amd64.tar.gz)",
+    ],
+    data = [
+        ":powerdns_addon_bundle.linux.amd64.tar.gz",
+        ":powerdns_addon_bundle_zip",
+    ],
+)
+
 genquery(
     name = "agent_dependency_closure",
     expression = "deps(//go/cmd/agent:agent)",
@@ -185,6 +198,7 @@ test_suite(
         ":binary_size_test",
         ":dependency_isolation_test",
         ":inventory_consistency_test",
+        ":powerdns_bundle_manifest_files_test",
         ":validate_addon_manifests_test",
         "//scripts:native_addon_version_bumps_test",
         "//scripts:verify_native_addon_publish_negative_test",

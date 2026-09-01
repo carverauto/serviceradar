@@ -260,7 +260,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
                       </td>
                       <td>{agent_label(profile.agent_id, @agent_by_uid)}</td>
                       <td>{profile.priority}</td>
-                      <td>{format_datetime(profile.last_evaluated_at)}</td>
+                      <td>
+                        <.user_time
+                          id={"settings-availability-source-profile-#{profile.id}-last-evaluated-at"}
+                          value={profile.last_evaluated_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                          fallback="-"
+                        />
+                      </td>
                       <td>{profile.applied_count} / {profile.match_count}</td>
                       <td>
                         <.ui_badge
@@ -553,11 +561,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
       _ -> agent_id || "Unassigned"
     end
   end
-
-  defp format_datetime(nil), do: "-"
-  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  defp format_datetime(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  defp format_datetime(value), do: to_string(value)
 
   defp preview_uid(row), do: Map.get(row, "uid") || Map.get(row, :uid) || Map.get(row, "id") || Map.get(row, :id) || "-"
 

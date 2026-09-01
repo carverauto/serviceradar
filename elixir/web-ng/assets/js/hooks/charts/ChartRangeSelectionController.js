@@ -25,7 +25,11 @@ export default class ChartRangeSelectionController {
     const unchanged = this.options && this.bindingIsUnchanged(normalized)
 
     if (unchanged) {
+      const statusChanged = this.options.statusKey !== normalized.statusKey
       this.options = normalized
+      if (statusChanged && normalized.enabled && !normalized.overlay.classList.contains("hidden")) {
+        this.renderSelection()
+      }
       return
     }
 
@@ -269,7 +273,11 @@ export default class ChartRangeSelectionController {
     this.options.overlay.setAttribute("x", overlay.x)
     this.options.overlay.setAttribute("width", overlay.width)
     this.options.overlay.classList.remove("hidden")
-    this.options.status.textContent = `Selected ${selectedRange.start} to ${selectedRange.end}`
+    const formattedStatus = this.options.formatStatus?.(selectedRange)
+    this.options.status.textContent =
+      typeof formattedStatus === "string" && formattedStatus !== ""
+        ? formattedStatus
+        : `Selected ${selectedRange.start} to ${selectedRange.end}`
     if (this.pointer) this.pointer.lastRenderedActiveIndex = this.activeIndex
   }
 

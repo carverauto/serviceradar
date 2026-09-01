@@ -1486,7 +1486,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                         </.ui_badge>
                       </td>
                       <td class="text-xs text-sr-muted">
-                        {format_datetime(package.updated_at || package.inserted_at)}
+                        <.user_time
+                          id={"admin-plugin-package-#{package.id}-updated-at"}
+                          value={package.updated_at || package.inserted_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                        />
                       </td>
                       <td>
                         <.ui_button
@@ -1702,7 +1707,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                           </.ui_badge>
                         </td>
                         <td class="text-xs text-sr-muted">
-                          {format_datetime(catalog_row_updated_at(row))}
+                          <.user_time
+                            id={"admin-plugin-catalog-#{dom_id_segment(row.plugin_id)}-#{dom_id_segment(row.version)}-updated-at"}
+                            value={catalog_row_updated_at(row)}
+                            timezone={@current_scope.user.timezone || "Etc/UTC"}
+                            style={:compact}
+                          />
                         </td>
                         <td>
                           <div class="flex gap-1">
@@ -2339,7 +2349,19 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <div class="text-xs text-sr-muted mt-2">Blob stored</div>
               <div class="text-xs">{blob_status(@blob_present)}</div>
               <div class="text-xs text-sr-muted mt-2">GPG verification</div>
-              <div class="text-xs">{gpg_status(@package.gpg_verified_at, @package.gpg_key_id)}</div>
+              <div class="text-xs">
+                <%= if @package.gpg_verified_at do %>
+                  Verified
+                  <.user_time
+                    id={"admin-plugin-package-#{@package.id}-gpg-verified-at"}
+                    value={@package.gpg_verified_at}
+                    timezone={@current_scope.user.timezone || "Etc/UTC"}
+                    style={:compact}
+                  />{gpg_key_suffix(@package.gpg_key_id)}
+                <% else %>
+                  {gpg_status(@package.gpg_key_id)}
+                <% end %>
+              </div>
               <div class="text-xs text-sr-muted mt-2">Signature metadata</div>
               <div class="text-xs font-mono">{signature_status(@package.signature)}</div>
             </div>
@@ -2421,7 +2443,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             <div class="rounded-xl border border-sr-line p-4 space-y-2">
               <div class="text-sm font-semibold">Wasm Package Requests</div>
               <div class="text-xs text-sr-muted">
-                Upload endpoint expires {format_datetime(@upload_expires_at)}
+                Upload endpoint expires
+                <.user_time
+                  id="admin-plugin-upload-endpoint-expires-at"
+                  value={@upload_expires_at}
+                  timezone={@current_scope.user.timezone || "Etc/UTC"}
+                  style={:compact}
+                />
               </div>
               <pre class="bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
     <%= @upload_url %>
@@ -2433,7 +2461,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     <%= @upload_token %>
     </pre>
               <div class="text-xs text-sr-muted">
-                Download endpoint expires {format_datetime(@download_expires_at)}
+                Download endpoint expires
+                <.user_time
+                  id="admin-plugin-download-endpoint-expires-at"
+                  value={@download_expires_at}
+                  timezone={@current_scope.user.timezone || "Etc/UTC"}
+                  style={:compact}
+                />
               </div>
               <pre class="bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
     <%= @download_url %>
@@ -5518,21 +5552,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp blob_present?(true), do: true
   defp blob_present?(_), do: false
 
-  defp gpg_status(nil, nil), do: "Not verified"
-  defp gpg_status(nil, key_id) when is_binary(key_id), do: "Unverified (key #{key_id})"
+  defp gpg_status(nil), do: "Not verified"
+  defp gpg_status(key_id) when is_binary(key_id), do: "Unverified (key #{key_id})"
+  defp gpg_status(_key_id), do: "Unknown"
 
-  defp gpg_status(%DateTime{} = dt, key_id) do
-    key = if is_binary(key_id) and key_id != "", do: " (#{key_id})", else: ""
-    "Verified #{Calendar.strftime(dt, "%Y-%m-%d %H:%M")}#{key}"
-  end
-
-  defp gpg_status(%NaiveDateTime{} = dt, key_id) do
-    dt
-    |> DateTime.from_naive!("Etc/UTC")
-    |> gpg_status(key_id)
-  end
-
-  defp gpg_status(_value, _key_id), do: "Unknown"
+  defp gpg_key_suffix(key_id) when is_binary(key_id) and key_id != "", do: " (#{key_id})"
+  defp gpg_key_suffix(_key_id), do: ""
 
   defp signature_status(nil), do: "none"
   defp signature_status(%{} = signature) when map_size(signature) == 0, do: "none"
@@ -5596,16 +5621,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp package_status_badge_variant(_status), do: "ghost"
 
-  defp format_datetime(nil), do: "-"
-
-  defp format_datetime(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  end
-
-  defp format_datetime(%NaiveDateTime{} = dt) do
-    dt
-    |> DateTime.from_naive!("Etc/UTC")
-    |> format_datetime()
+  defp dom_id_segment(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^A-Za-z0-9_-]/u, "-")
   end
 
   defp package_for_assignment(assignment, versions) do

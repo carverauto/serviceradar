@@ -31,10 +31,12 @@ defmodule ServiceRadar.Identity.User do
   alias ServiceRadar.Identity.Changes.DisallowLastAdminLockout
   alias ServiceRadar.Identity.Changes.HashPassword
   alias ServiceRadar.Identity.Changes.InvalidateUserRbacCache
+  alias ServiceRadar.Identity.Changes.NormalizeTimezonePreference
   alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Identity.PasswordHash
   alias ServiceRadar.Identity.Validations.CurrentPassword
   alias ServiceRadar.Identity.Validations.PasswordConfirmationMatches
+  alias ServiceRadar.Identity.Validations.ProfileTimezone
   alias ServiceRadar.Policies.Checks.ActorHasPermission
   alias ServiceRadar.Policies.Checks.ActorIsNil
 
@@ -78,6 +80,7 @@ defmodule ServiceRadar.Identity.User do
     define :register_with_password
     define :provision_sso_user
     define :update
+    define :update_timezone_preference, action: :update_timezone_preference
     define :change_password
     define :record_authentication
     define :record_login
@@ -213,6 +216,13 @@ defmodule ServiceRadar.Identity.User do
 
     update :update do
       accept @display_name_fields
+    end
+
+    update :update_timezone_preference do
+      description "Update only the acting user's display timezone preference"
+      accept [:timezone]
+      change NormalizeTimezonePreference
+      validate ProfileTimezone
     end
 
     update :update_email do
@@ -376,6 +386,10 @@ defmodule ServiceRadar.Identity.User do
       authorize_if expr(id == ^actor(:id))
     end
 
+    policy action(:update_timezone_preference) do
+      authorize_if expr(id == ^actor(:id))
+    end
+
     # Password is IdP-owned for SSO-linked accounts. Local accounts must both
     # be changing their own password and hold settings.password.manage — the
     # previous single policy ORed those, so a custom profile that omitted the
@@ -427,6 +441,13 @@ defmodule ServiceRadar.Identity.User do
     attribute :display_name, :string do
       public? true
       description "User's display name"
+    end
+
+    attribute :timezone, :string do
+      allow_nil? false
+      default "Etc/UTC"
+      public? true
+      description "IANA timezone used to display this user's local times"
     end
 
     attribute :role, :atom do

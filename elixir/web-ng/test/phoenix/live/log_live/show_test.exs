@@ -8,7 +8,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
   - Attribute parsing and display
   """
 
-  use ServiceRadarWebNGWeb.ConnCase, async: true
+  use ServiceRadarWebNGWeb.ConnCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
   import Phoenix.LiveViewTest
@@ -161,6 +161,103 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
   end
 
   describe "log detail metadata rendering" do
+    @tag :web_ng_shared_fixture_db
+    test "renders the effective canonical instant in the user's timezone", %{conn: conn} do
+      user = operator_user_fixture()
+
+      user =
+        Ash.update!(user, %{timezone: "America/Chicago"},
+          action: :update_timezone_preference,
+          actor: user
+        )
+
+      conn = log_in_user(conn, user)
+
+      log_id = "550e8400-e29b-41d4-a716-446655440099"
+      old = Application.get_env(:serviceradar_web_ng, :srql_module)
+      Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.TimestampSRQLStub)
+
+      on_exit(fn ->
+        if is_nil(old),
+          do: Application.delete_env(:serviceradar_web_ng, :srql_module),
+          else: Application.put_env(:serviceradar_web_ng, :srql_module, old)
+      end)
+
+      {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
+
+      assert has_element?(
+               lv,
+               ~s(#log-detail-time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      refute has_element?(lv, ~s(#log-detail-time[datetime="2026-08-30T17:00:00Z"]))
+
+      assert has_element?(
+               lv,
+               ~s(time#log-signal-display-widget-3-field-1-time[datetime="2026-08-30T18:00:00.000000000Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      render_click(lv, "copy_json", %{})
+      assert_push_event(lv, "clipboard", %{text: copied_json})
+      copied = Jason.decode!(copied_json)
+
+      assert copied["observed_timestamp"] == "2026-08-30T18:00:00Z"
+      assert copied["timestamp"] == "2026-08-30T12:34:56"
+      refute copied_json =~ "America/Chicago"
+
+      stream_times =
+        lv
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("#log-stream time")
+
+      stream_ids = LazyHTML.attribute(stream_times, "id")
+
+      assert length(stream_ids) == 3
+      assert stream_ids == Enum.uniq(stream_ids)
+      assert LazyHTML.attribute(stream_times, "datetime") == List.duplicate("2026-08-30T18:00:00Z", 3)
+      assert LazyHTML.attribute(stream_times, "data-user-time-zone") == List.duplicate("America/Chicago", 3)
+
+      stable_ids =
+        lv
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("#log-stream time")
+        |> LazyHTML.attribute("id")
+
+      assert stable_ids == stream_ids
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "keeps a source-only offset-less timestamp as raw fallback text", %{conn: conn} do
+      user = operator_user_fixture()
+
+      user =
+        Ash.update!(user, %{timezone: "America/Chicago"},
+          action: :update_timezone_preference,
+          actor: user
+        )
+
+      conn = log_in_user(conn, user)
+
+      log_id = "550e8400-e29b-41d4-a716-446655440098"
+      old = Application.get_env(:serviceradar_web_ng, :srql_module)
+      Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.TimestampSRQLStub)
+
+      on_exit(fn ->
+        if is_nil(old),
+          do: Application.delete_env(:serviceradar_web_ng, :srql_module),
+          else: Application.put_env(:serviceradar_web_ng, :srql_module, old)
+      end)
+
+      {:ok, lv, _html} = live(conn, ~p"/logs/#{log_id}")
+      html = render(lv)
+
+      assert html =~ "2026-08-30T12:45:56"
+      refute has_element?(lv, "time#log-detail-time")
+      refute html =~ "2026-08-30T12:45:56Z"
+    end
+
     test "renders resource attributes section when present", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -398,6 +495,66 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
         created_at: now
       }
     ])
+  end
+
+  defmodule TimestampSRQLStub do
+    @moduledoc false
+    @behaviour ServiceRadarWebNG.SRQLBehaviour
+
+    @log %{
+      "id" => "550e8400-e29b-41d4-a716-446655440099",
+      "timestamp" => "2026-08-30T12:34:56",
+      "observed_timestamp" => "2026-08-30T18:00:00Z",
+      "time" => "2026-08-30T18:00:00Z",
+      "severity_text" => "INFO",
+      "service_name" => "syslog",
+      "body" => "syslog effective timestamp",
+      "source" => "syslog",
+      "attributes" => %{"source_timestamp" => "Aug 30 12:34:56"},
+      "query" => %{"hostname" => "example.test"},
+      "metadata" => %{
+        "service_radar" => %{
+          "observed_time_unix_nano" => 1_788_112_800_000_000_000,
+          "signal_schema" => %{
+            "producer_id" => "powerdns",
+            "producer_version" => "0.1.1",
+            "schema_id" => "com.carverauto.powerdns.dns_activity",
+            "schema_version" => "1.0.0"
+          }
+        }
+      }
+    }
+
+    def query(query), do: query(query, %{})
+
+    def query(query, _opts) do
+      results =
+        cond do
+          String.contains?(query, "550e8400-e29b-41d4-a716-446655440098") ->
+            [source_only_log()]
+
+          String.contains?(query, ~s(id:")) ->
+            [@log]
+
+          true ->
+            idless = Map.delete(@log, "id")
+            [idless, idless]
+        end
+
+      {:ok, %{"results" => results}}
+    end
+
+    def query_request(%{"query" => query}), do: query(query)
+    def query_request(_), do: {:error, :invalid_request}
+
+    defp source_only_log do
+      @log
+      |> Map.put("id", "550e8400-e29b-41d4-a716-446655440098")
+      |> Map.put("timestamp", "2026-08-30T12:45:56")
+      |> Map.put("time", "2026-08-30T12:45:56")
+      |> Map.put("body", "source-only unzoned timestamp")
+      |> Map.delete("observed_timestamp")
+    end
   end
 
   defp insert_test_log_with_nested_attributes!(log_id) when is_binary(log_id) do

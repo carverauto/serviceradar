@@ -3,7 +3,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   use Phoenix.Component
 
-  import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
+  import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1, user_time: 1]
   import ServiceRadarWebNGWeb.QueryBuilderComponents
   import ServiceRadarWebNGWeb.UIComponents
 
@@ -221,6 +221,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   attr(:sort_dir, :any, default: nil)
   attr(:sort_col, :string, default: nil)
   attr(:sort_event, :string, default: nil)
+  attr(:timezone, :string, required: true)
 
   def srql_results_table(assigns) do
     columns = normalize_columns(assigns.columns, assigns.rows, assigns.max_columns)
@@ -286,12 +287,17 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
           <%= for {row, idx} <- Enum.with_index(@rows) do %>
             <tr id={"#{@id}-row-#{idx}"} class="hover:bg-sr-subtle/40">
-              <%= for col <- @columns do %>
+              <%= for {col, col_idx} <- Enum.with_index(@columns) do %>
                 <td class="whitespace-nowrap text-xs max-w-[24rem] truncate">
                   <%= if col == "_sparkline" do %>
                     <.srql_sparkline points={Map.get(row, "_sparkline")} />
                   <% else %>
-                    <.srql_cell col={col} value={Map.get(row, col)} />
+                    <.srql_cell
+                      id={"#{@id}-time-#{idx}-#{col_idx}"}
+                      col={col}
+                      value={Map.get(row, col)}
+                      timezone={@timezone}
+                    />
                   <% end %>
                 </td>
               <% end %>
@@ -305,6 +311,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   attr(:col, :string, required: true)
   attr(:value, :any, default: nil)
+  attr(:id, :string, required: true)
+  attr(:timezone, :string, required: true)
 
   def srql_cell(assigns) do
     assigns =
@@ -314,10 +322,36 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
     ~H"""
     <%= case @formatted do %>
-      <% {:time, %{display: display, iso: iso}} -> %>
-        <time datetime={iso} title={iso} class="font-mono text-[11px]">
-          {display}
-        </time>
+      <% {:time, %{value: value, iso: iso}} -> %>
+        <.user_time
+          id={@id}
+          value={value}
+          timezone={@timezone}
+          style={:full}
+          fallback={iso}
+          class="font-mono text-[11px]"
+        />
+      <% {:composite_time, %{value: value, iso: iso, suffix: suffix, href: href, title: title}} -> %>
+        <span title={title} class="inline-flex items-center gap-1 font-mono text-[11px]">
+          <.user_time
+            id={@id}
+            value={value}
+            timezone={@timezone}
+            style={:full}
+            fallback={iso}
+          />
+          <span aria-hidden="true">·</span>
+          <a
+            :if={href}
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            class="text-sr-brand hover:underline"
+          >
+            {suffix}
+          </a>
+          <span :if={is_nil(href)}>{suffix}</span>
+        </span>
       <% {:link, %{href: href, label: label}} -> %>
         <a
           href={href}
@@ -340,6 +374,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   end
 
   attr(:viz, :any, default: :none)
+  attr(:id, :string, required: true)
+  attr(:timezone, :string, required: true)
 
   def srql_auto_viz(assigns) do
     ~H"""
@@ -358,7 +394,12 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       </div>
 
       <.timeseries_viz :if={match?({:timeseries, _}, @viz)} viz={@viz} />
-      <.categories_viz :if={match?({:categories, _}, @viz)} viz={@viz} />
+      <.categories_viz
+        :if={match?({:categories, _}, @viz)}
+        id={@id}
+        viz={@viz}
+        timezone={@timezone}
+      />
     </.ui_panel>
     """
   end
@@ -397,6 +438,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   defp timeseries_viz(assigns), do: assigns |> assign(:viz, :none) |> timeseries_viz()
 
   attr(:viz, :any, required: true)
+  attr(:id, :string, required: true)
+  attr(:timezone, :string, required: true)
 
   defp categories_viz(%{viz: {:categories, %{label: label, value: value, items: items}}} = assigns) do
     max_v =
@@ -419,10 +462,20 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       </div>
 
       <div class="flex flex-col gap-2">
-        <%= for {k, v} <- @items do %>
+        <%= for {{k, v}, item_index} <- Enum.with_index(@items) do %>
           <% v_num = to_number(v) %>
           <div class="flex items-center gap-3">
-            <div class="w-48 truncate text-sm" title={to_string(k)}>{format_category_label(k)}</div>
+            <div class="w-48 truncate text-sm" title={to_string(k)}>
+              <.user_time
+                :if={category_time_value(k)}
+                id={"#{@id}-time-#{item_index}"}
+                value={category_time_value(k)}
+                timezone={@timezone}
+                style={:full}
+                fallback={to_string(k)}
+              />
+              <span :if={is_nil(category_time_value(k))}>{format_category_label(k)}</span>
+            </div>
             <div class="flex-1">
               <div class="h-2 rounded-full bg-sr-subtle overflow-hidden">
                 <div
@@ -756,7 +809,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
     case parse_iso8601(value) do
       {:ok, dt, iso} ->
-        {:time, %{display: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC"), iso: iso}}
+        {:time, %{value: dt, iso: iso}}
 
       :error ->
         format_composite_string(value)
@@ -769,7 +822,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     cond do
       match?({:ok, _, _}, parse_iso8601(value)) ->
         {:ok, dt, iso} = parse_iso8601(value)
-        {:time, %{display: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC"), iso: iso}}
+        {:time, %{value: dt, iso: iso}}
 
       url?(value) ->
         {:link, %{href: value, label: url_label(value)}}
@@ -791,20 +844,23 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
 
   defp format_composite_parts(left, right, original) do
     case parse_iso8601(left) do
-      {:ok, dt, _iso} ->
-        format_composite_timestamp(dt, right, original)
+      {:ok, dt, iso} ->
+        format_composite_timestamp(dt, iso, right, original)
 
       _ ->
         {:text, %{value: original, title: original}}
     end
   end
 
-  defp format_composite_timestamp(dt, right, original) do
+  defp format_composite_timestamp(dt, iso, right, original) do
     label = if url?(right), do: url_label(right), else: right
 
-    {:text,
+    {:composite_time,
      %{
-       value: "#{Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")} · #{label}",
+       value: dt,
+       iso: iso,
+       suffix: label,
+       href: if(url?(right), do: right),
        title: original
      }}
   end
@@ -825,17 +881,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
         {:ok, dt, DateTime.to_iso8601(dt)}
 
       {:error, _} ->
-        parse_iso8601_naive(value)
-    end
-  end
-
-  defp parse_iso8601_naive(value) do
-    case NaiveDateTime.from_iso8601(value) do
-      {:ok, ndt} ->
-        dt = DateTime.from_naive!(ndt, "Etc/UTC")
-        {:ok, dt, DateTime.to_iso8601(dt)}
-
-      {:error, _} ->
+        # Arbitrary SRQL text without an offset does not identify an instant.
         :error
     end
   end
@@ -916,20 +962,23 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
   defp format_category_label(value) when is_binary(value) do
     value = String.trim(value)
 
-    cond do
-      match?({:ok, _, _}, parse_iso8601(value)) ->
-        {:ok, dt, _iso} = parse_iso8601(value)
-        Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-
-      url?(value) ->
-        url_label(value)
-
-      true ->
-        value
+    if url?(value) do
+      url_label(value)
+    else
+      value
     end
   end
 
   defp format_category_label(value), do: to_string(value)
+
+  defp category_time_value(value) when is_binary(value) do
+    case parse_iso8601(String.trim(value)) do
+      {:ok, _datetime, canonical} -> canonical
+      _ -> nil
+    end
+  end
+
+  defp category_time_value(_value), do: nil
 
   defp srql_completions, do: Catalog.completion_tokens()
 

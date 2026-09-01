@@ -310,7 +310,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
             </div>
             <span class="text-xs leading-5 text-sr-muted">Real-time gateway registry</span>
           </div>
-          <.live_agents_table id="live-agents" agents={@live_agents} />
+          <.live_agents_table
+            id="live-agents"
+            agents={@live_agents}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
+          />
         </.ui_panel>
 
         <%!-- Database Agents Section --%>
@@ -459,6 +463,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
             selected_agent_ids={@selected_agent_ids}
             config_unhealthy_uids={@config_unhealthy_uids}
             allow_selection={RBAC.can?(@current_scope, "settings.edge.manage")}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
 
           <div class="mt-4 pt-4 border-t border-sr-line">
@@ -478,6 +483,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
   attr(:id, :string, required: true)
   attr(:agents, :list, default: [])
+  attr(:timezone, :string, default: "Etc/UTC")
 
   defp live_agents_table(assigns) do
     ~H"""
@@ -540,10 +546,20 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
                 <.sysmon_status_badge capabilities={agent.capabilities} />
               </td>
               <td class="whitespace-nowrap text-xs font-mono">
-                {format_datetime(agent.connected_at)}
+                <.user_time
+                  id={"live-agent-#{agent.agent_id}-connected-at"}
+                  value={agent.connected_at}
+                  timezone={@timezone}
+                  style={:time}
+                />
               </td>
               <td class="whitespace-nowrap text-xs font-mono">
-                {format_datetime(agent.last_heartbeat)}
+                <.user_time
+                  id={"live-agent-#{agent.agent_id}-last-heartbeat"}
+                  value={agent.last_heartbeat}
+                  timezone={@timezone}
+                  style={:time}
+                />
               </td>
             </tr>
           <% end %>
@@ -581,15 +597,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
 
   defp format_node(node), do: to_string(node)
 
-  defp format_datetime(nil), do: "—"
-  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%H:%M:%S")
-  defp format_datetime(_), do: "—"
-
   attr(:id, :string, required: true)
   attr(:agents, :list, default: [])
   attr(:selected_agent_ids, :list, default: [])
   attr(:config_unhealthy_uids, :any, default: nil)
   attr(:allow_selection, :boolean, default: false)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   defp agents_table(assigns) do
     ~H"""
@@ -711,11 +724,24 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
               <td class="text-xs">
                 <.sysmon_status_badge capabilities={Map.get(agent, "capabilities", [])} />
               </td>
-              <td class="whitespace-nowrap text-xs font-mono" title={agent_last_update_title(agent)}>
-                {format_release_timestamp(agent)}
+              <td
+                class="whitespace-nowrap text-xs font-mono"
+                title={Map.get(agent, "last_update_error")}
+              >
+                <.user_time
+                  id={"agent-#{agent_uid(agent)}-last-update-at"}
+                  value={release_timestamp(agent)}
+                  timezone={@timezone}
+                  style={:compact}
+                />
               </td>
               <td class="whitespace-nowrap text-xs font-mono">
-                {format_timestamp(agent)}
+                <.user_time
+                  id={"agent-#{agent_uid(agent)}-last-seen-at"}
+                  value={last_seen_timestamp(agent)}
+                  timezone={@timezone}
+                  style={:compact}
+                />
               </td>
             </tr>
           <% end %>
@@ -843,7 +869,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   end
 
   defp agent_uid(agent) do
-    Map.get(agent, "uid") || Map.get(agent, "id") || "unknown"
+    Enum.find([Map.get(agent, "uid"), Map.get(agent, "id")], "unknown", &(&1 not in [nil, ""]))
   end
 
   defp agent_name(agent) do
@@ -881,13 +907,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     """
   end
 
-  defp format_timestamp(agent) do
+  defp last_seen_timestamp(agent) do
     ts = Map.get(agent, "last_seen_time") || Map.get(agent, "last_seen")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> ts || "—"
-    end
+    parsed_timestamp(ts)
   end
 
   defp parse_timestamp(nil), do: :error
@@ -918,19 +940,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
     Map.get(agent, "desired_version")
   end
 
-  defp format_release_timestamp(agent) do
-    ts = Map.get(agent, "last_update_at")
+  defp release_timestamp(agent), do: parsed_timestamp(Map.get(agent, "last_update_at"))
 
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> "—"
-    end
-  end
-
-  defp agent_last_update_title(agent) do
-    case Map.get(agent, "last_update_error") do
-      value when is_binary(value) and value != "" -> value
-      _ -> format_release_timestamp(agent)
+  defp parsed_timestamp(value) do
+    case parse_timestamp(value) do
+      {:ok, datetime} -> datetime
+      :error -> nil
     end
   end
 

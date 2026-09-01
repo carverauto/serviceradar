@@ -142,7 +142,11 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
                 <%= for {dom_id, event} <- @streams.bmp_events do %>
                   <tr id={dom_id}>
                     <td class="whitespace-nowrap text-xs">
-                      {event["time"] || event[:time] || "—"}
+                      <.bmp_event_time
+                        id={"#{dom_id}-time"}
+                        value={event["time"] || event[:time]}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                      />
                     </td>
                     <td>
                       <.ui_badge size="sm" variant="ghost">
@@ -172,6 +176,22 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
         </.ui_panel>
       </div>
     </Layouts.app>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :value, :any, required: true
+  attr :timezone, :string, required: true
+
+  def bmp_event_time(assigns) do
+    ~H"""
+    <.user_time
+      id={@id}
+      value={@value}
+      timezone={@timezone}
+      style={:compact}
+      fallback="—"
+    />
     """
   end
 

@@ -82,6 +82,7 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     html =
       render_component(&SRQLComponents.srql_results_table/1,
         id: "results",
+        timezone: "Etc/UTC",
         rows: [
           %{
             "alpha" => "first",
@@ -106,6 +107,7 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     html =
       render_component(&SRQLComponents.srql_results_table/1,
         id: "results",
+        timezone: "Etc/UTC",
         rows: [%{"count" => 1_234_567, "bytes_total" => 2048}],
         columns: ["bytes_total", "count"]
       )
@@ -119,6 +121,7 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     html =
       render_component(&SRQLComponents.srql_results_table/1,
         id: "results",
+        timezone: "Etc/UTC",
         rows: [%{"count" => 2, "service" => "api"}],
         columns: ["service", "count"],
         sortable: true,
@@ -138,11 +141,143 @@ defmodule ServiceRadarWebNGWeb.Components.SRQLComponentsTest do
     html =
       render_component(&SRQLComponents.srql_results_table/1,
         id: "results",
+        timezone: "Etc/UTC",
         rows: [%{"zeta" => 1}, %{"alpha" => 2}]
       )
 
     assert html =~ "zeta"
     assert html =~ "alpha"
     assert :binary.match(html, "zeta") < :binary.match(html, "alpha")
+  end
+
+  test "results table renders canonical time cells in the selected timezone with unique ids" do
+    html =
+      render_component(&SRQLComponents.srql_results_table/1,
+        id: "results",
+        rows: [
+          %{"timestamp" => "2026-08-30T18:00:00Z"},
+          %{"timestamp" => "2026-08-30T18:01:00Z"}
+        ],
+        columns: ["timestamp"],
+        timezone: "America/Chicago"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    times = LazyHTML.query(document, "time")
+    ids = LazyHTML.attribute(times, "id")
+
+    assert html =~ ~s(phx-hook="UserTime")
+    assert ids == ["results-time-0-0", "results-time-1-0"]
+    assert ids == Enum.uniq(ids)
+    assert LazyHTML.attribute(times, "data-user-time-zone") == ["America/Chicago", "America/Chicago"]
+    assert LazyHTML.attribute(times, "datetime") == ["2026-08-30T18:00:00Z", "2026-08-30T18:01:00Z"]
+  end
+
+  test "results table leaves offset-less time strings raw while accepting explicit instants" do
+    html =
+      render_component(&SRQLComponents.srql_results_table/1,
+        id: "timestamp-boundary-results",
+        rows: [
+          %{"timestamp" => "2026-08-30T12:34:56"},
+          %{"timestamp" => "2026-08-30T18:00:00Z"},
+          %{"timestamp" => "2026-08-30T13:01:00-05:00"}
+        ],
+        columns: ["timestamp"],
+        timezone: "America/Chicago"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    times = LazyHTML.query(document, "time")
+
+    assert html =~ "2026-08-30T12:34:56"
+    refute html =~ ~s(datetime="2026-08-30T12:34:56Z")
+
+    assert LazyHTML.attribute(times, "id") == [
+             "timestamp-boundary-results-time-1-0",
+             "timestamp-boundary-results-time-2-0"
+           ]
+
+    assert LazyHTML.attribute(times, "datetime") == [
+             "2026-08-30T18:00:00Z",
+             "2026-08-30T18:01:00Z"
+           ]
+  end
+
+  test "results table renders a composite timestamp semantically without rewriting its canonical instant" do
+    html =
+      render_component(&SRQLComponents.srql_results_table/1,
+        id: "composite-results",
+        rows: [%{"observed_at" => "2026-08-30T18:00:00Z, collector-a"}],
+        columns: ["observed_at"],
+        timezone: "America/Chicago"
+      )
+
+    document = LazyHTML.from_fragment(html)
+    times = LazyHTML.query(document, "time")
+
+    assert LazyHTML.attribute(times, "id") == ["composite-results-time-0-0"]
+    assert LazyHTML.attribute(times, "datetime") == ["2026-08-30T18:00:00Z"]
+    assert LazyHTML.attribute(times, "data-user-time-zone") == ["America/Chicago"]
+    assert html =~ "collector-a"
+    refute html =~ "2026-08-30 18:00:00 UTC"
+  end
+
+  test "category visualization renders ISO keys semantically in the explicit timezone" do
+    html =
+      render_component(&SRQLComponents.srql_auto_viz/1,
+        id: "review-categories",
+        timezone: "America/Chicago",
+        viz:
+          {:categories,
+           %{
+             label: "bucket",
+             value: "count",
+             items: [{"2026-08-30T18:00:00Z", 2}, {"ordinary", 1}]
+           }}
+      )
+
+    document = LazyHTML.from_fragment(html)
+    times = LazyHTML.query(document, "time")
+
+    assert LazyHTML.attribute(times, "id") == ["review-categories-time-0"]
+    assert LazyHTML.attribute(times, "datetime") == ["2026-08-30T18:00:00Z"]
+    assert LazyHTML.attribute(times, "data-user-time-zone") == ["America/Chicago"]
+    assert html =~ "ordinary"
+    refute html =~ "2026-08-30 18:00:00 UTC"
+  end
+
+  test "category visualization leaves offset-less keys raw while accepting explicit instants" do
+    html =
+      render_component(&SRQLComponents.srql_auto_viz/1,
+        id: "category-timestamp-boundary",
+        timezone: "America/Chicago",
+        viz:
+          {:categories,
+           %{
+             label: "bucket",
+             value: "count",
+             items: [
+               {"2026-08-30T12:34:56", 3},
+               {"2026-08-30T18:00:00Z", 2},
+               {"2026-08-30T13:01:00-05:00", 1}
+             ]
+           }}
+      )
+
+    document = LazyHTML.from_fragment(html)
+    times = LazyHTML.query(document, "time")
+
+    assert html =~ "2026-08-30T12:34:56"
+    refute html =~ ~s(datetime="2026-08-30T12:34:56Z")
+
+    assert LazyHTML.attribute(times, "id") == [
+             "category-timestamp-boundary-time-1",
+             "category-timestamp-boundary-time-2"
+           ]
+
+    assert LazyHTML.attribute(times, "datetime") == [
+             "2026-08-30T18:00:00Z",
+             "2026-08-30T18:01:00Z"
+           ]
   end
 end

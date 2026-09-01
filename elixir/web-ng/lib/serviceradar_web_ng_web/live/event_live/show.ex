@@ -279,6 +279,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
             title="Event stream"
             class="sr-event-stream"
             entries={@visible_stream}
+            timezone={@current_scope.user.timezone}
             page_count={length(@visible_stream)}
             page={@stream_page}
             selected_id={@event_id}
@@ -293,17 +294,22 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
           <section class="flex min-h-0 min-w-0 flex-col overflow-hidden lg:border-l lg:border-sr-line">
             <.event_detail_header event={@event} event_id={@event_id} />
-            <.event_meta_strip event={@event} />
+            <.event_meta_strip event={@event} timezone={@current_scope.user.timezone} />
 
             <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
               <.event_message_hero event={@event} />
-              <.event_context_panel event={@event} />
+              <.event_context_panel event={@event} timezone={@current_scope.user.timezone} />
               <.affected_device
                 :if={is_map(@device_ref)}
                 device_ref={@device_ref}
                 anomaly_context={@anomaly_context}
               />
-              <.signal_display_panel :if={is_list(@signal_display)} widgets={@signal_display} />
+              <.signal_display_panel
+                :if={is_list(@signal_display)}
+                id="event-signal-display"
+                widgets={@signal_display}
+                timezone={@current_scope.user.timezone}
+              />
               <.anomaly_detection_summary
                 :if={anomaly_finding?(@event)}
                 event={@event}
@@ -312,11 +318,15 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
                 metrics_loading={@anomaly_metrics_loading}
                 metrics_error={@anomaly_metrics_error}
               />
-              <.capacity_forecast_summary :if={capacity_forecast_event?(@event)} event={@event} />
+              <.capacity_forecast_summary
+                :if={capacity_forecast_event?(@event)}
+                event={@event}
+                timezone={@current_scope.user.timezone}
+              />
               <.waf_finding_summary :if={waf_event?(@event)} event={@event} />
               <.falco_runtime_summary :if={falco_event?(@event)} event={@event} />
               <.related_links related={@related} />
-              <.event_details event={@event} />
+              <.event_details event={@event} timezone={@current_scope.user.timezone} />
               <.event_raw_toggle event={@event} open?={@show_raw_json} />
             </div>
           </section>
@@ -402,7 +412,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
     case srql_module().query(strip_embedded_limit(query), opts) do
       {:ok, %{"results" => results} = resp} when is_list(results) ->
-        entries = Enum.map(results, &stream_entry/1)
+        entries = results |> Enum.with_index() |> Enum.map(fn {row, idx} -> stream_entry(row, idx) end)
 
         entries =
           if is_nil(cursor) and is_map(event) do
@@ -498,15 +508,16 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     end
   end
 
-  defp stream_entry(event) when is_map(event) do
-    id = entry_id(event)
+  defp stream_entry(event, idx) when is_map(event) do
+    id = entry_id(event, idx)
 
     %{
       id: id,
+      dom_id: "event-entry-#{idx}",
       href: ~p"/events/#{id}",
       severity: Map.get(event, "severity"),
       secondary: Map.get(event, "host") || Map.get(event, "log_provider") || "—",
-      time_short: format_time_short(event),
+      timestamp: Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp"),
       preview: message_preview(event_message(event))
     }
   end
@@ -515,7 +526,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     if Enum.any?(entries, &(&1.id == selected_id)) do
       entries
     else
-      [stream_entry(Map.put(event, "id", selected_id)) | entries]
+      [stream_entry(Map.put(event, "id", selected_id), "selected") | entries]
     end
   end
 
@@ -591,6 +602,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   attr :event, :map, required: true
+  attr :timezone, :string, required: true
 
   defp event_meta_strip(assigns) do
     event = assigns.event
@@ -604,7 +616,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
     facts =
       [
-        %{label: "Time", value: format_timestamp(event), mono?: true, href: nil},
+        %{label: "Time", value: event_timestamp_value(event), mono?: true, href: nil, time?: true},
         %{
           label: "Provider",
           value: provider,
@@ -659,8 +671,17 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
           {fact.label}
         </span>
+        <.user_time
+          :if={Map.get(fact, :time?, false)}
+          id="event-detail-time"
+          value={fact.value}
+          timezone={@timezone}
+          style={:full}
+          fallback={to_string(fact.value)}
+          class="font-mono text-[13px] tracking-tight"
+        />
         <.link
-          :if={is_binary(fact.href)}
+          :if={not Map.get(fact, :time?, false) and is_binary(fact.href)}
           navigate={fact.href}
           class={[
             "group inline-flex min-w-0 max-w-full items-center gap-1 truncate text-sm text-sr-brand transition-colors hover:text-sr-brand-strong hover:underline",
@@ -675,7 +696,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           />
         </.link>
         <span
-          :if={is_nil(fact.href)}
+          :if={not Map.get(fact, :time?, false) and is_nil(fact.href)}
           class={[
             "truncate font-sans text-sm text-sr-ink",
             fact.mono? && "font-mono text-[13px] tracking-tight"
@@ -746,6 +767,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   attr :event, :map, required: true
+  attr :timezone, :string, required: true
 
   defp event_context_panel(assigns) do
     facts = event_context_facts(assigns.event)
@@ -769,7 +791,17 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
             {fact.label}
           </span>
+          <.user_time
+            :if={Map.get(fact, :timestamp?, false)}
+            id={"event-context-#{String.replace(fact.key, "_", "-")}-time"}
+            value={fact.value}
+            timezone={@timezone}
+            style={:full}
+            fallback={fact.value}
+            class="break-all font-mono text-[13px] tracking-tight text-sr-ink"
+          />
           <span
+            :if={not Map.get(fact, :timestamp?, false)}
             class={[
               "break-all text-sm text-sr-ink",
               fact.mono? && "font-mono text-[13px] tracking-tight"
@@ -907,6 +939,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     end)
   end
 
+  @event_context_timestamp_keys MapSet.new(
+                                  ~w(time timestamp event_time logged_time observed_at created_at updated_at expires_at creationTimestamp updateTimestamp)
+                                )
+
   defp flatten_scalar_facts(%{} = map) do
     map
     |> Enum.sort_by(fn {k, _} -> to_string(k) end)
@@ -919,11 +955,15 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           []
 
         true ->
+          key = to_string(key)
+
           [
             %{
-              label: humanize_field(to_string(key)),
+              key: key,
+              label: humanize_field(key),
               value: to_string(value),
-              mono?: is_binary(value) and String.length(value) > 20
+              mono?: is_binary(value) and String.length(value) > 20,
+              timestamp?: MapSet.member?(@event_context_timestamp_keys, key)
             }
           ]
       end
@@ -1392,11 +1432,12 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp metric_name_filter(_), do: nil
 
-  defp anomaly_panel_assigns(panel, chart_focus) when is_map(panel) do
+  defp anomaly_panel_assigns(panel, chart_focus, timezone) when is_map(panel) do
     assigns =
       panel
       |> Map.get(:assigns, %{})
       |> Map.put(:compact, true)
+      |> Map.put(:timezone, timezone)
 
     if is_map(chart_focus) do
       Map.put(assigns, :chart_focus, chart_focus)
@@ -1405,7 +1446,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     end
   end
 
-  defp anomaly_panel_assigns(_panel, _chart_focus), do: %{compact: true}
+  defp anomaly_panel_assigns(_panel, _chart_focus, timezone), do: %{compact: true, timezone: timezone}
 
   defp anomaly_metric_time_range(ctx, event) do
     center = Map.get(ctx, :event_time) || event_time_from_event(event)
@@ -1650,7 +1691,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
               module={panel.plugin}
               id={"event-anomaly-metric-#{idx}"}
               title={Map.get(panel, :title) || "Metric series"}
-              panel_assigns={anomaly_panel_assigns(panel, @chart_focus)}
+              panel_assigns={anomaly_panel_assigns(panel, @chart_focus, @current_scope.user.timezone)}
             />
           <% end %>
         </div>
@@ -1660,6 +1701,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   attr(:event, :map, required: true)
+  attr(:timezone, :string, required: true)
 
   defp capacity_forecast_summary(assigns) do
     forecast = capacity_forecast_payload(assigns.event)
@@ -1690,10 +1732,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         <.finding_fact label="Current" value={map_value(@forecast, "current_value")} mono />
         <.finding_fact label="Projected" value={map_value(@forecast, "projected_value")} mono />
         <.finding_fact label="Threshold" value={map_value(@forecast, "exhaustion_threshold")} mono />
-        <.finding_fact
+        <.finding_time_fact
+          id="event-projected-exhaustion-time"
           label="Projected Exhaustion"
           value={map_value(@forecast, "projected_exhaustion_at")}
-          mono
+          timezone={@timezone}
         />
         <.finding_fact label="Confidence" value={map_value(@forecast, "confidence")} mono />
       </div>
@@ -1724,6 +1767,29 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       >
         {display_value(@value)}
       </span>
+    </div>
+    """
+  end
+
+  attr(:id, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:value, :any, default: nil)
+  attr(:timezone, :string, required: true)
+
+  defp finding_time_fact(assigns) do
+    ~H"""
+    <div :if={not blank?(@value)} class="min-w-0">
+      <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted block mb-1">
+        {@label}
+      </span>
+      <.user_time
+        id={@id}
+        value={@value}
+        timezone={@timezone}
+        style={:full}
+        fallback="—"
+        class="break-all font-mono text-sm text-sr-ink"
+      />
     </div>
     """
   end
@@ -1866,6 +1932,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   attr(:event, :map, required: true)
+  attr(:timezone, :string, required: true)
+
+  @additional_timestamp_keys MapSet.new(~w(updated_at))
 
   defp event_details(assigns) do
     # Scalars only — no raw JSON blobs. Nested payloads live in context or raw toggle.
@@ -1905,7 +1974,15 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
                 if looks_like_json?(v) do
                   []
                 else
-                  [%{label: field_label(key), value: v, mono?: String.length(v) > 24}]
+                  [
+                    %{
+                      key: key,
+                      label: field_label(key),
+                      value: v,
+                      mono?: String.length(v) > 24,
+                      timestamp?: MapSet.member?(@additional_timestamp_keys, key)
+                    }
+                  ]
                 end
 
               _ ->
@@ -1938,10 +2015,22 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
             {fact.label}
           </span>
-          <span class={[
-            "break-all text-sm text-sr-ink",
-            fact.mono? && "font-mono text-[13px] tracking-tight"
-          ]}>
+          <.user_time
+            :if={Map.get(fact, :timestamp?, false)}
+            id={"event-additional-#{String.replace(fact.key, "_", "-")}-time"}
+            value={fact.value}
+            timezone={@timezone}
+            style={:full}
+            fallback="—"
+            class="break-all font-mono text-[13px] tracking-tight text-sr-ink"
+          />
+          <span
+            :if={not Map.get(fact, :timestamp?, false)}
+            class={[
+              "break-all text-sm text-sr-ink",
+              fact.mono? && "font-mono text-[13px] tracking-tight"
+            ]}
+          >
             {fact.value}
           </span>
         </div>
@@ -2054,21 +2143,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp normalize_severity(v) when is_binary(v), do: v |> String.trim() |> String.downcase()
   defp normalize_severity(v), do: v |> to_string() |> normalize_severity()
 
-  defp format_time_short(event) do
-    ts =
-      Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%H:%M:%S")
-      _ -> "—"
-    end
-  end
-
-  defp entry_id(event) do
+  defp entry_id(event, idx) do
     case Map.get(event, "id") || Map.get(event, "event_id") do
       <<_::binary-size(16)>> = bin -> uuid_to_string(bin)
       id when is_binary(id) and id != "" -> id
-      _ -> "unknown-" <> Integer.to_string(:erlang.phash2(event))
+      _ -> "row-#{idx}"
     end
   end
 
@@ -2441,35 +2520,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp valid_ip?(_), do: false
 
-  defp format_timestamp(event) do
-    ts =
-      Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-      _ -> ts || "—"
-    end
+  defp event_timestamp_value(event) do
+    Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
   end
-
-  defp parse_timestamp(nil), do: :error
-  defp parse_timestamp(""), do: :error
-
-  defp parse_timestamp(value) when is_binary(value) do
-    value = String.trim(value)
-
-    case DateTime.from_iso8601(value) do
-      {:ok, dt, _offset} ->
-        {:ok, dt}
-
-      {:error, _} ->
-        case NaiveDateTime.from_iso8601(value) do
-          {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-          {:error, _} -> :error
-        end
-    end
-  end
-
-  defp parse_timestamp(_), do: :error
 
   defp waf_event?(event) when is_map(event) do
     waf = waf_payload(event)

@@ -1,5 +1,6 @@
 import {describe, expect, it, vi} from "vitest"
 
+import {netflowRangeSelectionStatus} from "../../netflow_charts/util"
 import ChartRangeSelectionController from "./ChartRangeSelectionController"
 
 const buckets = [
@@ -125,6 +126,46 @@ describe("ChartRangeSelectionController", () => {
       start: "2026-08-27T10:00:00Z",
       end: "2026-08-27T12:59:59.999999Z",
     })
+  })
+
+  it("formats only the accessible status while emitting the original canonical strings", () => {
+    const config = {
+      ...options(),
+      formatStatus: (range) => netflowRangeSelectionStatus(range, "America/Chicago"),
+      statusKey: 1,
+    }
+    const controller = new ChartRangeSelectionController(config)
+
+    config.svg.dispatch(pointer("pointerdown", 0, 17))
+    config.svg.dispatch(pointer("pointerup", 100, 17))
+
+    expect(config.status.textContent).toContain("GMT-5")
+    expect(config.status.textContent).toContain("display zone America/Chicago")
+    expect(config.status.textContent).toContain("2026-08-27T10:00:00Z")
+    expect(config.status.textContent).toContain("2026-08-27T12:59:59.999999Z")
+    expect(config.emit).toHaveBeenCalledWith({
+      start: "2026-08-27T10:00:00Z",
+      end: "2026-08-27T12:59:59.999999Z",
+    })
+
+    controller.update({
+      ...config,
+      formatStatus: (range) => netflowRangeSelectionStatus(range, "Mars/Olympus"),
+      statusKey: 2,
+    })
+
+    expect(config.status.textContent).toBe(
+      "Selected 2026-08-27T10:00:00Z to 2026-08-27T12:59:59.999999Z; display zone Mars/Olympus; canonical UTC 2026-08-27T10:00:00Z to 2026-08-27T12:59:59.999999Z",
+    )
+    expect(config.emit).toHaveBeenCalledOnce()
+  })
+
+  it("ignores a status-only update while range selection is disabled", () => {
+    const config = {...options(), overlay: null, statusKey: 1}
+    const controller = new ChartRangeSelectionController(config)
+
+    expect(() => controller.update({...config, statusKey: 2})).not.toThrow()
+    expect(config.emit).not.toHaveBeenCalled()
   })
 
   it("commits an in-flight gesture when a redraw only replaces geometry for the same intervals", () => {

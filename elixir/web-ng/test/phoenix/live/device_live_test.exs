@@ -651,6 +651,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert empty_html =~ "Newly launched actions appear here"
   end
 
+  @tag :web_ng_shared_fixture_db
   test "northbound action history explains long-running progress" do
     html =
       render_component(&NorthboundActionComponents.northbound_action_history/1,
@@ -675,13 +676,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         ],
         error: nil,
         notice: nil,
-        empty_message: "No action invocations have been recorded yet."
+        empty_message: "No action invocations have been recorded yet.",
+        timezone: "America/Chicago"
       )
 
     assert html =~ "Result fetching"
     assert html =~ "Fetching external action results"
-    assert html =~ "next poll 2026-05-17 00:17:32"
+    assert html =~ "next poll"
     assert html =~ "poll 2"
+
+    next_poll_time =
+      html
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("#northbound-action-018f2fd1-f0ff-7cf0-9dc0-000000000998-next-poll-at")
+
+    assert LazyHTML.attribute(next_poll_time, "datetime") == ["2026-05-17T00:17:32Z"]
+    assert LazyHTML.attribute(next_poll_time, "data-user-time-zone") == ["America/Chicago"]
   end
 
   test "device details SRQL bar submits explicit device searches", %{conn: conn} do

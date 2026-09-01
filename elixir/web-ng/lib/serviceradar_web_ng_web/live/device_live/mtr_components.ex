@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   attr(:retention_status, :map, default: %{configured_days: 30, status: :degraded, tables: %{}})
   attr(:page, :integer, default: 1)
   attr(:page_size, :integer, default: 50)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def mtr_tab_content(assigns) do
     dashboard = mtr_trace_dashboard(assigns.recent_traces, assigns.pending_jobs)
@@ -96,7 +97,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             Retained Matches
           </div>
           <div class="sr-mtr-value mt-2 text-3xl">{@total_count}</div>
-          <div class="sr-mtr-muted text-sm">{mtr_coverage_label(@coverage)}</div>
+          <div class="sr-mtr-muted text-sm">
+            <%= if Map.get(@coverage, :earliest_time) do %>
+              <.user_time
+                id="device-mtr-coverage-earliest-time"
+                value={Map.get(@coverage, :earliest_time)}
+                timezone={@timezone}
+                style={:date}
+              /> to
+              <.user_time
+                id="device-mtr-coverage-latest-time"
+                value={Map.get(@coverage, :latest_time)}
+                timezone={@timezone}
+                style={:date}
+              />
+            <% else %>
+              no retained history
+            <% end %>
+          </div>
         </div>
         <div class="sr-mtr-card p-4">
           <div class="sr-mtr-label">Retention</div>
@@ -125,14 +143,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             aria-label="Recent MTR trace outcomes"
           >
             <span
-              :for={trace <- @recent_trace_bars}
+              :for={{trace, index} <- Enum.with_index(@recent_trace_bars)}
               role="listitem"
               class={[
                 "sr-mtr-outcome-dot",
                 if(mtr_trace_reached?(trace), do: "is-reached", else: "is-failed")
               ]}
-              title={"#{format_mtr_time(trace["time"])} #{trace["target"]} #{if mtr_trace_reached?(trace), do: "reached", else: "unreachable"}"}
-            />
+              title={"#{trace["target"]} #{if mtr_trace_reached?(trace), do: "reached", else: "unreachable"}"}
+            >
+              <.user_time
+                id={"device-mtr-outcome-#{mtr_time_key(trace, index)}-time"}
+                value={trace["time"]}
+                timezone={@timezone}
+                style={:compact}
+                class="sr-only"
+              />
+            </span>
           </div>
           <div class="mt-3 grid grid-cols-1 gap-3 text-xs md:grid-cols-3">
             <div class="sr-mtr-subpanel p-3">
@@ -169,9 +195,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             </tr>
           </thead>
           <tbody>
-            <tr :for={job <- @pending_jobs} class="hover opacity-80">
+            <tr :for={{job, index} <- Enum.with_index(@pending_jobs)} class="hover opacity-80">
               <td class="whitespace-nowrap text-xs">
-                {format_mtr_time(job.inserted_at)}
+                <.user_time
+                  id={"device-mtr-job-#{mtr_job_time_key(job, index)}-inserted-at"}
+                  value={job.inserted_at}
+                  timezone={@timezone}
+                  style={:compact}
+                />
               </td>
               <td class="font-mono text-sm">
                 {(job.payload || %{})["target"] || @fallback_target || "-"}
@@ -190,9 +221,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
               <td class="text-xs">pending</td>
               <td class="sr-mtr-muted text-xs">{job.id}</td>
             </tr>
-            <tr :for={trace <- @traces} class="hover">
+            <tr :for={{trace, index} <- Enum.with_index(@traces)} class="hover">
               <td class="whitespace-nowrap text-xs">
-                {format_mtr_time(trace["time"])}
+                <.user_time
+                  id={"device-mtr-trace-#{mtr_time_key(trace, index)}-time"}
+                  value={trace["time"]}
+                  timezone={@timezone}
+                  style={:compact}
+                />
               </td>
               <td class="font-mono text-sm">{trace["target"]}</td>
               <td>
@@ -275,6 +311,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   attr(:show, :boolean, default: false)
   attr(:trace, :map, default: nil)
   attr(:hops, :list, default: [])
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def mtr_trace_modal(assigns) do
     assigns = assign(assigns, :hop_dashboard, mtr_hop_dashboard(assigns.trace, assigns.hops))
@@ -322,7 +359,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             <div class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/40 px-3 py-2.5">
               <div class="sr-mtr-label">Time</div>
               <div class="mt-1 font-mono text-sm text-sr-ink">
-                {format_mtr_time(@trace["time"])}
+                <.user_time
+                  id={"device-mtr-trace-modal-#{mtr_time_key(@trace, 0)}-time"}
+                  value={@trace["time"]}
+                  timezone={@timezone}
+                  style={:compact}
+                />
               </div>
             </div>
           </div>
@@ -450,29 +492,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
     """
   end
 
-  defp format_mtr_time(nil), do: "-"
-
-  defp format_mtr_time(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  defp mtr_job_time_key(job, index) do
+    stable_time_key([Map.get(job, :id), Map.get(job, "id")], index)
   end
 
-  defp format_mtr_time(%NaiveDateTime{} = ndt) do
-    Calendar.strftime(ndt, "%Y-%m-%d %H:%M:%S")
+  defp mtr_time_key(trace, index) do
+    stable_time_key(
+      [Map.get(trace, "id"), Map.get(trace, :id), Map.get(trace, "target"), Map.get(trace, :target)],
+      index
+    )
   end
 
-  defp format_mtr_time(_), do: "-"
-
-  defp mtr_coverage_label(%{earliest_time: nil}), do: "no retained history"
-
-  defp mtr_coverage_label(%{earliest_time: earliest, latest_time: latest}) do
-    "#{format_mtr_date(earliest)} to #{format_mtr_date(latest)}"
+  defp stable_time_key(candidates, index) do
+    Enum.find_value(candidates, &mtr_id_fragment/1) || Integer.to_string(index)
   end
 
-  defp mtr_coverage_label(_), do: "unknown coverage"
+  defp mtr_id_fragment(value) when value in [nil, ""], do: nil
 
-  defp format_mtr_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
-  defp format_mtr_date(%NaiveDateTime{} = ndt), do: Calendar.strftime(ndt, "%Y-%m-%d")
-  defp format_mtr_date(_), do: "-"
+  defp mtr_id_fragment(value) do
+    case value |> to_string() |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-") |> String.trim("-") do
+      "" -> nil
+      fragment -> fragment
+    end
+  end
 
   defp mtr_retention_status_label(%{status: :ok}), do: "policy synced"
   defp mtr_retention_status_label(%{status: :mismatch}), do: "policy mismatch"

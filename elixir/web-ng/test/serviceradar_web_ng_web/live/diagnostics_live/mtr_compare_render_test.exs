@@ -83,7 +83,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompareRenderTest do
     (&MtrCompare.render/1)
     |> render_component(
       flash: %{},
-      current_scope: nil,
+      current_scope: %{
+        user: %{email: "operator@example.com", role: :operator, timezone: "Etc/UTC"}
+      },
       page_path: "/diagnostics/mtr/compare",
       mode: "window",
       recent_traces: [],

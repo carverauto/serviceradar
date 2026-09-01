@@ -59,7 +59,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
 
       1 ->
         {dt, _value} = List.first(points)
-        [{Paths.datetime_to_x(dt, points, opts) || Paths.idx_to_x(0, len, opts), time_label(dt)}]
+        [{Paths.datetime_to_x(dt, points, opts) || Paths.idx_to_x(0, len, opts), canonical_time(dt)}]
 
       _ ->
         tick_count =
@@ -73,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
         |> tick_indices(tick_count)
         |> Enum.map(fn idx ->
           {dt, _v} = Enum.at(points, idx)
-          {Paths.datetime_to_x(dt, points, opts) || Paths.idx_to_x(idx, len, opts), time_label(dt)}
+          {Paths.datetime_to_x(dt, points, opts) || Paths.idx_to_x(idx, len, opts), canonical_time(dt)}
         end)
     end
   end
@@ -120,9 +120,6 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
 
   def limit_points(points, _max_points), do: points
 
-  def dt_label(%DateTime{} = dt), do: Calendar.strftime(dt, "%b %-d %H:%M")
-  def dt_label(_), do: ""
-
   def first_dt(series_points) when is_list(series_points) do
     Enum.find_value(series_points, fn {_series, points} ->
       case points do
@@ -141,17 +138,17 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
     end)
   end
 
-  def series_first_dt([{%DateTime{} = dt, _} | _]), do: dt_label(dt)
-  def series_first_dt(_), do: ""
+  def series_first_dt([{%DateTime{} = dt, _} | _]), do: dt
+  def series_first_dt(_), do: nil
 
   def series_last_dt(points) when is_list(points) do
     case List.last(points) do
-      {%DateTime{} = dt, _} -> dt_label(dt)
-      _ -> ""
+      {%DateTime{} = dt, _} -> dt
+      _ -> nil
     end
   end
 
-  def series_last_dt(_), do: ""
+  def series_last_dt(_), do: nil
 
   defp tick_indices(len, tick_count) when tick_count >= len, do: Enum.to_list(0..(len - 1))
 
@@ -163,8 +160,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Points do
 
   defp tick_indices(_len, _tick_count), do: [0]
 
-  defp time_label(%DateTime{} = dt), do: Calendar.strftime(dt, "%-I:%M %p")
-  defp time_label(_), do: ""
+  defp canonical_time(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
+  defp canonical_time(_), do: ""
 
   defp tick_value(min_v, max_v, :log, idx, ticks) do
     min_log = :math.log10(min_v)

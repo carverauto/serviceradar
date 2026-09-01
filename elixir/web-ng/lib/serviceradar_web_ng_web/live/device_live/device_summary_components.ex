@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
   attr(:device_deleted, :boolean, default: false)
   attr(:editing, :boolean, default: false)
   attr(:snmp_polling_source, :map, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def device_summary_section(assigns) do
     ~H"""
@@ -97,26 +98,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
                 value={Map.get(@device_row, "gateway_id")}
                 mono
               />
-              <.kv_inline
-                label="Added"
-                value={format_timestamp(device_added_at(@device_row))}
-                mono
-              />
-              <.kv_inline
-                label="Last Seen"
-                value={
-                  format_timestamp(
-                    Map.get(@device_row, "last_seen") || Map.get(@device_row, "last_seen_time")
-                  )
-                }
-                mono
-              />
-              <.kv_inline
-                :if={@device_deleted}
-                label="Deleted At"
-                value={Map.get(@device_row, "deleted_at")}
-                mono
-              />
+              <.kv_inline label="Added" mono>
+                <.user_time
+                  id={"device-summary-#{device_time_key(@device_row)}-added-at"}
+                  value={device_added_at(@device_row)}
+                  timezone={@timezone}
+                  style={:compact}
+                />
+              </.kv_inline>
+              <.kv_inline label="Last Seen" mono>
+                <.user_time
+                  id={"device-summary-#{device_time_key(@device_row)}-last-seen-at"}
+                  value={
+                    Map.get(@device_row, "last_seen") ||
+                      Map.get(@device_row, "last_seen_time")
+                  }
+                  timezone={@timezone}
+                  style={:compact}
+                />
+              </.kv_inline>
+              <.kv_inline :if={@device_deleted} label="Deleted At" mono>
+                <.user_time
+                  id={"device-summary-#{device_time_key(@device_row)}-deleted-at"}
+                  value={Map.get(@device_row, "deleted_at")}
+                  timezone={@timezone}
+                  style={:compact}
+                />
+              </.kv_inline>
               <.kv_inline
                 :if={@device_deleted and present?(Map.get(@device_row, "deleted_by"))}
                 label="Deleted By"
@@ -193,6 +201,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
   attr(:label, :string, required: true)
   attr(:value, :any, default: nil)
   attr(:mono, :boolean, default: false)
+  slot(:inner_block)
 
   def kv_inline(assigns) do
     ~H"""
@@ -202,7 +211,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
         "min-w-0 flex-1 break-words whitespace-normal text-sr-ink",
         @mono && "font-mono text-xs"
       ]}>
-        {format_value(@value)}
+        <%= if @inner_block != [] do %>
+          {render_slot(@inner_block)}
+        <% else %>
+          {format_value(@value)}
+        <% end %>
       </span>
     </div>
     """
@@ -347,33 +360,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
     end)
   end
 
-  defp parse_datetime(%DateTime{} = dt), do: {:ok, dt}
-
-  defp parse_datetime(%NaiveDateTime{} = ndt) do
-    {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-  end
-
-  defp parse_datetime(value) when is_binary(value) do
-    value = String.trim(value)
-
-    with {:error, _} <- DateTime.from_iso8601(value),
-         {:ok, ndt} <- NaiveDateTime.from_iso8601(value) do
-      {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-    else
-      {:ok, dt, _offset} -> {:ok, dt}
-      {:error, _} -> {:error, :invalid_datetime}
-    end
-  end
-
-  defp parse_datetime(_), do: {:error, :invalid_datetime}
-
-  defp format_timestamp(nil), do: "—"
-
-  defp format_timestamp(value) do
-    case parse_datetime(value) do
-      {:ok, %DateTime{} = dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> "—"
-    end
+  defp device_time_key(row) do
+    (Map.get(row, "uid") || Map.get(row, "device_uid") || Map.get(row, "id") || "device")
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
   end
 
   defp device_added_at(row) when is_map(row) do

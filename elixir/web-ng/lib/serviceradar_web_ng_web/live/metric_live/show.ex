@@ -147,7 +147,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
             </:header>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <.kv label="Time" value={format_timestamp(@metric)} mono />
+              <.metric_time metric={@metric} timezone={@current_scope.user.timezone} />
               <.kv label="Service" value={Map.get(@metric, "service_name")} />
               <.kv label="Type" value={Map.get(@metric, "metric_type")} />
               <.kv label="Operation" value={metric_operation(@metric)} />
@@ -232,6 +232,33 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
         </.link>
         <span :if={is_nil(@href)}>{format_value(@value)}</span>
       </div>
+    </div>
+    """
+  end
+
+  attr :metric, :map, required: true
+  attr :timezone, :string, required: true
+
+  defp metric_time(assigns) do
+    timestamp = Map.get(assigns.metric, "timestamp")
+
+    assigns =
+      case parse_timestamp(timestamp) do
+        {:ok, dt, iso} -> assign(assigns, value: dt, fallback: iso)
+        :error -> assign(assigns, value: nil, fallback: timestamp || "—")
+      end
+
+    ~H"""
+    <div class="rounded-lg border border-sr-line bg-sr-surface p-3">
+      <div class="text-[11px] uppercase tracking-wider text-sr-muted mb-1">Time</div>
+      <.user_time
+        id="metric-detail-time"
+        value={@value}
+        timezone={@timezone}
+        style={:full}
+        fallback={@fallback}
+        class="break-all font-mono text-xs"
+      />
     </div>
     """
   end
@@ -628,7 +655,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   # window would otherwise pivot to an empty logs page.
   defp correlated_logs_time_window(metric) do
     case parse_timestamp(Map.get(metric, "timestamp")) do
-      {:ok, dt} ->
+      {:ok, dt, _iso} ->
         from = dt |> DateTime.add(-3600, :second) |> iso8601_z()
         to = dt |> DateTime.add(3600, :second) |> iso8601_z()
         "time:[#{from},#{to}]"
@@ -666,30 +693,25 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
 
   defp span_detail_path(_), do: nil
 
-  defp format_timestamp(row) do
-    ts = Map.get(row, "timestamp")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> ts || "—"
-    end
-  end
-
   defp parse_timestamp(nil), do: :error
   defp parse_timestamp(""), do: :error
+  defp parse_timestamp(%DateTime{} = value), do: {:ok, value, DateTime.to_iso8601(value)}
+
+  # Typed NaiveDateTime values are a canonical DB representation. Source text must carry an offset.
+  defp parse_timestamp(%NaiveDateTime{} = value) do
+    dt = DateTime.from_naive!(value, "Etc/UTC")
+    {:ok, dt, DateTime.to_iso8601(dt)}
+  end
 
   defp parse_timestamp(value) when is_binary(value) do
     value = String.trim(value)
 
     case DateTime.from_iso8601(value) do
       {:ok, dt, _offset} ->
-        {:ok, dt}
+        {:ok, dt, DateTime.to_iso8601(dt)}
 
       {:error, _} ->
-        case NaiveDateTime.from_iso8601(value) do
-          {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-          {:error, _} -> :error
-        end
+        :error
     end
   end
 

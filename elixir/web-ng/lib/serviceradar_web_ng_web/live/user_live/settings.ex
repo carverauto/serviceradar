@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
 
   alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Identity.User
+  alias ServiceRadar.TimeZone
   alias ServiceRadarWebNG.Accounts
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -113,6 +114,54 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
             </.ui_panel>
           <% end %>
 
+          <.ui_panel>
+            <:header>
+              <div>
+                <div class="text-sm font-semibold">Timezone</div>
+                <p class="text-xs text-sr-muted">
+                  Choose the timezone used to display timestamps in ServiceRadar.
+                </p>
+              </div>
+            </:header>
+
+            <p :if={@timezone_catalog_warning} class="mb-3 text-sm text-amber-700" role="status">
+              {@timezone_catalog_warning}
+            </p>
+
+            <.form
+              for={@timezone_form}
+              id="timezone_form"
+              phx-submit="update_timezone"
+            >
+              <.input
+                field={@timezone_form[:timezone]}
+                id="user_timezone"
+                type="text"
+                label="Display timezone"
+                list="timezone_catalog"
+                phx-hook="TimezoneSelect"
+                data-options-id="timezone_catalog"
+                data-current-timezone={@current_scope.user.timezone}
+                autocomplete="off"
+                required
+              />
+              <datalist id="timezone_catalog">
+                <option :for={zone <- @timezone_catalog} value={zone} />
+              </datalist>
+              <.button variant="primary" phx-disable-with="Saving...">Save Timezone</.button>
+            </.form>
+
+            <div class="mt-4 text-sm text-sr-muted">
+              Preview:
+              <.user_time
+                id="timezone-preview"
+                value={@timezone_preview_at}
+                timezone={@current_scope.user.timezone}
+                style={:full}
+              />
+            </div>
+          </.ui_panel>
+
           <%= if not @idp_managed_identity and @can_change_password and has_password?(@current_scope.user) do %>
             <.ui_panel>
               <:header>
@@ -193,6 +242,8 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
     can_change_password = not idp_managed_identity and RBAC.can?(scope, @password_manage_permission)
     email_ash_form = if !idp_managed_identity, do: build_email_form(user, scope)
     password_ash_form = if can_change_password, do: build_password_form(user, scope)
+    timezone_ash_form = build_timezone_form(user, scope)
+    {timezone_catalog, timezone_catalog_warning} = timezone_catalog(socket, user)
 
     socket =
       socket
@@ -201,8 +252,13 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
       |> assign(:current_email, user.email)
       |> assign(:email_ash_form, email_ash_form)
       |> assign(:password_ash_form, password_ash_form)
+      |> assign(:timezone_ash_form, timezone_ash_form)
       |> assign(:email_form, if(email_ash_form, do: to_form(email_ash_form)))
       |> assign(:password_form, if(password_ash_form, do: to_form(password_ash_form)))
+      |> assign(:timezone_form, to_form(timezone_ash_form))
+      |> assign(:timezone_catalog, timezone_catalog)
+      |> assign(:timezone_catalog_warning, timezone_catalog_warning)
+      |> assign(:timezone_preview_at, DateTime.utc_now())
       |> assign(:trigger_submit, false)
       |> assign(:sudo_at, mount_sudo_at(session))
 
@@ -236,6 +292,31 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
       as: "user",
       scope: scope
     )
+  end
+
+  defp build_timezone_form(user, scope) do
+    AshPhoenix.Form.for_update(user, :update_timezone_preference,
+      domain: ServiceRadar.Identity,
+      as: "timezone_preference",
+      scope: scope
+    )
+  end
+
+  defp timezone_catalog(socket, user) do
+    fallback = Enum.uniq(["Etc/UTC", user.timezone])
+
+    if connected?(socket) do
+      case TimeZone.profile_timezones() do
+        {:ok, zones} -> {merge_timezone_catalog(fallback, zones), nil}
+        {:error, :catalog_unavailable} -> {fallback, "Timezone choices are temporarily unavailable."}
+      end
+    else
+      {fallback, nil}
+    end
+  end
+
+  defp merge_timezone_catalog(fallback, zones) do
+    ["Etc/UTC" | Enum.sort(Enum.uniq((fallback ++ zones) -- ["Etc/UTC"]))]
   end
 
   @impl true
@@ -282,6 +363,29 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
        socket
        |> put_flash(:error, "Sudo mode required. Please re-authenticate.")
        |> push_navigate(to: ~p"/settings/profile")}
+    end
+  end
+
+  def handle_event("update_timezone", %{"timezone_preference" => params}, socket) do
+    ash_form = AshPhoenix.Form.validate(socket.assigns.timezone_ash_form, params)
+
+    case AshPhoenix.Form.submit(ash_form, params: params) do
+      {:ok, updated_user} ->
+        updated_scope = %{socket.assigns.current_scope | user: updated_user}
+        timezone_ash_form = build_timezone_form(updated_user, updated_scope)
+
+        {:noreply,
+         socket
+         |> assign(:current_scope, updated_scope)
+         |> assign(:timezone_ash_form, timezone_ash_form)
+         |> assign(:timezone_form, to_form(timezone_ash_form))
+         |> put_flash(:info, "Timezone updated successfully.")}
+
+      {:error, timezone_ash_form} ->
+        {:noreply,
+         socket
+         |> assign(:timezone_ash_form, timezone_ash_form)
+         |> assign(:timezone_form, to_form(timezone_ash_form))}
     end
   end
 

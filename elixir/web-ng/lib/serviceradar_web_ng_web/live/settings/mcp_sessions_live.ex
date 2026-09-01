@@ -114,7 +114,15 @@ defmodule ServiceRadarWebNGWeb.Settings.McpSessionsLive do
                       <td class="font-mono text-sm">{grant.client_id}</td>
                       <td class="font-mono text-xs">{grant.scope}</td>
                       <td class="text-sm">{grant.auth_method}</td>
-                      <td class="text-sm">{format_timestamp(grant.inserted_at)}</td>
+                      <td class="text-sm">
+                        <.user_time
+                          id={"settings-mcp-grant-#{grant.id}-inserted-at"}
+                          value={grant.inserted_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                          fallback="—"
+                        />
+                      </td>
                       <td>
                         <.ui_badge
                           size="sm"
@@ -161,12 +169,4 @@ defmodule ServiceRadarWebNGWeb.Settings.McpSessionsLive do
 
     assign(socket, :grants, grants)
   end
-
-  defp format_timestamp(nil), do: "—"
-
-  defp format_timestamp(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  end
-
-  defp format_timestamp(_), do: "—"
 end

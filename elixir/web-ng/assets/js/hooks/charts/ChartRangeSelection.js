@@ -1,4 +1,5 @@
 import {hoverPosition, plotGeometryFromDataset} from "../../utils/chart_hover_geometry"
+import {netflowRangeSelectionStatus} from "../../netflow_charts/util"
 import ChartRangeSelectionController from "./ChartRangeSelectionController"
 import {parseRangeBuckets} from "./chart_range_selection"
 
@@ -25,6 +26,9 @@ export default {
     const status = root.querySelector("[data-range-status]")
     const serializedBuckets = root.dataset.rangeBuckets
     const eventName = root.dataset.rangeEvent
+    const timeZone = typeof root.dataset.timezone === "string" && root.dataset.timezone.trim() !== ""
+      ? root.dataset.timezone
+      : "Etc/UTC"
     const buckets = parseRangeBuckets(serializedBuckets)
     this.rangeEventName = eventName
 
@@ -33,6 +37,7 @@ export default {
       buckets,
       emit: typeof eventName === "string" && eventName.length > 0 ? this.rangeSelectionEmitter : null,
       eventKey: eventName,
+      formatStatus: (range) => netflowRangeSelectionStatus(range, timeZone),
       overlay,
       plotBounds: () => {
         const rect = svg?.getBoundingClientRect()
@@ -42,6 +47,7 @@ export default {
       },
       root,
       status,
+      statusKey: timeZone,
       svg,
       viewXForEvent: (event) => {
         const rect = svg?.getBoundingClientRect()

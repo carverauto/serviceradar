@@ -1,5 +1,5 @@
 defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
-  use ServiceRadarWebNGWeb.ConnCase, async: true
+  use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AccountsFixtures
@@ -87,22 +87,19 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert html =~ "managed by your identity provider"
     end
 
-    test "topbar exposes a Profile / API docs / Logout dropdown", %{conn: conn} do
-      {:ok, _lv, html} =
+    test "topbar exposes a Profile / API docs / Logout menu", %{conn: conn} do
+      {:ok, lv, _html} =
         conn
         |> log_in_user(user_fixture(%{role: :operator}))
         |> live(~p"/settings/profile")
 
-      # The topbar avatar is now a daisyUI dropdown (dropdown-end) with three
-      # actions: Profile (LiveView nav), API docs (Swagger UI, new tab), Logout
-      # (reusing the existing delete session route).
-      assert html =~ "dropdown dropdown-end"
-      assert html =~ ~s(href="/api/v2/swaggerui")
-      assert html =~ ~s(target="_blank")
-      assert html =~ "API docs"
-      assert html =~ ~s(href="/settings/profile")
-      assert html =~ ~s(href="/users/log-out")
-      assert html =~ ~s(data-method="delete")
+      # The canonical details-based profile menu keeps the three actions: Profile
+      # (LiveView nav), API docs (Swagger UI, new tab), and the delete logout route.
+      assert has_element?(lv, "#ops-profile-menu")
+      assert has_element?(lv, "#ops-profile-menu-toggle")
+      assert has_element?(lv, "#ops-profile-menu a[href='/api/v2/swaggerui'][target='_blank']")
+      assert has_element?(lv, "#ops-profile-menu a[href='/settings/profile']")
+      assert has_element?(lv, "#ops-profile-menu a[href='/users/log-out'][data-method='delete']")
     end
 
     test "the users status strip links the API-keys card to API Credentials", %{conn: conn} do
@@ -140,7 +137,10 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       result =
         lv
         |> form("#email_form", %{
-          "user" => %{"email" => new_email}
+          "user" => %{
+            "email" => new_email,
+            "current_password" => valid_user_password()
+          }
         })
         |> render_submit()
 
@@ -166,7 +166,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert result =~ "must match the pattern"
     end
 
-    test "renders errors with invalid data (phx-submit)", %{conn: conn, user: user} do
+    test "renders errors with invalid data (phx-submit)", %{conn: conn, user: _user} do
       {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
       # Ash doesn't have "did not change" validation - it just succeeds
@@ -228,6 +228,99 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
     end
   end
 
+  describe "timezone preference form" do
+    setup %{conn: conn} do
+      user = user_fixture(%{role: :viewer})
+      %{conn: log_in_user(conn, user), user: user}
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "renders the searchable timezone form in the current responsive settings shell", %{conn: conn, user: user} do
+      {:ok, lv, _html} = live(conn, ~p"/settings/profile")
+
+      assert has_element?(lv, "#settings-view-tree")
+      assert has_element?(lv, "#settings-nav-drawer")
+      assert has_element?(lv, ".sr-settings-shell section #timezone_form")
+      refute has_element?(lv, "#timezone_form[phx-change]")
+      assert has_element?(lv, "#user_timezone[list='timezone_catalog'][phx-hook='TimezoneSelect']")
+      assert has_element?(lv, "#timezone_catalog option[value='Etc/UTC']")
+      assert has_element?(lv, "#timezone_catalog option[value='America/Chicago']")
+      assert has_element?(lv, "#user_timezone[data-current-timezone='#{user.timezone}']")
+      assert has_element?(lv, "#timezone-preview[data-user-time-zone='#{user.timezone}']")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "rejects an invalid timezone without changing the saved preference", %{conn: conn, user: user} do
+      {:ok, lv, _html} = live(conn, ~p"/settings/profile")
+
+      result =
+        lv
+        |> form("#timezone_form", %{"timezone_preference" => %{"timezone" => "Etc/GMT+5"}})
+        |> render_submit()
+
+      assert has_element?(lv, "#timezone_form #user_timezone")
+      assert result =~ "is not a supported timezone"
+      assert fresh_user(user.id).timezone == "Etc/UTC"
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "persists a valid timezone and refreshes only the scoped user", %{conn: conn, user: user} do
+      {:ok, lv, _html} = live(conn, ~p"/settings/profile")
+      prior_scope = :sys.get_state(lv.pid).socket.assigns.current_scope
+      prior_preview = preview_instant(render(lv))
+
+      result =
+        lv
+        |> form("#timezone_form", %{"timezone_preference" => %{"timezone" => "America/Chicago"}})
+        |> render_submit()
+
+      assert result =~ "Timezone updated successfully."
+      assert fresh_user(user.id).timezone == "America/Chicago"
+
+      updated_scope = :sys.get_state(lv.pid).socket.assigns.current_scope
+      assert updated_scope.user.timezone == "America/Chicago"
+      assert updated_scope.permissions == prior_scope.permissions
+      assert updated_scope.identity_claims == prior_scope.identity_claims
+      assert preview_instant(result) == prior_preview
+      assert has_element?(lv, "#timezone-preview[data-user-time-zone='America/Chicago']")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "uses the persisted timezone on a fresh authenticated connection", %{conn: conn, user: user} do
+      assert {:ok, updated} =
+               User.update_timezone_preference(user, %{timezone: "America/Chicago"}, scope: scope_for(user))
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/profile")
+
+      assert has_element?(lv, "#user_timezone[data-current-timezone='#{updated.timezone}']")
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "renders a persisted legacy timezone without allowing it to be saved again", %{conn: conn, user: user} do
+      legacy_timezone = "Legacy/Removed"
+
+      ServiceRadar.Repo.query!(
+        "UPDATE platform.ng_users SET timezone = $1 WHERE id = $2",
+        [legacy_timezone, Ecto.UUID.dump!(user.id)]
+      )
+
+      assert fresh_user(user.id).timezone == legacy_timezone
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/profile")
+
+      assert has_element?(lv, "#user_timezone[data-current-timezone='#{legacy_timezone}']")
+      assert has_element?(lv, "#timezone_catalog option[value='#{legacy_timezone}']")
+
+      result =
+        lv
+        |> form("#timezone_form", %{"timezone_preference" => %{"timezone" => legacy_timezone}})
+        |> render_submit()
+
+      assert result =~ "is not a supported timezone"
+      assert fresh_user(user.id).timezone == legacy_timezone
+    end
+  end
+
   # Real logins stamp sudo mode in the session (20-minute window). The view no
   # longer requires sudo, but the sensitive email/password submits still do, so
   # tests that submit must simulate the freshly-authenticated session.
@@ -237,5 +330,17 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       "sudo_authenticated_at",
       DateTime.to_unix(DateTime.utc_now())
     )
+  end
+
+  defp fresh_user(id) do
+    assert {:ok, user} = User.get_by_id(id, actor: SystemActor.system(:test))
+    user
+  end
+
+  defp scope_for(user), do: ServiceRadarWebNG.Accounts.Scope.for_user(user)
+
+  defp preview_instant(html) do
+    [_, datetime] = Regex.run(~r/id="timezone-preview"[^>]*datetime="([^"]+)"/, html)
+    datetime
   end
 end

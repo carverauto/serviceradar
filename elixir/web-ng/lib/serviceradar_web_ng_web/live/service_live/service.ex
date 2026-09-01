@@ -113,19 +113,34 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Service do
 
   def normalize_available(_value), do: nil
 
-  def format_timestamp(%{} = service) do
-    timestamp = Map.get(service, "timestamp")
-
-    case parse_iso_timestamp(timestamp) do
-      {:ok, datetime} -> Calendar.strftime(datetime, "%Y-%m-%d %H:%M:%S")
-      _ -> timestamp || "—"
+  def timestamp(%{} = service) do
+    case parse_iso_timestamp(Map.get(service, "timestamp")) do
+      {:ok, datetime} -> datetime
+      _ -> nil
     end
   end
 
-  def format_timestamp(_service), do: "—"
+  def timestamp(_service), do: nil
+
+  def timestamp_fallback(%{} = service) do
+    case Map.get(service, "timestamp") do
+      value when is_binary(value) and value != "" -> value
+      %DateTime{} = value -> DateTime.to_iso8601(value)
+      %NaiveDateTime{} = value -> NaiveDateTime.to_iso8601(value)
+      value when is_integer(value) or is_float(value) -> to_string(value)
+      _ -> "—"
+    end
+  end
+
+  def timestamp_fallback(_service), do: "—"
 
   def parse_iso_timestamp(nil), do: :error
   def parse_iso_timestamp(""), do: :error
+  def parse_iso_timestamp(%DateTime{} = value), do: {:ok, value}
+
+  def parse_iso_timestamp(%NaiveDateTime{} = value) do
+    {:ok, DateTime.from_naive!(value, "Etc/UTC")}
+  end
 
   def parse_iso_timestamp(value) when is_binary(value) do
     value = String.trim(value)

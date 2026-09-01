@@ -249,6 +249,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
             title="Log stream"
             class="sr-log-stream"
             entries={@visible_stream}
+            timezone={@current_scope.user.timezone}
             page_count={length(@visible_stream)}
             page={@stream_page}
             selected_id={@log_id}
@@ -267,11 +268,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
               log_id={@log_id}
               can_create_rules?={can_create_rules?(@current_scope)}
             />
-            <.log_meta_strip log={@log} />
+            <.log_meta_strip log={@log} timezone={@current_scope.user.timezone} />
 
             <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
               <.log_message_hero log={@log} body_mode={@body_mode} />
-              <.signal_display_panel :if={is_list(@signal_display)} widgets={@signal_display} />
+              <.signal_display_panel
+                :if={is_list(@signal_display)}
+                id="log-signal-display"
+                widgets={@signal_display}
+                timezone={@current_scope.user.timezone}
+              />
             </div>
           </section>
         </div>
@@ -358,7 +364,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
     case srql_module().query(strip_embedded_limit(query), opts) do
       {:ok, %{"results" => results} = resp} when is_list(results) ->
-        entries = Enum.map(results, &stream_entry/1)
+        entries = results |> Enum.with_index() |> Enum.map(fn {row, idx} -> stream_entry(row, idx) end)
 
         entries =
           if is_nil(cursor) and is_map(log) do
@@ -454,16 +460,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     end
   end
 
-  defp stream_entry(log) when is_map(log) do
+  defp stream_entry(log, idx) when is_map(log) do
     body = log_message(log)
-    id = entry_id(log)
+    id = entry_id(log, idx)
 
     %{
       id: id,
+      dom_id: "log-entry-#{idx}",
       href: ~p"/logs/#{id}",
       severity: Map.get(log, "severity_text"),
       secondary: Map.get(log, "service_name") || Map.get(log, "service") || "—",
-      time_short: format_time_short(log),
+      timestamp: Map.get(log, "observed_timestamp") || Map.get(log, "timestamp"),
       preview: message_preview(body)
     }
   end
@@ -472,7 +479,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     if Enum.any?(entries, &(&1.id == selected_id)) do
       entries
     else
-      [stream_entry(Map.put(log, "id", selected_id)) | entries]
+      [stream_entry(Map.put(log, "id", selected_id), "selected") | entries]
     end
   end
 
@@ -552,15 +559,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   end
 
   attr :log, :map, required: true
+  attr :timezone, :string, required: true
 
   defp log_meta_strip(assigns) do
     service = Map.get(assigns.log, "service_name")
     source_ip = Map.get(assigns.log, "source_ip")
+    timestamp = timestamp_meta(assigns.log)
 
     facts =
       Enum.reject(
         [
-          %{label: "Timestamp", value: format_timestamp(assigns.log), mono?: true, href: nil},
           %{
             label: "Service",
             value: service,
@@ -580,7 +588,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
         fn fact -> blank_value?(fact.value) end
       )
 
-    n = length(facts)
+    n = length(facts) + 1
 
     col_class =
       cond do
@@ -594,10 +602,24 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     assigns =
       assigns
       |> assign(:facts, facts)
+      |> assign(:timestamp, timestamp)
       |> assign(:col_class, col_class)
 
     ~H"""
     <div class={["grid gap-px border-b border-sr-line bg-sr-line", @col_class]}>
+      <div class="flex min-w-0 flex-col gap-1 bg-sr-surface px-4 py-3">
+        <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+          Timestamp
+        </span>
+        <.user_time
+          id="log-detail-time"
+          value={@timestamp.value}
+          timezone={@timezone}
+          style={:full}
+          fallback={@timestamp.fallback}
+          class="truncate font-mono text-[13px] tracking-tight text-sr-ink"
+        />
+      </div>
       <div
         :for={fact <- @facts}
         class="flex min-w-0 flex-col gap-1 bg-sr-surface px-4 py-3"
@@ -1322,20 +1344,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp value_looks_like_ip?(v) when is_binary(v), do: Regex.match?(~r/^(?:\d{1,3}\.){3}\d{1,3}$/, v)
   defp value_looks_like_ip?(_), do: false
 
-  defp format_time_short(log) do
-    ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%H:%M:%S")
-      _ -> "—"
-    end
-  end
-
-  defp entry_id(log) do
+  defp entry_id(log, idx) do
     case Map.get(log, "id") do
       <<_::binary-size(16)>> = bin -> uuid_to_string(bin)
       id when is_binary(id) and id != "" -> id
-      _ -> "unknown-" <> Integer.to_string(:erlang.phash2(log))
+      _ -> "row-#{idx}"
     end
   end
 
@@ -1715,17 +1728,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp normalize_severity(v), do: v |> to_string() |> normalize_severity()
 
-  defp format_timestamp(log) do
-    ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
+  defp timestamp_meta(log) do
+    value = Map.get(log, "observed_timestamp") || Map.get(log, "timestamp")
 
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-      _ -> ts || "—"
+    case parse_timestamp(value) do
+      {:ok, dt} -> %{value: dt, fallback: DateTime.to_iso8601(dt)}
+      _ -> %{value: nil, fallback: value || "—"}
     end
   end
 
   defp parse_timestamp(nil), do: :error
   defp parse_timestamp(""), do: :error
+  defp parse_timestamp(%DateTime{} = value), do: {:ok, value}
+
+  # Typed NaiveDateTime values are a canonical DB representation. Source text must carry an offset.
+  defp parse_timestamp(%NaiveDateTime{} = value), do: {:ok, DateTime.from_naive!(value, "Etc/UTC")}
 
   defp parse_timestamp(value) when is_binary(value) do
     value = String.trim(value)
@@ -1735,10 +1752,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
         {:ok, dt}
 
       {:error, _} ->
-        case NaiveDateTime.from_iso8601(value) do
-          {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-          {:error, _} -> :error
-        end
+        :error
     end
   end
 

@@ -20,6 +20,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @credential_manage_check {ActorHasPermission, permission: "settings.credentials.manage"}
+  @credential_in_use_message "credential_in_use"
 
   @fields [
     :name,
@@ -86,23 +87,25 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     schema "platform"
 
     foreign_key_names [
-      {:id, "network_credential_rules_secret_id_fkey", "credential_in_use"},
-      {:id, "snmp_profiles_credential_secret_id_fkey", "credential_in_use"},
-      {:id, "snmp_targets_credential_secret_id_fkey", "credential_in_use"},
-      {:id, "device_snmp_credentials_credential_secret_id_fkey", "credential_in_use"},
-      {:id, "mapper_unifi_controllers_credential_secret_id_fkey", "credential_in_use"},
-      {:id, "mapper_mikrotik_controllers_credential_secret_id_fkey", "credential_in_use"},
-      {:id, "integration_sources_credential_secret_id_fkey", "credential_in_use"},
-      {:id, "plugin_repositories_credential_secret_id_fkey", "credential_in_use"},
-      {:id, "ansible_controllers_credential_secret_id_fkey", "credential_in_use"},
-      {:id, "ansible_controllers_sync_credential_secret_id_fkey", "credential_in_use"},
-      {:id, "ansible_controllers_execution_credential_secret_id_fkey", "credential_in_use"},
-      {:id, "ansible_controllers_callback_credential_secret_id_fkey", "credential_in_use"},
-      {:id, "ansible_playbook_repositories_credential_secret_id_fkey", "credential_in_use"},
-      {:id, "outbound_mail_settings_password_secret_id_fkey", "credential_in_use"},
-      {:id, "outbound_mail_settings_api_key_secret_id_fkey", "credential_in_use"},
-      {:id, "credential_broker_grants_secret_id_fkey", "credential_in_use"},
-      {:id, "network_credential_secret_bindings_secret_id_fkey", "credential_in_use"}
+      {:id, "network_credential_rules_secret_id_fkey", @credential_in_use_message},
+      {:id, "snmp_profiles_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "snmp_targets_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "device_snmp_credentials_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "mapper_unifi_controllers_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "mapper_mikrotik_controllers_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "integration_sources_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "plugin_repositories_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "ansible_controllers_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "ansible_controllers_sync_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "ansible_controllers_execution_credential_secret_id_fkey",
+       @credential_in_use_message},
+      {:id, "ansible_controllers_callback_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "ansible_playbook_repositories_credential_secret_id_fkey",
+       @credential_in_use_message},
+      {:id, "outbound_mail_settings_password_secret_id_fkey", @credential_in_use_message},
+      {:id, "outbound_mail_settings_api_key_secret_id_fkey", @credential_in_use_message},
+      {:id, "credential_broker_grants_secret_id_fkey", @credential_in_use_message},
+      {:id, "network_credential_secret_bindings_secret_id_fkey", @credential_in_use_message}
     ]
   end
 

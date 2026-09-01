@@ -18,6 +18,7 @@ class FakeNode {
     this.innerHTML = ""
     this.style = {}
     this.textContent = ""
+    this.queryResults = new Map()
     this._classes = new Set()
     this.classList = {
       add: (...names) => names.forEach((name) => this._classes.add(name)),
@@ -73,6 +74,10 @@ class FakeNode {
     return null
   }
 
+  querySelectorAll(selector) {
+    return this.queryResults.get(selector) || []
+  }
+
   releasePointerCapture(pointerId) {
     this.capturedPointers.delete(pointerId)
   }
@@ -118,6 +123,22 @@ function chart() {
   overlay.classList.add("hidden")
   const status = new FakeNode()
   const root = new FakeNode()
+  const axisTime = new FakeNode()
+  const rangeTitle = new FakeNode()
+  const axisFallback = "2026-08-27T10:00:00Z"
+  const titleFallback =
+    "window: 2026-08-27T10:00:00Z → 2026-08-27T10:04:59.999999Z\nbytes: 100 B\navg rate: 2.67 bps"
+
+  axisTime.setAttribute("data-netflow-time", "axis")
+  axisTime.setAttribute("data-time-iso", buckets[0].start)
+  axisTime.setAttribute("data-time-fallback", axisFallback)
+  axisTime.textContent = axisFallback
+  rangeTitle.setAttribute("data-netflow-time", "range-title")
+  rangeTitle.setAttribute("data-time-start", buckets[0].start)
+  rangeTitle.setAttribute("data-time-end", buckets[0].end)
+  rangeTitle.setAttribute("data-time-fallback", titleFallback)
+  rangeTitle.textContent = titleFallback
+
   root.dataset = {
     bucketSeconds: "300",
     chartHeight: "160",
@@ -127,7 +148,10 @@ function chart() {
     ),
     rangeBuckets: JSON.stringify(buckets),
     rangeEvent: "netflow_range_selected",
+    timezone: "America/Chicago",
   }
+  root.queryResults.set("[data-netflow-time='axis']", [axisTime])
+  root.queryResults.set("[data-netflow-time='range-title']", [rangeTitle])
   root.querySelector = (selector) => {
     if (selector === "[data-range-svg]" || selector === "svg") return svg
     if (selector === "[data-range-overlay]") return overlay
@@ -137,7 +161,7 @@ function chart() {
     }
     return null
   }
-  return {overlay, root, status, svg}
+  return {axisFallback, axisTime, overlay, rangeTitle, root, status, svg, titleFallback}
 }
 
 function mount() {
@@ -167,13 +191,59 @@ describe("NetflowTrafficTooltip shared range integration", () => {
       root.dispatch({clientX: 500, clientY: 70, type: "mousemove"})
       const tooltip = root.children[0].children[0]
       expect(tooltip.classList.contains("hidden")).toBe(false)
-      expect(tooltip.innerHTML).toContain("2026-08-27T10:05:00Z")
-      expect(tooltip.innerHTML).toContain("2026-08-27T10:09:59.999999Z")
+      expect(tooltip.innerHTML).toContain("05:05:00")
+      expect(tooltip.innerHTML).toContain("05:09:59")
+      expect(tooltip.innerHTML).toContain("GMT-5")
+      expect(tooltip.innerHTML.match(/<time /g)).toHaveLength(2)
+      expect(tooltip.innerHTML).toContain('<time datetime="2026-08-27T10:05:00Z"')
+      expect(tooltip.innerHTML).toContain(
+        'data-canonical-utc="2026-08-27T10:09:59.999999Z"',
+      )
+      expect(tooltip.innerHTML).toContain("canonical UTC 2026-08-27T10:05:00Z")
+      expect(tooltip.innerHTML).toContain("canonical UTC 2026-08-27T10:09:59.999999Z")
 
       ctx.destroyed()
       expect(root.totalListenerCount()).toBe(0)
       expect(svg.totalListenerCount()).toBe(0)
       expect(ctx.rangeController).toBeNull()
+    } finally {
+      globalThis.document = oldDocument
+      globalThis.window = oldWindow
+    }
+  })
+
+  it("localizes SVG time markers and restores their complete fallback after an invalid-zone update", () => {
+    const oldDocument = globalThis.document
+    const oldWindow = globalThis.window
+    globalThis.document = {createElement: () => new FakeNode()}
+    globalThis.window = {getComputedStyle: () => ({position: "relative"})}
+
+    try {
+      const {axisFallback, axisTime, ctx, rangeTitle, root, titleFallback} = mount()
+
+      expect(axisTime.textContent).toContain("05:00")
+      expect(axisTime.textContent).not.toBe(axisFallback)
+      expect(rangeTitle.textContent).toContain("05:00:00")
+      expect(rangeTitle.textContent).toContain("05:04:59")
+      expect(rangeTitle.textContent).toContain("display zone America/Chicago")
+      expect(rangeTitle.textContent).toContain(`canonical UTC ${buckets[0].start}`)
+      expect(rangeTitle.textContent).toContain(`canonical UTC ${buckets[0].end}`)
+      expect(rangeTitle.textContent.split("\n")).toEqual([
+        expect.stringContaining("GMT-5"),
+        "bytes: 100 B",
+        "avg rate: 2.67 bps",
+      ])
+
+      root.dataset.timezone = "Mars/Olympus"
+      ctx.updated()
+
+      expect(axisTime.textContent).toBe(axisFallback)
+      expect(rangeTitle.textContent).toBe(titleFallback)
+
+      root.dispatch({clientX: 0, clientY: 70, type: "mousemove"})
+      const tooltip = root.children[0].children[0]
+      expect(tooltip.innerHTML).toContain(buckets[0].start)
+      expect(tooltip.innerHTML).toContain(buckets[0].end)
     } finally {
       globalThis.document = oldDocument
       globalThis.window = oldWindow

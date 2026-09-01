@@ -485,7 +485,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                           {if rule.enabled, do: "Enabled", else: "Disabled"}
                         </span>
                       </td>
-                      <td>{runtime_status(rule, @integration_profiles, @integration_schedules)}</td>
+                      <td>
+                        <.runtime_status
+                          rule={rule}
+                          profiles={@integration_profiles}
+                          schedules={@integration_schedules}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        />
+                      </td>
                       <td>
                         <div class="flex justify-end gap-2">
                           <.ui_button
@@ -554,7 +561,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                     </tr>
                     <tr :if={@expanded_rule_id == to_string(rule.id)} class="bg-sr-subtle/40">
                       <td colspan="10">
-                        <.rule_consumers_panel consumers={@rule_consumers} />
+                        <.rule_consumers_panel
+                          consumers={@rule_consumers}
+                          rule_id={rule.id}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        />
                       </td>
                     </tr>
                   <% end %>
@@ -673,6 +684,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   attr :consumers, :map, default: nil
+  attr :rule_id, :any, required: true
+  attr :timezone, :string, required: true
 
   defp rule_consumers_panel(assigns) do
     ~H"""
@@ -690,7 +703,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <p class="text-sr-muted">
             Materializes {@consumers.total} assignment(s)
             ({@consumers.enabled_count} enabled) across {length(@consumers.agent_uids)} agent(s).
-            Last materialized {format_timestamp(@consumers.last_materialized_at)}.
+            Last materialized
+            <.user_time
+              id={"settings-network-credential-rule-#{@rule_id}-last-materialized-at"}
+              value={@consumers.last_materialized_at}
+              timezone={@timezone}
+              style={:compact}
+              fallback="never"
+            />.
           </p>
           <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
             <table class="table table-xs">
@@ -716,7 +736,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                       {if consumer.enabled, do: "enabled", else: "disabled"}
                     </span>
                   </td>
-                  <td>{format_timestamp(consumer.last_materialized_at)}</td>
+                  <td>
+                    <.user_time
+                      id={
+                        "settings-network-credential-rule-#{dom_id_segment(@rule_id)}-consumer-#{dom_id_segment(consumer.agent_uid)}-#{dom_id_segment(consumer.plugin_id)}-#{dom_id_segment(consumer.purpose)}-last-materialized-at"
+                      }
+                      value={consumer.last_materialized_at}
+                      timezone={@timezone}
+                      style={:compact}
+                      fallback="never"
+                    />
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -2774,12 +2804,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp format_timestamp(%DateTime{} = timestamp) do
-    Calendar.strftime(timestamp, "%Y-%m-%d %H:%M:%S UTC")
-  end
-
-  defp format_timestamp(_timestamp), do: "never"
-
   defp format_last_test(%{last_test_status: nil}), do: "Not tested"
 
   defp format_last_test(rule) do
@@ -2812,18 +2836,40 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp runtime_status(rule, profiles, schedules) do
-    if scheduled_integration_provider?(rule.provider, profiles) do
-      case Map.get(schedules, to_string(rule.id)) do
-        %{last_status: status, last_run_at: last_run_at} ->
-          "#{status} / #{format_timestamp(last_run_at)}"
+  attr :rule, :map, required: true
+  attr :profiles, :list, required: true
+  attr :schedules, :map, required: true
+  attr :timezone, :string, required: true
 
-        nil ->
-          "Awaiting provisioning"
-      end
-    else
-      format_last_test(rule)
-    end
+  defp runtime_status(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :scheduled?,
+        scheduled_integration_provider?(assigns.rule.provider, assigns.profiles)
+      )
+
+    ~H"""
+    <%= if @scheduled? do %>
+      <%= case Map.get(@schedules, to_string(@rule.id)) do %>
+        <% %{last_status: status, last_run_at: last_run_at} -> %>
+          {status} /
+          <.user_time
+            id={
+              "settings-network-credential-rule-#{dom_id_segment(@rule.id)}-runtime-last-run-at"
+            }
+            value={last_run_at}
+            timezone={@timezone}
+            style={:compact}
+            fallback="never"
+          />
+        <% nil -> %>
+          Awaiting provisioning
+      <% end %>
+    <% else %>
+      {format_last_test(@rule)}
+    <% end %>
+    """
   end
 
   defp format_atom(nil), do: nil
@@ -2835,6 +2881,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp format_atom(value), do: to_string(value)
+
+  defp dom_id_segment(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
+  end
 
   defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
   defp format_error(%Ash.Error.Forbidden{} = error), do: Exception.message(error)

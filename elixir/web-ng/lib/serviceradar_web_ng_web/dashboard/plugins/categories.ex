@@ -34,10 +34,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Categories do
 
   @impl true
   def update(%{panel_assigns: panel_assigns} = assigns, socket) do
+    panel_assigns = panel_assigns || %{}
+    timezone = Map.get(panel_assigns, :timezone) || Map.get(panel_assigns, "timezone")
+
+    if not is_binary(timezone) or timezone == "" do
+      raise ArgumentError, "categories visualization requires an explicit timezone"
+    end
+
     socket =
       socket
       |> assign(Map.delete(assigns, :panel_assigns))
-      |> assign(panel_assigns || %{})
+      |> assign(panel_assigns)
+      |> assign(:timezone, timezone)
 
     {:ok, socket}
   end
@@ -46,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Categories do
   def render(assigns) do
     ~H"""
     <div id={"panel-#{@id}"}>
-      <.srql_auto_viz viz={@viz} />
+      <.srql_auto_viz id={"#{@id}-categories"} viz={@viz} timezone={@timezone} />
     </div>
     """
   end

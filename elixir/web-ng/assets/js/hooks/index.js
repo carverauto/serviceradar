@@ -5,13 +5,14 @@ import CommandPalette from "./CommandPalette"
 import CredentialDeepLinkFocus from "./CredentialDeepLinkFocus"
 import DialogTopLayer from "./DialogTopLayer"
 import ToastTopLayer from "./ToastTopLayer"
+import TimezoneSelect from "./TimezoneSelect"
 import DashboardBuilderCanvas from "./DashboardBuilderCanvas"
 import DashboardPanelChart from "./DashboardPanelChart"
 import DashboardMapViewSelect from "./DashboardMapViewSelect"
 import DashboardWasmHost from "./DashboardWasmHost"
 import DetailsState from "./DetailsState"
 import JdmEditorHook from "./JdmEditorHook"
-import LocalTime from "./LocalTime"
+import UserTime from "./UserTime"
 import MapboxFlowMap from "./MapboxFlowMap"
 import MapboxLocationPicker from "./MapboxLocationPicker"
 import OperationsTrafficMap from "./OperationsTrafficMap"
@@ -54,13 +55,14 @@ export default {
   CredentialDeepLinkFocus,
   DialogTopLayer,
   ToastTopLayer,
+  TimezoneSelect,
   DashboardBuilderCanvas,
   DashboardPanelChart,
   DashboardMapViewSelect,
   DashboardWasmHost,
   DetailsState,
   JdmEditorHook,
-  LocalTime,
+  UserTime,
   MapboxFlowMap,
   MapboxLocationPicker,
   OperationsTrafficMap,

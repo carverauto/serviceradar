@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
   @visible_match_limit 3
 
   attr(:dashboard, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def render(%{dashboard: dashboard} = assigns) do
     summary = dashboard[:threat_intel_summary] || dashboard["threat_intel_summary"]
@@ -43,9 +44,19 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
             </span>
             <div class="sr-ops-threat-sync-copy">
               <strong>{threat_source_label(@threat_intel_summary)}</strong>
-              <small title={sync_timestamp_title(@threat_intel_summary)}>
-                {threat_sync_label(@threat_intel_summary)}
-              </small>
+              <%= if sync = threat_sync(@threat_intel_summary) do %>
+                <small>
+                  {sync.label}
+                  <.user_time
+                    id={"dashboard-threat-#{sync.kind}-at"}
+                    value={sync.value}
+                    timezone={@timezone}
+                    style={:compact}
+                  />
+                </small>
+              <% else %>
+                <small>Waiting for OTX sync</small>
+              <% end %>
             </div>
           </.link>
 
@@ -85,7 +96,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
           <div :for={match <- @recent_matches} class="sr-ops-threat-match">
             <span class="sr-ops-threat-match-ip">{match.ip}</span>
             <span class="sr-ops-threat-match-meta">
-              {match_meta_label(match)}
+              <span :if={match_meta_label(match) != ""}>{match_meta_label(match)} · </span>
+              <.user_time
+                :if={match_seen_at(match)}
+                id={"dashboard-threat-match-#{time_id_part(match.ip)}-looked-up-at"}
+                value={match_seen_at(match)}
+                timezone={@timezone}
+                style={:compact}
+              />
             </span>
             <div class="sr-ops-threat-match-links">
               <.link
@@ -137,13 +155,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
 
   defp threat_source_label(_), do: "No feed sync yet"
 
-  defp threat_sync_label(%{latest_success_label: label}) when is_binary(label) and label != "",
-    do: "Last success #{label} UTC"
+  defp threat_sync(%{latest_success_at: value}) when not is_nil(value),
+    do: %{kind: "last-success", label: "Last success", value: value}
 
-  defp threat_sync_label(%{latest_attempt_label: label}) when is_binary(label) and label != "",
-    do: "Last attempt #{label} UTC"
+  defp threat_sync(%{latest_attempt_at: value}) when not is_nil(value),
+    do: %{kind: "last-attempt", label: "Last attempt", value: value}
 
-  defp threat_sync_label(_), do: "Waiting for OTX sync"
+  defp threat_sync(_), do: nil
 
   defp threat_message(%{latest_message: message}) when is_binary(message) and message != "", do: message
 
@@ -165,8 +183,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
   defp match_meta_label(match) when is_map(match) do
     [
       match_host_label(match),
-      match_hits_label(match),
-      match_seen_label(match)
+      match_hits_label(match)
     ]
     |> Enum.reject(&(&1 == ""))
     |> Enum.join(" · ")
@@ -180,10 +197,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
   defp match_hits_label(%{match_count: count}) when is_integer(count) and count > 0, do: "#{count} hits"
   defp match_hits_label(_match), do: ""
 
-  defp match_seen_label(%{looked_up_label: label}) when is_binary(label) and label != "", do: label
-  defp match_seen_label(_match), do: ""
+  defp match_seen_at(%{looked_up_at: value}) when not is_nil(value), do: value
+  defp match_seen_at(_match), do: nil
 
-  defp sync_timestamp_title(%{latest_success_at: %DateTime{} = value}), do: DateTime.to_iso8601(value)
-  defp sync_timestamp_title(%{latest_attempt_at: %DateTime{} = value}), do: DateTime.to_iso8601(value)
-  defp sync_timestamp_title(_summary), do: nil
+  defp time_id_part(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
+  end
 end

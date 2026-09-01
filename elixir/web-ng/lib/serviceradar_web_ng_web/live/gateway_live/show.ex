@@ -141,6 +141,8 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
 
   @impl true
   def render(assigns) do
+    assigns = assign(assigns, :timezone, user_timezone(assigns[:current_scope]))
+
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-4xl p-6">
@@ -184,7 +186,11 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
           <.gateway_summary gateway={@gateway} />
           <.gateway_role_card />
           <.node_system_info :if={@node_info} node_info={@node_info} node={Map.get(@gateway, "node")} />
-          <.registration_info gateway={@gateway} />
+          <.registration_info
+            gateway={@gateway}
+            gateway_id={@gateway_id}
+            timezone={@timezone}
+          />
         </div>
       </div>
     </Layouts.app>
@@ -339,6 +345,8 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
   end
 
   attr :gateway, :map, required: true
+  attr :gateway_id, :string, required: true
+  attr :timezone, :string, required: true
 
   defp registration_info(assigns) do
     ~H"""
@@ -352,14 +360,26 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
             <span class="size-2 rounded-full bg-success"></span>
             <span class="text-xs text-sr-muted w-24">Registered</span>
             <span class="font-mono text-sm">
-              {format_timestamp(Map.get(@gateway, "registered_at"))}
+              <.user_time
+                id={"gateway-#{@gateway_id}-registered-at"}
+                value={Map.get(@gateway, "registered_at")}
+                timezone={@timezone}
+                style={:full}
+                fallback={timestamp_fallback(Map.get(@gateway, "registered_at"))}
+              />
             </span>
           </div>
           <div :if={has_value?(@gateway, "last_heartbeat")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-info animate-pulse"></span>
             <span class="text-xs text-sr-muted w-24">Last Heartbeat</span>
             <span class="font-mono text-sm">
-              {format_timestamp(Map.get(@gateway, "last_heartbeat"))}
+              <.user_time
+                id={"gateway-#{@gateway_id}-last-heartbeat"}
+                value={Map.get(@gateway, "last_heartbeat")}
+                timezone={@timezone}
+                style={:full}
+                fallback={timestamp_fallback(Map.get(@gateway, "last_heartbeat"))}
+              />
             </span>
             <span class="text-xs text-sr-muted">
               ({time_ago(Map.get(@gateway, "last_heartbeat"))})
@@ -425,17 +445,8 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
     end
   end
 
-  defp format_timestamp(nil), do: "—"
-  defp format_timestamp(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-
-  defp format_timestamp(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, dt, _} -> format_timestamp(dt)
-      _ -> value
-    end
-  end
-
-  defp format_timestamp(value), do: inspect(value)
+  defp timestamp_fallback(value) when is_binary(value) and value != "", do: value
+  defp timestamp_fallback(_value), do: "—"
 
   defp time_ago(nil), do: ""
 
@@ -460,6 +471,10 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
       _ -> true
     end
   end
+
+  defp user_timezone(%{user: %{timezone: timezone}}) when is_binary(timezone) and timezone != "", do: timezone
+
+  defp user_timezone(_current_scope), do: "Etc/UTC"
 
   defp escape_value(value) when is_binary(value) do
     value

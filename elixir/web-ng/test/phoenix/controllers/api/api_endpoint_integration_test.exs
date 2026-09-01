@@ -36,6 +36,18 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
     def query_request(_params), do: {:error, {:db_failure, "boom", %{code: 42}}}
   end
 
+  defmodule CanonicalTimeStub do
+    @moduledoc false
+
+    def query_request(%{"query" => "in:logs limit:1"}) do
+      {:ok,
+       %{
+         "results" => [%{"time" => "2026-08-30T18:00:00Z", "message" => "canonical"}],
+         "pagination" => %{}
+       }}
+    end
+  end
+
   setup do
     # Keep the per-IP OAuth rate-limit buckets clear so minting one token per
     # test never trips the client-credentials limiter across the suite.
@@ -388,6 +400,29 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   # ==========================================================================
 
   describe "POST /api/query" do
+    @tag :web_ng_shared_fixture_db
+    test "returns canonical UTC time payload values unchanged for a non-UTC user", ctx do
+      owner =
+        Ash.update!(ctx.owner, %{timezone: "America/Chicago"},
+          action: :update_timezone_preference,
+          actor: ctx.owner
+        )
+
+      previous = Application.get_env(:serviceradar_web_ng, :srql_module)
+      Application.put_env(:serviceradar_web_ng, :srql_module, CanonicalTimeStub)
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:serviceradar_web_ng, :srql_module),
+          else: Application.put_env(:serviceradar_web_ng, :srql_module, previous)
+      end)
+
+      {client, secret} = client_for_user(owner, owner, ["read"])
+      conn = post(authed(%{client: client, secret: secret}), ~p"/api/query", %{"query" => "in:logs limit:1"})
+
+      assert %{"results" => [%{"time" => "2026-08-30T18:00:00Z"}]} = json_response(conn, 200)
+    end
+
     test "a valid SRQL query returns results", ctx do
       seed_devices(3)
       conn = post(authed(ctx), ~p"/api/query", %{"query" => "in:devices limit:10"})

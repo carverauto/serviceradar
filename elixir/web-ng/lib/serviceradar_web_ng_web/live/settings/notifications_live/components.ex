@@ -117,6 +117,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
   attr :channel_index, :map, default: %{}
   attr :test_result, :map, default: nil
   attr :loading, :boolean, default: false
+  attr :timezone, :string, default: "Etc/UTC"
 
   def channels_tab(assigns) do
     ~H"""
@@ -184,10 +185,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
                     variant={Presentation.channel_health_variant(channel.health)}
                   />
                   <div class="text-xs text-sr-muted">
-                    ok {Presentation.timestamp(channel.last_success_at)}
+                    ok
+                    <.user_time
+                      id={"notification-channel-#{channel.id}-last-success-at"}
+                      value={channel.last_success_at}
+                      timezone={@timezone}
+                      style={:full}
+                      fallback="-"
+                    />
                   </div>
                   <div class="text-xs text-sr-muted">
-                    fail {Presentation.timestamp(channel.last_failure_at)}
+                    fail
+                    <.user_time
+                      id={"notification-channel-#{channel.id}-last-failure-at"}
+                      value={channel.last_failure_at}
+                      timezone={@timezone}
+                      style={:full}
+                      fallback="-"
+                    />
                   </div>
                   <details :if={channel.last_error} class="mt-1">
                     <summary class="cursor-pointer text-xs text-sr-brand">Last error</summary>
@@ -195,8 +210,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
                       {Presentation.truncate(channel.last_error, 300)}
                     </p>
                     <.contract_view
+                      id={"channel-#{channel.id}-health-contract"}
                       view={Contracts.channel_health_view(channel, channel_provider(channel))}
                       class="mt-2 max-w-xs"
+                      timezone={@timezone}
                     />
                   </details>
                 </td>
@@ -1322,6 +1339,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
   attr :suppression, :map, default: nil
   attr :silence_counts, :map, default: %{}
   attr :loading, :boolean, default: false
+  attr :timezone, :string, default: "Etc/UTC"
 
   def silences_tab(assigns) do
     ~H"""
@@ -1410,8 +1428,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
                   />
                 </td>
                 <td class="text-xs text-sr-muted">
-                  <div>{Presentation.timestamp(silence.starts_at)}</div>
-                  <div>to {Presentation.timestamp(silence.ends_at)}</div>
+                  <div>
+                    <.user_time
+                      id={"notification-silence-#{silence.id}-starts-at"}
+                      value={silence.starts_at}
+                      timezone={@timezone}
+                      style={:full}
+                      fallback="-"
+                    />
+                  </div>
+                  <div>
+                    to
+                    <.user_time
+                      id={"notification-silence-#{silence.id}-ends-at"}
+                      value={silence.ends_at}
+                      timezone={@timezone}
+                      style={:full}
+                      fallback="-"
+                    />
+                  </div>
                 </td>
                 <td class="max-w-xs break-words text-xs text-sr-muted">
                   {Predicate.summarize(silence.matchers)}
@@ -1627,6 +1662,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
   attr :upload, :map, default: nil
   attr :versions, :map, default: nil
   attr :loading, :boolean, default: false
+  attr :timezone, :string, default: "Etc/UTC"
 
   def providers_tab(assigns) do
     ~H"""
@@ -1755,7 +1791,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
 
       <.provider_upload_editor :if={@upload} form={@upload} />
 
-      <.provider_versions_panel :if={@versions} versions={@versions} can_manage={@can_manage} />
+      <.provider_versions_panel
+        :if={@versions}
+        versions={@versions}
+        can_manage={@can_manage}
+        timezone={@timezone}
+      />
 
       <.ui_panel>
         <:header>
@@ -1958,6 +1999,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
 
   attr :versions, :map, required: true
   attr :can_manage, :boolean, default: false
+  attr :timezone, :string, default: "Etc/UTC"
 
   @doc """
   A declarative provider's definition history, and what binds to it.
@@ -2013,7 +2055,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
               <span class="text-sm font-semibold">Version {entry.number}</span>
               <.state_badge :if={entry.current?} label="Current" variant="success" />
               <span class="text-xs text-sr-muted">
-                {Presentation.timestamp(entry.recorded_at)} - {entry.action}
+                <.user_time
+                  id={"notification-provider-#{@versions.provider.id}-version-#{entry.number}-recorded-at"}
+                  value={entry.recorded_at}
+                  timezone={@timezone}
+                  style={:full}
+                  fallback="-"
+                /> - {entry.action}
               </span>
             </div>
             <div class="inline-flex gap-1">
@@ -2056,6 +2104,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
   attr :selected, :map, default: nil
   attr :limit, :integer, default: 100
   attr :loading, :boolean, default: false
+  attr :timezone, :string, default: "Etc/UTC"
 
   def deliveries_tab(assigns) do
     ~H"""
@@ -2217,9 +2266,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
                       {Presentation.suppression_reason_explanation(delivery.suppression_reason)}
                     </div>
                     <div :if={delivery.occurrence_count > 1} class="text-[11px] text-sr-muted">
-                      recorded {delivery.occurrence_count} times, last {Presentation.timestamp(
-                        delivery.last_evaluated_at
-                      )}
+                      recorded {delivery.occurrence_count} times, last
+                      <.user_time
+                        id={"notification-delivery-#{delivery.id}-last-evaluated-at"}
+                        value={delivery.last_evaluated_at}
+                        timezone={@timezone}
+                        style={:full}
+                        fallback="-"
+                      />
                     </div>
                   </div>
                   <.state_badge :if={delivery.is_test} label="Test send" variant="info" />
@@ -2246,7 +2300,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
                 <td class="text-xs">
                   <div>{delivery.attempt_count} of {delivery.max_attempts}</div>
                   <div :if={delivery.next_attempt_at} class="text-sr-muted">
-                    next {Presentation.timestamp(delivery.next_attempt_at)}
+                    next
+                    <.user_time
+                      id={"notification-delivery-#{delivery.id}-next-attempt-at"}
+                      value={delivery.next_attempt_at}
+                      timezone={@timezone}
+                      style={:full}
+                      fallback="-"
+                    />
                   </div>
                   <div :if={delivery.error_class} class="text-error">{delivery.error_class}</div>
                   <div :if={delivery.error_message} class="max-w-xs break-words text-sr-muted">
@@ -2267,9 +2328,36 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
                   </div>
                 </td>
                 <td class="text-xs text-sr-muted">
-                  <div>queued {Presentation.timestamp(delivery.queued_at)}</div>
-                  <div>started {Presentation.timestamp(delivery.started_at)}</div>
-                  <div>finished {Presentation.timestamp(delivery.finished_at)}</div>
+                  <div>
+                    queued
+                    <.user_time
+                      id={"notification-delivery-#{delivery.id}-queued-at"}
+                      value={delivery.queued_at}
+                      timezone={@timezone}
+                      style={:full}
+                      fallback="-"
+                    />
+                  </div>
+                  <div>
+                    started
+                    <.user_time
+                      id={"notification-delivery-#{delivery.id}-started-at"}
+                      value={delivery.started_at}
+                      timezone={@timezone}
+                      style={:full}
+                      fallback="-"
+                    />
+                  </div>
+                  <div>
+                    finished
+                    <.user_time
+                      id={"notification-delivery-#{delivery.id}-finished-at"}
+                      value={delivery.finished_at}
+                      timezone={@timezone}
+                      style={:full}
+                      fallback="-"
+                    />
+                  </div>
                 </td>
                 <td class="text-right">
                   <.ui_button
@@ -2291,13 +2379,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
         </div>
       </.ui_panel>
 
-      <.delivery_detail selected={@selected} channel_index={@channel_index} />
+      <.delivery_detail
+        selected={@selected}
+        channel_index={@channel_index}
+        timezone={@timezone}
+      />
     </div>
     """
   end
 
   attr :selected, :map, default: nil
   attr :channel_index, :map, default: %{}
+  attr :timezone, :string, default: "Etc/UTC"
 
   def delivery_detail(assigns) do
     ~H"""
@@ -2362,6 +2455,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
             </div>
           </dl>
           <.contract_view
+            id={"delivery-#{@selected.delivery.id}-contract"}
             view={
               Contracts.delivery_view(
                 @selected.delivery.result_summary,
@@ -2370,6 +2464,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
             }
             class="mt-3"
             only_contract={true}
+            timezone={@timezone}
           />
         </div>
 
@@ -2432,6 +2527,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
   # would be two contracts wearing one name.
 
   attr :view, :map, required: true
+  attr :id, :string, required: true
+  attr :timezone, :string, required: true
   attr :class, :string, default: nil
 
   attr :only_contract, :boolean,
@@ -2444,7 +2541,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Components do
     ~H"""
     <div :if={render_contract_view?(@view, @only_contract)} class={@class}>
       <div class="space-y-3">
-        <.signal_display_widget :for={widget <- @view.widgets} widget={widget} />
+        <.signal_display_widget
+          :for={{widget, widget_index} <- Enum.with_index(@view.widgets)}
+          id={"#{@id}-widget-#{widget_index}"}
+          widget={widget}
+          timezone={@timezone}
+        />
       </div>
       <p :for={diagnostic <- @view.diagnostics} class="mt-1 text-xs text-warning">
         {diagnostic}

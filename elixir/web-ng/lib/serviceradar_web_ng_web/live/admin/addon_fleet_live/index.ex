@@ -465,7 +465,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                   </tr>
                   <tr :if={expanded?} data-role="addon-rollout-detail" class="bg-sr-subtle/20">
                     <td colspan="5" class="p-0">
-                      <.rollout_details rollout={rollout} />
+                      <.rollout_details
+                        rollout={rollout}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                      />
                     </td>
                   </tr>
                 <% end %>
@@ -615,12 +618,25 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                             </button>
                           </td>
                           <td class="align-top text-xs text-sr-muted">
-                            <div>{format_time(row.reported_at)}</div>
+                            <div>
+                              <.user_time
+                                id={"admin-addon-fleet-#{dom_id_segment(row.agent_uid)}-#{dom_id_segment(row.addon_id)}-reported-at"}
+                                value={row.reported_at}
+                                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                                style={:compact}
+                              />
+                            </div>
                             <div
                               :if={row.collector? and row.last_scan_at}
                               class="text-sr-muted"
                             >
-                              scan {format_time(row.last_scan_at)}
+                              scan
+                              <.user_time
+                                id={"admin-addon-fleet-#{dom_id_segment(row.agent_uid)}-#{dom_id_segment(row.addon_id)}-last-scan-at"}
+                                value={row.last_scan_at}
+                                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                                style={:compact}
+                              />
                             </div>
                           </td>
                           <td class="min-w-[14rem] align-top">
@@ -760,6 +776,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   end
 
   attr :rollout, :map, required: true
+  attr :timezone, :string, required: true
 
   defp rollout_details(assigns) do
     targets = Enum.sort_by(assigns.rollout.targets, &{&1.batch_index, &1.agent_uid})
@@ -833,7 +850,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                 <div :if={target.error} class="mt-1 text-error">{target.error}</div>
               </td>
               <td class="whitespace-nowrap text-xs text-sr-muted">
-                {format_time(target_evidence_at(target))}
+                <.user_time
+                  id={"admin-addon-rollout-#{dom_id_segment(@rollout.id)}-target-#{dom_id_segment(target.agent_uid)}-evidence-at"}
+                  value={target_evidence_at(target)}
+                  timezone={@timezone}
+                  style={:compact}
+                />
               </td>
             </tr>
           </tbody>
@@ -1096,13 +1118,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     if AddonRuntimePolicy.resource_limit_warning?(reason), do: "text-warning", else: "text-error"
   end
 
-  defp format_time(nil), do: "—"
-
-  defp format_time(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+  defp dom_id_segment(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^A-Za-z0-9_-]/u, "-")
   end
-
-  defp format_time(_other), do: "—"
 
   defp format_age(seconds) when seconds < 60, do: "#{seconds}s"
   defp format_age(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m"
