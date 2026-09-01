@@ -638,7 +638,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   attr(:agents, :list, default: [])
   attr(:bulk_interval_guidance, :any, default: nil)
 
-  defp profile_form(assigns) do
+  @doc false
+  def profile_form(assigns) do
     config = Catalog.entity("devices")
     assigns = assign(assigns, :config, config)
 
@@ -654,7 +655,13 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
       <form id="mtr-builder-form" phx-change="builder_change" phx-debounce="200"></form>
 
-      <.form for={@form} phx-change="validate_profile" phx-submit="save_profile" class="space-y-6">
+      <.form
+        for={@form}
+        id="mtr-profile-form"
+        phx-change="validate_profile"
+        phx-submit="save_profile"
+        class="space-y-6"
+      >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label class="flex items-center justify-between gap-2">
@@ -684,7 +691,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
               <div class="flex-1">
                 <.srql_editor
                   id="mtr-profile-target-query-editor"
-                  field={@form[:target_query]}
+                  field={@form[:srql_query]}
                   compact
                 />
                 <p class="sr-mtr-muted mt-2 text-xs">
