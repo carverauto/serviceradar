@@ -24,6 +24,8 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
   @dispatch_scope_package "package"
   @dispatch_scope_target_query "target_query"
   @target_query_input_name "targets"
+  @nnm_token_path "/idp/oauth2/token"
+  @direct_na_token_path "/nom-na/idp/oauth2/token"
 
   @spec dispatch(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def dispatch(schedule, opts \\ []) do
@@ -597,14 +599,58 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
   end
 
   defp schedule_https_endpoint(schedule, url_param) do
-    value =
-      schedule.params
-      |> normalize_map()
-      |> map_get(url_param)
-      |> normalize_optional_string()
+    schedule
+    |> schedule_param(url_param)
+    |> parse_https_endpoint()
+    |> case do
+      {:ok, endpoint} -> {:ok, endpoint}
+      :error -> {:error, {:invalid_schedule_credential_endpoint, url_param}}
+    end
+  end
 
-    with true <- is_binary(value),
-         %URI{} = uri <- URI.parse(value),
+  # OpenText NOM (and the plugin itself) derive the OAuth token URL when the
+  # operator leaves token_url blank: NNMi-integrated installs use
+  # {nnm_url}/idp/oauth2/token; standalone NA uses {api_url origin}/nom-na/idp/oauth2/token.
+  defp schedule_token_endpoint(schedule, token_url_param) do
+    case schedule_https_endpoint(schedule, token_url_param) do
+      {:ok, endpoint} -> {:ok, endpoint}
+      {:error, _} -> derive_oauth_token_endpoint(schedule, token_url_param)
+    end
+  end
+
+  defp derive_oauth_token_endpoint(schedule, "token_url") do
+    params = normalize_map(schedule.params)
+
+    cond do
+      origin = https_origin(map_get(params, "nnm_url")) ->
+        parse_https_endpoint(origin <> @nnm_token_path)
+        |> map_endpoint_error("token_url")
+
+      origin = https_origin(map_get(params, "api_url")) ->
+        parse_https_endpoint(origin <> @direct_na_token_path)
+        |> map_endpoint_error("token_url")
+
+      true ->
+        {:error, {:invalid_schedule_credential_endpoint, "token_url"}}
+    end
+  end
+
+  defp derive_oauth_token_endpoint(_schedule, url_param),
+    do: {:error, {:invalid_schedule_credential_endpoint, url_param}}
+
+  defp map_endpoint_error({:ok, endpoint}, _url_param), do: {:ok, endpoint}
+  defp map_endpoint_error(:error, url_param),
+    do: {:error, {:invalid_schedule_credential_endpoint, url_param}}
+
+  defp schedule_param(schedule, url_param) do
+    schedule.params
+    |> normalize_map()
+    |> map_get(url_param)
+    |> normalize_optional_string()
+  end
+
+  defp parse_https_endpoint(value) when is_binary(value) do
+    with %URI{} = uri <- URI.parse(value),
          true <- uri.scheme == "https",
          true <- valid_credential_endpoint_host?(uri.host),
          true <- is_nil(uri.userinfo),
@@ -615,9 +661,24 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
          true <- path != "" and path != "/" and not String.ends_with?(path, "/") do
       {:ok, %{host: uri.host, port: port, path: path}}
     else
-      _ -> {:error, {:invalid_schedule_credential_endpoint, url_param}}
+      _ -> :error
     end
   end
+
+  defp parse_https_endpoint(_value), do: :error
+
+  defp https_origin(value) when is_binary(value) do
+    uri = URI.parse(String.trim(value))
+
+    if uri.scheme == "https" and valid_credential_endpoint_host?(uri.host) and
+         is_nil(uri.userinfo) and is_binary(uri.authority) do
+      "https://" <> uri.authority
+    else
+      nil
+    end
+  end
+
+  defp https_origin(_value), do: nil
 
   defp valid_credential_endpoint_host?(host) when is_binary(host) do
     host == String.trim(host) and host != "" and
@@ -659,7 +720,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
         {:error, {:missing_schedule_credential_token_endpoint, key}}
 
       token_url_param ->
-        with {:ok, endpoint} <- schedule_https_endpoint(schedule, token_url_param),
+        with {:ok, endpoint} <- schedule_token_endpoint(schedule, token_url_param),
              token_method when token_method in ["POST"] <-
                inject
                |> map_get("token_method")
