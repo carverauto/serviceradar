@@ -18,11 +18,19 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
+  alias ServiceRadar.Repo.Migrations.GuardNetworkCredentialSecretDeletion, as: Migration
 
   require Ash.Query
 
+  @migration_path Path.expand(
+                    "../../../priv/repo/migrations/20260830220000_guard_network_credential_secret_deletion.exs",
+                    __DIR__
+                  )
+  @external_resource @migration_path
   @moduletag :integration
   @partition_id "credential-reference-constraints"
+
+  Code.require_file(@migration_path)
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -481,6 +489,60 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
 
     assert {:error, error} = CredentialBrokerGrant.issue_grant(attrs, actor: system_actor())
     assert Exception.message(error) =~ "network credential secret_ref must match secret_id"
+  end
+
+  test "migration backfills a missing broker secret id only from a live canonical reference" do
+    SQL.query!(Repo, "CREATE TEMP TABLE network_credential_secrets (id uuid PRIMARY KEY)")
+
+    SQL.query!(Repo, """
+    CREATE TEMP TABLE credential_broker_grants (
+      id uuid PRIMARY KEY,
+      secret_id uuid,
+      secret_ref text NOT NULL
+    )
+    """)
+
+    secret_id = Ecto.UUID.generate()
+    resolvable_grant_id = Ecto.UUID.generate()
+    orphaned_grant_id = Ecto.UUID.generate()
+    unrelated_grant_id = Ecto.UUID.generate()
+
+    SQL.query!(Repo, "INSERT INTO pg_temp.network_credential_secrets (id) VALUES ($1)", [
+      Ecto.UUID.dump!(secret_id)
+    ])
+
+    SQL.query!(
+      Repo,
+      """
+      INSERT INTO pg_temp.credential_broker_grants (id, secret_ref)
+      VALUES
+        ($1, $4),
+        ($2, 'credentialref:network-credential-secret:' || $5::uuid::text),
+        ($3, 'credentialref:example:service-account')
+      """,
+      [
+        Ecto.UUID.dump!(resolvable_grant_id),
+        Ecto.UUID.dump!(orphaned_grant_id),
+        Ecto.UUID.dump!(unrelated_grant_id),
+        SecretRefs.network_credential_ref(secret_id),
+        Ecto.UUID.dump!(Ecto.UUID.generate())
+      ]
+    )
+
+    SQL.query!(Repo, Migration.backfill_credential_broker_grant_secret_ids_sql("pg_temp"))
+
+    assert %{rows: rows} =
+             SQL.query!(
+               Repo,
+               "SELECT id::text, secret_id::text FROM pg_temp.credential_broker_grants ORDER BY id"
+             )
+
+    assert Enum.sort(rows) ==
+             Enum.sort([
+               [resolvable_grant_id, secret_id],
+               [orphaned_grant_id, nil],
+               [unrelated_grant_id, nil]
+             ])
   end
 
   test "migration validation rejects a preexisting broker grant with a mismatched marker", %{

@@ -325,7 +325,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/automation/northbound/invocation_service_test.exs": 5,
     "test/serviceradar/cluster/startup_migrations_test.exs": 2,
     "test/serviceradar/credentials/credential_secret_reference_committed_race_db_test.exs": 1,
-    "test/serviceradar/credentials/credential_secret_reference_constraints_db_test.exs": 29,
+    "test/serviceradar/credentials/credential_secret_reference_constraints_db_test.exs": 30,
     "test/serviceradar/credentials/network_credential_secret_destroy_db_test.exs": 4,
     "test/serviceradar/composite_checks/composite_check_input_test.exs": 8,
     "test/serviceradar/composite_checks/composite_check_rule_test.exs": 11,

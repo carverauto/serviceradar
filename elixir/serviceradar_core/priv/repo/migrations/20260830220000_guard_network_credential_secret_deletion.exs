@@ -205,6 +205,11 @@ defmodule ServiceRadar.Repo.Migrations.GuardNetworkCredentialSecretDeletion do
              prefix: "platform"
            )
 
+    # Older grant issuers persisted the canonical reference but left secret_id null.
+    # Repair only references that resolve to a live credential; the validation installed
+    # below still rejects malformed, orphaned, and genuinely mismatched references.
+    execute(backfill_credential_broker_grant_secret_ids_sql())
+
     drop constraint(:credential_broker_grants, "credential_broker_grants_secret_id_fkey",
            prefix: "platform"
          )
@@ -282,6 +287,17 @@ defmodule ServiceRadar.Repo.Migrations.GuardNetworkCredentialSecretDeletion do
     end
 
     install_binding_triggers()
+  end
+
+  @doc false
+  def backfill_credential_broker_grant_secret_ids_sql(prefix \\ @prefix) do
+    """
+    UPDATE #{prefix}.credential_broker_grants AS broker_grant
+    SET secret_id = secret.id
+    FROM #{prefix}.network_credential_secrets AS secret
+    WHERE broker_grant.secret_id IS NULL
+      AND broker_grant.secret_ref = 'credentialref:network-credential-secret:' || secret.id::text
+    """
   end
 
   def down do
