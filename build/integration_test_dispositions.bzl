@@ -368,7 +368,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/inventory/identity/identity_revision_test.exs": 7,
     "test/serviceradar/inventory/identity_reconciler_mac_classification_test.exs": 15,
     "test/serviceradar/inventory/identity_reconciler_merge_guard_test.exs": 15,
-    "test/serviceradar/inventory/identity_reconciler_merge_test.exs": 4,
+    "test/serviceradar/inventory/identity_reconciler_merge_test.exs": 5,
     "test/serviceradar/inventory/identity_reconciliation_job_test.exs": 2,
     "test/serviceradar/inventory/remediation/armis_unmerge_test.exs": 28,
     "test/serviceradar/inventory/remediation/dire_remediation_mix_task_test.exs": 8,
