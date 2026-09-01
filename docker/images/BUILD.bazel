@@ -1,6 +1,7 @@
 """Bazel-native OCI images."""
 
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("@rules_python//python:py_test.bzl", "py_test")
 load("//docker/images:analytics_image.bzl", "declare_cnpg_analytics_image_amd64")
 load("//docker/images:apk.bzl", "apk_rootfs_amd64", "declare_alpine_netutils_rootfs", "declare_apk_rootfs_targets")
 load("//docker/images:cnpg_image.bzl", "declare_cnpg_image_amd64")
@@ -776,6 +777,13 @@ filegroup(
 
 # --- OCI publishing ----------------------------------------------------------
 declare_oci_push_targets()
+
+py_test(
+    name = "push_targets_test",
+    size = "small",
+    srcs = ["push_targets_test.py"],
+    data = ["push_targets.bzl"],
+)
 
 # --- Multi-arch verification -------------------------------------------------
 #
