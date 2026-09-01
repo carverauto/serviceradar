@@ -351,6 +351,32 @@ mod tests {
         build_query_plan(config.as_ref(), &request, ast).expect("query plan should build")
     }
 
+    fn where_predicates(sql: &str) -> &str {
+        let (_, predicates_and_ordering) = sql
+            .split_once(" where ")
+            .expect("filtered SQL must contain a WHERE clause");
+
+        predicates_and_ordering
+            .split_once(" order by ")
+            .map_or(predicates_and_ordering, |(predicates, _)| predicates)
+    }
+
+    #[test]
+    fn filter_predicate_check_ignores_projection_and_ordering() {
+        let sql = r#"select "mtr_traces"."target", "mtr_traces"."agent_id"
+            from "mtr_traces"
+            where "mtr_traces"."agent_id" = $1
+            order by "mtr_traces"."target" desc"#
+            .to_lowercase();
+        let predicate_sql = where_predicates(&sql);
+
+        assert!(predicate_sql.contains("\"mtr_traces\".\"agent_id\""));
+        assert!(
+            !predicate_sql.contains("\"mtr_traces\".\"target\""),
+            "projection and ordering columns must not count as filter predicates: {predicate_sql}"
+        );
+    }
+
     #[test]
     fn sql_supports_every_catalog_filter_and_typed_boolean() {
         let plan = plan_for(
@@ -358,6 +384,7 @@ mod tests {
         );
         let (sql, params) = to_sql_and_params(&plan).expect("MTR SQL should translate");
         let lower = sql.to_lowercase();
+        let predicate_sql = where_predicates(&lower);
 
         for field in [
             "target",
@@ -370,8 +397,8 @@ mod tests {
             "error",
         ] {
             assert!(
-                lower.contains(&format!("\"mtr_traces\".\"{field}\"")),
-                "missing {field} predicate: {sql}"
+                predicate_sql.contains(&format!("\"mtr_traces\".\"{field}\"")),
+                "missing {field} WHERE predicate: {sql}"
             );
         }
         assert!(
