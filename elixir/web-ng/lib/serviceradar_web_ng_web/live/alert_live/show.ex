@@ -586,7 +586,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       href: ~p"/alerts/#{id}",
       severity: Map.get(alert, "severity"),
       secondary: Map.get(alert, "status") || Map.get(alert, "source_type") || "—",
-      timestamp: Map.get(alert, "triggered_at") || Map.get(alert, "timestamp"),
+      timestamp: alert_timestamp_value(alert),
       preview: message_preview(EventTitle.alert_title(alert) || Map.get(alert, "description") || "")
     }
   end
@@ -1891,8 +1891,36 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   end
 
   defp alert_timestamp_value(alert) do
-    Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
+    raw = Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
+
+    case parse_alert_datetime(raw) do
+      {:ok, datetime} -> datetime
+      _ -> raw
+    end
   end
+
+  defp parse_alert_datetime(%DateTime{} = datetime), do: {:ok, datetime}
+
+  defp parse_alert_datetime(%NaiveDateTime{} = datetime) do
+    {:ok, DateTime.from_naive!(datetime, "Etc/UTC")}
+  end
+
+  defp parse_alert_datetime(value) when is_binary(value) do
+    value = String.trim(value)
+
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} ->
+        {:ok, datetime}
+
+      _ ->
+        case NaiveDateTime.from_iso8601(value) do
+          {:ok, datetime} -> {:ok, DateTime.from_naive!(datetime, "Etc/UTC")}
+          _ -> :error
+        end
+    end
+  end
+
+  defp parse_alert_datetime(_), do: :error
 
   defp format_optional_number(nil), do: nil
   defp format_optional_number(n) when is_number(n), do: to_string(n)
