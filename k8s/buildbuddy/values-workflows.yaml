@@ -234,6 +234,9 @@ config:
     task_allowed_private_ips:
       - 10.42.0.0/16 # pod CIDR: what a ClusterIP is rewritten to by kube-proxy DNAT
       - 10.43.0.0/16 # service CIDR: ClusterIPs, including CoreDNS
+      # LAN shared-gateway VIP. Same reason as ./values.yaml: HTTPS CA fetches
+      # resolve here, and BGP leaves the dest IP as the VIP.
+      - 192.168.6.87/32
 
     enable_oci: true
     default_isolation_type: oci

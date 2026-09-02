@@ -5,7 +5,7 @@ actions:
       OCI_AUTH_REQUIRED: "1"
 
       # Cert server. in cluster.
-      SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
 
     # Redirects work to pods in the self hosted cluster.
     self_hosted: true
@@ -300,7 +300,7 @@ actions:
     env:
       OCI_REGISTRY: "registry.carverauto.dev"
       OCI_AUTH_REQUIRED: "1"
-      SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
     self_hosted: true
     pool: "workflows"
     container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
@@ -496,7 +496,7 @@ actions:
   # between the before and after revisions of the parallelization benchmark.
   - name: "IntegrationBenchmark"
     env:
-      SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
     self_hosted: true
     pool: "workflows"
     container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
@@ -671,7 +671,7 @@ actions:
   # applied to BazelCI and both accepted before/after cohorts.
   - name: "IntegrationBenchmarkCPU2"
     env:
-      SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
     self_hosted: true
     pool: "workflows"
     container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
@@ -691,7 +691,7 @@ actions:
 
   - name: "IntegrationBenchmarkCPU12"
     env:
-      SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
     self_hosted: true
     pool: "workflows"
     container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"

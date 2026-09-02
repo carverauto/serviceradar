@@ -7,7 +7,7 @@ each of the three environments the suite runs in**.
 
 This document exists because the CA is delivered as PEM *content* in an environment variable
 after being fetched from a live source (the cert-manager Secret or
-`http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt`). Anything that swaps the delivery
+`https://srql-fixture-ca.carverauto.dev/ca.crt`). Anything that swaps the delivery
 mechanism has to satisfy every row of the tables below, or it will break one environment
 while leaving the other two green — which is exactly how earlier failures reached `staging`.
 
@@ -17,7 +17,7 @@ while leaving the other two green — which is exactly how earlier failures reac
 |---|---|---|---|
 | fixture | Docker Postgres or shared `srql-fixtures` NodePort | shared `srql-fixtures` CNPG | shared `srql-fixtures` CNPG |
 | setup | `.agents/skills/srql-fixtures-db-tests` + credential target | `scripts/ci/configure-srql-fixture.sh` | `//:buildbuddy_setup_fixture_env` |
-| CA delivered as | none for Docker; **PEM content** for NodePort | **file path AND PEM content** from in-cluster HTTP | **PEM content only** |
+| CA delivered as | none for Docker; **PEM content** for NodePort | **file path AND PEM content** from LAN HTTPS | **PEM content only** |
 | where tests execute | your machine | `arc-runner-set` pod | the self-hosted workflow runner |
 
 The content form keeps the credential contract independent of a runner-local path and remains
@@ -45,8 +45,8 @@ on their fixture-reachable runners while eligible compilation remains remote and
   `sslmode` with the same configured value.
 - **CA** — never a stored secret. kubectl reads `srql-fixture-server-ca` when RBAC exists,
   otherwise GET `SRQL_FIXTURE_CA_URL` (default
-  `http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt`).
-  There is no public CA URL.
+  `https://srql-fixture-ca.carverauto.dev/ca.crt`).
+  That URL is LAN HTTPS (Let's Encrypt on lan-shared-gateway), not a public VIP.
 
 The run log says which credential source was used without printing userinfo:
 `Fixture credentials from <source>`.

@@ -66,17 +66,13 @@ database="${SRQL_FIXTURE_DATABASE:-srql_fixture}"
 # SRQL_TEST_DATABASE_SERVER_NAME to one of those DNS names.
 ca_secret="${SRQL_FIXTURE_CA_SECRET:-srql-fixture-server-ca}"
 
-# The in-cluster CA bundle Service, for the same reason as `host` above.
-#
-# There is deliberately no public fallback any more, and this is now structural rather than a
-# preference: //k8s/srql-fixtures/ca-bundle.yaml no longer publishes the CA at all. Its
-# Let's Encrypt Certificate and gateway route were deleted, leaving the ClusterIP publisher as
-# the only HTTP source, so https://srql-fixture-ca.serviceradar.cloud/ca.crt answers 404 and
-# listing it would add a misleading failure line to the diagnostics below.
+# LAN HTTPS publisher. Envoy on lan-shared-gateway terminates TLS with the Let's Encrypt
+# wildcard already trusted by scratch images. The ClusterIP Caddy behind it stays HTTP and
+# is not a client URL: fetching the custom CA over plaintext is the hole this default closes.
 #
 # The remaining sources are this URL and the cert-manager Secret via kubectl, and resolve_live_ca
 # reports which one answered and why any other did not.
-ca_url_default="http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+ca_url_default="https://srql-fixture-ca.carverauto.dev/ca.crt"
 ca_urls=()
 if [[ -n "${SRQL_FIXTURE_CA_URL:-}" ]]; then
   ca_urls+=("${SRQL_FIXTURE_CA_URL}")

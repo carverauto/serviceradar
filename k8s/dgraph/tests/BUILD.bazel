@@ -16,7 +16,11 @@ py_test(
         "//config/environments:demo.textproto",
         "//config/environments:saas.textproto",
         "//k8s/dgraph:ci/certificate.yaml",
+        "//k8s/dgraph:ci/httproute-ca.yaml",
+        "//k8s/dgraph:ci/namespace.yaml",
         "//k8s/dgraph:demo/certificate.yaml",
         "//k8s/dgraph:deploy-dgraph.sh",
+        "//k8s/buildbuddy:values.yaml",
+        "//k8s/buildbuddy:values-workflows.yaml",
     ],
 )

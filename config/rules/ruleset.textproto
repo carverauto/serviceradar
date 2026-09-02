@@ -194,6 +194,17 @@ rules {
   non_empty {}
 }
 
+# The CA being fetched is a private issuer. The hop that fetches it must not be. HTTPS so
+# scratch images verify against the public roots they already carry; http:// is the TOFU
+# hole the audits keep reducing every other hardening to.
+rules {
+  field_path: "database.ca_bundle_url"
+  code: "DATABASE_CA_BUNDLE_URL_HTTPS"
+  phase: PHASE_CONFIG
+  description: "https:// only. The custom CA is the document being fetched, not the trust anchor for this hop."
+  matches { pattern: "^https://" }
+}
+
 # Same shape as the database's, and optional for the same reason: absent means the CA comes
 # from SecretManager. Blank would send the client to fetch "" and report a URL parse error
 # rather than a missing setting.
@@ -202,6 +213,14 @@ rules {
   code: "DGRAPH_CA_BUNDLE_URL_NON_EMPTY"
   phase: PHASE_CONFIG
   non_empty {}
+}
+
+rules {
+  field_path: "dgraph.ca_bundle_url"
+  code: "DGRAPH_CA_BUNDLE_URL_HTTPS"
+  phase: PHASE_CONFIG
+  description: "https:// only. The custom CA is the document being fetched, not the trust anchor for this hop."
+  matches { pattern: "^https://" }
 }
 
 rules {
