@@ -241,6 +241,28 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 
 ## Phase 5 — Remote pcapng capture sessions (deferred)
 
+> **SUPERSEDED 2026-09-02 by `add-remote-pcapng-capture`. Do not
+> implement sections 22-28 from the text below.** Three of these tasks
+> rest on a premise that is false in this repository: 22.3 ("compile the
+> libpcap-style BPF filter via the `pcap` crate") and 22.4 ("open a
+> dedicated pcap handle") assume libpcap, which no shipped netprobe build
+> has -- `rust/netprobe/Cargo.toml:67` gates `pcap` behind the
+> `remote-capture` cargo feature and `rust/netprobe/BUILD.bazel:11-15`
+> returns `[]` for every platform, so Bazel always compiles the stub that
+> bails with "pcap capture backend is not enabled in this build".
+>
+> The replacement captures via `AF_PACKET`/`PACKET_MMAP` with
+> `SO_ATTACH_FILTER`, which is what libpcap itself does on Linux, needs no
+> C dependency in the musl cross-build, and accepts Wireshark's compiled
+> cBPF natively -- RPCAP carries a compiled BPF program, not a filter
+> string, so an eBPF-based tap would have to interpret arbitrary cBPF
+> inside an eBPF program and would not verify.
+>
+> The scope also grew: the end goal is that stock Wireshark can point at
+> ServiceRadar over `rpcaps://`, with opt-in retention to the object
+> store. The tasks below are kept as the record of what was originally
+> specified. Tracked by GitHub #4025.
+
 ### 22. [Phase 5] `netprobe` capture session RPC
 
 - [ ] 22.1 Activate the `StartRemoteCapture` request message and `CaptureSessions(StartRemoteCapture) returns (stream PcapngBlock)` server-streamed RPC reserved in Phase 1.
