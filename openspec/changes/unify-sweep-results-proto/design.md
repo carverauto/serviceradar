@@ -38,6 +38,101 @@ This is not merely a serialization problem:
   trace; and
 - replay is not idempotent across sweep, OCSF, execution, and MTR projections.
 
+## Active milestone scope and review contract
+
+Task 0.12, the first green vertical slice, is the active milestone. Until it is
+green, this section governs what may BLOCK its implementation PRs and what must
+be deferred. It exists because independently expanding proof surfaces has no
+natural stopping point and had displaced the first composed runtime result.
+
+### Slice authority
+
+The authority is the six finite acceptance groups in task 0.12, exercised with
+one committed BULK `SweepObservationBatchV1` fixture on one valid durable route.
+Task 0.12 coordinates the composed acceptance target; tasks 2-5 retain semantic
+ownership of their seams. Work is in scope only when it is necessary to make
+that real path execute, satisfy one of those explicitly listed controls, or
+prevent the target from reporting a false success. Existing broader tasks
+remain authoritative for later work; they do not silently become slice
+prerequisites. Normative requirements applicable to groups A-F or to a concrete
+V2 boundary-safety finding, plus existing required checks, remain binding; they
+do not create a seventh acceptance group or require completion of an owning
+parent task.
+
+### A finding blocks only in these classes
+
+- **V1 -- CLOSURE FAILURE:** it can make an observation or control explicitly
+  listed in task 0.12 groups A-F false.
+- **V2 -- BOUNDARY SAFETY:** it demonstrates a concrete regression introduced
+  by the active diff, or a data-loss path, authentication/authority bypass,
+  crash, or unbounded work reachable through the declared v1 boundary. The
+  positive fixture need not contain the triggering value. A bound finding SHALL
+  name the normative grant, size, or work limit and show that work occurs before
+  its gate. Task 3.3's restart-overlap and post-handoff races are V2 findings and
+  remain mandatory closure controls.
+- **V3 -- FALSE OR ABSENT GATE:** the composed target is not in required CI or
+  Bazel, cannot execute its claimed real NATS/CNPG path, or an assertion is
+  vacuous/self-derived such that a required closure observation may be false
+  while the target stays green.
+- **V4 -- REQUIRED AMBIGUITY:** an externally observable interoperability or
+  safety choice materially changes a task-0.12 result or V2 verdict, and the
+  existing normative sources are absent or conflict. The finding SHALL cite the
+  missing or conflicting clauses. A reversible implementation-local choice is
+  not V4. The ambiguity blocks only that decision; it does not authorize
+  completing adjacent future cases.
+
+A blocking review finding SHALL name V1-V4 and the affected task-0.12 group or
+active-path safety invariant. It SHALL include a concrete reproducer or
+production-path trace, or a static demonstration that a required gate is
+absent/fail-open or a bound runs after the work it is meant to constrain.
+For V4, the cited absent or conflicting normative clauses are the sufficient
+static demonstration. Cross-runtime disagreement and a surviving mutation are
+evidence only when they establish one of these classes.
+
+An exact-head re-review covers unresolved findings from the prior review, the
+fixing diff, and concrete regressions in the affected surface. It SHALL NOT
+restart unrelated full-tree proof discovery without a concrete V1-V4 reason.
+
+### Findings that do not block this milestone
+
+- additional mutation-score completion, proof axes, fixtures, or all-pairs
+  matrices with no V1-V4 behavior;
+- terminology, historical narration, comment completeness, API aesthetics, or
+  equivalent rewrites; a contradiction or overstatement blocks only when the
+  reviewer demonstrates that it establishes V1-V4;
+- future producer types, traffic classes, route layouts, output contracts, or
+  inputs proven unreachable through the declared v1 boundary rather than merely
+  absent from the positive fixture;
+- MTR, recovery, generalized DLQ/redrive, fleet-capacity tuning, benchmarks,
+  dashboards, rollout, soak, and final ABI/archive completeness; and
+- completing an entire parent task when task 0.12 consumes only one of its
+  narrow production seams.
+
+An actionable non-blocking defect SHOULD be recorded once in an existing named
+task or a separate issue and, when recorded, linked once in the implementation
+PR's consolidated deferred summary. Logging or listing it is not an approval
+prerequisite and its absence cannot delay approval or start another review
+round. Recording it SHALL NOT append implementation to the active PR or demand
+another mutation round. Wording-only cleanup is batched after the slice unless
+it meets a blocking class above.
+
+### Scope amendments
+
+Implementation and review agents may propose changing task 0.12, but they may
+not promote their proposal into the active milestone. A scope change requires
+explicit maintainer approval in a separate docs-only amendment. An active
+implementation PR cannot redefine its own acceptance boundary.
+
+### Stopping rule
+
+Review stops expanding when no V1-V4 finding remains. Task 0.12 closes when its
+required composed target passes all six groups on real NATS and scratch CNPG in
+the required `BazelCI` check. Groups A-F are the complete acceptance matrix; a
+reviewer does not add a seventh group without the scope-amendment process above.
+Closure does not check broader parent tasks, complete the ABI freeze, authorize
+production rollout, or waive deferred work. It ends this scope freeze and
+permits the next milestone to be chosen explicitly.
+
 ## Goals
 
 - Bound memory by active scan window plus in-flight/spooled bytes, not fleet
