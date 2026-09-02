@@ -39,6 +39,13 @@ defmodule ServiceRadar.TimeZoneTest do
              {:error, :catalog_unavailable}
   end
 
+  test "profile picker zones keep a single Etc/UTC first even when extras and catalog repeat it" do
+    assert TimeZone.profile_picker_zones(
+             ["Etc/UTC", "America/Chicago", "Etc/UTC"],
+             ["Etc/UTC", "Legacy/Removed", ""]
+           ) == ["Etc/UTC", "America/Chicago", "Legacy/Removed"]
+  end
+
   test "requires normalized profile timezone names to be catalog members" do
     query = fn _, _ -> {:ok, %{rows: [["America/Chicago"]]}} end
 

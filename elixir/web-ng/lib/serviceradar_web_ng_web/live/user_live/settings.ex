@@ -335,20 +335,19 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
   end
 
   defp timezone_catalog(socket, user) do
-    fallback = Enum.uniq(["Etc/UTC", user.timezone])
+    extras = [user.timezone]
 
     if connected?(socket) do
       case TimeZone.profile_timezones() do
-        {:ok, zones} -> {merge_timezone_catalog(fallback, zones), nil}
-        {:error, :catalog_unavailable} -> {fallback, "Timezone choices are temporarily unavailable."}
+        {:ok, zones} ->
+          {TimeZone.profile_picker_zones(zones, extras), nil}
+
+        {:error, :catalog_unavailable} ->
+          {TimeZone.profile_picker_zones([], extras), "Timezone choices are temporarily unavailable."}
       end
     else
-      {fallback, nil}
+      {TimeZone.profile_picker_zones([], extras), nil}
     end
-  end
-
-  defp merge_timezone_catalog(fallback, zones) do
-    ["Etc/UTC" | Enum.sort(Enum.uniq((fallback ++ zones) -- ["Etc/UTC"]))]
   end
 
   @impl true

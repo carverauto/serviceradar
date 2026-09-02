@@ -586,7 +586,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       href: ~p"/alerts/#{id}",
       severity: Map.get(alert, "severity"),
       secondary: Map.get(alert, "status") || Map.get(alert, "source_type") || "—",
-      timestamp: Map.get(alert, "triggered_at") || Map.get(alert, "timestamp"),
+      timestamp: alert_timestamp_value(alert),
       preview: message_preview(EventTitle.alert_title(alert) || Map.get(alert, "description") || "")
     }
   end
