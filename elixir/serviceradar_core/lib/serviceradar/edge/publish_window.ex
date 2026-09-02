@@ -44,7 +44,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
   out twice and the real in-flight total would exceed the grant -- a bound that relaxes exactly
   when the broker is already struggling.
 
-  So `expired/2` REPORTS; only `settle/3` releases. Expiry is a signal to republish, not a
+  So `expired/2` REPORTS; only `settle/4` releases. Expiry is a signal to republish, not a
   reclaim.
 
   ## FENCING A STARTED ATTEMPT
@@ -125,7 +125,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
   outstanding reports `:unknown_outcome`, not `:not_outstanding`. The last row holds only for a
   known settling outcome.
 
-  `settle/3` does NOT distinguish "never admitted" from "already settled", and does not pretend
+  `settle/4` does NOT distinguish "never admitted" from "already settled", and does not pretend
   to: once a slot leaves the window there is nothing retained to tell the two apart. Reporting
   them separately would require keeping every settled sequence forever, which is the unbounded
   growth this module exists to prevent. Both are `:not_outstanding`, and the docstring says so
@@ -296,7 +296,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
   Deliberately a separate, named entry point rather than a settlement: nothing was published and
   no disposition applies. The narrow authority matters, so it is worth stating what it is NOT --
   caller death does not authorise this. A caller can die after the request reached the socket, or
-  exit normally after `attempt_failed/2` deliberately kept the credit; releasing on death would
+  exit normally after `attempt_failed/3` deliberately kept the credit; releasing on death would
   permit a second publish while the first is still broker-ambiguous.
 
   What DOES authorise it is a handoff that never completed: an admission whose reservation the
@@ -335,7 +335,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
   Activates a provisional attempt, once its caller has taken delivery of the reservation.
 
   Until this runs the attempt exists only to hold the slot: it is invisible to `expired/2` and
-  refused by `settle/3`, `rearm/3` and `attempt_failed/2`. That is the point. A provisional token
+  refused by `settle/4`, `rearm/4` and `attempt_failed/3`. That is the point. A provisional token
   reported as expired was enough for an observer to end the attempt, admit a retry, and put two
   requests on the wire under a single charge -- while the caller that was handed the first token
   had not even received it yet.
@@ -358,7 +358,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @doc """
   Returns a PROVISIONAL attempt to the no-attempt state, keeping the reservation and its credits.
 
-  Distinct from `attempt_failed/2`, which requires a confirmed attempt, and from `abandon/2`,
+  Distinct from `attempt_failed/3`, which requires a confirmed attempt, and from `abandon/2`,
   which releases. This is the retry half of revocation: the caller never took delivery, and the
   admission it never received had added no credits -- it re-armed a reservation that is still
   unresolved and still owed a republish. Releasing there handed back a broker-ambiguous frame.
@@ -381,7 +381,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
 
   The transport outcome was not terminal -- a timeout, a capacity refusal, a dropped connection --
   so the record is still owed a republish on the same slot and its credits stay charged. What ends
-  is the ATTEMPT, which is what makes the next `admit/4` a legal retry rather than
+  is the ATTEMPT, which is what makes the next `admit/5` a legal retry rather than
   `:attempt_in_flight`.
 
   Token-checked: an attempt that has already been superseded cannot end the current one.
@@ -439,7 +439,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
   def reservation(%__MODULE__{} = w, key) do
     case Map.fetch(w.outstanding, key) do
       # Only an IN-FLIGHT attempt has a handle. A reservation whose attempt has ended holds its
-      # credits but has nothing to settle or re-arm; the next `admit/4` mints its next attempt.
+      # credits but has nothing to settle or re-arm; the next `admit/5` mints its next attempt.
       {:ok, {_bytes, _deadline, {:active, token, _owner}}} -> {:ok, {key, token}}
       _ -> :error
     end
@@ -574,7 +574,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
   Charges nothing and releases nothing -- the bytes were already committed and the publication is
   the same publication on the same slot. Only the deadline moves.
 
-  `admit/4` also re-arms when it admits the next attempt for a reservation, which is the path the publisher
+  `admit/5` also re-arms when it admits the next attempt for a reservation, which is the path the publisher
   takes. This remains for a caller that has verified sameness by other means and wants to move a
   deadline without re-presenting the record.
 
