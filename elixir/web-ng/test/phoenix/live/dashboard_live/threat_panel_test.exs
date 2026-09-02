@@ -156,6 +156,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.ThreatPanelTest do
     assert ThreatIntelLinks.netflow_path("198.51.100.23") =~ "in%3Anetflows+ip%3A%22198.51.100.23%22"
   end
 
+  test "investigation path keeps boolean query params" do
+    assert ThreatIntelLinks.investigation_path(stale: true) == "/security/threat-intel?stale=true"
+    assert ThreatIntelLinks.investigation_path(stale: false) == "/security/threat-intel?stale=false"
+    assert ThreatIntelLinks.investigation_path(ip: "198.51.100.23", stale: true) =~ "stale=true"
+  end
+
   defp summary(overrides) do
     Map.merge(
       %{

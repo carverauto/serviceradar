@@ -26,4 +26,13 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
     assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/settings/networks/threat-intel")
     assert to == ~p"/settings/profile"
   end
+
+  test "invalid ip query param is user-safe", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/security/threat-intel?ip=not-an-ip")
+
+    assert html =~ "The selected IP address is not valid."
+    refute html =~ "Postgrex"
+    refute html =~ "Ash."
+    refute html =~ "%{"
+  end
 end

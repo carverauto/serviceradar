@@ -33,24 +33,35 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
     end
   end
 
-  @spec indicators_for_ip(term(), String.t()) :: {:ok, [map()]} | {:error, term()}
-  def indicators_for_ip(scope, ip) when is_binary(ip) do
-    now = DateTime.utc_now()
+  @spec indicators_for_ip(term(), term()) :: {:ok, [map()]} | {:error, term()}
+  def indicators_for_ip(scope, ip) do
+    with {:ok, ip} <- parse_ip(ip) do
+      now = DateTime.utc_now()
 
-    query =
-      ThreatIntelIndicator
-      |> Ash.Query.for_read(:containing_ip, %{ip: ip})
-      |> Ash.Query.filter(is_nil(expires_at) or expires_at > ^now)
-      |> Ash.Query.sort(severity: :desc, last_seen_at: :desc)
-      |> Ash.Query.limit(@page_size)
+      query =
+        ThreatIntelIndicator
+        |> Ash.Query.for_read(:containing_ip, %{ip: ip})
+        |> Ash.Query.filter(is_nil(expires_at) or expires_at > ^now)
+        |> Ash.Query.sort(severity: :desc, last_seen_at: :desc)
+        |> Ash.Query.limit(@page_size)
 
-    case Ash.read(query, scope: scope) do
-      {:ok, rows} -> {:ok, Enum.map(rows, &indicator_row/1)}
-      {:error, reason} -> {:error, reason}
+      case Ash.read(query, scope: scope) do
+        {:ok, rows} -> {:ok, Enum.map(rows, &indicator_row/1)}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
-  def indicators_for_ip(_scope, _ip), do: {:error, :invalid_ip}
+  defp parse_ip(ip) when is_binary(ip) do
+    trimmed = String.trim(ip)
+
+    case :inet.parse_address(String.to_charlist(trimmed)) do
+      {:ok, _addr} -> {:ok, trimmed}
+      {:error, _reason} -> {:error, :invalid_ip}
+    end
+  end
+
+  defp parse_ip(_ip), do: {:error, :invalid_ip}
 
   defp maybe_filter_source(query, source) when is_binary(source) and source != "" do
     Ash.Query.filter(query, fragment("? = ANY(sources)", ^source))

@@ -37,6 +37,7 @@ defmodule ServiceRadarWebNGWeb.Observability.ThreatIntelLinks do
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(value) when is_integer(value), do: true
+  defp present?(value) when is_boolean(value), do: true
   defp present?(_), do: false
 
   defp escape_srql_value(value) do

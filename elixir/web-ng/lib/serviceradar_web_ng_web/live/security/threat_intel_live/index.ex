@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
   alias ServiceRadar.Observability.ThreatIntelInvestigation
   alias ServiceRadarWebNGWeb.Observability.ThreatIntelLinks
 
+  require Logger
+
   @permission "observability.netflow.view"
 
   @impl true
@@ -215,7 +217,7 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
         socket
         |> assign(:matches, [])
         |> assign(:indicators, [])
-        |> assign(:load_error, "Failed to load current matches: #{inspect(reason)}")
+        |> assign(:load_error, load_error_message(:matches, reason))
         |> assign(:loading, false)
     end
   end
@@ -225,7 +227,18 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
   defp load_indicators(socket, ip) do
     case ThreatIntelInvestigation.indicators_for_ip(socket.assigns.current_scope, ip) do
       {:ok, indicators} -> assign(socket, :indicators, indicators)
-      {:error, reason} -> assign(socket, :load_error, "Failed to load indicators: #{inspect(reason)}")
+      {:error, reason} -> assign(socket, :load_error, load_error_message(:indicators, reason))
+    end
+  end
+
+  defp load_error_message(_kind, :invalid_ip), do: "The selected IP address is not valid."
+
+  defp load_error_message(kind, reason) do
+    Logger.warning("threat intel investigation #{kind} failed: #{inspect(reason)}")
+
+    case kind do
+      :matches -> "Failed to load current matches."
+      :indicators -> "Failed to load indicators."
     end
   end
 

@@ -544,7 +544,8 @@ fn apply_threat_filter<'a>(query: FlowsQuery<'a>, filter: &Filter) -> Result<Flo
                 sql::<Bool>(&format!(
                     "EXISTS (SELECT 1 FROM platform.ip_threat_intel_cache c \
                      JOIN platform.threat_intel_indicators i ON c.ip::inet <<= i.indicator \
-                     WHERE {live} AND {endpoint} AND {op}"
+                     WHERE {live} AND (i.expires_at IS NULL OR i.expires_at > NOW()) \
+                     AND {endpoint} AND {op}"
                 ))
                 .bind::<Text, _>(value)
                 .sql(&format!("::{cast})")),
