@@ -9,11 +9,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   ## Skipping unchanged advisories
 
   A feed re-publishes its whole corpus every run, but only a handful of
-  advisories actually change. `unchanged_advisory?/2` compares the incoming
-  `modified_at` against what is already stored and drops the record before it
-  ever reaches an `insert_all`. This is the difference between rewriting ~360k
-  advisories / ~2.5M coordinates every 6 hours and writing almost nothing:
-  measured at ~5.9 TB of WAL per steady state before the guard worked.
+  advisories actually change. The comparison is feed-specific: `cisa-kev` and
+  `vulncheck-kev` use a stable SHA-256 hash of the persisted advisory and
+  coordinates, while other feeds compare `modified_at`. Matching records are
+  dropped before they ever reach an `insert_all`. Legacy KEV rows without a
+  hash are treated as changed and rewritten once to backfill it. This is the
+  difference between rewriting ~360k advisories / ~2.5M coordinates every 6
+  hours and writing almost nothing: measured at ~5.9 TB of WAL per steady state
+  before the guard worked.
 
   The guard is load-bearing, not an optimisation. `feed_worker` logs
   `advisories_skipped` and alarms when it is zero against a non-empty corpus,
@@ -116,8 +119,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   Load a stream of parsed records for one feed run.
 
   `records` is an enumerable of `%{advisory: map, coordinates: [map]}`.
-  Records whose `modified_at` already matches the stored row are skipped
-  entirely — see the "Skipping unchanged advisories" note above.
+  Records matching the stored comparison state are skipped entirely. KEV feeds
+  compare a stable hash of persisted advisory and coordinate content; other
+  feeds compare `modified_at`. A KEV row with no stored hash is rewritten once
+  to backfill it. See the "Skipping unchanged advisories" note above.
 
   Options: `:provider`, `:feed_key` (required), `:generation`, `:chunk_size`,
   `:now`, `:existing_comparison_state`, `:existing_modified`.
