@@ -9,7 +9,7 @@ question — Alma should still reach the host, the k8s agent should not, and
 `acl_enforced` should be true — but NCO cannot drive that answer today.
 
 NCO does not know ServiceRadar's `sr:` UID. It knows an IP (and sometimes a
-MAC). Partition is always available and, on farm01 / Example-style deployments,
+MAC). Partition is always available and, on farm01-style deployments,
 is `"default"`. The existing lookup surface is SRQL or `GET /api/devices`,
 neither of which is a contract NCO should guess at, and neither of which
 kicks a **fresh** probe from both vantage-point agents.

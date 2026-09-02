@@ -102,7 +102,7 @@ func TestInventoryDeviceMapsOCSFFieldsFromHPNARow(t *testing.T) {
 		"memory":               json.Number("7973057331"),
 		"totalPorts":           json.Number("120"),
 		"freePorts":            json.Number("11"),
-		"contact":              "Example NOC 555-0100          ",
+		"contact":              "Example NOC          ",
 		"geographicalLocation": "TPECS_MDF1                    ",
 		"rOMVersion":           "KB.16.01.0008",
 	})
@@ -128,7 +128,7 @@ func TestInventoryDeviceMapsOCSFFieldsFromHPNARow(t *testing.T) {
 		t.Fatalf("chassis_serials = %#v", hwInfo["chassis_serials"])
 	}
 	owner := device.Metadata["owner"].(map[string]any)
-	if owner["name"] != "Example NOC 555-0100" {
+	if owner["name"] != "Example NOC" {
 		t.Fatalf("owner = %#v", owner)
 	}
 	if managed, _ := device.Metadata["is_managed"].(*bool); managed == nil || !*managed {

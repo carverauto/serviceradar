@@ -159,7 +159,6 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     assert html =~ "Automation wrapper URL"
     assert html =~ "https://na.example.com/nom/api/automation/v1/wrapper"
     assert html =~ "https://nnm.example.com:443"
-    refute html =~ "example.com"
     assert html =~ "Advanced settings (optional)"
   end
 

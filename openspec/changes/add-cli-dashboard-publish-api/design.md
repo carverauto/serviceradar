@@ -1,6 +1,6 @@
 ## Context
 
-ServiceRadar's web-ng exposes browser-side "dashboard packages" — manifest + JS/Wasm renderer — that operators install to surface custom views (the Example network map is the reference customer use of this surface). Today the only ingress for a freshly authored package is a Settings → Dashboard Packages LiveView upload modal that requires a session-authenticated admin. The serviceradar-cli ships a `dashboard publish` subcommand that already targets `POST /api/v1/dashboard-packages` + `POST /api/v1/dashboard-packages/:id/enable`, but those routes don't exist; the CLI errors out with a 404 against the Phoenix router. The cli-device-auth proposal lands the JWT minting half (with a `dashboard.publish` scope claim); this proposal lands the API half so the two compose.
+ServiceRadar's web-ng exposes browser-side "dashboard packages" — manifest + JS/Wasm renderer — that operators install to surface custom views (the customer network map is the reference customer use of this surface). Today the only ingress for a freshly authored package is a Settings → Dashboard Packages LiveView upload modal that requires a session-authenticated admin. The serviceradar-cli ships a `dashboard publish` subcommand that already targets `POST /api/v1/dashboard-packages` + `POST /api/v1/dashboard-packages/:id/enable`, but those routes don't exist; the CLI errors out with a 404 against the Phoenix router. The cli-device-auth proposal lands the JWT minting half (with a `dashboard.publish` scope claim); this proposal lands the API half so the two compose.
 
 Stakeholders: dashboard authors (carverauto + customer SDK consumers), admins (revoke/audit), platform team (bytes served from this surface execute in operator browsers — same blast radius as a customer-installed Chrome extension).
 
@@ -79,7 +79,7 @@ This rule is enforced in `Packages.import_json/3` (or a sibling `Packages.publis
 
 The CLI sends `multipart/form-data` with three parts: `manifest` (JSON blob), `renderer` (binary blob), `route` (text field). The controller decodes via Plug.Parsers `:multipart` (already mounted by the `:api_key_auth` pipeline's `:accepts ["json"]` plus a per-route `:multipart` accept).
 
-**Why not pure JSON?** The renderer is regularly 700 KB+ minified JS (the Example dashboard is 710 KB) and 5 MB+ for sample-frames. Base64-encoding into a JSON body inflates 33% and forces both ends to allocate the full payload as a string — a multipart body is streamed. The CLI is already multipart today.
+**Why not pure JSON?** The renderer is regularly 700 KB+ minified JS (the customer dashboard is 710 KB) and 5 MB+ for sample-frames. Base64-encoding into a JSON body inflates 33% and forces both ends to allocate the full payload as a string — a multipart body is streamed. The CLI is already multipart today.
 
 **Why not pre-signed URL upload?** The `Storage` module supports pre-signed URLs (`upload_url/1`, `verify_token/2`) but the LiveView upload doesn't use them — it inlines the bytes. Adding a pre-signed-URL flow for the CLI is a separate optimization; the current 50 MB cap is well under typical multipart limits.
 

@@ -3,7 +3,7 @@
 ServiceRadar imports signed Wasm plugin bundles from GitHub Releases. Every trust decision in that
 path is currently a compile-time constant or a single global config value: one repository URL, one
 map of trusted ed25519 signing keys, one OCI registry host, one `GITHUB_TOKEN`. That is correct for
-a single first-party source and wrong for the driving use case — a customer (UAL) whose developers
+a single first-party source and wrong for the driving use case — a customer whose developers
 publish Wasm plugins to their own **private** GitHub repository, alongside the first-party catalog.
 
 The constraint that shapes this design is friction on the publisher side. A third-party developer on

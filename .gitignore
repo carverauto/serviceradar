@@ -30,10 +30,10 @@ ctx/
 .local-dev-certs/
 docker/compose/creds/
 
-# Added by me
+# Local unpublished overlays (never commit)
 /k8s/robusta/generated_values.yaml
-/values-example.yaml
-/helm/serviceradar/values-example.yaml
+/values-*.yaml
+/helm/serviceradar/values-local.yaml
 
 # crypto
 jwks.json

@@ -34,7 +34,7 @@ All paths are under `docs/docs/` unless noted.
 - [ ] 2.1 Preserve content first: copy `topology-reset-rebuild.md` and
   `wifi-map-local-compose.md` into the gitops repo (`~/src/gitops/docs/demo/`) — manual
   step outside this repo, for the author.
-- [x] 2.2 Deleted `wifi-map-local-compose.md` (customer-specific "ual" content).
+- [x] 2.2 Deleted `wifi-map-local-compose.md` (customer-specific compose runbook).
 - [x] 2.3 Deleted `topology-reset-rebuild.md` (dev-only AGE-topology reset runbook).
 - [x] 2.4 Deleted `repository-layout.md` (contributor-only).
 - [x] 2.5 Deleted `rust-bazel-deps.md` (contributor-only).

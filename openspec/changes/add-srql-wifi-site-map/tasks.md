@@ -77,10 +77,10 @@
 - [x] 6.6.2 Extend SRQL execution so selected queries can emit real Arrow IPC directly from PostgreSQL result sets instead of row JSON.
 - [x] 6.6.3 Add SDK examples/tests that decode Arrow IPC frames for custom topology-style renderers, including React browser-module and WASM paths.
 - [x] 6.6.4 Add dashboard frame live delivery over Phoenix Channels/WebSockets: initial snapshot, bounded refresh/replacement frames, auth checks, and reconnect semantics.
-- [ ] 6.7 Convert the Example WiFi map experience into a customer dashboard package design that uses the WiFi-map SRQL entities and renderer host rather than hardcoded web-ng components.
-- [x] 6.7.1 Create the initial external `~/src/wifi-dashboard` dashboard package workspace with manifest build, sample frames, and harness instructions.
-- [x] 6.7.2 Migrate the Example dashboard package renderer to React using `dashboard-browser-module-v1`, preserving SRQL-driven filters, clustering, popups, Mapbox basemap behavior, device detail links, and ServiceRadar theme integration.
-- [x] 6.7.3 Add Playwright parity checks for the React Example package against the SDK harness and the Docker Compose dashboard route.
+- [ ] 6.7 Convert the customer WiFi map experience into a customer dashboard package design that uses the WiFi-map SRQL entities and renderer host rather than hardcoded web-ng components.
+- [x] 6.7.1 Create the initial external `~/src/example-dashboard` dashboard package workspace with manifest build, sample frames, and harness instructions.
+- [x] 6.7.2 Migrate the customer dashboard package renderer to React using `dashboard-browser-module-v1`, preserving SRQL-driven filters, clustering, popups, Mapbox basemap behavior, device detail links, and ServiceRadar theme integration.
+- [x] 6.7.3 Add Playwright parity checks for the React customer package against the SDK harness and the Docker Compose dashboard route.
 - [x] 6.8 Add settings UI for importing, enabling, disabling, configuring, and choosing default dashboard packages and map views.
 - [x] 6.8.1 Add the initial dashboard package settings UI for upload import, enable/disable, package inspection, and route creation.
 - [x] 6.8.2 Add default dashboard/map-view selection and richer per-instance settings editing.
@@ -93,7 +93,7 @@
 
 ## 7. Live Aruba Collector Follow-Up
 
-- [x] 7.0 Create the customer-owned Example agent plugin package outside the ServiceRadar OSS repository using `serviceradar-sdk-go`; it must support CSV seed mode first and emit `serviceradar.wifi_map.batch.v1` through `serviceradar.plugin_result.v1`.
+- [x] 7.0 Create the customer-owned agent plugin package outside the ServiceRadar OSS repository using `serviceradar-sdk-go`; it must support CSV seed mode first and emit `serviceradar.wifi_map.batch.v1` through `serviceradar.plugin_result.v1`.
 - [ ] 7.1 Customer plugin implements `aruba_controller` mode for AP database collection via Aruba REST.
 - [ ] 7.2 Customer plugin implements WLC switchinfo/inventory collection via Aruba REST.
 - [ ] 7.3 Customer plugin implements optional RADIUS/CPPM server-group collection via SSH/mdconnect with bounded timeouts.

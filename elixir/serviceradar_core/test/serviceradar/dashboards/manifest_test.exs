@@ -12,7 +12,7 @@ defmodule ServiceRadar.Dashboards.ManifestTest do
       "name" => "Example WiFi Map",
       "version" => "1.0.0",
       "description" => "Customer WiFi map dashboard",
-      "vendor" => "Example Airline",
+      "vendor" => "Example Corp",
       "renderer" => %{
         "kind" => "browser_wasm",
         "interface_version" => "dashboard-wasm-v1",

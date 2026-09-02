@@ -98,7 +98,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
                   "memory_bytes" => 7_973_057_331,
                   "total_ports" => 120
                 },
-                "owner" => %{"name" => "Example NOC 555-0100"},
+                "owner" => %{"name" => "Example NOC"},
                 "source_metadata" => %{"geographical_location" => "TPECS_MDF1"}
               }
             }
@@ -123,7 +123,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
     assert update["hw_info"]["serial_number"] == "VN4BM3P0W5"
     assert update["hw_info"]["chassis_serials"] == ["VN4BM3P0W5", "VN4BM3P0X3"]
     assert update["hw_info"]["memory_bytes"] == 7_973_057_331
-    assert update["owner"]["name"] == "Example NOC 555-0100"
+    assert update["owner"]["name"] == "Example NOC"
     assert update["tags"]["inventory_source"] == "opentext-nom"
     assert update["metadata"]["os_name"] == "ArubaOS-CX"
     assert update["metadata"]["geographical_location"] == "TPECS_MDF1"

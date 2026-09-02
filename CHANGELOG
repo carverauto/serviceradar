@@ -77,8 +77,8 @@ and MTR traces and profiles query correctly.
 - MCP: an omitted MCP limit no longer swallows the SRQL
   query limit. (PR #4174)
 - OpenText NOM: credential-rule provisioning no longer dies on
-  a missing `:by_policy` read. `example-nom` stayed Pending /
-  Awaiting provisioning with Run Now disabled. (PR #4223)
+  a missing `:by_policy` read. An affected assignment stayed
+  Pending / Awaiting provisioning with Run Now disabled. (PR #4223)
 - Web UI: Active Scans "Hosts Scanned" is Latest Execution,
   with host unit and sweep-group name, so one run is not
   mistaken for total coverage. (PR #4218)

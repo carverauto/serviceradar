@@ -110,7 +110,7 @@ func TestConfigAllowsEveryApprovedFilter(t *testing.T) {
 		"host":         "sw",
 		"ip":           "10.0.0.1",
 		"realm":        "Default",
-		"vtpdomain":    "UAL",
+		"vtpdomain":    "EXAMPLE",
 		"disabled":     false,
 		"pollexcluded": false,
 		"ids":          []any{json.Number("1"), json.Number("2")},

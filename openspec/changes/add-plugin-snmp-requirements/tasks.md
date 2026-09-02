@@ -288,8 +288,8 @@ table, ASCII-only docs.
 
 - [x] 6.1 Add `snmp_requirements:` to `plugins/clearpass-policy-manager/
   plugin.yaml`, sourced from the verified OID map in
-  `config/snmp-clearpass.example.json`. Landed as Example-Airline-Org/
-  fjb-network-monitor#35, verified by running the real file through
+  `config/snmp-clearpass.example.json`. Landed in the customer
+  plugin repository, verified by running the real file through
   `Manifest.from_yaml/1` and `SNMPRequirementCatalog.sync_package/2`.
 - [ ] 6.2 (blocked: the ClearPass package is not imported. The estate has two
   approved packages, both `opentext-nom-inventory` 0.1.4/0.1.6, and neither
