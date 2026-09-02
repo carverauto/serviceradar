@@ -11,12 +11,18 @@ const SATORI_CONFIDENCE: f64 = 0.78;
 
 static SATORI_CORPUS: OnceLock<Result<SatoriCorpus, String>> = OnceLock::new();
 
+/// Matches every observation and returns ONLY the ones that hit a corpus.
+///
+/// The response is therefore NOT positionally aligned with the request. It used
+/// to be: a miss travelled as a zero-confidence `unknown` sentinel that existed
+/// purely to keep the two lengths equal, and every caller stripped it again on
+/// arrival. Callers join on `observation_id`.
 pub fn match_banner_batch(batch: &BannerBatch) -> BannerMatchBatch {
     let satori = default_satori_corpus();
     let matches = batch
         .observations
         .iter()
-        .map(|observation| match_observation(observation, satori))
+        .filter_map(|observation| match_observation(observation, satori))
         .collect();
 
     BannerMatchBatch { matches }
@@ -25,7 +31,7 @@ pub fn match_banner_batch(batch: &BannerBatch) -> BannerMatchBatch {
 fn match_observation(
     observation: &BannerObservation,
     satori: Option<&'static SatoriCorpus>,
-) -> BannerMatch {
+) -> Option<BannerMatch> {
     let protocol = observation.protocol.trim().to_ascii_lowercase();
     let banner = String::from_utf8_lossy(&observation.banner_bytes);
     let banner = normalized_banner(&protocol, &banner);
@@ -43,14 +49,11 @@ fn match_observation(
         candidates.push(satori_banner_match(observation.observation_id, label));
     }
 
-    candidates
-        .into_iter()
-        .max_by(|left, right| {
-            left.confidence
-                .partial_cmp(&right.confidence)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .unwrap_or_else(|| unknown_match(observation.observation_id))
+    candidates.into_iter().max_by(|left, right| {
+        left.confidence
+            .partial_cmp(&right.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    })
 }
 
 fn normalized_banner<'a>(protocol: &str, banner: &'a str) -> Cow<'a, str> {
@@ -130,18 +133,6 @@ fn satori_banner_match(observation_id: u64, label: SatoriMatch) -> BannerMatch {
     }
 }
 
-fn unknown_match(observation_id: u64) -> BannerMatch {
-    BannerMatch {
-        observation_id,
-        corpus_label: "unknown".to_string(),
-        os_family: String::new(),
-        product: String::new(),
-        version: String::new(),
-        confidence: 0.0,
-        raw_pattern_id: String::new(),
-    }
-}
-
 fn default_satori_corpus() -> Option<&'static SatoriCorpus> {
     SATORI_CORPUS
         .get_or_init(load_default_satori_corpus)
@@ -187,7 +178,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     #[test]
-    fn matches_recog_http_banner_and_preserves_order() {
+    fn matches_recog_http_banner_and_drops_the_miss() {
         let batch = BannerBatch {
             observations: vec![
                 observation(10, "http", b"Apache/2.4.58 (Ubuntu)"),
@@ -197,14 +188,13 @@ mod tests {
 
         let matches = match_banner_batch(&batch).matches;
 
-        assert_eq!(matches.len(), 2);
+        assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].observation_id, 10);
         assert!(matches[0].corpus_label.starts_with("recog:"));
         assert_eq!(matches[0].product, "HTTPD");
         assert_eq!(matches[0].version, "2.4.58");
-        assert_eq!(matches[1].observation_id, 11);
-        assert_eq!(matches[1].corpus_label, "unknown");
-        assert_eq!(matches[1].confidence, 0.0);
+        // Observation 11 matched nothing, so it is absent rather than padded.
+        assert!(matches.iter().all(|matched| matched.observation_id != 11));
     }
 
     #[test]
@@ -260,25 +250,21 @@ mod tests {
 
         let matches = match_banner_batch(&batch).matches;
 
-        assert_eq!(matches.len(), batch.observations.len());
+        // Nine of the ten fixtures match a corpus; the rdp fixture is not a real
+        // banner and is now dropped instead of padded with an `unknown` sentinel.
+        assert_eq!(matches.len(), 9);
         for (index, matched) in matches.iter().enumerate() {
             assert_eq!(matched.observation_id, (index + 1) as u64);
-        }
-
-        for matched in matches.iter().take(9) {
             assert_ne!(matched.corpus_label, "unknown");
         }
-        assert_eq!(matches[9].corpus_label, "unknown");
+        assert!(matches.iter().all(|matched| matched.observation_id != 10));
     }
 
     #[test]
     fn matches_satori_ssh_banner_candidate() {
-        let corpus =
-            SatoriCorpus::load_from_dir("../../third_party/netprobe_corpora/satori/xml")
-                .or_else(|_| {
-                    SatoriCorpus::load_from_dir("third_party/netprobe_corpora/satori/xml")
-                })
-                .expect("Satori corpus loads");
+        let corpus = SatoriCorpus::load_from_dir("../../third_party/netprobe_corpora/satori/xml")
+            .or_else(|_| SatoriCorpus::load_from_dir("third_party/netprobe_corpora/satori/xml"))
+            .expect("Satori corpus loads");
         let matched = satori_match("ssh", "SSH-2.0-Cisco-1.25", &corpus)
             .expect("Cisco SSH Satori banner matches");
 

@@ -12,7 +12,7 @@ defmodule ServiceRadar.Inventory.Identity.IdentityRevisionSitesTest do
   revision constantly and make every pinned read stale within seconds.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState

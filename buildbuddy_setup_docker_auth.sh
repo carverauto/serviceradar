@@ -44,12 +44,12 @@ fi
 #
 # Set it when the caller cannot proceed unauthenticated to the primary registry: it turns two
 # silent successes into an immediate, named failure. Without it this script is best-effort by
-# design, and two callers depend on that: //.forgejo/workflows/main.yml runs on pull requests
-# with no access to secrets, where Docker Hub credentials alone are the correct outcome, and
+# design, and two callers depend on that: GitHub pull-request workflows run with no access
+# to secrets, where Docker Hub credentials alone are the correct outcome, and
 # //build/buildbuddy/release_pipeline.sh invokes the script only `if [[ -x ]]`.
 #
-# Do NOT infer this from OCI_REGISTRY being set -- main.yml sets it unconditionally at job
-# level and still has to survive a credential-less fork PR.
+# Do NOT infer this from OCI_REGISTRY being set -- fork PRs still have to survive a
+# credential-less run.
 require_oci_auth="${OCI_AUTH_REQUIRED:-}"
 
 # ...and if it is set, OCI_REGISTRY must be too. `oci_registry` otherwise defaults to ghcr.io,

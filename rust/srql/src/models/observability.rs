@@ -142,6 +142,52 @@ impl LogRow {
 }
 
 #[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::mtr_traces, check_for_backend(diesel::pg::Pg))]
+pub struct MtrTraceRow {
+    pub time: DateTime<Utc>,
+    pub id: Uuid,
+    pub agent_id: String,
+    pub gateway_id: Option<String>,
+    pub check_id: Option<String>,
+    pub check_name: Option<String>,
+    pub device_id: Option<String>,
+    pub target: String,
+    pub target_ip: String,
+    pub target_reached: bool,
+    pub total_hops: i32,
+    pub protocol: String,
+    pub ip_version: i32,
+    pub packet_size: Option<i32>,
+    pub partition: Option<String>,
+    pub error: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl MtrTraceRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "time": self.time,
+            "id": self.id.to_string(),
+            "agent_id": self.agent_id,
+            "gateway_id": self.gateway_id,
+            "check_id": self.check_id,
+            "check_name": self.check_name,
+            "device_id": self.device_id,
+            "target": self.target,
+            "target_ip": self.target_ip,
+            "target_reached": self.target_reached,
+            "total_hops": self.total_hops,
+            "protocol": self.protocol,
+            "ip_version": self.ip_version,
+            "packet_size": self.packet_size,
+            "partition": self.partition,
+            "error": self.error,
+            "created_at": self.created_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
 #[diesel(table_name = crate::schema::otel_traces, check_for_backend(diesel::pg::Pg))]
 pub struct TraceSpanRow {
     pub timestamp: DateTime<Utc>,

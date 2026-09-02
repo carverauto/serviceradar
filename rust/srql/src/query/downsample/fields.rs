@@ -5,7 +5,7 @@ use crate::query::flows::{
 use crate::{
     error::{Result, ServiceError},
     parser::{DownsampleAgg, Entity},
-    query::QueryPlan,
+    query::{QueryPlan, filters_common::is_valid_jsonb_key},
 };
 
 pub(super) fn resolve_value_column(
@@ -154,10 +154,25 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
                 "device_id" => "device_id".to_string(),
                 "gateway_id" => "gateway_id".to_string(),
                 "agent_id" => "agent_id".to_string(),
+                // Pre-existing alias for `tags.core_id`, retained because
+                // callers depend on the shorter spelling.
                 "core_id" => "tags->>'core_id'".to_string(),
                 "partition" => "partition".to_string(),
                 "target_device_ip" => "target_device_ip".to_string(),
                 "if_index" => "if_index::text".to_string(),
+                // Split by an arbitrary tag. This expression is interpolated
+                // into the SELECT and GROUP BY lists, so the key is validated
+                // before it can reach the string — same rule as tag filtering
+                // and tag grouping.
+                candidate if candidate.starts_with("tags.") => {
+                    let key = candidate.strip_prefix("tags.").unwrap_or_default();
+                    if !is_valid_jsonb_key(key) {
+                        return Err(ServiceError::InvalidRequest(format!(
+                            "invalid tag key '{key}' in series field"
+                        )));
+                    }
+                    format!("tags->>'{key}'")
+                }
                 other => {
                     return Err(ServiceError::InvalidRequest(format!(
                         "unsupported series field '{other}' for {table}"
@@ -261,12 +276,25 @@ pub(super) fn agg_expr(agg: DownsampleAgg, value_col: &str) -> String {
         DownsampleAgg::Count => "COUNT(*)::double precision".to_string(),
         // Rate is handled specially in build_sql with a CTE, this is a fallback
         DownsampleAgg::Rate => format!("AVG({value_col})"),
+        DownsampleAgg::RateSum => format!("SUM({value_col})"),
+    }
+}
+
+/// How the per-series rates are combined inside one display bucket.
+///
+/// The LAG window always partitions by the full series identity, so the deltas
+/// themselves are per underlying counter either way. This only decides what
+/// happens when a display series collapses several of them together.
+pub(super) fn rate_bucket_combine(agg: DownsampleAgg) -> &'static str {
+    match agg {
+        DownsampleAgg::RateSum => "SUM",
+        _ => "AVG",
     }
 }
 
 /// Check if the aggregation type requires special rate-based query structure
 pub(super) fn is_rate_agg(agg: DownsampleAgg) -> bool {
-    matches!(agg, DownsampleAgg::Rate)
+    matches!(agg, DownsampleAgg::Rate | DownsampleAgg::RateSum)
 }
 
 pub(super) fn flow_cagg_for_bucket(bucket_seconds: i64) -> &'static str {

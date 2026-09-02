@@ -215,8 +215,16 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
           string_value(payload, ["source"]) ||
           "plugin_device_discovery",
       "is_available" => bool_value(device, ["is_available", "isAvailable"]),
+      "is_managed" => managed_value(device, metadata),
+      "os" => map_value(device, ["os"]) || map_value(metadata, ["os"]),
+      "hw_info" => map_value(device, ["hw_info"]) || map_value(metadata, ["hw_info"]),
+      "owner" => map_value(device, ["owner"]) || map_value(metadata, ["owner"]),
       "metadata" => metadata,
-      "tags" => device_tags(device)
+      "tags" => device_tags(device),
+      "source_instance" =>
+        string_value(map_value(envelope, ["metadata"]) || %{}, ["source_instance"]) ||
+          string_value(envelope, ["source_instance"]),
+      "facts" => discovery_facts(device, metadata)
     }
 
     if strong_enough?(update) do
@@ -288,6 +296,14 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   defp valid_ip?(_value), do: false
 
+  defp discovery_facts(device, metadata) do
+    map_value(device, ["facts"]) ||
+      map_value(device, ["canonical_facts"]) ||
+      map_value(metadata, ["facts"]) ||
+      map_value(metadata, ["canonical_facts"]) ||
+      %{}
+  end
+
   defp device_metadata(device, envelope, payload) do
     location = map_value(device, ["location"])
     envelope_metadata = map_value(envelope, ["metadata"]) || %{}
@@ -315,7 +331,69 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     |> maybe_put("latitude", number_value(location, ["latitude", "lat"]))
     |> maybe_put("longitude", number_value(location, ["longitude", "lon", "lng"]))
     |> maybe_put("plugin_result_summary", string_value(payload, ["summary"]))
+    |> maybe_put("os_name", string_value(device, ["os_name", "osName"]) || os_field(base, "name"))
+    |> maybe_put(
+      "os_version",
+      string_value(device, ["os_version", "osVersion"]) || os_field(base, "version")
+    )
+    |> maybe_put(
+      "firmware_version",
+      string_value(device, ["firmware_version", "firmwareVersion"]) ||
+        string_value(base, ["firmware_version"])
+    )
+    |> maybe_put("sys_contact", string_value(device, ["contact"]) || owner_name(base))
+    |> maybe_put(
+      "is_managed",
+      bool_value(device, ["is_managed", "isManaged"]) || bool_value(base, ["is_managed"])
+    )
+    |> maybe_put(
+      "geographical_location",
+      string_value(location, ["geographical_location"]) ||
+        string_value(base, ["geographical_location"]) ||
+        string_value(map_value(base, ["source_metadata"]) || %{}, ["geographical_location"])
+    )
   end
+
+  defp os_field(metadata, key) when is_map(metadata) do
+    case map_value(metadata, ["os"]) do
+      os when is_map(os) -> string_value(os, [key])
+      _ -> string_value(metadata, [key])
+    end
+  end
+
+  defp os_field(_metadata, _key), do: nil
+
+  defp owner_name(metadata) when is_map(metadata) do
+    case map_value(metadata, ["owner"]) do
+      owner when is_map(owner) -> string_value(owner, ["name"])
+      _ -> nil
+    end
+  end
+
+  defp owner_name(_metadata), do: nil
+
+  defp managed_value(device, metadata) do
+    case bool_value(device, ["is_managed", "isManaged"]) do
+      nil ->
+        case bool_value(metadata, ["is_managed", "isManaged"]) do
+          nil -> managed_from_status(string_value(device, ["status"]))
+          value -> value
+        end
+
+      value ->
+        value
+    end
+  end
+
+  defp managed_from_status(status) when is_binary(status) do
+    case String.downcase(String.trim(status)) do
+      "managed" -> true
+      "unmanaged" -> false
+      _ -> nil
+    end
+  end
+
+  defp managed_from_status(_status), do: nil
 
   defp integration_id(device, envelope) do
     metadata = map_value(device, ["metadata"]) || %{}

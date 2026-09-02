@@ -77,6 +77,14 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
             collect_text_params(params, filter)?;
             collect_text_params(params, filter)
         }
+        // `device_addr:` binds three times -- src, dst, sampler -- matching the
+        // three-way OR built in flows/filters.rs. The counts must agree or the
+        // translate path's LIMIT/OFFSET binds shift.
+        "device_addr" | "device_address" => {
+            collect_text_params(params, filter)?;
+            collect_text_params(params, filter)?;
+            collect_text_params(params, filter)
+        }
         // `port:` matches either endpoint port (same double-bind pattern as `ip:`).
         "port" | "endpoint_port" => {
             collect_port_params(params, filter, "port")?;

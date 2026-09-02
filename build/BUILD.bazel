@@ -1,12 +1,92 @@
+load("@rules_python//python:defs.bzl", "py_test")
 # Package placeholder for repository alias helper.
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
+load("@rules_elixir//:mix_payloads.bzl", "mix_payloads")
+load(":integration_shards.bzl", "integration_selection_runner_names")
+load(
+    ":integration_shards_test.bzl",
+    "insufficient_capacity",
+    "insufficient_capacity_failure_test",
+    "integration_shards_topology_test",
+    "missing_fixed_source",
+    "missing_fixed_source_failure_test",
+)
 load(":run_id.bzl", "run_id_file")
 
 package(default_visibility = ["//visibility:public"])
 
+ex_unit_test(
+    name = "integration_selection_formatter_test",
+    size = "small",
+    srcs = ["integration_selection_formatter_test.exs"],
+    data = [
+        "//elixir/serviceradar_core:test/support/integration_selection_formatter.ex",
+        "//elixir/serviceradar_core:test/support/integration_selection_manifest.ex",
+    ],
+)
+
+_INTEGRATION_SELECTION_RUNNERS = integration_selection_runner_names()
+
+ex_unit_test(
+    name = "integration_selection_equivalence_test",
+    size = "large",
+    srcs = ["integration_selection_equivalence_test.exs"],
+    data = [
+        ":integration_test_dispositions.bzl",
+        "//elixir/serviceradar_core:test/INTEGRATION_SOURCE_DISPOSITIONS.tsv",
+    ],
+    env = {
+        "SERVICERADAR_SELECTION_LOAD_ONLY_RUNNERS": ",".join(_INTEGRATION_SELECTION_RUNNERS.load_only),
+        "SERVICERADAR_SELECTION_SELECTED_RUNNERS": ",".join(_INTEGRATION_SELECTION_RUNNERS.selected),
+    },
+    tools = [
+        "//elixir/serviceradar_core:{}".format(name)
+        for name in _INTEGRATION_SELECTION_RUNNERS.selected + _INTEGRATION_SELECTION_RUNNERS.load_only
+    ],
+)
+
+integration_shards_topology_test(
+    name = "integration_shards_topology_test",
+)
+
+missing_fixed_source(
+    name = "missing_fixed_source",
+    # Deliberately fails analysis; only its analysistest wrapper should select it.
+    tags = ["manual"],
+)
+
+missing_fixed_source_failure_test(
+    name = "missing_fixed_source_failure_test",
+    target_under_test = ":missing_fixed_source",
+)
+
+insufficient_capacity(
+    name = "insufficient_capacity",
+    # Deliberately fails analysis; only its analysistest wrapper should select it.
+    tags = ["manual"],
+)
+
+insufficient_capacity_failure_test(
+    name = "insufficient_capacity_failure_test",
+    target_under_test = ":insufficient_capacity",
+)
+
+test_suite(
+    name = "integration_shards_test",
+    tests = [
+        ":insufficient_capacity_failure_test",
+        ":integration_shards_topology_test",
+        ":missing_fixed_source_failure_test",
+    ],
+)
+
 exports_files([
-        "benchmark_runner.py",
+    "benchmark_runner.py",
     "elixir_test_config_loader.exs",
+    "integration_shards.bzl",
+    "integration_test_dispositions.bzl",
+    "integration_tests.bzl",
     "repo_alias.bzl",
 ])
 
@@ -56,8 +136,6 @@ run_id_file(
     run_id = ":run_id",
 )
 
-load("@rules_elixir//:mix_payloads.bzl", "mix_payloads")
-
 # Inputs every Mix compile in this repository needs. Resolved as a toolchain (registered in
 # //MODULE.bazel), so neither the ~15 first-party call sites nor the 269 generated Hex stubs
 # repeat any of it.
@@ -82,4 +160,21 @@ toolchain(
     name = "mix_payloads",
     toolchain = ":payloads",
     toolchain_type = "@rules_elixir//:mix_payloads_toolchain_type",
+)
+
+# Guards the enumeration gap introduced by moving the edge ABI suites off `go test ./...`.
+# A go_test target LISTS its srcs; `go test` DISCOVERED them, so a new *_test.go is silently
+# ungated under Bazel unless something checks. The test file carries the full reasoning.
+#
+# The BUILD files and the test sources are DECLARED INPUTS: a guard that read them off a path it
+# was not given would pass by finding nothing, which is the failure mode it exists to prevent.
+py_test(
+    name = "go_test_inventory_test",
+    srcs = ["go_test_inventory_test.py"],
+    data = [
+        "//go/pkg/edge/edgerecord:all_test_srcs",
+        "//go/pkg/edge/execstate:all_test_srcs",
+        "//go/pkg/edge/projection:all_test_srcs",
+        "//proto/edge/v1:all_test_srcs",
+    ],
 )

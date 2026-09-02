@@ -27,6 +27,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.SweepJobs.AgentAssignment
   alias ServiceRadar.SweepJobs.SweepGroup
 
   require Ash.Query
@@ -952,25 +953,25 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   defp transfer_superseded_assignments(agent_id, replacement_agent_id, actor) do
     Enum.each(
       [
-        {MapperJob, :mapper_jobs},
-        {SweepGroup, :sweep_groups}
+        {:mapper_jobs,
+         transfer_agent_assignment(MapperJob, agent_id, replacement_agent_id, actor)},
+        {:sweep_groups, transfer_sweep_group_assignments(agent_id, replacement_agent_id, actor)}
       ],
-      fn {resource, label} ->
-        case transfer_agent_assignment(resource, agent_id, replacement_agent_id, actor) do
-          {:ok, 0} ->
-            :ok
+      &log_assignment_transfer(&1, agent_id, replacement_agent_id)
+    )
+  end
 
-          {:ok, count} ->
-            Logger.info(
-              "Reassigned #{count} #{label} from superseded agent #{agent_id} to #{replacement_agent_id}"
-            )
+  defp log_assignment_transfer({_label, {:ok, 0}}, _agent_id, _replacement_agent_id), do: :ok
 
-          {:error, reason} ->
-            Logger.warning(
-              "Failed to reassign #{label} from superseded agent #{agent_id} to #{replacement_agent_id}: #{inspect(reason)}"
-            )
-        end
-      end
+  defp log_assignment_transfer({label, {:ok, count}}, agent_id, replacement_agent_id) do
+    Logger.info(
+      "Reassigned #{count} #{label} from superseded agent #{agent_id} to #{replacement_agent_id}"
+    )
+  end
+
+  defp log_assignment_transfer({label, {:error, reason}}, agent_id, replacement_agent_id) do
+    Logger.warning(
+      "Failed to reassign #{label} from superseded agent #{agent_id} to #{replacement_agent_id}: #{inspect(reason)}"
     )
   end
 
@@ -992,6 +993,35 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  defp transfer_sweep_group_assignments(agent_id, replacement_agent_id, actor) do
+    query =
+      SweepGroup
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(^agent_id in agent_ids)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, records} ->
+        records
+        |> Enum.map(&replace_sweep_group_assignment(&1, agent_id, replacement_agent_id))
+        |> update_sweep_group_assignments(actor)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp replace_sweep_group_assignment(group, agent_id, replacement_agent_id) do
+    agent_ids =
+      group.agent_ids
+      |> AgentAssignment.normalize()
+      |> Enum.map(fn current_agent_id ->
+        if current_agent_id == agent_id, do: replacement_agent_id, else: current_agent_id
+      end)
+      |> AgentAssignment.normalize()
+
+    {group, agent_ids}
+  end
+
   defp update_agent_assignments(records, replacement_agent_id, actor) do
     records
     |> Enum.reduce_while(0, fn record, count ->
@@ -1000,6 +1030,23 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       |> Ash.update()
       |> case do
         {:ok, _record} -> {:cont, count + 1}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:error, reason} -> {:error, reason}
+      count -> {:ok, count}
+    end
+  end
+
+  defp update_sweep_group_assignments(assignments, actor) do
+    assignments
+    |> Enum.reduce_while(0, fn {group, agent_ids}, count ->
+      group
+      |> Ash.Changeset.for_update(:update, %{agent_ids: agent_ids}, actor: actor)
+      |> Ash.update()
+      |> case do
+        {:ok, _group} -> {:cont, count + 1}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)

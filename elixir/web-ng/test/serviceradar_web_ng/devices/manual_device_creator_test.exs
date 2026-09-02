@@ -163,6 +163,97 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     assert restored.tags == %{"owner" => "ops"}
   end
 
+  test "upsert merges spreadsheet tags and metadata onto an existing IP-matched device", %{
+    scope: scope
+  } do
+    ip = "203.0.113.#{rem(System.unique_integer([:positive]), 200) + 20}"
+
+    assert {:ok, existing} =
+             create_device(scope, %{
+               uid: "armis-existing-#{System.unique_integer([:positive])}",
+               hostname: "armis-host",
+               ip: ip,
+               type: "server",
+               type_id: 1,
+               tags: %{"env" => "prod"},
+               metadata: %{"other_writer" => "keep-me"},
+               is_managed: true,
+               is_active: true
+             })
+
+    assert {:ok, :updated, device} =
+             ManualDeviceCreator.upsert(scope, %{
+               hostname: "rids-bos-b23",
+               ip: ip,
+               type: "rids",
+               tags: ["rids=true", "site=BOS", "gate=B23"],
+               metadata: %{"concourse" => "B", "model" => "DAK_VENUS1500_4LINE"}
+             })
+
+    assert device.uid == existing.uid
+    assert device.hostname == "rids-bos-b23"
+    assert device.ip == ip
+    assert device.type == "server"
+    assert device.type_id == 1
+    assert device.tags["env"] == "prod"
+    assert device.tags["rids"] == "true"
+    assert device.tags["site"] == "BOS"
+    assert device.tags["gate"] == "B23"
+    assert device.metadata["other_writer"] == "keep-me"
+    assert device.metadata["concourse"] == "B"
+    assert device.metadata["model"] == "DAK_VENUS1500_4LINE"
+    assert "manual" in device.discovery_sources
+  end
+
+  test "prefers a live IP match over a tombstoned uid when both match the row", %{scope: scope} do
+    ip = "203.0.113.#{rem(System.unique_integer([:positive]), 200) + 20}"
+    hostname = "rids-tombstone-#{System.unique_integer([:positive])}.example"
+
+    assert {:ok, live} =
+             create_device(scope, %{
+               uid: "sr:" <> Ecto.UUID.generate(),
+               hostname: "live-inventory",
+               ip: ip,
+               type: "server",
+               type_id: 1,
+               is_managed: true,
+               is_active: true
+             })
+
+    assert {:ok, tombstoned} =
+             create_device(scope, %{
+               uid: "sr:" <> Ecto.UUID.generate(),
+               hostname: hostname,
+               ip: nil,
+               type: "rids",
+               type_id: 0,
+               is_managed: true,
+               is_active: true
+             })
+
+    assert {:ok, _} =
+             tombstoned
+             |> Ash.Changeset.for_update(:soft_delete, %{
+               deleted_by: "test",
+               deleted_reason: "merged away"
+             })
+             |> Ash.update(scope: scope)
+
+    assert {:ok, :updated, device} =
+             ManualDeviceCreator.upsert(scope, %{
+               hostname: hostname,
+               ip: ip,
+               type: "rids",
+               tags: ["site=BOS"]
+             })
+
+    assert device.uid == live.uid
+    assert device.hostname == hostname
+    assert is_nil(device.deleted_at)
+    assert {:ok, still_deleted} = Device.get_by_uid(tombstoned.uid, true, scope: scope)
+    assert still_deleted.deleted_at
+  end
+
   test "merges active hostname-only duplicate into resolved-IP canonical device", %{scope: scope} do
     hostname = "manual-merge-#{System.unique_integer([:positive])}.example"
     assert {:ok, resolved_ip} = HostnameResolverStub.resolve(hostname)
@@ -200,6 +291,51 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     assert device.type_id == 12
     assert device.tags == %{"location" => "lab"}
     assert {:error, _} = Device.get_by_uid(legacy.uid, false, scope: scope)
+  end
+
+  test "the same IP can be created independently in default and another partition", %{
+    scope: scope
+  } do
+    ip = "203.0.113.#{rem(System.unique_integer([:positive]), 200) + 20}"
+
+    assert {:ok, isolation} =
+             ManualDeviceCreator.create(scope, %{
+               hostname: "rids-isolation",
+               ip: ip,
+               type: "rids",
+               tags: ["role=isolation"]
+             })
+
+    assert isolation.partition == "default"
+
+    assert {:ok, monitoring} =
+             ManualDeviceCreator.create(scope, %{
+               hostname: "rids-monitoring",
+               ip: ip,
+               partition: "rids",
+               type: "rids",
+               tags: ["role=monitoring"]
+             })
+
+    assert monitoring.partition == "rids"
+    assert monitoring.uid != isolation.uid
+    assert monitoring.ip == isolation.ip
+
+    assert {:ok, :updated, updated_monitoring} =
+             ManualDeviceCreator.upsert(scope, %{
+               hostname: "rids-monitoring",
+               ip: ip,
+               partition: "rids",
+               tags: ["site=ZZA"]
+             })
+
+    assert updated_monitoring.uid == monitoring.uid
+    assert updated_monitoring.tags["role"] == "monitoring"
+    assert updated_monitoring.tags["site"] == "ZZA"
+
+    assert {:ok, still_isolation} = Device.get_by_uid(isolation.uid, false, scope: scope)
+    assert still_isolation.tags == %{"role" => "isolation"}
+    refute still_isolation.tags["site"]
   end
 
   defp restore_app_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

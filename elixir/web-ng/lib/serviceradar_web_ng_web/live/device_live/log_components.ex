@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
   attr(:device_uid, :string, required: true)
   attr(:query, :string, required: true)
   attr(:limit, :integer, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def device_logs_tab_content(assigns) do
     ~H"""
@@ -56,9 +57,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
                   </tr>
                 </thead>
                 <tbody>
-                  <tr :for={log <- @logs}>
+                  <tr :for={{log, index} <- Enum.with_index(@logs)}>
                     <td class="whitespace-nowrap text-xs font-mono">
-                      {format_timestamp(log_timestamp(log))}
+                      <.user_time
+                        id={"device-log-#{log_time_key(log, index)}-timestamp"}
+                        value={log_timestamp(log)}
+                        timezone={@timezone}
+                        style={:compact}
+                      />
                     </td>
                     <td class="whitespace-nowrap text-xs">
                       <.ui_badge variant={log_severity_variant(log)} size="xs">
@@ -182,30 +188,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
   defp present_or_dash(value) when is_binary(value), do: value
   defp present_or_dash(value), do: to_string(value)
 
-  defp format_timestamp(nil), do: "—"
+  defp log_time_key(log, index) do
+    [Map.get(log, "id"), Map.get(log, :id)]
+    |> Enum.find_value(&log_id_fragment/1)
+    |> Kernel.||(Integer.to_string(index))
+  end
 
-  defp format_timestamp(value) do
-    case parse_datetime(value) do
-      {:ok, %DateTime{} = dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> "—"
+  defp log_id_fragment(value) when value in [nil, ""], do: nil
+
+  defp log_id_fragment(value) do
+    case value |> to_string() |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-") |> String.trim("-") do
+      "" -> nil
+      fragment -> fragment
     end
   end
-
-  defp parse_datetime(%DateTime{} = dt), do: {:ok, dt}
-
-  defp parse_datetime(%NaiveDateTime{} = ndt) do
-    {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-  end
-
-  defp parse_datetime(value) when is_binary(value) do
-    with {:error, _} <- DateTime.from_iso8601(value),
-         {:ok, ndt} <- NaiveDateTime.from_iso8601(value) do
-      {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-    else
-      {:ok, dt, _offset} -> {:ok, dt}
-      {:error, _} -> {:error, :invalid_datetime}
-    end
-  end
-
-  defp parse_datetime(_), do: {:error, :invalid_datetime}
 end

@@ -98,6 +98,183 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
            "the flows default filter field is an IP; `contains` wraps it in % and matches nothing"
   end
 
+  # Engine fixture: keep in sync with rust/srql/.../downsample/filters.rs flows_filter_clause.
+  @flows_downsample_engine_fields ~w(
+    src_endpoint_ip src_ip dst_endpoint_ip dst_ip ip endpoint_ip
+    device_addr device_address
+    src_cidr dst_cidr cidr
+    src_endpoint_port src_port dst_endpoint_port dst_port
+    protocol_name protocol_num proto protocol_group proto_group app direction
+    sampler_address exporter_name
+    input_snmp in_if_index output_snmp out_if_index
+    in_if_name out_if_name in_if_speed_bps out_if_speed_bps
+  )
+
+  test "flows filter_fields_downsample is a subset of the downsample engine allowlist" do
+    downsample = Catalog.filter_fields("flows", :downsample)
+    engine = MapSet.new(@flows_downsample_engine_fields)
+
+    assert is_list(downsample)
+    assert downsample != []
+
+    for field <- downsample do
+      assert field in engine,
+             "#{field} is in catalog filter_fields_downsample but not the engine fixture"
+    end
+  end
+
+  test "stats mode remains outside the visual builder catalog" do
+    assert Catalog.filter_fields("flows", :stats) == nil
+  end
+
+  test "every advertised flows chart field survives builder normalization" do
+    for field <- Catalog.filter_fields("flows", :downsample) do
+      chart =
+        "flows"
+        |> Builder.default_state(100)
+        |> Map.put("filters", [
+          %{"field" => field, "op" => Catalog.default_filter_op("flows", field), "value" => ""}
+        ])
+
+      {normalized, stripped} = Builder.update_meta(chart, %{})
+
+      assert stripped == [], field
+      assert Enum.any?(normalized["filters"], &(&1["field"] == field)), field
+    end
+  end
+
+  test "flows row filter list includes chart-illegal fields that remain row-valid" do
+    row = Catalog.filter_fields("flows", :row)
+
+    for field <- ~w(port tag near src_country_iso2 dst_country_iso2) do
+      assert field in row, field
+    end
+
+    downsample = Catalog.filter_fields("flows", :downsample)
+
+    for field <- ~w(port tag near src_country_iso2 as_path bgp_communities) do
+      refute field in downsample, field
+    end
+
+    assert "cidr" in downsample
+  end
+
+  test "flows row filter list does not advertise engine-unsupported BGP fields" do
+    row = Catalog.filter_fields("flows", :row)
+
+    for field <- ~w(as_path bgp_communities) do
+      refute field in row, field
+    end
+  end
+
+  test "builder mode is downsample when bucket is set" do
+    with_bucket = Builder.default_state("flows", 100)
+    assert with_bucket["bucket"] != ""
+    assert Builder.mode(with_bucket) == :downsample
+
+    row = Builder.update(with_bucket, %{"bucket" => ""})
+
+    assert Builder.mode(row) == :row
+  end
+
+  test "clearing the bucket switches flows to row mode and preserves row-only filters" do
+    chart =
+      "flows"
+      |> Builder.default_state(100)
+      |> Map.put("filters", [
+        %{"field" => "tag", "op" => "equals", "value" => "edge"},
+        %{"field" => "app", "op" => "equals", "value" => "https"}
+      ])
+
+    {row, stripped} = Builder.update_meta(chart, %{"bucket" => ""})
+
+    assert Builder.mode(row) == :row
+    assert row["bucket"] == ""
+    assert stripped == []
+    assert Enum.any?(row["filters"], &(&1["field"] == "tag"))
+    assert Enum.any?(row["filters"], &(&1["field"] == "app"))
+  end
+
+  test "parsing a flows query without a bucket preserves row mode and row-only filters" do
+    query = "in:flows time:last_1h tag:edge sort:time:desc limit:100"
+
+    assert {:ok, row} = Builder.parse(query)
+    assert Builder.mode(row) == :row
+    assert Enum.any?(row["filters"], &(&1["field"] == "tag" and &1["value"] == "edge"))
+
+    rebuilt = Builder.build(row)
+    assert rebuilt =~ "tag:edge"
+    refute rebuilt =~ "bucket:"
+  end
+
+  test "enabling chart mode strips illegal flows filters and reports them" do
+    # Start from a row-shaped state (no bucket) with a tag filter, then set bucket.
+    base = %{
+      "entity" => "flows",
+      "time" => "last_1h",
+      "bucket" => "",
+      "agg" => "sum",
+      "value_field" => "bytes_total",
+      "series" => "app",
+      "sort_field" => "time",
+      "sort_dir" => "desc",
+      "limit" => 100,
+      "filters" => [
+        %{"field" => "tag", "op" => "equals", "value" => "edge"},
+        %{"field" => "app", "op" => "contains", "value" => "https"},
+        %{"field" => "cidr", "op" => "equals", "value" => "10.0.0.0/8"}
+      ]
+    }
+
+    {state, stripped} = Builder.update_meta(base, %{"bucket" => "5m"})
+
+    assert Builder.mode(state) == :downsample
+    assert "tag" in stripped
+    refute Enum.any?(state["filters"], &(&1["field"] == "tag"))
+    assert Enum.any?(state["filters"], &(&1["field"] == "app"))
+    assert Enum.any?(state["filters"], &(&1["field"] == "cidr"))
+
+    query = Builder.build(state)
+    assert query =~ "bucket:5m"
+    assert query =~ "cidr:10.0.0.0/8"
+    assert query =~ "app:%https%"
+    refute query =~ "tag:"
+  end
+
+  test "build never emits chart + tag for flows even if state is inconsistent" do
+    query =
+      Builder.build(%{
+        "entity" => "flows",
+        "time" => "last_1h",
+        "bucket" => "5m",
+        "agg" => "sum",
+        "value_field" => "bytes_total",
+        "series" => "app",
+        "sort_field" => "time",
+        "sort_dir" => "desc",
+        "limit" => 100,
+        "filters" => [
+          %{"field" => "tag", "op" => "equals", "value" => "edge"}
+        ]
+      })
+
+    assert query =~ "bucket:5m"
+    refute query =~ "tag:"
+  end
+
+  test "chart mode filter field options exclude illegal fields" do
+    state =
+      "flows"
+      |> Builder.default_state(100)
+      |> Map.put("bucket", "5m")
+
+    fields = Builder.filter_fields_for(state)
+    refute "tag" in fields
+    refute "port" in fields
+    assert "cidr" in fields
+    assert "app" in fields
+  end
+
   test "address filters build an exact match rather than a wildcard" do
     state =
       "flows"

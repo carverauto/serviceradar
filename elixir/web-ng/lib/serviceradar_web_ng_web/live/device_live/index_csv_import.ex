@@ -3,8 +3,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
 
   alias Ash.Error.Changes.InvalidAttribute
   alias Ash.Error.Changes.Required
+  alias Ash.Error.Changes.StaleRecord
   alias Ash.Error.Invalid
   alias ServiceRadarWebNG.Devices.ManualDeviceCreator
+
+  require Logger
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
@@ -14,6 +17,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
   @max_hostname_only_rows 100
   @dns_max_concurrency 10
   @dns_timeout 2_000
+  @reserved_csv_columns ~w(hostname ip type tags partition)
+
+  @doc false
+  # Phoenix.LiveView.uploaded_entries/2 returns `{completed, in_progress}`.
+  # A list match on that tuple is the CaseClauseError that used to crash Preview.
+  def completed_csv_upload_entry({[], []}), do: {:error, :no_file}
+  def completed_csv_upload_entry({[], [_ | _]}), do: {:error, :in_progress}
+  def completed_csv_upload_entry({[entry | _], _in_progress}), do: {:ok, entry}
 
   @doc """
   Parses an uploaded CSV into device maps.
@@ -187,18 +198,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
     if hostname == "" and ip == "" do
       {:skip, line, "needs a hostname or an ip"}
     else
-      {:ok,
-       %{
-         hostname: hostname,
-         ip: ip,
-         type: get_csv_value(values, header_map, "type") || "",
-         tags: parse_tags(get_csv_value(values, header_map, "tags")),
-         # Kept so a creation failure can name the line the operator wrote,
-         # not a running tally. ManualDeviceCreator builds its own attribute
-         # map and ignores this.
-         source_line: line
-       }}
+      case parse_row_partition(trimmed_csv_value(values, header_map, "partition")) do
+        {:error, slug} ->
+          {:skip, line, "invalid partition '#{slug}'"}
+
+        {:ok, partition} ->
+          tags = parse_tags(get_csv_value(values, header_map, "tags"))
+
+          # `key=value` pieces in the tags column are the documented CSV channel
+          # for operator fields (site, gate, model, …). They must also land in
+          # `metadata` — All Metadata on device details reads that map, not tags.
+          # Extra CSV columns overlay the same keys when both are present.
+          metadata =
+            tags
+            |> tag_pairs_as_metadata()
+            |> Map.merge(extra_column_metadata(values, header_map))
+
+          {:ok,
+           %{
+             hostname: hostname,
+             ip: ip,
+             partition: partition,
+             type: get_csv_value(values, header_map, "type") || "",
+             tags: tags,
+             metadata: metadata,
+             # Kept so a creation failure can name the line the operator wrote,
+             # not a running tally. ManualDeviceCreator builds its own attribute
+             # map and ignores this.
+             source_line: line
+           }}
+      end
     end
+  end
+
+  defp parse_row_partition(value) do
+    ManualDeviceCreator.parse_partition(value)
+  end
+
+  @doc false
+  def apply_import_partition(devices, default_partition) when is_list(devices) do
+    default = ManualDeviceCreator.coerce_partition(default_partition)
+
+    Enum.map(devices, fn device ->
+      case Map.get(device, :partition) || Map.get(device, "partition") do
+        value when is_binary(value) and value != "" ->
+          Map.put(device, :partition, value)
+
+        _ ->
+          Map.put(device, :partition, default)
+      end
+    end)
   end
 
   # Headers are matched case-insensitively and trimmed, so `HostName`, ` IP `,
@@ -232,15 +281,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
     |> Enum.reject(&(&1 == ""))
   end
 
-  def import_success_message(created, skipped) when skipped > 0 and created > 0 do
-    "Created #{created} device(s). #{skipped} device(s) skipped (already exist)."
+  defp tag_pairs_as_metadata(tags) when is_list(tags) do
+    Enum.reduce(tags, %{}, fn tag, acc ->
+      case String.split(tag, "=", parts: 2) do
+        [key, value] ->
+          key = String.trim(key)
+          value = String.trim(value)
+
+          if key == "" or value == "" do
+            acc
+          else
+            Map.put(acc, key, value)
+          end
+
+        _ ->
+          acc
+      end
+    end)
   end
 
-  def import_success_message(_created, skipped) when skipped > 0 do
-    "All #{skipped} device(s) already exist."
+  defp extra_column_metadata(values, header_map) do
+    Enum.reduce(header_map, %{}, fn {name, index}, acc ->
+      if name in @reserved_csv_columns do
+        acc
+      else
+        case values |> Enum.at(index) |> Kernel.||("") |> String.trim() do
+          "" -> acc
+          value -> Map.put(acc, name, value)
+        end
+      end
+    end)
   end
 
-  def import_success_message(created, _skipped) do
+  def import_success_message(created, updated) when created > 0 and updated > 0 do
+    "Created #{created} device(s). Updated #{updated} existing device(s) with imported tags and metadata."
+  end
+
+  def import_success_message(_created, updated) when updated > 0 do
+    "Updated #{updated} existing device(s) with imported tags and metadata."
+  end
+
+  def import_success_message(created, _updated) do
     "Created #{created} device(s) successfully."
   end
 
@@ -248,7 +329,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
     import_devices(
       scope,
       devices,
-      &ManualDeviceCreator.create/2,
+      &ManualDeviceCreator.upsert/2,
       &ManualDeviceCreator.resolve_hostname/1
     )
   end
@@ -261,12 +342,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
   @doc false
   def import_devices(scope, devices, create_device, resolve_hostname, opts \\ [])
       when is_list(devices) and is_function(create_device, 2) and is_function(resolve_hostname, 1) and is_list(opts) do
+    devices = apply_import_partition(devices, Keyword.get(opts, :default_partition, "default"))
+
     case prepare_hostname_rows(devices, resolve_hostname, opts) do
       {:ok, prepared_rows} ->
         do_import_devices(prepared_rows, scope, create_device)
 
       {:error, errors} ->
-        {:error, %{created: 0, skipped: 0, errors: errors}}
+        {:error, %{created: 0, updated: 0, errors: errors}}
     end
   end
 
@@ -348,43 +431,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(_value), do: false
 
-  defp do_import_devices(prepared_rows, scope, create_device) do
-    {created, skipped, errors} =
+  defp do_import_devices(prepared_rows, scope, persist_device) do
+    {created, updated, errors} =
       Enum.reduce(prepared_rows, {0, 0, []}, fn
         {:device, device_data}, acc ->
-          process_device_import(device_data, scope, acc, create_device)
+          process_device_import(device_data, scope, acc, persist_device)
 
-        {:error, error}, {created, skipped, errors} ->
-          {created, skipped, [error | errors]}
+        {:error, error}, {created, updated, errors} ->
+          {created, updated, [error | errors]}
       end)
 
     if errors == [] do
-      {:ok, {created, skipped}}
+      {:ok, {created, updated}}
     else
-      {:error, %{created: created, skipped: skipped, errors: Enum.reverse(errors)}}
+      {:error, %{created: created, updated: updated, errors: Enum.reverse(errors)}}
     end
   end
 
-  defp process_device_import(device_data, scope, {created, skipped, errors}, create_device) do
-    case create_device.(scope, device_data) do
+  defp process_device_import(device_data, scope, {created, updated, errors}, persist_device) do
+    case persist_device.(scope, device_data) do
+      {:ok, :created, _device} ->
+        {created + 1, updated, errors}
+
+      {:ok, :updated, _device} ->
+        {created, updated + 1, errors}
+
       {:ok, _device} ->
-        {created + 1, skipped, errors}
+        {created + 1, updated, errors}
 
       {:error, :already_exists} ->
-        {created, skipped + 1, errors}
+        {created, updated, ["#{row_label(device_data)}: device already exists and could not be updated" | errors]}
 
       {:error, reason} ->
-        # created + skipped + 1 counts successes, not source rows: every
+        # created + updated + 1 would count successes, not source rows: every
         # parser-skipped row and every earlier failure shifted it, so a failure
         # on line 9 could report itself as "Row 3".
-        {created, skipped, ["#{row_label(device_data)}: #{format_create_error(reason)}" | errors]}
+        Logger.warning("CSV device import failed for #{row_label(device_data)}: #{inspect(reason)}")
+
+        {created, updated, ["#{row_label(device_data)}: #{format_create_error(reason)}" | errors]}
     end
   end
 
-  def import_partial_message(created, skipped, failed) do
-    if created + skipped > 0 do
-      "Import partially completed: #{created} device(s) created or updated, " <>
-        "#{skipped} already existed, and #{failed} failed."
+  def import_partial_message(created, updated, failed) do
+    if created + updated > 0 do
+      "Import partially completed: #{created} created, #{updated} updated, and #{failed} failed."
     end
   end
 
@@ -395,6 +485,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
     ManualDeviceCreator.create(scope, %{
       hostname: params["hostname"],
       ip: params["ip"],
+      partition: params["partition"],
       type: params["type"],
       tags: parse_form_tags(params["tags"])
     })
@@ -414,11 +505,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
     Enum.map_join(errors, ", ", &format_single_device_error/1)
   end
 
+  def format_device_error(%StaleRecord{} = error), do: format_single_device_error(error)
+
   def format_device_error(error), do: inspect(error)
 
   defp format_create_error(%Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", &format_single_device_error/1)
   end
+
+  defp format_create_error(%StaleRecord{} = error), do: format_single_device_error(error)
 
   defp format_create_error(error), do: inspect(error)
 
@@ -427,6 +522,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
   defp format_single_device_error(%Required{field: field}), do: "#{field} is required"
 
   defp format_single_device_error(%Ash.Error.Query.NotFound{}), do: "Device not found"
+
+  defp format_single_device_error(%StaleRecord{}),
+    do: "device was updated by another writer during import; retry this row"
 
   defp format_single_device_error(%{message: msg}) when is_binary(msg), do: msg
 

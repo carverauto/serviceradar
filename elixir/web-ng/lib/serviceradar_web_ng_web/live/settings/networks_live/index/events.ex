@@ -1,9 +1,32 @@
 defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Events do
   @moduledoc false
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.AgentPicker
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Builder
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Mapper
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.ProfileCleanup
+
+  def handle_event(event, params, socket)
+      when event in [
+             "agent_picker_open",
+             "agent_picker_cancel",
+             "agent_picker_search",
+             "agent_picker_retry",
+             "agent_picker_next",
+             "agent_picker_previous",
+             "agent_picker_toggle",
+             "agent_picker_show_browse",
+             "agent_picker_show_selected",
+             "agent_picker_selected_next",
+             "agent_picker_selected_previous",
+             "agent_picker_selected_retry",
+             "agent_picker_remove",
+             "agent_picker_clear",
+             "agent_picker_apply",
+             "agent_picker_use_all"
+           ] do
+    AgentPicker.handle_event(event, params, socket)
+  end
 
   def handle_event(event, params, socket)
       when event in [

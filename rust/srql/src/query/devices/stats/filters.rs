@@ -12,6 +12,7 @@ pub(super) fn build_grouped_stats_filter_clause(
     let clause = match filter.field.as_str() {
         "uid" => clauses::build_grouped_text_clause("uid", filter, &mut binds)?,
         "hostname" => clauses::build_grouped_text_clause("hostname", filter, &mut binds)?,
+        "partition" => clauses::build_grouped_text_clause("partition", filter, &mut binds)?,
         "ip" => clauses::build_grouped_text_clause("ip", filter, &mut binds)?,
         "mac" => clauses::build_grouped_mac_clause(filter, &mut binds)?,
         "gateway_id" => clauses::build_grouped_text_clause("gateway_id", filter, &mut binds)?,
@@ -50,6 +51,25 @@ pub(super) fn build_grouped_stats_filter_clause(
         "awx_managed" => build_awx_managed_clause(filter)?,
         "discovery_sources" => build_discovery_sources_clause(filter, &mut binds)?,
         "tags" => clauses::build_grouped_tags_clause(filter, &mut binds)?,
+        "vlan_uid" => clauses::build_grouped_text_clause("vlan_uid", filter, &mut binds)?,
+        "switch_port_attachment.switch_hostname" => clauses::build_grouped_jsonb_text_clause(
+            "switch_port_attachment",
+            "switch_hostname",
+            filter,
+            &mut binds,
+        )?,
+        "switch_port_attachment.port" => clauses::build_grouped_jsonb_text_clause(
+            "switch_port_attachment",
+            "port",
+            filter,
+            &mut binds,
+        )?,
+        "switch_port_attachment.source" => clauses::build_grouped_jsonb_text_clause(
+            "switch_port_attachment",
+            "source",
+            filter,
+            &mut binds,
+        )?,
         "os.name" => clauses::build_grouped_jsonb_text_clause("os", "name", filter, &mut binds)?,
         "os.version" => {
             clauses::build_grouped_jsonb_text_clause("os", "version", filter, &mut binds)?

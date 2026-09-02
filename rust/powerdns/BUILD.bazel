@@ -56,5 +56,6 @@ rust_binary(
 
 rust_test(
     name = "powerdns_addon_test",
+    compile_data = ["//addons/powerdns:powerdns_manifest"],
     crate = ":powerdns_addon",
 )

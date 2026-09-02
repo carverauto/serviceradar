@@ -3,7 +3,7 @@ defmodule ServiceRadar.Inventory.AgentLinkRepairWorkerTest do
   Integration coverage for periodic agent-to-device link repair (DIRE task 6.2).
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent

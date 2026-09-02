@@ -28,6 +28,7 @@ function buildContext() {
   const ctx = {
     state: {
       details,
+      el: {dataset: {timezone: "Etc/UTC"}},
       lastGraph: {nodes: []},
       selectedNodeIndex: null,
     },
@@ -68,6 +69,7 @@ function buildContext() {
 describe("rendering_selection_methods", () => {
   it("renders node detail card with IP and metadata when present", () => {
     const ctx = buildContext()
+    ctx.state.el.dataset.timezone = "America/Chicago"
     ctx.renderSelectionDetails = godViewRenderingSelectionMethods.renderSelectionDetails.bind(ctx)
 
     ctx.renderSelectionDetails({
@@ -97,6 +99,9 @@ describe("rendering_selection_methods", () => {
     expect(ctx.state.details.innerHTML).not.toMatch(/IP:.*data-device-href/)
     expect(ctx.state.details.innerHTML).toContain("Type: router")
     expect(ctx.state.details.innerHTML).toContain("Vendor/Model: Acme XR-500")
+    expect(ctx.state.details.innerHTML).toContain('Last Seen: <time datetime="2026-02-27T00:00:00Z"')
+    expect(ctx.state.details.innerHTML).toContain('data-user-time-zone="America/Chicago"')
+    expect(ctx.state.details.innerHTML).toContain("06:00:00 PM")
     expect(ctx.state.details.innerHTML).toContain("ASN: 64512")
     expect(ctx.state.details.innerHTML).toContain("Geo: Austin, US")
   })

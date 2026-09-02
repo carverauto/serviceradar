@@ -147,10 +147,16 @@ helm get values serviceradar -n serviceradar
 helm upgrade serviceradar "$CHECKOUT/helm/serviceradar" \
   -n serviceradar \
   --reuse-values \
-  --set global.imageTag=sha-<new> \
+  --set image.digests.<service>=sha256:<digest> \
   --rollback-on-failure \
   --timeout 15m
 ```
+
+Use `global.imageTag=sha-<new>` ONLY when every first-party image should move.
+For a change touching one or two services, pin those with
+`image.digests.<service>` (see "Move only the services you changed") -- farm01
+already carries digest pins for `core` and `webNg`, so you are updating an
+existing pin, not introducing a new mechanism.
 
 `--reuse-values` keeps farm01-only settings (MetalLB VIPs, Gateway API attach, Trivy sidecar, empty `registryPullSecret`, `local-path` storage). Do not replace the live values file unless the user wants those template/value changes applied.
 
@@ -208,9 +214,111 @@ cosign sign --key "$COSIGN_KEY_REF" \
 
 Re-mint the Vault token on `403 permission denied`. Tear down the port-forward when signing is done.
 
+### The Argo Application spec is NOT the lever
+
+`serviceradar-demo-prod` tracks `helm/serviceradar` on the **`demo/prod-release`
+branch of the serviceradar repo itself**, and that path contains
+`.argocd-source-serviceradar-demo-prod.yaml`, whose `helm.parameters` OVERRIDE
+the Application's own `spec.source.helm.parameters`.
+
+Verified 2026-08-23: the Application spec said
+`image.digests.webNg=sha256:457a2b5c...` while the running pod was
+`sha256:94bf165f...`, and Argo still reported `Synced`. A
+`kubectl patch application ... spec.source.helm.parameters` is reverted on the
+next sync. **Edit the file on `demo/prod-release` and push**, then sync:
+
+```bash
+git worktree add --no-track -b <tmp> /tmp/wt-demo-release github/demo/prod-release
+# edit helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml
+git push github HEAD:refs/heads/demo/prod-release
+kubectl patch application -n argocd serviceradar-demo-prod --type merge \
+  -p '{"operation":{"sync":{"revision":"demo/prod-release"}}}'
+```
+
+If the Application parameter and the running image disagree while Argo says
+`Synced`, that file is why -- do not "fix" it by patching the Application.
+
+### Build from a fresh git worktree
+
+Work in a worktree so concurrent agents do not share a checkout. Two things bite
+on a *fresh* one, both verified 2026-08-23:
+
+1. Symlink the gitignored Bazel rc files before any bazel command (repo Hard
+   Rules). Without them RBE fails with `PERMISSION_DENIED: Missing API key`.
+
+2. **Build once before `make push_all`.** `scripts/push_all_images.sh` resolves
+   `bazel info bazel-bin` and then checks `! -d` on the result *before* it builds
+   anything. On a fresh worktree that directory does not exist yet, so the script
+   dies with:
+
+   ```
+   error: unable to resolve bazel-bin
+   ```
+
+   which reads like a credentials or config problem and is not. `bazel info`
+   alone succeeds, which makes it more confusing. Prime the output tree first:
+
+   ```bash
+   bazel build -c opt --config=remote --remote_download_outputs=toplevel //docker/images:images
+   make push_all PUSH_TAG="sha-$(git rev-parse HEAD)"
+   ```
+
+### Move only the services you changed
+
+Use `image.digests.<service>`, not `global.imageTag`, unless every first-party
+image really should move. `global.imageTag` rolls the whole set for a
+two-service change; `image.digests.<service>` short-circuits ahead of it in
+`serviceradar.imageRefSuffix`, so everything else stays on the release tag and
+only the changed services need signing. Service keys are the `image.tags` names
+(`core`, `webNg`, `agent`, `agentGateway`, ...).
+
+### `kubectl set image` poisons later Helm upgrades
+
+A hand-run `kubectl set image` takes server-side-apply ownership of
+`.spec.template.spec.containers[].image` under the `kubectl-set` field manager,
+and every later `helm upgrade` then fails with:
+
+```
+Apply failed with 1 conflict: conflict with "kubectl-set" using apps/v1
+```
+
+Resetting `metadata.managedFields` to `[{}]` does NOT fix it on its own -- the
+fields are re-attributed to a synthetic `before-first-apply` manager and the
+conflict count goes UP. The fix is Helm 4's `--force-conflicts`, which takes
+ownership in place (unlike `--force-replace`, which recreates the resource):
+
+```bash
+helm upgrade serviceradar ./helm/serviceradar -n <ns> --reuse-values --force-conflicts \
+  --set image.digests.core=sha256:...
+```
+
+### Forcing scheduled work instead of waiting
+
+Oban-scheduled maintenance can trickle. Drive it directly over the release RPC
+rather than waiting for the next tick:
+
+```bash
+kubectl exec -n <ns> <core-pod> -- /app/bin/serviceradar_core_elx rpc \
+  'ServiceRadar.Inventory.Identity.DuplicateSweep.reconcile_duplicates() |> inspect() |> IO.puts()'
+kubectl exec -n <ns> <core-pod> -- /app/bin/serviceradar_core_elx rpc \
+  'ServiceRadar.Observability.NetflowExporterCacheRefreshWorker.perform(%Oban.Job{args: %{}}) |> inspect() |> IO.puts()'
+```
+
+Measured difference: the scheduled duplicate sweep was merging ~1 device per
+run; the direct call merged all 11 outstanding in 1.5s.
+
 ### Argo / Image Updater
 
-`serviceradar-demo-prod` uses argocd-image-updater with `write-back-method: git` to `demo/prod-release`. A live `kubectl patch` of helm parameters can be overwritten by `helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml`.
+`serviceradar-demo-prod` uses argocd-image-updater with `write-back-method: git` to `demo/prod-release`.
+
+**A live `kubectl patch` of `spec.source.helm.parameters` is INERT, not merely racy.** Verified
+2026-08-22: `helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml` on `demo/prod-release`
+REPLACES the parameter list at render time. A patched parameter persists in the Application spec
+and the app reports `Synced|Healthy|Succeeded`, while the workload keeps the old image, because
+only the parameters in that file reach Helm. Every parameter you need — `global.imageTag`, and
+`image.digests.<service>` if you are moving a single service — must be committed to that file on
+`demo/prod-release`. Do not diagnose this as a slow rollout; check the rendered image, not the
+sync status.
 
 Contention-free `sha-...` flow:
 

@@ -322,10 +322,19 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
         <%= if @mode == mode_trace() do %>
           <.trace_pair_controls recent_traces={@recent_traces} trace_a={@trace_a} trace_b={@trace_b} />
-          <.trace_pair_result trace_a={@trace_a} trace_b={@trace_b} diff={@diff} />
+          <.trace_pair_result
+            trace_a={@trace_a}
+            trace_b={@trace_b}
+            diff={@diff}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
+          />
         <% else %>
           <.window_controls state={@window_state} />
-          <.window_result state={@window_state} comparison={@window_comparison} />
+          <.window_result
+            state={@window_state}
+            comparison={@window_comparison}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
+          />
         <% end %>
       </div>
     </Layouts.app>
@@ -375,13 +384,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   attr(:trace_a, :map, default: nil)
   attr(:trace_b, :map, default: nil)
   attr(:diff, :list, default: [])
+  attr(:timezone, :string, default: "Etc/UTC")
 
   defp trace_pair_result(assigns) do
     ~H"""
     <div :if={@trace_a && @trace_b} class="space-y-4">
       <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <.trace_summary_card label="Trace A" trace={@trace_a} />
-        <.trace_summary_card label="Trace B" trace={@trace_b} />
+        <.trace_summary_card side="a" label="Trace A" trace={@trace_a} timezone={@timezone} />
+        <.trace_summary_card side="b" label="Trace B" trace={@trace_b} timezone={@timezone} />
       </div>
 
       <div class="sr-ui-table-shell">
@@ -422,7 +432,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   end
 
   attr(:label, :string, required: true)
+  attr(:side, :string, required: true)
   attr(:trace, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   defp trace_summary_card(assigns) do
     ~H"""
@@ -430,9 +442,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
       <div class="sr-mtr-label">{@label}</div>
       <div class="font-mono text-sm sr-mtr-title mt-1">{@trace["target"]}</div>
       <div class="sr-mtr-muted text-xs mt-1">
-        {format_time(@trace["time"])} - {@trace["agent_id"]} - {String.upcase(
-          @trace["protocol"] || "icmp"
-        )}
+        <.user_time
+          id={"mtr-compare-trace-#{@side}-#{stable_trace_identity(@trace)}-time"}
+          value={@trace["time"]}
+          timezone={@timezone}
+          style={:compact}
+          fallback="-"
+        /> - {@trace["agent_id"]} - {String.upcase(@trace["protocol"] || "icmp")}
       </div>
     </div>
     """
@@ -516,7 +532,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
       ]}>
         <div class="flex flex-col gap-1.5">
           <label class="flex items-center justify-between gap-2">
-            <span class="text-sm font-medium text-sr-ink">Window A Start</span>
+            <span class="text-sm font-medium text-sr-ink">Window A Start (UTC)</span>
           </label>
           <input
             type="datetime-local"
@@ -527,7 +543,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         </div>
         <div class="flex flex-col gap-1.5">
           <label class="flex items-center justify-between gap-2">
-            <span class="text-sm font-medium text-sr-ink">Window A End</span>
+            <span class="text-sm font-medium text-sr-ink">Window A End (UTC)</span>
           </label>
           <input
             type="datetime-local"
@@ -538,7 +554,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         </div>
         <div class="flex flex-col gap-1.5">
           <label class="flex items-center justify-between gap-2">
-            <span class="text-sm font-medium text-sr-ink">Window B Start</span>
+            <span class="text-sm font-medium text-sr-ink">Window B Start (UTC)</span>
           </label>
           <input
             type="datetime-local"
@@ -549,7 +565,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         </div>
         <div class="flex flex-col gap-1.5">
           <label class="flex items-center justify-between gap-2">
-            <span class="text-sm font-medium text-sr-ink">Window B End</span>
+            <span class="text-sm font-medium text-sr-ink">Window B End (UTC)</span>
           </label>
           <input
             type="datetime-local"
@@ -565,13 +581,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
   attr(:state, :map, required: true)
   attr(:comparison, :map, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   defp window_result(assigns) do
     ~H"""
     <div :if={@comparison} class="space-y-4">
       <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <.window_summary_header side={:a} state={@state} summary={@comparison.a} />
-        <.window_summary_header side={:b} state={@state} summary={@comparison.b} />
+        <.window_summary_header side={:a} state={@state} summary={@comparison.a} timezone={@timezone} />
+        <.window_summary_header side={:b} state={@state} summary={@comparison.b} timezone={@timezone} />
       </div>
 
       <.comparison_baseline_notice comparison={@comparison} state={@state} />
@@ -598,20 +615,22 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           b_path={diagnostics_window_path(@state, :b)}
         />
         <.compare_metric_card
-          label="Last-Hop Latency"
-          a_value={format_us(@comparison.a.avg_last_hop_us)}
-          b_value={format_us(@comparison.b.avg_last_hop_us)}
-          delta={@comparison.deltas.avg_last_hop_us}
+          id="mtr-compare-destination-latency"
+          label="Destination Latency"
+          a_value={format_us(@comparison.a.avg_destination_us)}
+          b_value={format_us(@comparison.b.avg_destination_us)}
+          delta={@comparison.deltas.avg_destination_us}
           unit="latency_us"
           higher_is_better={false}
           a_path={diagnostics_window_path(@state, :a)}
           b_path={diagnostics_window_path(@state, :b)}
         />
         <.compare_metric_card
-          label="Avg Hop Loss"
-          a_value={format_percent(@comparison.a.avg_loss_pct)}
-          b_value={format_percent(@comparison.b.avg_loss_pct)}
-          delta={@comparison.deltas.avg_loss_pct}
+          id="mtr-compare-destination-loss"
+          label="Destination Loss"
+          a_value={format_percent(@comparison.a.destination_loss_pct)}
+          b_value={format_percent(@comparison.b.destination_loss_pct)}
+          delta={@comparison.deltas.destination_loss_pct}
           unit="points"
           higher_is_better={false}
           a_path={diagnostics_window_path(@state, :a)}
@@ -630,8 +649,18 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
       </div>
 
       <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <.window_timeline title={@comparison.a.label} rows={@comparison.a.timeline} state={@state} />
-        <.window_timeline title={@comparison.b.label} rows={@comparison.b.timeline} state={@state} />
+        <.window_timeline
+          title={@comparison.a.label}
+          rows={@comparison.a.timeline}
+          state={@state}
+          timezone={@timezone}
+        />
+        <.window_timeline
+          title={@comparison.b.label}
+          rows={@comparison.b.timeline}
+          state={@state}
+          timezone={@timezone}
+        />
       </div>
 
       <div class="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -680,6 +709,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   attr(:side, :atom, required: true)
   attr(:state, :map, required: true)
   attr(:summary, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   defp window_summary_header(assigns) do
     ~H"""
@@ -692,7 +722,18 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
         <div class="min-w-0">
           <div class="sr-mtr-label">{@summary.label}</div>
           <div class="sr-mtr-title mt-1 text-lg font-semibold">
-            {format_window_range(@summary.start, @summary.end)}
+            <.user_time
+              id={"mtr-compare-window-#{@side}-start-time"}
+              value={@summary.start}
+              timezone={@timezone}
+              style={:compact}
+            /> to
+            <.user_time
+              id={"mtr-compare-window-#{@side}-end-time"}
+              value={@summary.end}
+              timezone={@timezone}
+              style={:compact}
+            />
           </div>
           <div class="sr-mtr-muted mt-1 text-sm">
             {@summary.trace_count} traces, {@summary.agent_count} agents, {@summary.target_count} targets
@@ -720,6 +761,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   end
 
   attr(:label, :string, required: true)
+  attr(:id, :string, default: nil)
   attr(:a_value, :any, required: true)
   attr(:b_value, :any, required: true)
   attr(:delta, :any, required: true)
@@ -730,7 +772,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
   defp compare_metric_card(assigns) do
     ~H"""
-    <div class="sr-mtr-card p-4">
+    <div id={@id} class="sr-mtr-card p-4">
       <div class="sr-mtr-label">{@label}</div>
       <div class="mt-3 grid grid-cols-2 gap-3">
         <.link
@@ -750,7 +792,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           <div class="sr-mtr-value text-2xl">{@b_value}</div>
         </.link>
       </div>
-      <.ui_badge size="sm" variant={delta_badge_variant(@delta, @higher_is_better)} class="mt-3">
+      <.ui_badge
+        size="sm"
+        variant={delta_badge_variant(@delta, @higher_is_better)}
+        class="mt-3 sr-mtr-metric-delta"
+      >
         {format_delta(@delta, @unit)}
       </.ui_badge>
     </div>
@@ -760,6 +806,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   attr(:title, :string, required: true)
   attr(:rows, :list, required: true)
   attr(:state, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   defp window_timeline(assigns) do
     ~H"""
@@ -770,14 +817,28 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
       </div>
       <div class="sr-mtr-outcome-strip mt-4" role="list">
         <.link
-          :for={row <- @rows}
+          :for={{row, row_index} <- Enum.with_index(@rows)}
           navigate={diagnostics_bucket_path(row, @state)}
           role="listitem"
-          class={["sr-mtr-outcome-dot", timeline_bucket_class(row)]}
-          title={timeline_bucket_title(row)}
-          aria-label={timeline_bucket_title(row)}
+          class={["group relative sr-mtr-outcome-dot", timeline_bucket_class(row)]}
         >
-          <span class="sr-only">{timeline_bucket_title(row)}</span>
+          <span
+            role="tooltip"
+            class="pointer-events-none absolute bottom-full left-1/2 z-40 mb-2 flex w-max -translate-x-1/2 items-center gap-1 rounded border border-sr-line bg-sr-raised px-2 py-1 text-xs text-sr-ink opacity-0 shadow-sr-raised transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          >
+            <.user_time
+              id={"mtr-compare-bucket-#{bucket_identity(row, row_index)}-start-time"}
+              value={Map.get(row, "bucket_start")}
+              timezone={@timezone}
+              style={:compact}
+            /> to
+            <.user_time
+              id={"mtr-compare-bucket-#{bucket_identity(row, row_index)}-end-time"}
+              value={Map.get(row, "bucket_end")}
+              timezone={@timezone}
+              style={:compact}
+            />: {timeline_bucket_counts(row)}
+          </span>
         </.link>
       </div>
       <div class="mt-3 flex flex-wrap gap-3 text-xs">
@@ -1184,24 +1245,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   defp reached_label(_), do: "Any"
 
   defp trace_option_label(t) do
-    time =
-      case t["time"] do
-        %DateTime{} = dt -> Calendar.strftime(dt, "%m/%d %H:%M")
-        %NaiveDateTime{} = ndt -> Calendar.strftime(ndt, "%m/%d %H:%M")
-        _ -> "?"
-      end
-
-    "#{time} #{t["target"]} (#{t["agent_id"]})"
+    "#{t["target"]} (#{t["agent_id"]}) · #{short_trace_id(t["id"])}"
   end
 
-  defp format_time(nil), do: "-"
-  defp format_time(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-  defp format_time(%NaiveDateTime{} = ndt), do: Calendar.strftime(ndt, "%Y-%m-%d %H:%M:%S")
-  defp format_time(_), do: "-"
-
-  defp format_window_range(start_time, end_time) do
-    "#{format_time(start_time)} to #{format_time(end_time)}"
-  end
+  defp short_trace_id(id) when is_binary(id) and byte_size(id) > 8, do: String.slice(id, 0, 8)
+  defp short_trace_id(id), do: to_string(id || "unknown")
 
   defp baseline_note_class(%{elapsed_aligned?: true}), do: "is-aligned"
   defp baseline_note_class(_comparison), do: "is-skewed"
@@ -1275,13 +1323,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   end
 
   defp format_percent(value) when is_integer(value) or is_float(value), do: "#{Float.round(value / 1, 1)}%"
-  defp format_percent(_), do: "0.0%"
+  defp format_percent(_), do: "-"
 
+  defp format_us(value) when value == 0, do: "0.0ms"
   defp format_us(value) when is_integer(value), do: format_us(value * 1.0)
 
   defp format_us(value) when is_float(value) do
     cond do
-      value <= 0 -> "-"
+      value < 0 -> "-"
       value >= 1_000_000 -> "#{Float.round(value / 1_000_000, 1)}s"
       value >= 1_000 -> "#{Float.round(value / 1_000, 1)}ms"
       true -> "#{Float.round(value, 1)}us"
@@ -1293,7 +1342,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   defp format_delta(delta, "latency_us") when delta == 0, do: "0us"
 
   defp format_delta(delta, "latency_us") when is_integer(delta) or is_float(delta) do
-    sign = if delta > 0, do: "+", else: ""
+    sign = if delta > 0, do: "+", else: "-"
     formatted = delta |> abs() |> format_us()
     "#{sign}#{formatted}"
   end
@@ -1305,8 +1354,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     "#{sign}#{value}#{suffix}"
   end
 
-  defp format_delta(_, "latency_us"), do: "0us"
-  defp format_delta(_, unit), do: "0 #{unit}"
+  defp format_delta(_, _unit), do: "-"
 
   defp delta_badge_variant(delta, higher_is_better) when is_number(delta) do
     cond do
@@ -1331,17 +1379,38 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     end
   end
 
-  defp timeline_bucket_title(row) do
+  defp timeline_bucket_counts(row) do
     trace_count = Map.get(row, "trace_count") || 0
     reached_count = Map.get(row, "reached_count") || 0
     failed_count = Map.get(row, "failed_count") || 0
 
-    "#{format_bucket_time(Map.get(row, "bucket_start"))} to #{format_bucket_time(Map.get(row, "bucket_end"))}: #{trace_count} traces, #{reached_count} reached, #{failed_count} failed"
+    "#{trace_count} traces, #{reached_count} reached, #{failed_count} failed"
   end
 
-  defp format_bucket_time(%DateTime{} = dt), do: Calendar.strftime(dt, "%a %Y-%m-%d %H:%M UTC")
-  defp format_bucket_time(%NaiveDateTime{} = ndt), do: Calendar.strftime(ndt, "%a %Y-%m-%d %H:%M UTC")
-  defp format_bucket_time(_), do: "-"
+  defp stable_trace_identity(trace) do
+    trace
+    |> then(fn trace ->
+      Enum.find(
+        [Map.get(trace, "id"), Map.get(trace, "trace_id"), Map.get(trace, :id), Map.get(trace, :trace_id)],
+        "unknown",
+        &(&1 not in [nil, ""])
+      )
+    end)
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
+    |> case do
+      "" -> "unknown"
+      identity -> identity
+    end
+  end
+
+  defp bucket_identity(%{"bucket_start" => %DateTime{} = datetime}, _index), do: DateTime.to_unix(datetime, :millisecond)
+
+  defp bucket_identity(%{"bucket_start" => %NaiveDateTime{} = datetime}, _index),
+    do: datetime |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:millisecond)
+
+  defp bucket_identity(_row, index), do: index
 
   defp radial_value(value) when is_integer(value) or is_float(value) do
     value

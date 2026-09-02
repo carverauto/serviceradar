@@ -8,13 +8,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
   attr(:csv_errors, :list, default: [])
   attr(:csv_warnings, :list, default: [])
   attr(:import_status, :any, default: nil)
+  attr(:import_partition, :string, default: "default")
+  attr(:import_partition_error, :string, default: nil)
+  attr(:partition_options, :list, default: [{"Default", "default"}])
 
   def import_csv_modal(assigns) do
     ~H"""
     <.ui_modal id="import_csv_modal" size="lg" on_cancel="close_import_modal">
       <:title>Import Devices from CSV</:title>
       <p class="text-sm text-sr-muted">
-        Upload a CSV file to bulk import devices into your inventory.
+        Upload a CSV file to bulk import devices. Rows that match an existing
+        inventory device in the same partition (IP or hostname) merge tags and
+        extra columns onto that device. The same IP can exist in more than one
+        partition so isolation scans and monitoring scans can report independently.
       </p>
 
       <%!--
@@ -99,6 +105,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
                 <td>Device type (server, workstation, router, etc.)</td>
               </tr>
               <tr>
+                <td class="font-mono">partition</td>
+                <td>
+                  <.ui_badge size="xs" variant="ghost">No</.ui_badge>
+                </td>
+                <td>
+                  Network partition slug. Overrides the selector below when present (e.g. rids).
+                </td>
+              </tr>
+              <tr>
                 <td class="font-mono">tags</td>
                 <td>
                   <.ui_badge size="xs" variant="ghost">No</.ui_badge>
@@ -109,6 +124,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
           </table>
         </div>
       </div>
+
+      <.form
+        for={%{}}
+        id="import-partition-form"
+        phx-change="set_import_partition"
+        class="my-4 space-y-1.5"
+      >
+        <label class="flex items-center justify-between gap-2">
+          <span class="text-sm font-medium text-sr-ink">Import into partition</span>
+          <span class="text-xs text-sr-muted">Used when a row has no partition column</span>
+        </label>
+        <input
+          type="text"
+          name="partition"
+          value={@import_partition}
+          list="import-partition-slugs"
+          class={ui_field_class()}
+          placeholder="default"
+          autocomplete="off"
+        />
+        <datalist id="import-partition-slugs">
+          <%= for {name, slug} <- @partition_options do %>
+            <option value={slug}>{name}</option>
+          <% end %>
+        </datalist>
+        <p :if={@import_partition_error} class="text-xs text-error">{@import_partition_error}</p>
+      </.form>
 
       <!-- File Upload -->
       <.form for={%{}} phx-change="validate_csv" phx-submit="preview_csv" class="space-y-4">
@@ -166,6 +208,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
               <tr class="bg-sr-subtle">
                 <th>Hostname</th>
                 <th>IP</th>
+                <th>Partition</th>
                 <th>Type</th>
                 <th>Tags</th>
               </tr>
@@ -175,13 +218,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
                 <tr class="hover:bg-sr-subtle/60">
                   <td class="font-mono text-xs">{device.hostname}</td>
                   <td class="font-mono text-xs">{device.ip}</td>
+                  <td class="font-mono text-xs">
+                    {preview_partition(device.partition, @import_partition)}
+                  </td>
                   <td class="text-xs">{device.type}</td>
                   <td class="text-xs">{Enum.join(device.tags || [], ", ")}</td>
                 </tr>
               <% end %>
               <%= if length(@csv_preview) > 20 do %>
                 <tr>
-                  <td colspan="4" class="text-center text-xs text-sr-muted py-2">
+                  <td colspan="5" class="text-center text-xs text-sr-muted py-2">
                     ... and {length(@csv_preview) - 20} more
                   </td>
                 </tr>
@@ -194,7 +240,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
       <div class="mt-4 flex items-center gap-2 text-xs text-sr-muted">
         <.icon name="hero-arrow-down-tray" class="size-4" />
         <a
-          href="data:text/csv;charset=utf-8,hostname,ip,type,tags%0Aserver01.example.com,192.168.1.10,server,env=prod|team=infra%0Arouter01.example.com,192.168.1.1,router,"
+          href="data:text/csv;charset=utf-8,hostname,ip,type,partition,tags%0Aserver01.example.com,192.168.1.10,server,default,env=prod|team=infra%0Arouter01.example.com,192.168.1.1,router,rids,"
           class="text-sr-brand hover:underline"
           download="devices-template.csv"
         >
@@ -221,6 +267,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
     </.ui_modal>
     """
   end
+
+  defp preview_partition(value, _default) when is_binary(value) and value != "", do: value
+  defp preview_partition(_value, default), do: default || "default"
 
   defp error_to_string(:too_large), do: "File is too large (max 5MB)"
   defp error_to_string(:not_accepted), do: "Invalid file type (only .csv allowed)"

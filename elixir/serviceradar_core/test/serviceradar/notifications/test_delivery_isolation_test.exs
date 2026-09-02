@@ -23,7 +23,7 @@ defmodule ServiceRadar.Notifications.TestDeliveryIsolationTest do
   The alert-facing count itself (`:countable_for_alert`) is asserted here too.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.Alert

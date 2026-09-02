@@ -256,6 +256,21 @@ defmodule ServiceRadar.EventWriter.Config do
   def flow_stream?(_), do: false
 
   @doc """
+  JetStream stream a config entry should bind to.
+
+  Logical names such as `SFLOW_RAW` / `NETFLOW_RAW` are consumer keys, not
+  stream names. Creating a stream under that name with `flows.raw.*` subjects
+  fails with JetStream 10065 (subjects overlap) against the dedicated `flows`
+  stream.
+  """
+  @spec jetstream_stream_name(stream_config() | map()) :: String.t()
+  def jetstream_stream_name(%{stream_name: name}) when is_binary(name) and name != "", do: name
+
+  def jetstream_stream_name(stream) when is_map(stream) do
+    if flow_stream?(stream), do: "flows", else: Map.get(stream, :name, "")
+  end
+
+  @doc """
   Default pull batch size for the dedicated flow EventWriter pipeline.
   """
   @spec default_flow_pull_batch_size() :: pos_integer()
@@ -760,7 +775,7 @@ defmodule ServiceRadar.EventWriter.Config do
     # Durables are per JetStream stream: live (flows) and drain (events) may
     # intentionally share durable_source_name so the legacy ACK cursor resumes.
     streams
-    |> Enum.group_by(fn s -> Map.get(s, :stream_name) || s.name end)
+    |> Enum.group_by(&jetstream_stream_name/1)
     |> Enum.each(fn {js_stream, group} ->
       durables =
         Enum.map(group, fn stream ->

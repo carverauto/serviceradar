@@ -11,7 +11,7 @@ fixture-reachable runners.
 - `namespace.yaml` – creates the `srql-fixtures` namespace.
 - `cnpg-test-credentials.yaml` – placeholder secret for the bootstrap user/password (replace before applying).
 - `cnpg-test-admin-credentials.yaml` – placeholder secret for the superuser that can drop/re-create the fixture database (replace before applying).
-- `cnpg-cluster.yaml` – CNPG `Cluster` spec that enables TimescaleDB + AGE using the digest-pinned `registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:e54ee02582dbb2584388c03837911c1b1cb185cea92d60d2be7a08102b5a7910` fixture image (`imagePullPolicy: IfNotPresent`, because Harbor has GC'd that digest before). Server TLS is user-provided from cert-manager (`srql-fixture-server-ca` / `srql-fixture-server-tls`). Pods are kept off `k8s-cp3-worker3`.
+- `cnpg-cluster.yaml` – CNPG `Cluster` spec that enables TimescaleDB + AGE using the digest-pinned `registry.carverauto.dev/serviceradar/serviceradar-cnpg:18.4.0-sr4@sha256:59e442dec59fac3149e3a3c49ba0cc2987bfb052bca1a0ea8c01b4bb31427d1d` fixture image (`imagePullPolicy: IfNotPresent`, because Harbor has GC'd that digest before). Server TLS is user-provided from cert-manager (`srql-fixture-server-ca` / `srql-fixture-server-tls`). Pods are kept off `k8s-cp3-worker3`.
 - `cert-manager.yaml` – namespace-local self-signed Issuer, 10-year CA Certificate, CA Issuer, and 90-day server Certificate.
 - `ca-bundle.yaml` – Caddy static publisher for only `ca.crt` on the in-cluster ClusterIP `srql-fixture-ca-incluster` (ARC / BuildBuddy). Not on the shared public gateway. Do not put nginx on this path.
 - `services.yaml` – exposes a `LoadBalancer` targeting the CNPG primary. It’s annotated with `metallb.universe.tf/address-pool: k3s-pool` and `metallb.universe.tf/allow-shared-ip: serviceradar-public`, so MetalLB assigns one of the public addresses already used by the demo stack (currently `23.138.124.18`). ExternalDNS also sees the `external-dns.alpha.kubernetes.io/hostname: srql-fixture.serviceradar.cloud.` annotation and creates a matching A/AAAA record. In-cluster workloads should continue using the default `srql-fixture-rw` service the operator provisions automatically.
@@ -85,6 +85,15 @@ export SRQL_TEST_DATABASE_CA_CERT_FILE=/tmp/srql-fixture-ca.crt
 ### Maintenance
 
 - Fixture seeding is handled by the SRQL test harness – it drops/creates schemas every run.
+- Leftover scratch databases (cancelled CI clones, workstation `codex_*` / `cc_*` /
+  `serviceradar_bootstrap_test_*` databases) are dropped hourly by
+  `srql-fixture-scratch-reaper`. It never touches `postgres`, `srql_fixture`, or
+  `sr_core_template`. Cluster YAML for the CronJob lives in gitops:
+  `k8s/srql-fixtures/` (carverauto / Argo) and
+  `clusters/farm01/srql-fixtures/` (farm01 / `bootstrap.sh`). Keep the
+  protected-name list in sync with `go/pkg/srqlfixture/reaper` and
+  `rust/integration-db`. The Go binary is `//go/cmd/tools/srql-fixture-reaper`
+  (`--interval` for daemon mode; default is one pass).
 - If the fixture database gets wedged (for example, TimescaleDB library mismatches), reset it:
 
 ```bash

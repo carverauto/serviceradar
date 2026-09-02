@@ -1,8 +1,20 @@
 import {describe, expect, it} from "vitest"
 
-import {absoluteTotalSeries, normalizeStacked100Rows} from "./NetflowStacked100Chart"
+import {
+  absoluteTotalSeries,
+  normalizeStacked100Rows,
+  stacked100TimePresentation,
+} from "./NetflowStacked100Chart"
 
 describe("NetflowStacked100Chart absolute volume", () => {
+  it("uses the saved timezone for both the axis and tooltip", () => {
+    const presentation = stacked100TimePresentation("America/Chicago")
+    const instant = new Date("2026-08-30T18:00:00Z")
+
+    expect(presentation.timeZone).toBe("America/Chicago")
+    expect(presentation.axisFormatter(instant)).toContain("01:00 PM")
+  })
+
   it("normalizes composition while preserving each row total", () => {
     const rows = normalizeStacked100Rows(
       [

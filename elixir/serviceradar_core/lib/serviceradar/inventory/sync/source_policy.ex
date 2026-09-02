@@ -8,6 +8,37 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.IdentityReconciler
 
+  @agent_self_report_source "agent-self-report"
+
+  @doc """
+  The source string an agent uses when reporting about ITSELF.
+
+  First-party by construction: the agent is the subject of the update, not an
+  observer of some other host, so its `agent_id` is allowed to anchor the device.
+  Every other source that carries an `agent_id` is describing a host it merely
+  saw, which is why `observer_agent_source?/1` demotes them.
+  """
+  @spec agent_self_report_source() :: String.t()
+  def agent_self_report_source, do: @agent_self_report_source
+
+  @doc """
+  True when the update is an agent reporting about itself.
+
+  Kept as a named predicate rather than an inline string compare so the three
+  properties this source depends on are testable as a set: it must not be an
+  observer, it must not be enrichment-only, and its `agent_id` must be admitted.
+  `observer_agent_source?/1` is a positive list, so a new source is first-party
+  by DEFAULT -- which means nothing would fail loudly if someone later swept this
+  one into `enrichment_only_source?/1` and silently removed its ability to create
+  a device. The tests around this predicate are that alarm.
+  """
+  @spec agent_self_report_source?(map()) :: boolean()
+  def agent_self_report_source?(update) when is_map(update) do
+    String.downcase(to_string(update.source || "")) == @agent_self_report_source
+  end
+
+  def agent_self_report_source?(_update), do: false
+
   def valid_ip?(value) when is_binary(value), do: String.trim(value) != ""
   def valid_ip?(_value), do: false
 
@@ -58,6 +89,62 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
 
   def passive_census_source?(_update), do: false
 
+  @doc """
+  True for sources that may only ENRICH a device that already exists.
+
+  netprobe mDNS is the first of these. An mDNS announcement is a claim a host
+  makes about itself on a multicast group anyone can join: it is good evidence
+  about what a device *is*, and no evidence that the device is on this segment,
+  at that address, or reachable at all. The census already establishes presence
+  from ARP/NDP, which is unforgeable in the way that matters here -- it is the
+  device answering for its own address rather than describing itself.
+
+  So an enrichment-only update whose MAC resolves to no known device is
+  DISCARDED rather than used to mint one. Without that rule a single spoofed
+  announcement creates a device, and the resulting record has a name, a model
+  and a type but no sighting behind any of them.
+
+  This is a stricter rule than `include_mac_identifier?/1` expresses. That
+  predicate decides whether a MAC may be *used*; this one decides whether the
+  update may bring a device into existence at all, which no metadata check can
+  answer.
+
+  `passive-netprobe` (TCP/TLS/HTTP fingerprints and DPI) belongs here for a
+  second, sharper reason, and being listed here fixes a REPRODUCED over-merge.
+  The agent stamps the COLLECTOR's `agent_id` on every fingerprint update, both
+  top-level and in metadata. `agent_id` is first in `Ids.identifier_priority/0`,
+  so while this source was unclassified it was also absent from
+  `observer_agent_source?/1` -- which is exactly the predicate that demotes a
+  collector's own id from an identifying attribute to an observation. Every
+  fingerprinted host therefore strong-matched the collector's OWN device.
+  Reproduced against a real database in
+  `test/serviceradar/inventory/sync_ingestor_passive_netprobe_identity_test.exs`:
+  collector and host came back with one shared uid.
+
+  Listing it here fixes both halves at once, because `observer_agent_source?/1`
+  has `enrichment_only_source?/1` as a disjunct: the collector's id stops
+  identifying the host, AND a fingerprint can no longer mint a device. That
+  second half matters as much as the first -- a fingerprint's only subject key
+  is an IP, and an IP-keyed device with nothing anchoring it is the IP-squatting
+  failure. A SYN fingerprint says what something at an address looks like; the
+  census says something is there. Only the census may create.
+  """
+  def enrichment_only_source?(update) when is_map(update) do
+    source = String.downcase(to_string(update.source || ""))
+    metadata = update.metadata || %{}
+    identity_source = String.downcase(to_string(metadata["identity_source"] || ""))
+
+    source in ["netprobe-mdns", "passive-mdns", "passive-netprobe"] or
+      identity_source in [
+        "netprobe_mdns",
+        "netprobe_fingerprint",
+        "netprobe_dpi",
+        "netprobe_process"
+      ]
+  end
+
+  def enrichment_only_source?(_update), do: false
+
   # A randomized MAC must never anchor a canonical device.
   #
   # iOS and Android rotate their MAC per SSID, so a passive census would mint a
@@ -89,10 +176,25 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
       identity_source in ["mapper_ip_seed", "mapper_primary_mac_seed"]
   end
 
+  @doc """
+  True when `agent_id` on the update names the OBSERVER rather than the device
+  being described.
+
+  The passive census is the strongest case of this: the collector never touches
+  the devices it reports, it only overhears their ARP/NDP on the wire. Letting
+  its `agent_id` register as a device identifier would give every device on the
+  segment the same identifier and collapse them onto one another -- the same
+  over-merge failure that `mapper` and `sweep` are excluded here to avoid.
+
+  mDNS is the same collector overhearing the same wire, so it is covered here
+  too.
+  """
   def observer_agent_source?(update) do
     source = String.downcase(to_string(update.source || ""))
 
     mapper_like_source?(update) or
+      passive_census_source?(update) or
+      enrichment_only_source?(update) or
       source in ["armis", "snmp", "snmp-metrics", "snmp_metrics"]
   end
 

@@ -28,7 +28,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
       builder_open: false,
       builder_supported: builder_supported,
       builder_sync: builder_sync,
-      builder: builder
+      builder: builder,
+      builder_mode_notice: nil,
+      default_limit: default_limit
     }
 
     Phoenix.Component.assign(socket, :srql, srql)
@@ -89,6 +91,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         builder_supported: builder_supported,
         builder_sync: builder_sync,
         builder: builder_state,
+        builder_mode_notice: nil,
         pagination: pagination,
         # Session-position pagination context for srql_paginate events.
         list_assign_key: list_assign_key,
@@ -181,7 +184,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         builder_available: builder_available,
         builder_supported: builder_supported,
         builder_sync: builder_sync,
-        builder: builder_state
+        builder: builder_state,
+        builder_mode_notice: nil
       })
 
     socket
@@ -238,6 +242,26 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     |> navigate_to_path(target_path, current_path, nav_params)
   end
 
+  def handle_event(socket, "srql_reset", _params, opts) do
+    srql = Map.get(socket.assigns, :srql, %{})
+    fallback_path = Keyword.get(opts, :fallback_path) || "/"
+
+    extra_params =
+      opts
+      |> Keyword.get(:extra_params, %{})
+      |> normalize_extra_params()
+      |> Map.drop(["q", "cursor", "page", "nf"])
+
+    query = reset_query(srql, opts)
+    current_path = srql[:page_path] || fallback_path
+
+    nav_params = navigation_params(extra_params, %{}, current_path, current_path, query)
+
+    socket
+    |> Phoenix.Component.assign(:srql, Map.put(srql, :builder_open, false))
+    |> navigate_to_path(current_path, current_path, nav_params)
+  end
+
   def handle_event(socket, "srql_builder_toggle", _params, opts) do
     srql = Map.get(socket.assigns, :srql, %{})
 
@@ -258,9 +282,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
           _ -> %{}
         end
 
-      builder = Builder.update(Map.get(srql, :builder, %{}), builder_params)
+      {builder, stripped} =
+        Builder.update_meta(Map.get(srql, :builder, %{}), builder_params)
 
-      updated = Map.put(srql, :builder, builder)
+      updated =
+        srql
+        |> Map.put(:builder, builder)
+        |> Map.put(:builder_mode_notice, mode_strip_notice(stripped, Builder.mode(builder)))
 
       updated =
         if updated[:builder_supported] and updated[:builder_sync] do
@@ -287,7 +315,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
         |> Map.get("filters", [])
         |> List.wrap()
 
-      field = default_filter_field(entity, filters)
+      field = default_filter_field(entity, builder)
       config = Catalog.entity(entity)
       boolean_fields = Map.get(config, :boolean_fields, [])
 
@@ -669,6 +697,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   defp catalog_filter_fields(config) when is_map(config) do
     [
       Map.get(config, :filter_fields, []),
+      Map.get(config, :filter_fields_downsample, []),
       Map.get(config, :boolean_fields, []),
       Map.get(config, :array_fields, []),
       Map.get(config, :numeric_fields, []),
@@ -678,6 +707,20 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
+  end
+
+  defp mode_strip_notice([], _mode), do: nil
+  defp mode_strip_notice(nil, _mode), do: nil
+
+  defp mode_strip_notice(fields, mode) when is_list(fields) do
+    names = fields |> Enum.uniq() |> Enum.join(", ")
+
+    count = length(fields)
+
+    noun = if count == 1, do: "filter", else: "filters"
+    context = if mode == :downsample, do: "chart mode", else: "the current query mode"
+
+    "Removed #{count} #{noun} not available in #{context}: #{names}"
   end
 
   defp get_scope(socket) do
@@ -739,6 +782,39 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
   defp default_query_for(true, builder, _entity, _limit), do: Builder.build(builder)
   defp default_query_for(false, _builder, entity, limit), do: default_query(entity, limit)
+
+  defp reset_query(srql, opts) do
+    case Keyword.get(opts, :default_query) do
+      query when is_binary(query) ->
+        case String.trim(query) do
+          "" -> entity_baseline_query(srql, opts)
+          other -> other
+        end
+
+      _ ->
+        entity_baseline_query(srql, opts)
+    end
+  end
+
+  defp entity_baseline_query(srql, opts) do
+    entity = srql_entity(srql, opts)
+    limit = reset_limit(srql, opts)
+
+    if builder_available?(srql) do
+      Builder.build(Builder.default_state(entity, limit))
+    else
+      default_query(entity, limit)
+    end
+  end
+
+  defp reset_limit(srql, opts) do
+    load_opts = Map.get(srql, :load_opts, %{})
+
+    Keyword.get(opts, :default_limit) ||
+      Map.get(load_opts, :default_limit) ||
+      Map.get(srql, :default_limit) ||
+      100
+  end
 
   defp parse_builder_state(true, query, builder) do
     case Builder.parse(query) do
@@ -894,9 +970,21 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 
-  defp default_filter_field(entity, _filters) do
-    Catalog.entity(entity).default_filter_field
+  defp default_filter_field(entity, builder) when is_map(builder) do
+    config = Catalog.entity(entity)
+    preferred = config.default_filter_field
+    mode = Builder.mode(builder)
+
+    case Catalog.filter_fields(entity, mode) do
+      list when is_list(list) ->
+        if preferred in list, do: preferred, else: List.first(list) || preferred
+
+      _ ->
+        preferred
+    end
   end
+
+  defp default_filter_field(entity, _), do: Catalog.entity(entity).default_filter_field
 
   defp current_builder_entity(srql, opts) do
     candidate =

@@ -11,7 +11,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   - pre-set merged-away sr: IDs resolve to the canonical survivor
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   import Ecto.Query
 

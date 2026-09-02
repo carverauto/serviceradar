@@ -214,6 +214,10 @@ export const godViewRenderingTooltipMethods = {
   edgeIsFocused(edge) {
     if (!edge) return false
     const key = edge.interactionKey
-    return key != null && (key === this.state.hoveredEdgeKey || key === this.state.selectedEdgeKey)
+    if (key != null && (key === this.state.hoveredEdgeKey || key === this.state.selectedEdgeKey)) return true
+    return (edge.semanticRouteIds || []).some((routeId) => {
+      const semanticKey = `local:${String(routeId || "")}`
+      return semanticKey === this.state.hoveredEdgeKey || semanticKey === this.state.selectedEdgeKey
+    })
   },
 }

@@ -202,9 +202,9 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
   `base` advances with it, so a released sequence is out of range and recording one afterwards
   fails with `:below_base` instead of succeeding as a silent no-op.
 
-  Refuses a value that would move the lane BACKWARDS (`:below_base`), or one past what the gateway
-  has resolved (`:not_resolved`) -- the agent cannot have durably acted on an outcome it was never
-  told.
+  Refuses a value that would move the lane BACKWARDS (`:below_base`), exceed the protobuf uint64
+  lane range (`:above_lane_max`), or move past what the gateway has resolved (`:not_resolved`) --
+  the agent cannot have durably acted on an outcome it was never told.
   """
   @spec release_below(t(), pos_integer()) :: {:ok, t()} | {:error, atom()}
   def release_below(%__MODULE__{} = t, first_unresolved_sequence) do

@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Inventory.BumblebeeIngestorTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   import Ecto.Query
 

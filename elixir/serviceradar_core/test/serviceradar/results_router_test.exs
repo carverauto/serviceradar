@@ -194,6 +194,46 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert Keyword.keyword?(opts)
   end
 
+  test "routes the netprobe device census into sync ingestion" do
+    # A MISSING clause here fails silently: process/2 falls through to the
+    # catch-all, returns :ok, and publish_status_update/1 still runs -- so the
+    # service reports healthy while its whole payload is discarded with no log
+    # line anywhere. Routing has to be asserted, not reviewed.
+    status = %{
+      source: "results",
+      service_type: "netprobe-census",
+      message:
+        Jason.encode!([
+          %{
+            "ip" => "192.168.1.10",
+            "mac" => "BC:24:11:F5:1C:82",
+            "source" => "netprobe-census",
+            "metadata" => %{"mac" => "BC:24:11:F5:1C:82"}
+          }
+        ])
+    }
+
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+
+    assert_receive {:ingest, updates, _opts}
+    assert [%{"ip" => "192.168.1.10", "source" => "netprobe-census"}] = updates
+  end
+
+  test "routes the legacy passive-census service type the same way" do
+    # SourcePolicy accepts both spellings, so routing must too -- otherwise the
+    # policy recognises a source that can never reach it.
+    status = %{
+      source: "results",
+      service_type: "passive-census",
+      message: Jason.encode!([%{"ip" => "192.168.1.11", "source" => "passive-census"}])
+    }
+
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+
+    assert_receive {:ingest, updates, _opts}
+    assert [%{"ip" => "192.168.1.11"}] = updates
+  end
+
   test "ingests repeated sync result pages independently" do
     first_status = %{
       source: "results",
@@ -281,6 +321,7 @@ defmodule ServiceRadar.ResultsRouterTest do
     payload = %{
       "execution_id" => execution_id,
       "sweep_group_id" => sweep_group_id,
+      "agent_id" => "spoofed-payload-agent",
       "last_sweep" => last_sweep,
       "total_hosts" => 50,
       "scanner_stats" => %{"packets_sent" => 100, "packets_recv" => 90},
@@ -310,6 +351,8 @@ defmodule ServiceRadar.ResultsRouterTest do
       service_type: "sweep",
       message: Jason.encode!(payload),
       agent_id: "agent-1",
+      partition: "payload-target-partition",
+      authenticated_partition: "cert-partition",
       chunk_index: 0,
       total_chunks: 4,
       is_final: false
@@ -330,6 +373,8 @@ defmodule ServiceRadar.ResultsRouterTest do
 
     assert opts[:sweep_group_id] == sweep_group_id
     assert opts[:agent_id] == "agent-1"
+    assert opts[:authenticated_agent_id] == "agent-1"
+    assert opts[:authenticated_partition_id] == "cert-partition"
     assert opts[:expected_total_hosts] == 50
     assert opts[:scanner_metrics] == %{"packets_sent" => 100, "packets_recv" => 90}
 

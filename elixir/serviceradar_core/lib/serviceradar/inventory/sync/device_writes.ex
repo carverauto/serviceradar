@@ -155,11 +155,86 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   defp insert_devices(records, update_query, false) do
     Repo.insert_all(
       Device,
-      records,
+      jsonb_safe(records),
       on_conflict: update_query,
       conflict_target: [:uid]
     )
   end
+
+  # Last line of defence before anything reaches a jsonb column.
+  #
+  # A single unencodable byte anywhere in one device's metadata fails the ENTIRE
+  # batch, not just that row -- insert_all is one statement, and the encode
+  # happens while building it. That amplification is the actual damage: farm01
+  # lost every sync batch (87 devices at a time) to one bad value, for hours.
+  #
+  # The known source was a raw 16-byte uuid: Postgrex returns `uuid` columns as
+  # raw binaries, which satisfy is_binary/1 and therefore sail through code that
+  # reasonably assumes a binary is text. That specific producer is fixed in
+  # mac_vendor.ex, but it is one of many places a uuid can be read and stashed in
+  # metadata, and this has now taken farm01 down twice. Fixing producers one at a
+  # time treats instances; refusing to hand unencodable bytes to the writer
+  # closes the class.
+  #
+  # Repair beats reject: a 16-byte binary is almost certainly a uuid, so it is
+  # cast to its printable form and the value is preserved. Anything else
+  # unencodable is dropped, because a device that lands with one missing metadata
+  # key is strictly better than a batch that does not land at all. Both paths log
+  # with the uid and key so the producer is still findable -- silently discarding
+  # data here would trade an outage for a mystery.
+  def jsonb_safe(records) when is_list(records) do
+    Enum.map(records, &jsonb_safe_record/1)
+  end
+
+  defp jsonb_safe_record(%{metadata: metadata} = record) when is_map(metadata) do
+    case sanitize_jsonb_map(metadata, record) do
+      ^metadata -> record
+      sanitized -> %{record | metadata: sanitized}
+    end
+  end
+
+  defp jsonb_safe_record(record), do: record
+
+  defp sanitize_jsonb_map(metadata, record) do
+    Enum.reduce(metadata, metadata, fn {key, value}, acc ->
+      case sanitize_jsonb_value(value) do
+        :ok ->
+          acc
+
+        {:repaired, repaired} ->
+          Logger.warning(
+            "Repaired unencodable metadata value: uid=#{inspect(record[:uid])} key=#{inspect(key)} -> #{inspect(repaired)}"
+          )
+
+          Map.put(acc, key, repaired)
+
+        :drop ->
+          Logger.warning(
+            "Dropped unencodable metadata value: uid=#{inspect(record[:uid])} key=#{inspect(key)} bytes=#{inspect(value, limit: 8)}"
+          )
+
+          Map.delete(acc, key)
+      end
+    end)
+  end
+
+  # Only binaries can carry bytes that are valid Erlang terms but invalid JSON
+  # text; numbers, booleans, atoms and nil are always encodable. Nested maps and
+  # lists are left alone deliberately -- metadata is flat in every writer here,
+  # and walking arbitrary depth on every row of every batch is a cost paid on the
+  # hot path to guard a shape that does not occur.
+  defp sanitize_jsonb_value(value) when is_binary(value) do
+    if String.valid?(value) do
+      :ok
+    else
+      case Ecto.UUID.cast(value) do
+        {:ok, uuid} -> {:repaired, uuid}
+        :error -> :drop
+      end
+    end
+  end
+
+  defp sanitize_jsonb_value(_value), do: :ok
 
   # Lock the sorted union of release-owner UIDs *and* prepared-record UIDs that
   # already exist, then clear released (uid, ip) pairs set-wise. Locking only
@@ -355,16 +430,42 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   # Match the partial unique index predicate exactly so Postgres can use
   # ocsf_devices_unique_active_ip_idx (index-only) instead of a sequential scan.
+  #
+  # Keyed by {partition, ip}, NOT by ip alone. That index is
+  # `UNIQUE (partition, ip)` since the isolation-partition migration, so an IP
+  # may legally be held by one live device per partition. Keying this map on ip
+  # alone made `Map.new/1` silently keep an arbitrary one of them, and the
+  # conflict remapper below then released or re-pointed the wrong device's uid --
+  # a monitoring sweep could take the isolation copy's row, or the reverse.
   defp load_active_ip_owners([]), do: %{}
 
   defp load_active_ip_owners(ips) do
     from(d in Device,
       where: d.ip in ^ips and is_nil(d.deleted_at) and not is_nil(d.ip) and d.ip != "",
-      select: {d.ip, %{uid: d.uid, metadata: d.metadata, hostname: d.hostname, mac: d.mac}}
+      select:
+        {{d.partition, d.ip},
+         %{uid: d.uid, metadata: d.metadata, hostname: d.hostname, mac: d.mac}}
     )
     |> Repo.all()
     |> Map.new()
   end
+
+  # The partition an incoming record claims. Mirrors `Ids.identifier_partition/2`
+  # so the device row and its identifiers are scoped to the same partition.
+  defp record_partition(record) do
+    case Map.get(record, :partition) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> "default"
+          trimmed -> trimmed
+        end
+
+      _ ->
+        "default"
+    end
+  end
+
+  defp record_ip_key(record), do: {record_partition(record), Map.get(record, :ip)}
 
   defp batch_intended_ips(records) do
     Map.new(records, fn record -> {record.uid, Map.get(record, :ip)} end)
@@ -403,7 +504,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   end
 
   defp partition_holders_by_batch_release(existing_by_ip, batch_ip_by_uid) do
-    Enum.reduce(existing_by_ip, {%{}, []}, fn {ip, holder}, {keepers, releases} ->
+    Enum.reduce(existing_by_ip, {%{}, []}, fn {{_partition, ip} = key, holder},
+                                              {keepers, releases} ->
       case Map.fetch(batch_ip_by_uid, holder.uid) do
         {:ok, new_ip} ->
           if batch_releases_held_ip?(new_ip, ip) do
@@ -423,11 +525,11 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           else
             # nil/omit keeps the current IP via the upsert CASE; same IP keeps
             # the holder. Either way the owner still claims the unique slot.
-            {Map.put(keepers, ip, holder), releases}
+            {Map.put(keepers, key, holder), releases}
           end
 
         :error ->
-          {Map.put(keepers, ip, holder), releases}
+          {Map.put(keepers, key, holder), releases}
       end
     end)
   end
@@ -442,7 +544,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
        ) do
     ip = Map.get(record, :ip)
 
-    case Map.get(active_holders, ip) do
+    case Map.get(active_holders, record_ip_key(record)) do
       nil ->
         {resolved, {remap, conflicts}} =
           drop_batch_conflicting_ip(record, incoming_ip_owners, strong_uids, remap, conflicts)
@@ -558,16 +660,19 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # case, so the old recovery path retried the exact same conflict. Never pick
   # one source identity as the winner based on record order: remove the
   # contested IP from every distinct UID and retain their stronger identities.
+  # Grouped by {partition, ip}: two records sharing an IP in DIFFERENT partitions
+  # are not in conflict, they are the monitoring and isolation copies of one
+  # address and both must survive the batch.
   defp incoming_ip_owners(records) do
     records
     |> Enum.filter(&SourcePolicy.valid_ip?(Map.get(&1, :ip)))
-    |> Enum.group_by(&Map.get(&1, :ip), &Map.fetch!(&1, :uid))
-    |> Map.new(fn {ip, uids} -> {ip, Enum.uniq(uids)} end)
+    |> Enum.group_by(&record_ip_key/1, &Map.fetch!(&1, :uid))
+    |> Map.new(fn {key, uids} -> {key, Enum.uniq(uids)} end)
   end
 
   defp drop_batch_conflicting_ip(record, incoming_ip_owners, strong_uids, remap, conflicts) do
     ip = Map.get(record, :ip)
-    conflicting_uids = Map.get(incoming_ip_owners, ip, [])
+    conflicting_uids = Map.get(incoming_ip_owners, record_ip_key(record), [])
 
     if length(conflicting_uids) > 1 do
       conflicting_uid = Enum.find(conflicting_uids, &(&1 != record.uid))
@@ -686,28 +791,116 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           # clear to NULL (vacates ocsf_devices_unique_active_ip_idx). A bare
           # COALESCE would treat '' as present and store empty strings, which
           # diverged from the release classifier and broke blank-IP handoffs.
+          #
+          # The rank guard is NEVER-DOWNGRADE, deliberately not "only promote".
+          # An equal-ranked address must still win, because that is a host
+          # genuinely changing address (192.168.2.243 -> 192.168.1.171) and
+          # refusing it would freeze every device at its first address. What it
+          # blocks is a WORSE address overwriting a good one: an NDP census
+          # sighting carries a `fe80::` link-local, and before this guard that
+          # silently replaced a routable primary -- 25 of 126 live devices on one
+          # deployment (GitHub #3905).
+          #
+          # A device whose only known address is link-local keeps it: its current
+          # rank is then equal, not higher, so the incoming value still applies.
+          #
+          # LEAST(rank, 40) collapses global and private into ONE routable tier
+          # for this comparison. Both are legitimate primary addresses, and a
+          # host re-addressed from a public to an RFC1918 address is a real move,
+          # not noise -- comparing the fine-grained ranks would refuse it and
+          # freeze the device on a stale public address. The finer ranking still
+          # applies where it belongs, in Identity.Address.best/1, which chooses
+          # among addresses known at the SAME time.
+          #
+          # What stays blocked is what this guard is for: ULA (30) and link-local
+          # (20) cannot overwrite anything routable, and nothing can overwrite
+          # with an address that is never a primary (0).
           ip:
             fragment(
               """
               CASE
                 WHEN EXCLUDED.ip IS NULL THEN ?
                 WHEN btrim(EXCLUDED.ip) = '' THEN NULL
-                ELSE EXCLUDED.ip
+                WHEN ? IS NULL THEN EXCLUDED.ip
+                WHEN LEAST(platform.sr_address_rank(EXCLUDED.ip), 40)
+                     >= LEAST(platform.sr_address_rank(?), 40)
+                  THEN EXCLUDED.ip
+                ELSE ?
               END
               """,
+              d.ip,
+              d.ip,
+              d.ip,
               d.ip
             ),
           mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
           hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),
           name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
+          # A type an operator set by hand outranks one an integration inferred.
+          #
+          # Without this, `type` was the one identity field with no precedence
+          # at all: any non-empty incoming string won unconditionally, unlike
+          # `ip` directly above. So an Armis sync relabelled 280 of 412
+          # hand-imported RIDS displays as "Interactive Kiosks", "Thin Client",
+          # "IP Cameras" -- Armis' own inventory categories, passed through
+          # verbatim by `Enrichment.explicit_type_tuple/1`'s `{explicit, 99}`
+          # catch-all. Every SRQL query and rollup selecting `type:rids` then
+          # silently matched a third of the fleet and reported it as the whole.
+          #
+          # The claim is keyed on `discovery_sources` containing 'manual',
+          # which is durable: every writer merges that array rather than
+          # replacing it, so the manual origin survives any number of later
+          # syncs. In `ON CONFLICT DO UPDATE`, `d.` is the PRE-update row
+          # regardless of SET-clause order, so this reads the same array the
+          # `discovery_sources` clause below is about to extend.
+          #
+          # 'Unknown' is not a human answer, it is the absence of one. Both
+          # `Enrichment` (via `Normalize.first_meaningful_string/2`) and SRQL
+          # (`COALESCE(NULLIF(trim(type), ''), 'Unknown')`) already treat it as
+          # the no-type sentinel, and the 20260521 backfill migration selected
+          # rows on exactly that expression. A device carrying it is protecting
+          # nothing, so an integration's guess is still strictly better.
+          #
+          # This is narrower than the `ip` rank guard on purpose. It is not a
+          # general "first writer wins": an integration still freely overwrites
+          # a type another integration inferred, and still fills a blank one.
+          # The only thing it refuses is demoting a human's answer to a guess.
+          #
+          # `type` and `type_id` MUST move together -- holding one and not the
+          # other yields type='rids' with type_id=99, a row that agrees with
+          # neither source. Both carry the identical condition for that reason.
           type:
             fragment(
-              "COALESCE(NULLIF(EXCLUDED.type, ''), ?)",
+              """
+              CASE
+                WHEN 'manual' = ANY(COALESCE(?, ARRAY[]::text[]))
+                     AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
+                     AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
+                  THEN ?
+                ELSE COALESCE(NULLIF(EXCLUDED.type, ''), ?)
+              END
+              """,
+              d.discovery_sources,
+              d.type,
+              d.type,
               d.type
             ),
           type_id:
             fragment(
-              "CASE WHEN EXCLUDED.type_id IS NOT NULL AND EXCLUDED.type_id > 0 THEN EXCLUDED.type_id ELSE ? END",
+              """
+              CASE
+                WHEN 'manual' = ANY(COALESCE(?, ARRAY[]::text[]))
+                     AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
+                     AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
+                  THEN ?
+                WHEN EXCLUDED.type_id IS NOT NULL AND EXCLUDED.type_id > 0
+                  THEN EXCLUDED.type_id
+                ELSE ?
+              END
+              """,
+              d.discovery_sources,
+              d.type,
+              d.type_id,
               d.type_id
             ),
           vendor_name: fragment("COALESCE(EXCLUDED.vendor_name, ?)", d.vendor_name),
@@ -731,7 +924,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           owner: fragment("COALESCE(EXCLUDED.owner, ?)", d.owner),
           metadata:
             fragment(
-              "(COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason') || COALESCE(EXCLUDED.metadata, '{}'::jsonb)",
+              "(COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason' - 'mac_vendor' - 'mac_vendor_source' - 'mac_vendor_oui_prefix' - 'mac_vendor_oui_snapshot_id') || COALESCE(EXCLUDED.metadata, '{}'::jsonb)",
               d.metadata
             ),
           deleted_at: nil,

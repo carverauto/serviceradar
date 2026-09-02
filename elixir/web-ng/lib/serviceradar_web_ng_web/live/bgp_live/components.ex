@@ -436,6 +436,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
   Traffic time series chart.
   """
   attr :timeseries, :map, required: true
+  attr :timezone, :string, default: "Etc/UTC"
 
   def traffic_timeseries_chart(assigns) do
     ~H"""
@@ -449,6 +450,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Components do
             phx-hook="BGPTimeSeriesChart"
             data-series={Jason.encode!(@timeseries.series)}
             data-data={Jason.encode!(@timeseries.data)}
+            data-timezone={@timezone}
           >
             <!-- Chart will be rendered here by JS hook -->
             <div class="flex items-center justify-center h-full text-sr-muted">

@@ -14,24 +14,14 @@
 
 name: Elixir Quality
 
-# One job per project.
+# PR / staging-push gate is mix format + mix credo --strict per *touched*
+# Mix project. The seven job names stay as required checks, so an untouched
+# project still reports success — it just does not mix deps.compile.
 #
-# This ran all seven projects sequentially in a single step, which was 18m35s of a 22m job.
-# Each project compiles its OWN dependency closure into its own _build -- 223 lock entries for
-# serviceradar_core_elx, 169 for web-ng, 138 for agent_gateway, 134 for core -- with heavy
-# overlap between them. Sequentially that cost is summed; as a matrix it is the slowest leg.
-#
-# The cache key is per project for the same reason. One key over `elixir/**/mix.lock` plus
-# every .credo.exs and .formatter.exs meant a formatting-config change in palisade invalidated
-# web-ng's 169 compiled dependencies, and the restore-keys fallback then handed back a tree
-# whose priv/native symlinks pointed at uncached NIFs -- which is what the force-recompile
-# repair in scripts/elixir_quality.sh exists to paper over.
-#
-# STILL DUPLICATED, and not fixed here: scripts/elixir_quality.sh runs `mix hex.audit` and
-# `mix deps.audit` per project, and elixir-dependency-audit.yml runs the same audits daily on
-# cron and on mix.lock changes. Those depend on an upstream advisory database rather than on
-# this source tree, so the per-PR copy costs time without adding signal. Removing it needs a
-# --skip-audit flag on the script, which does not have one yet.
+# Compile --warnings-as-errors, xref, hex/deps audits, Sobelow, Dialyzer, and
+# the committed OpenAPI dump check run daily from //buildbuddy.yaml
+# ("Elixir Quality (daily)") against staging. BazelCI already compiles and
+# tests the Elixir tree on every PR.
 permissions:
   contents: read
   pull-requests: write
@@ -52,6 +42,7 @@ on:
       - '.tool-versions'
       - 'scripts/elixir_quality.sh'
       - 'scripts/db/**'
+      - 'proto/**'
   pull_request:
     # usp-01-proposal is the long-lived integration branch for unify-sweep-results-proto.
     # PRs land there first and only reach staging much later, so a staging-only filter left every
@@ -66,6 +57,7 @@ on:
       - '.tool-versions'
       - 'scripts/elixir_quality.sh'
       - 'scripts/db/**'
+      - 'proto/**'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
@@ -83,112 +75,170 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # `rust` gates the toolchain install and the cargo cache. Only projects that build a
-          # Rustler NIF, or depend on one through serviceradar_core / serviceradar_srql, need
-          # a compiler; datasvc and palisade were paying for a rustup install they never used.
           - name: datasvc
             project: elixir/datasvc
-            rust: false
           - name: palisade
             project: elixir/palisade
-            rust: false
           - name: serviceradar_agent_gateway
             project: elixir/serviceradar_agent_gateway
-            rust: true
           - name: serviceradar_core
             project: elixir/serviceradar_core
-            rust: true
           - name: serviceradar_core_elx
             project: elixir/serviceradar_core_elx
-            rust: true
           - name: serviceradar_srql
             project: elixir/serviceradar_srql
-            rust: true
           - name: web-ng
             project: elixir/web-ng
-            rust: true
-            phoenix: true
     env:
       ImageOS: ubuntu24
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # PR checkout is a merge commit. Depth 2 is enough for HEAD^ vs HEAD
+          # so we can skip Mix for projects the PR did not touch.
+          fetch-depth: 2
+
+      - name: Decide whether this Mix project needs lint
+        id: decide
+        env:
+          PROJECT: ${{ matrix.project }}
+          NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          if ! files=$(git diff --name-only --diff-filter=ACMR HEAD^ HEAD 2>/dev/null); then
+            echo "Cannot list changed files; running Mix lint to stay fail-closed."
+            echo "lint=true" >> "$GITHUB_OUTPUT"
+            echo "proto=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          lint=false
+          proto=false
+          project="${PROJECT%/}"
+
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              .github/workflows/elixir-quality.yml|\
+              scripts/elixir_quality.sh|\
+              .tool-versions|\
+              elixir/.credo.base.exs|\
+              elixir/.credo.ex_dna.exs|\
+              elixir/.credo.ex_slop.exs)
+                lint=true
+                proto=true
+                ;;
+              proto/*)
+                proto=true
+                ;;
+            esac
+            case "$f" in
+              "$project"|"$project"/*)
+                lint=true
+                ;;
+            esac
+          done <<< "$files"
+
+          if [ "$NAME" = "serviceradar_core" ] && [ "$proto" = true ]; then
+            lint=true
+          fi
+
+          echo "Changed files:"
+          printf '%s\n' "$files"
+          echo "lint=${lint} proto=${proto} project=${project}"
+          echo "lint=${lint}" >> "$GITHUB_OUTPUT"
+          echo "proto=${proto}" >> "$GITHUB_OUTPUT"
+
+      - name: Skip Mix lint for an untouched project
+        if: ${{ steps.decide.outputs.lint != 'true' }}
+        run: |
+          echo "No changes under ${{ matrix.project }} or shared analyzer inputs."
+          echo "Required check Elixir Quality (${{ matrix.name }}) reports success without mix deps.compile."
 
       - name: Setup Beam
-        uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
+        if: ${{ steps.decide.outputs.lint == 'true' }}
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
         env:
           ImageOS: ubuntu24
         with:
           otp-version: '28.3'
           elixir-version: '1.19.4'
 
-      - name: Setup Rust
-        if: ${{ matrix.rust }}
-        run: |
-          set -euo pipefail
-
-          export PATH="${HOME}/.cargo/bin:${PATH}"
-          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
-
-          if ! command -v rustup >/dev/null 2>&1; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-              | sh -s -- -y --profile minimal --default-toolchain stable
-          fi
-
-          rustup toolchain install stable --profile minimal
-          rustup default stable
-          rustc --version
-          cargo --version
-
-      # The registry and the built crates. Neither was cached before, so every NIF rebuild --
-      # and the repair path in elixir_quality.sh forces one whenever a restored priv/native
-      # symlink dangles -- started from an empty cargo home.
-      - name: Cache Rust toolchain artifacts
-        if: ${{ matrix.rust }}
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
-        with:
-          # Every NIF crate dir, not just this project's. agent_gateway and core_elx own no
-          # native/ tree -- they build the NIFs through the serviceradar_core path dependency,
-          # so a project-scoped path would cache nothing for them.
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            elixir/serviceradar_core/native/**/target
-            elixir/serviceradar_srql/native/**/target
-            elixir/web-ng/native/**/target
-          key: ${{ runner.os }}-elixir-quality-cargo-${{ matrix.name }}-${{ hashFiles('Cargo.lock', 'elixir/*/native/**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-elixir-quality-cargo-${{ matrix.name }}-
-
       - name: Cache Elixir dependencies and build
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        if: ${{ steps.decide.outputs.lint == 'true' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
         with:
           path: |
             ~/.hex
             ~/.mix
             ${{ matrix.project }}/deps
             ${{ matrix.project }}/_build
-          key: ${{ runner.os }}-elixir-quality-${{ matrix.name }}-${{ hashFiles(format('{0}/mix.exs', matrix.project), format('{0}/mix.lock', matrix.project), format('{0}/.formatter.exs', matrix.project), format('{0}/.credo.exs', matrix.project), format('{0}/.sobelow-conf', matrix.project), format('{0}/.sobelow-skips', matrix.project), format('{0}/.deps_audit_ignore', matrix.project), 'elixir/.credo.base.exs', 'elixir/.credo.ex_dna.exs', 'elixir/.credo.ex_slop.exs', '.tool-versions', 'scripts/elixir_quality.sh') }}
+          key: ${{ runner.os }}-elixir-lint-${{ matrix.name }}-${{ hashFiles(format('{0}/mix.exs', matrix.project), format('{0}/mix.lock', matrix.project), format('{0}/.formatter.exs', matrix.project), format('{0}/.credo.exs', matrix.project), 'elixir/.credo.base.exs', 'elixir/.credo.ex_dna.exs', 'elixir/.credo.ex_slop.exs', '.tool-versions', 'scripts/elixir_quality.sh') }}
           restore-keys: |
+            ${{ runner.os }}-elixir-lint-${{ matrix.name }}-
             ${{ runner.os }}-elixir-quality-${{ matrix.name }}-
 
-      - name: Run Elixir quality contract
+      - name: Run Elixir format and Credo
+        if: ${{ steps.decide.outputs.lint == 'true' }}
+        env:
+          HEX_HTTP_CONCURRENCY: '1'
+          HEX_HTTP_TIMEOUT: '120'
         run: |
           ./scripts/elixir_quality.sh \
             --project "${{ matrix.project }}" \
-            --skip-dialyzer \
-            ${{ matrix.phoenix && '--phoenix' || '' }}
+            --lint-only
 
-      # web-ng only, and deliberately in this leg rather than a job of its own: it needs the
-      # app compiled, which this leg has just done.
-      #
-      # The developer portal fetches this committed artifact from the repo instead of the live
-      # demo site, so it must match the live spec served at /api/v2/open_api. Regenerate and
-      # commit with: (cd elixir/web-ng && mix serviceradar.openapi.dump)
-      - name: Check committed OpenAPI spec is up to date
-        if: ${{ matrix.name == 'web-ng' }}
-        working-directory: elixir/web-ng
-        run: mix serviceradar.openapi.dump --check
+      # `make verify-proto-elixir` regenerates every checked-in .pb.ex from proto/
+      # and fails on a diff. It lives on the core lint job because that is the
+      # project the bindings live in. protoc is installed here rather than for
+      # the whole matrix because the other six legs never generate protos.
+      # Version and checksum are pinned exactly as rust-checks.yml pins them.
+      - name: Install protoc
+        if: ${{ matrix.name == 'serviceradar_core' && (steps.decide.outputs.lint == 'true' || steps.decide.outputs.proto == 'true') }}
+        env:
+          PROTOC_VERSION: '35.1'
+          PROTOC_SHA256: '6930ebf62bd4ea607b98fff052596c6ee564b9835b4ce172c75a3f53ae9d91b7'
+        run: |
+          set -euo pipefail
+
+          case "$(uname -m)" in
+            x86_64|amd64) asset="protoc-${PROTOC_VERSION}-linux-x86_64.zip" ;;
+            *) echo "unsupported protoc runner architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+
+          install_dir="${RUNNER_TEMP:-/tmp}/protoc"
+          rm -rf "${install_dir}"
+          mkdir -p "${install_dir}"
+
+          curl -fsSL --retry 3 \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/${asset}" \
+            -o "${install_dir}/${asset}"
+          printf '%s  %s\n' "${PROTOC_SHA256}" "${install_dir}/${asset}" | sha256sum -c -
+
+          unzip -q "${install_dir}/${asset}" -d "${install_dir}"
+          chmod +x "${install_dir}/bin/protoc"
+
+          echo "${install_dir}/bin" >> "${GITHUB_PATH}"
+          {
+            echo "PROTOC=${install_dir}/bin/protoc"
+            echo "PROTOC_INCLUDE=${install_dir}/include"
+          } >> "${GITHUB_ENV}"
+
+          "${install_dir}/bin/protoc" --version
+
+      - name: Check committed Elixir protobuf bindings are up to date
+        if: ${{ matrix.name == 'serviceradar_core' && (steps.decide.outputs.lint == 'true' || steps.decide.outputs.proto == 'true') }}
+        env:
+          # make generate-proto-elixir ends with `mix format`, which compiles
+          # deps, and serviceradar_srql's Rustler NIF shells out to `cargo`.
+          # This job has no Rust toolchain, so without this the step dies with
+          # System.cmd("cargo", ...) -> :enoent -- nothing to do with protos.
+          # Same flag scripts/elixir_quality.sh:177 exports for the lint-only
+          # path.
+          SERVICERADAR_SKIP_NIF_COMPILATION: '1'
+          HEX_HTTP_CONCURRENCY: '1'
+          HEX_HTTP_TIMEOUT: '120'
+        run: make verify-proto-elixir
 
   # Neither script starts a BEAM -- they read files and shell out to jq -- so this needs no
   # toolchain and no cache, and does not belong behind a seven-way compile matrix.
@@ -196,9 +246,38 @@ jobs:
     name: Baseline metadata and migration startup safety
     runs-on: arc-runner-set
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+
+      - name: Decide whether DB baseline scripts need to run
+        id: decide
+        run: |
+          set -euo pipefail
+          if ! files=$(git diff --name-only --diff-filter=ACMR HEAD^ HEAD 2>/dev/null); then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          run=false
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              scripts/db/*|\
+              elixir/serviceradar_core/priv/repo/migrations/*|\
+              .github/workflows/elixir-quality.yml)
+                run=true
+                ;;
+            esac
+          done <<< "$files"
+          echo "run=${run}" >> "$GITHUB_OUTPUT"
+          echo "run=${run}"
+
+      - name: Skip DB baseline checks
+        if: ${{ steps.decide.outputs.run != 'true' }}
+        run: echo "No DB script or migration changes; skipping baseline checks."
 
       - name: Check baseline metadata and migration startup safety
+        if: ${{ steps.decide.outputs.run == 'true' }}
         run: |
           scripts/db/check-baseline-metadata.sh
           scripts/db/check-migration-startup-safety.sh

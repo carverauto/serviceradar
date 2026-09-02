@@ -3,23 +3,58 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
 
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
   alias ServiceRadar.Inventory.Sync.Enrichment
+  alias ServiceRadar.Inventory.Sync.MacVendor
 
   require Logger
 
   def build_device_upsert_records(resolved_updates, timestamp) do
+    # One query for the whole batch rather than one per device: SyncIngestor
+    # works in chunks of 500, so a per-device lookup would be 500 round trips
+    # per chunk. Mirrors Lookups.bulk_lookup_by_ip/1.
+    {oui_lookup, oui_snapshot_id} =
+      resolved_updates
+      |> Enum.map(fn {update, _device_id} -> update.mac end)
+      |> MacVendor.bulk_lookup()
+
     resolved_updates
     |> Enum.reduce(%{}, fn {update, device_id}, acc ->
       source = if update.source in [nil, ""], do: "unknown", else: update.source
       classification = DeviceEnrichmentRules.classify(update)
-      vendor_name = Enrichment.infer_vendor_name(update, classification)
+
+      # OUI is consulted ONLY when nothing else produced a vendor, and the
+      # ordering is structural rather than a convention someone must remember.
+      # device_writes upserts vendor_name as COALESCE(EXCLUDED.vendor_name, ?),
+      # so any non-nil value here overwrites what is stored -- an OUI guess
+      # emitted alongside a real vendor would outrank the real one on every
+      # subsequent sync.
+      inferred_vendor = Enrichment.infer_vendor_name(update, classification)
+      oui_resolved = if is_nil(inferred_vendor), do: MacVendor.resolve(update.mac, oui_lookup)
+
+      vendor_name =
+        case {inferred_vendor, oui_resolved} do
+          {nil, {org, _prefix}} -> org
+          {vendor, _} -> vendor
+        end
+
       model = Enrichment.infer_model(update, classification)
       {device_type, device_type_id} = Enrichment.infer_device_type(update, classification)
-      metadata = Enrichment.merge_classification_metadata(update.metadata || %{}, classification)
+
+      metadata =
+        (update.metadata || %{})
+        |> Enrichment.merge_classification_metadata(classification)
+        |> MacVendor.put_provenance(oui_resolved, oui_snapshot_id)
+
       owner = Enrichment.infer_owner(update, metadata)
       persisted_metadata = persisted_metadata(metadata, source)
 
       record = %{
         uid: device_id,
+        # Scoped to the same partition its identifiers are scoped to
+        # (`Ids.identifier_partition/2`). Without this the row falls to the
+        # column default and every source writes the "default" copy, so an
+        # isolation sweep would overwrite the monitoring view of the same IP
+        # rather than keeping its own.
+        partition: update_partition(update),
         ip: update.ip,
         mac: update.mac,
         hostname: update.hostname,
@@ -37,7 +72,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
           Enrichment.merge_inferred_map(update.hw_info, Enrichment.infer_hw_info(metadata)),
         network_interfaces: update.network_interfaces || [],
         is_available: update.is_available,
-        is_managed: true,
+        is_managed: prefer_non_nil(Map.get(update, :is_managed), true),
         is_active: true,
         owner: owner,
         metadata: persisted_metadata,
@@ -67,6 +102,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
     merged_metadata =
       existing.metadata
       |> Enrichment.strip_classification_metadata()
+      # Same reason the classification keys are stripped: two updates for one
+      # uid in a batch must not leave the first update's derived attribution
+      # sitting under the second update's vendor.
+      |> MacVendor.strip_provenance()
       |> Map.merge(incoming.metadata || %{})
 
     merged_tags = Map.merge(existing.tags || %{}, incoming.tags || %{})
@@ -94,6 +133,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
         os: merged_os,
         hw_info: merged_hw_info,
         is_available: prefer_non_nil(incoming.is_available, existing.is_available),
+        is_managed: prefer_non_nil(incoming.is_managed, existing.is_managed),
         network_interfaces: merged_network_interfaces,
         owner: prefer_non_nil(incoming.owner, existing.owner),
         metadata: merged_metadata,
@@ -125,6 +165,25 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
 
   # Complete plugin inventories keep source identity in typed identifiers and
   # source observations. They must not replace another source's canonical identity.
+
+  # Mirrors `Ids.identifier_partition/2` so a device row and its identifiers are
+  # scoped to the same partition. Duplicated deliberately rather than reaching
+  # into Ids: this path builds the row from `update` and never constructs an
+  # `Ids` struct, and a wrong default here silently collapses every partition
+  # onto "default".
+  defp update_partition(update) do
+    case Map.get(update, :partition) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> "default"
+          trimmed -> trimmed
+        end
+
+      _ ->
+        "default"
+    end
+  end
+
   defp persisted_metadata(%{"plugin_inventory_snapshot" => true} = metadata, _source) do
     Map.drop(metadata, ["integration_id", "integration_type", "plugin_inventory_snapshot"])
   end

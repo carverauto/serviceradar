@@ -9,6 +9,14 @@ common --noannounce_rc
 common --experimental_convenience_symlinks=clean
 common --color=yes
 common --ui_event_filters=-INFO
+# ...but NOT for `test`. Bazel emits the contents of a failing test's log as an
+# INFO event, so filtering INFO away discards exactly the output `--test_output`
+# below is set to show. Measured on a deliberately failing target: with the
+# filter, a redirected run prints the FAIL line and nothing else -- no test name,
+# no assertion, no diff; with INFO restored the full ExUnit failure appears. CI
+# redirects stdout, so every Bazel test failure reached a human as "some shard
+# failed", with the reason discarded before it was ever written down.
+test --ui_event_filters=+INFO
 # Allow platform-specific build:* sections (linux/macos/windows).
 common --enable_platform_specific_config
 # Mirror-first URL rewrites for deps that ship a single download URL. See the file.
@@ -48,6 +56,9 @@ build --repo_env=RULES_ELIXIR_SKIP_SYSTEM=1
 
 # Use hermetic Python toolchain from rules_python extension (MODULE.bazel)
 # instead of system Python for cross-platform compatibility with remote cache
+# Disable legacy package generation globally so transitive Python tools follow
+# the same explicit-package policy declared for ServiceRadar in MODULE.bazel.
+build --@rules_python//python/config_settings:incompatible_default_to_explicit_init_py=true
 # Avoid GitHub fallback for Go module fetches in repo rules.
 build --repo_env=GOPROXY=https://proxy.golang.org
 build --repo_env=NEXT_SKIP_TURBO=1

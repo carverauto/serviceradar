@@ -240,6 +240,17 @@ IDs deduplicate accepted frames, and the gateway builds a new resolved prefix
 from the declared base. Concurrent stale sessions may duplicate publication but
 cannot reclaim the active spool or violate database correctness.
 
+Volatile gateway disposition evidence has its own lifecycle, separate from both
+watermarks. It may be evicted only after the ordered cumulative acknowledgement
+covering it is successfully written and only when the same validated idempotent
+publication path can reproduce the terminal disposition and authoritative PubAck
+after a lost ACK, duplicate replay, or reconnect, without subscribing to stored
+records or recovering private gateway state. Eviction itself advances neither
+watermark and cannot authorize spool deletion. The standalone prefix tracker does
+not own evidence eviction; tasks 3.4 and 3.5 must integrate that lifecycle with the
+real Stream/publisher owner and prove that retained memory stays bounded over a
+long-lived lane.
+
 Each disposition on the wire is one of the generated `EdgeRecordDispositionKind`
 members frozen by the ABI change. This change has SIX internal outcome names and
 they map onto FIVE generated members, so the mapping is MANY-TO-ONE, not one-for-one:
@@ -253,7 +264,8 @@ The wire `resolved_through_sequence` is the REMOTE terminal-disposition-through
 watermark (what the gateway resolved): it advances only across a contiguous run for
 which every sequence is accepted-authoritative (primary-stream PubAck),
 accepted-audit-only (audit-stream PubAck), accepted-quarantine (quarantine-DLQ
-PubAck), or rejected-permanent (reject-audit DLQ PubAck); a rejected-retryable
+PubAck), accepted-quarantine via the SECURITY-quarantine DLQ PubAck, or
+rejected-permanent (reject-audit DLQ PubAck); a rejected-retryable
 outcome leaves that sequence and every higher sequence unresolved and MUST NOT
 advance the prefix. The agent maintains a SEPARATE durable local reclaim watermark
 that advances a spool sequence only AFTER the agent's own local durability for that
@@ -1000,8 +1012,11 @@ For every delivery frame the gateway:
    waits for PubAck.
 8. Returns accepted/rejected dispositions and advances only the contiguous
    resolved spool prefix after the required PubAck for a primary-stream,
-   audit-stream, quarantine-DLQ, or reject-audit-DLQ disposition; a retryable
-   rejection never advances it.
+   audit-stream, quarantine-DLQ, SECURITY-quarantine-DLQ, or reject-audit-DLQ
+   disposition; a retryable rejection never advances it. The security-quarantine
+   PubAck is listed EXPLICITLY because both quarantine variants collapse onto one
+   wire member: omitting it from an exhaustive list lets a compromise-revoked
+   record reach its DLQ and then pin the resolved prefix forever.
 
 
 The JetStream body is the exact deterministic `EdgeRecordV1` binary produced and

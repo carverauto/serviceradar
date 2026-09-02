@@ -78,13 +78,13 @@ Do not combine the branch and tag in one push. Without `--push`, the helper
 prints the explicit release-branch push, ancestry check, and tag-push commands
 for the operator to run.
 
-## Monitor Forgejo
+## Monitor GitHub Actions
 
-Use the repository's authenticated `fj` client:
+Use the repository's authenticated `gh` client:
 
 ```bash
-fj actions tasks
-fj release view --by-tag v1.4.10
+gh run list --repo carverauto/serviceradar --branch v1.4.10
+gh release view v1.4.10 --repo carverauto/serviceradar
 ```
 
 The tag starts five release workflows:
@@ -102,7 +102,7 @@ partial release.
 
 ## Required Release Outputs
 
-Before the Forgejo release becomes public, verify that it contains:
+Before the GitHub release becomes public, verify that it contains:
 
 - all expected `.deb` and `.rpm` packages
 - `serviceradar-agent_<version>_linux_amd64.tar.gz`
@@ -149,8 +149,7 @@ key workloads on `v<version>`.
 
 ## CI Prerequisites
 
-The GitHub `release` environment (Wasm) and remaining Forgejo `release`
-environment must provide:
+The GitHub `release` environment must provide:
 
 - Harbor robot credentials (`HARBOR_ROBOT_USERNAME` / `HARBOR_ROBOT_SECRET`)
 - BuildBuddy credentials used by remote Bazel builds
@@ -173,7 +172,7 @@ container images and Wasm plugins only; it does not publish the Helm chart,
 packages, managed-agent manifest, or native add-on catalog, so it must not be
 treated as a complete formal release.
 
-Keep the Forgejo release draft until all package, image, native add-on, Wasm,
+Keep the GitHub release draft until all package, image, native add-on, Wasm,
 and security verification succeeds. Never work around a failed parallel asset
 upload by publishing the draft first; immutable-release enforcement will
 prevent the missing asset from being attached afterward.

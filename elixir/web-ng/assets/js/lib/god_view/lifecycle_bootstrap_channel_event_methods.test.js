@@ -23,9 +23,9 @@ describe("lifecycle_bootstrap_channel_event_methods", () => {
 
     ctx.setClusterExpanded("cluster:endpoints:sr:test", true)
 
-    expect(state.pendingClusterFocus).toEqual({clusterId: "cluster:endpoints:sr:test", expanded: true})
-    expect(state.userCameraLocked).toBe(false)
-    expect(state.hasAutoFit).toBe(false)
+    expect(state.pendingClusterFocus).toBe(null)
+    expect(state.userCameraLocked).toBe(true)
+    expect(state.hasAutoFit).toBe(true)
     expect(state.topologyLayers.endpoints).toBe(true)
     expect(channel.push).toHaveBeenCalledWith("cluster:set_expanded", {
       cluster_id: "cluster:endpoints:sr:test",

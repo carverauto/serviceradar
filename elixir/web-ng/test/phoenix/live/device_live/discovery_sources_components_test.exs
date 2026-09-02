@@ -33,6 +33,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponentsTest do
       )
 
     assert html =~ "Armis"
+    assert html =~ "/images/integrations/armis.svg"
+    assert html =~ "/images/integrations/armis-dark.svg"
     assert html =~ "Example Inventory"
     assert html =~ "External Network Inventory"
     assert html =~ "example-prod"
@@ -71,5 +73,113 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponentsTest do
     assert html =~ "Region:"
     assert html =~ "central"
     assert html =~ "Current"
+  end
+
+  test "renders the vendored Armis wordmark instead of a shield-and-text chip" do
+    html =
+      render_component(&DiscoverySourcesComponents.discovery_sources_section/1,
+        device_row: %{
+          "discovery_sources" => ["armis"],
+          "metadata" => %{"armis_device_id" => "armis-42"}
+        }
+      )
+
+    assert html =~ "Armis"
+    assert html =~ "/images/integrations/armis.svg"
+    assert html =~ "/images/integrations/armis-dark.svg"
+    refute html =~ "hero-shield-check"
+  end
+
+  test "packages both Armis wordmarks with the app" do
+    priv = Application.app_dir(:serviceradar_web_ng, "priv/static/images/integrations")
+
+    assert File.exists?(Path.join(priv, "armis.svg"))
+    assert File.exists?(Path.join(priv, "armis-dark.svg"))
+  end
+
+  test "renders the vendored NetBox wordmark instead of a stack-and-text chip" do
+    html =
+      render_component(&DiscoverySourcesComponents.discovery_sources_section/1,
+        device_row: %{
+          "discovery_sources" => ["netbox"],
+          "metadata" => %{"netbox_device_id" => "nb-9"}
+        }
+      )
+
+    assert html =~ "NetBox"
+    assert html =~ "/images/integrations/netbox.svg"
+    refute html =~ "hero-server-stack"
+  end
+
+  test "packages the NetBox wordmark with the app" do
+    priv = Application.app_dir(:serviceradar_web_ng, "priv/static/images/integrations")
+
+    assert File.exists?(Path.join(priv, "netbox.svg"))
+  end
+
+  test "renders the vendored Proxmox wordmark instead of a cube-and-text chip" do
+    html =
+      render_component(&DiscoverySourcesComponents.discovery_sources_section/1,
+        device_row: %{
+          "discovery_sources" => ["proxmox"],
+          "metadata" => %{"proxmox_node" => "pve-01"}
+        }
+      )
+
+    assert html =~ "Proxmox"
+    assert html =~ "/images/integrations/proxmox.svg"
+    assert html =~ "/images/integrations/proxmox-dark.svg"
+    refute html =~ "hero-cube-transparent"
+  end
+
+  test "uses the Proxmox wordmark for proxmox-api and proxmox_candidate sources" do
+    for source <- ["proxmox-api", "proxmox_candidate"] do
+      html =
+        render_component(&DiscoverySourcesComponents.discovery_sources_section/1,
+          device_row: %{"discovery_sources" => [source], "metadata" => %{}}
+        )
+
+      assert html =~ "/images/integrations/proxmox.svg"
+      refute html =~ "hero-cube-transparent"
+    end
+  end
+
+  test "packages both Proxmox wordmarks with the app" do
+    priv = Application.app_dir(:serviceradar_web_ng, "priv/static/images/integrations")
+
+    assert File.exists?(Path.join(priv, "proxmox.svg"))
+    assert File.exists?(Path.join(priv, "proxmox-dark.svg"))
+  end
+
+  test "renders the vendored Ansible wordmark instead of a command-and-text chip" do
+    html =
+      render_component(&DiscoverySourcesComponents.discovery_sources_section/1,
+        device_row: %{
+          "discovery_sources" => ["awx"],
+          "metadata" => %{"query_label" => "prod-inventory"}
+        }
+      )
+
+    assert html =~ "AWX / Ansible"
+    assert html =~ "/images/integrations/ansible.svg"
+    assert html =~ "/images/integrations/ansible-dark.svg"
+    refute html =~ "hero-command-line"
+  end
+
+  test "uses the Ansible wordmark for ansible discovery sources" do
+    html =
+      render_component(&DiscoverySourcesComponents.discovery_sources_section/1,
+        device_row: %{"discovery_sources" => ["ansible"], "metadata" => %{}}
+      )
+
+    assert html =~ "/images/integrations/ansible.svg"
+    refute html =~ "hero-command-line"
+  end
+
+  test "packages both Ansible wordmarks with the app" do
+    priv = Application.app_dir(:serviceradar_web_ng, "priv/static/images/integrations")
+
+    assert File.exists?(Path.join(priv, "ansible.svg"))
+    assert File.exists?(Path.join(priv, "ansible-dark.svg"))
   end
 end

@@ -57,6 +57,12 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
       normalized in ["credential_secret_ref", "api_token_secret_ref"] ->
         false
 
+      # OAuth inject metadata: which form field names to fill, not secret values.
+      # "field_password" contains "password" and would otherwise trip the
+      # substring check and deny producer-schedule command transmit.
+      String.starts_with?(normalized, "field_") ->
+        false
+
       true ->
         Enum.any?(
           [

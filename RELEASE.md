@@ -21,7 +21,7 @@ The `scripts/cut-release.sh` helper automates routine git tasks before tagging a
 ./scripts/cut-release.sh --version 1.0.53-pre14 --push
 ```
 
-The script validates that `CHANGELOG` already contains a section for the version, updates `VERSION`, commits the change, and creates an annotated tag (`v1.0.53-pre14` by default). Pass `--dry-run` to preview the actions or `--skip-changelog-check` when drafting notes. Run it from the repository root on a clean working tree.
+The script validates that `CHANGELOG` already contains a section for the version, updates `VERSION`, and commits the change. It does not create the Git tag. After the release branch is merged to staging, wait for `LargeIngestionGate` success on that merge, then tag `origin/staging` and push the tag. Pass `--dry-run` to preview the actions or `--skip-changelog-check` when drafting notes. Run it from the repository root on a clean working tree.
 
 ## Prerequisites
 

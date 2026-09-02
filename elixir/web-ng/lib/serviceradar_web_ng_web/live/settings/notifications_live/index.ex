@@ -951,6 +951,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
             channel_index={@channel_index}
             test_result={@test_result}
             loading={@loading}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
 
           <Components.routes_tab
@@ -975,6 +976,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
             suppression={@suppression}
             silence_counts={@silence_counts}
             loading={@loading}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
 
           <Components.providers_tab
@@ -984,6 +986,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
             upload={@provider_upload}
             versions={@provider_versions}
             loading={@loading}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
 
           <Components.deliveries_tab
@@ -994,6 +997,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
             selected={@selected_delivery}
             limit={Data.delivery_limit()}
             loading={@loading}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
         </div>
 

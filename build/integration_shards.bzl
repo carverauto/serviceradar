@@ -1,86 +1,256 @@
-"""Shard count and naming for the serviceradar_core integration suite.
+"""One async BEAM plus capacity-bounded serial BEAMs for core integration tests.
 
-Single source of truth, because two packages have to agree exactly:
+Ecto's SQL Sandbox isolates concurrent tests inside one BEAM when every query stays under the
+test's rollback-only owner. It cannot isolate application-global state, database-global state, or
+fixed external resources. The exhaustive disposition inventory therefore produces two source
+classes:
 
-  * //elixir/serviceradar_core generates one ex_unit_test per shard;
-  * //rust/integration-db:provision_db clones every shard database for CI;
-  * //rust/integration-db:provision_db_sN clones one matching database for focused runs.
+* one async lane at ``max_cases: 8`` for audited transaction-owned or explicitly async modules;
+* seven serial lanes at ``max_cases: 1`` for audited blockers, with fixed external resources
+  confined to ``serial_0``.
 
-A mismatch is not a build error -- it is a suite that runs against a database nothing
-provisioned, so the number lives here and both sides read it.
+Every lane receives a distinct disposable database cloned on ``srql-fixtures``. A 12-connection
+Repo pool gives an eight-case async BEAM four checkout slots of headroom for test-supervised child
+processes. Those slots are not reserved for deployed applications: no deployed ServiceRadar
+application, demo, or production workload participates in this test topology.
 
-WHY SHARD AT ALL, AND WHY A DATABASE EACH
+The fixture currently reports 197 usable client slots (200 max minus three superuser-reserved).
+The checked-in core topology consumes at most 96 configured pool slots. The ordinary wildcard also
+selects three existing SRQL binaries, each with a five-slot pool and one administrator connection,
+so the workflow-wide capacity preflight funds 114 possible connections. The connection observer
+rechecks this live before a workflow run becomes ready and fails closed if the fixture can no
+longer fund the complete selected set with ten-percent headroom.
 
-The integration tests share one mutable resource. Ecto's SQL sandbox isolates concurrent
-tests inside a BEAM VM; it does nothing across OS processes. Splitting the suite into
-parallel Bazel targets against ONE database therefore deadlocks -- measured at 25 failures
-across 6 of 7 groups, dominated by `40P01 deadlock_detected`, where each group passed when
-run on its own.
-
-So each shard gets its own database. That is only affordable because provisioning is now a
-`CREATE DATABASE ... TEMPLATE` file copy off a pre-migrated template (~0.7s) rather than a
-368-migration replay.
-
-WHY EIGHT
-
-Measured on the unsharded target: ~36s fixed cost per target (sandbox setup, staging a
-149-application ERL_LIBS tree, BEAM boot, app load), ~39s ExUnit load, ~165s of tests. The
-fixed cost is paid by EVERY shard and does not divide, so:
-
-    wall clock ~= 36 + (39 + 165) / N
-
-    N=1  240s      N=5   77s
-    N=3  104s      N=8   62s
-
-Eight lands under the 70s target. Beyond that the fixed 36s dominates and more shards buy
-almost nothing while multiplying database load -- N=16 is still ~49s, for twice the
-connections and twice the clones.
+The source-separated heavy workflow pins its parent test BEAM Repo to 12 connections. Its cold
+bootstrap case temporarily starts a separate two-connection Repo plus one direct Postgrex admin
+connection while the parent application is still alive, so that workflow reserves 15 possible
+connections rather than only the parent pool.
 """
 
 load(
-    "@rules_elixir//:shards.bzl",
-    "shard_names",
-    _partition_by_shard = "partition_by_shard",
+    ":integration_test_dispositions.bzl",
+    "ASYNC_INTEGRATION_SRCS",
+    "FIXED_EXTERNAL_INTEGRATION_SRCS",
+    "SERIAL_INTEGRATION_MODULE_COUNTS",
+    "SERIAL_INTEGRATION_SELECTED_TEST_COUNTS",
 )
 
-# Keep in step with nothing else -- everything derives from this.
-INTEGRATION_SHARD_COUNT = 8
+INTEGRATION_ASYNC_MAX_CASES = 8
+INTEGRATION_SERIAL_MAX_CASES = 1
+INTEGRATION_REPO_POOL_SIZE = 12
+INTEGRATION_MAX_BEAMS = 8
+INTEGRATION_MAX_POOL_SLOTS = 96
+INTEGRATION_AUXILIARY_CONNECTION_SLOTS = 18
+INTEGRATION_WORKFLOW_CONNECTION_SLOTS = 114
+FROZEN_FIXTURE_USABLE_CLIENT_SLOTS = 197
 
+# Hermetic source-selection proof: deterministic selected and load-only chunks run concurrently
+# in fresh BEAMs, keeping the always-on contract off the integration lifecycle critical path while
+# still executing ExUnit's real filters for every ordinary source.
+INTEGRATION_SELECTION_SELECTED_CHUNK_COUNT = 2
+INTEGRATION_SELECTION_LOAD_ONLY_CHUNK_COUNT = 4
+
+# This is a source-separated release-gate database suffix, not an ordinary lane.
+LARGE_INGESTION_DB_SHARD = "large_ingestion"
+LARGE_INGESTION_REPO_POOL_SIZE = 12
+LARGE_INGESTION_BOOTSTRAP_POOL_SIZE = 2
+LARGE_INGESTION_BOOTSTRAP_ADMIN_CONNECTION_SLOTS = 1
+LARGE_INGESTION_WORKFLOW_CONNECTION_SLOTS = 15
+
+FIXED_EXTERNAL_RESOURCE_LANE = "serial_0"
+
+def _safe_pool_budget(usable_client_slots):
+    if usable_client_slots < 0:
+        fail("usable fixture client slots cannot be negative")
+    return min(INTEGRATION_MAX_POOL_SLOTS, (usable_client_slots * 9) // 10)
+
+def serial_lane_count_for_capacity(usable_client_slots, serial_source_count):
+    """Returns the serial BEAM count funded by the frozen 12-slot-per-BEAM contract."""
+    if serial_source_count < 0:
+        fail("serial integration source count cannot be negative")
+    if serial_source_count == 0:
+        return 0
+
+    funded_beams = _safe_pool_budget(usable_client_slots) // INTEGRATION_REPO_POOL_SIZE
+    if funded_beams < 2:
+        fail(
+            "fixture capacity cannot fund one async and one serial integration BEAM: " +
+            "usable_client_slots={} safe_pool_budget={} pool_per_beam={}".format(
+                usable_client_slots,
+                _safe_pool_budget(usable_client_slots),
+                INTEGRATION_REPO_POOL_SIZE,
+            ),
+        )
+
+    return min(serial_source_count, min(INTEGRATION_MAX_BEAMS - 1, funded_beams - 1))
+
+INTEGRATION_SERIAL_LANE_COUNT = serial_lane_count_for_capacity(
+    FROZEN_FIXTURE_USABLE_CLIENT_SLOTS,
+    len(SERIAL_INTEGRATION_MODULE_COUNTS),
+)
+
+def integration_serial_lane_names():
+    return ["serial_{}".format(index) for index in range(INTEGRATION_SERIAL_LANE_COUNT)]
+
+def integration_lane_names():
+    """Database suffixes and Bazel target suffixes for the complete ordinary topology."""
+    return ["async"] + integration_serial_lane_names()
+
+# Compatibility for the Rust provisioner while the generic lifecycle API still says "shard".
+# The returned values are lane names; no s0..s7 database is part of the new topology.
 def integration_shard_names():
-    """Shard suffixes, e.g. ["s0", "s1", ...]. Used in target names and database names."""
-    return shard_names(INTEGRATION_SHARD_COUNT)
+    return integration_lane_names()
 
-# Test files whose runtime is dominated by a few very slow tests, dealt out BEFORE everything
-# else so that no two land in the same shard.
-#
-# Balancing by file count assumes files cost roughly the same. Measured, they do not: in shard
-# s6, two files accounted for 58.5s of its 66.9s, and every other test in it finished in under
-# 334ms. Both had landed in the same bucket, making that shard nearly twice the next slowest.
-#
-# Times are from `SERVICERADAR_TEST_SLOWEST` (see elixir/serviceradar_core/test/test_helper.exs):
-#
-#   47.2s  results_router_integration_test.exs:121
-#            "large Armis sync chunks route through results router into inventory"
-#   11.3s  plugin_result_slot_allocator_test.exs:55
-#            "more than 257 synchronized identities retain distinct event blocks"
-#
-# This list is a hint, not a contract: a stale entry costs nothing but a slightly worse
-# balance, and a missing one shows up as a single slow shard. Re-measure with
-# `--test_env=SERVICERADAR_TEST_SLOWEST=12` when the wall clock drifts.
-#
-# NOTE: the 47.2s test is a genuine floor. No shard count divides a single test, so the
-# slowest shard cannot go below roughly (fixed cost + 47s) until that test itself is cheaper.
-_HEAVY_SRCS = [
-    "test/serviceradar/results_router_integration_test.exs",
-    "test/serviceradar/observability/plugin_result_slot_allocator_test.exs",
-]
+def integration_configured_pool_slots():
+    return len(integration_lane_names()) * INTEGRATION_REPO_POOL_SIZE
 
-def partition_by_shard(srcs):
-    """Split srcs into INTEGRATION_SHARD_COUNT disjoint, deterministic buckets.
+def async_integration_sources():
+    return list(ASYNC_INTEGRATION_SRCS)
 
-    Deliberately not grouped by directory: shards no longer need to align with subsystems now
-    that each has its own database, and serviceradar_core's test tree is far too lopsided for
-    directory grouping to balance anything -- one directory holds several hundred files and
-    others hold two.
+def serial_source_module_counts():
+    return dict(SERIAL_INTEGRATION_MODULE_COUNTS)
+
+def serial_source_test_counts():
+    return dict(SERIAL_INTEGRATION_SELECTED_TEST_COUNTS)
+
+def fixed_external_resource_sources():
+    return list(FIXED_EXTERNAL_INTEGRATION_SRCS)
+
+def integration_selected_sources():
+    return sorted(ASYNC_INTEGRATION_SRCS + SERIAL_INTEGRATION_MODULE_COUNTS.keys())
+
+def integration_selection_source_sets(all_test_sources):
+    """Returns the selected set plus deterministic chunks covering its exact complement."""
+    selected = integration_selected_sources()
+    source_set = {source: True for source in all_test_sources}
+
+    for source in selected:
+        if source not in source_set:
+            fail("selected integration source is absent from ALL_TEST_SRCS: {}".format(source))
+
+    selected_set = {source: True for source in selected}
+    load_only = sorted([source for source in all_test_sources if source not in selected_set])
+    selected_chunks = [[] for _index in range(INTEGRATION_SELECTION_SELECTED_CHUNK_COUNT)]
+    chunks = [[] for _index in range(INTEGRATION_SELECTION_LOAD_ONLY_CHUNK_COUNT)]
+
+    for index, source in enumerate(selected):
+        selected_chunks[index % INTEGRATION_SELECTION_SELECTED_CHUNK_COUNT].append(source)
+
+    for index, source in enumerate(load_only):
+        chunks[index % INTEGRATION_SELECTION_LOAD_ONLY_CHUNK_COUNT].append(source)
+
+    return struct(
+        selected = selected,
+        selected_chunks = selected_chunks,
+        load_only_chunks = chunks,
+    )
+
+def integration_selection_runner_names():
+    return struct(
+        selected = [
+            "integration_selection_selected_{}_runner".format(index)
+            for index in range(INTEGRATION_SELECTION_SELECTED_CHUNK_COUNT)
+        ],
+        load_only = [
+            "integration_selection_load_only_{}_runner".format(index)
+            for index in range(INTEGRATION_SELECTION_LOAD_ONLY_CHUNK_COUNT)
+        ],
+    )
+
+def integration_test_env(lane):
+    """Returns the complete fail-closed runner environment for one audited lane."""
+    if lane == "async":
+        max_cases = INTEGRATION_ASYNC_MAX_CASES
+    elif lane in integration_serial_lane_names():
+        max_cases = INTEGRATION_SERIAL_MAX_CASES
+    else:
+        fail("unknown integration lane: {}".format(lane))
+
+    return {
+        "SERVICERADAR_ONLY_INTEGRATION": "1",
+        "SERVICERADAR_INTEGRATION_MAX_CASES": str(max_cases),
+        "SERVICERADAR_TEST_DATABASE_POOL_SIZE": str(INTEGRATION_REPO_POOL_SIZE),
+        "SERVICERADAR_TEST_DB_SHARD": lane,
+        "SERVICERADAR_TEST_LANE": lane,
+        "SERVICERADAR_TEST_TOPOLOGY": "async_serial",
+    }
+
+def _source_weight(source):
+    # One source-load unit plus one unit per exact test identity selected by ExUnit's real filters.
+    # The database-free selection-equivalence test verifies this checked-in projection, so the LPT
+    # input is structural and reproducible rather than a timing-derived weight.
+    return 1 + SERIAL_INTEGRATION_SELECTED_TEST_COUNTS[source]
+
+def _least_loaded_lane(lanes, loads, counts):
+    selected = lanes[0]
+    selected_key = (loads[selected], counts[selected], selected)
+
+    for lane in lanes[1:]:
+        candidate_key = (loads[lane], counts[lane], lane)
+        if candidate_key < selected_key:
+            selected = lane
+            selected_key = candidate_key
+
+    return selected
+
+def partition_by_lane(all_test_sources):
+    """Returns a deterministic, disjoint async/serial source map.
+
+    ``all_test_sources`` is the complete BUILD glob. Unit-only sources are intentionally ignored,
+    but every audited selected source must be present. The disposition inventory and its exact
+    Starlark projection are checked independently by //:ci_heavy_gate_contract_test.
     """
-    return _partition_by_shard(srcs, INTEGRATION_SHARD_COUNT, heavy_srcs = _HEAVY_SRCS)
+    source_set = {source: True for source in all_test_sources}
+    selected_sources = integration_selected_sources()
+
+    for source in selected_sources:
+        if source not in source_set:
+            fail("audited integration source is absent from ALL_TEST_SRCS: {}".format(source))
+
+    if len(selected_sources) != len({source: True for source in selected_sources}):
+        fail("integration disposition projection contains duplicate sources")
+
+    for source in FIXED_EXTERNAL_INTEGRATION_SRCS:
+        if source not in SERIAL_INTEGRATION_MODULE_COUNTS:
+            fail("fixed external resource source is not serial: {}".format(source))
+
+    if sorted(SERIAL_INTEGRATION_SELECTED_TEST_COUNTS.keys()) != sorted(SERIAL_INTEGRATION_MODULE_COUNTS.keys()):
+        fail("serial selected-test-count projection differs from serial source inventory")
+
+    for source, test_count in SERIAL_INTEGRATION_SELECTED_TEST_COUNTS.items():
+        if test_count <= 0:
+            fail("serial selected-test count must be positive: {}={}".format(source, test_count))
+
+    serial_lanes = integration_serial_lane_names()
+    partitions = {lane: [] for lane in integration_lane_names()}
+    loads = {lane: 0 for lane in serial_lanes}
+    counts = {lane: 0 for lane in serial_lanes}
+    partitions["async"] = list(ASYNC_INTEGRATION_SRCS)
+
+    # Shared fixture-global NATS/JetStream identifiers must never overlap across BEAMs.
+    for source in FIXED_EXTERNAL_INTEGRATION_SRCS:
+        partitions[FIXED_EXTERNAL_RESOURCE_LANE].append(source)
+        loads[FIXED_EXTERNAL_RESOURCE_LANE] += _source_weight(source)
+        counts[FIXED_EXTERNAL_RESOURCE_LANE] += 1
+
+    remaining_serial = [
+        source
+        for source in SERIAL_INTEGRATION_MODULE_COUNTS.keys()
+        if source not in FIXED_EXTERNAL_INTEGRATION_SRCS
+    ]
+    ranked_sources = sorted([(-_source_weight(source), source) for source in remaining_serial])
+
+    for negative_weight, source in ranked_sources:
+        lane = _least_loaded_lane(serial_lanes, loads, counts)
+        partitions[lane].append(source)
+        loads[lane] += -negative_weight
+        counts[lane] += 1
+
+    for lane in integration_lane_names():
+        partitions[lane] = sorted(partitions[lane])
+
+    return partitions
+
+# Compatibility for call sites that are migrated in the same change. New code should say lane.
+def partition_by_shard(all_test_sources):
+    return partition_by_lane(all_test_sources)

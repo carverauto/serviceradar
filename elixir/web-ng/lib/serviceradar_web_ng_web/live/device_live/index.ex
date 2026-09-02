@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
       clear_task_ref: 3,
       log_device_task_exit: 2,
       refresh_devices: 2,
+      remember_list_params: 3,
       schedule_device_refresh: 1,
       task_ref: 1
     ]
@@ -96,6 +97,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:csv_errors, [])
      |> assign(:csv_warnings, [])
      |> assign(:import_status, nil)
+     |> assign(:import_partition, "default")
+     |> assign(:import_partition_error, nil)
+     |> assign(:import_partition_options, [{"Default", "default"}])
      |> allow_upload(:csv_file,
        accept: ~w(.csv),
        max_entries: 1,
@@ -112,8 +116,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     {:noreply,
      socket
      |> cancel_device_refresh_timer()
-     |> assign(:last_params, Map.drop(params, ["page", "cursor"]))
-     |> assign(:last_uri, uri)
+     |> remember_list_params(params, uri)
      |> refresh_devices(list_params: params)}
   end
 

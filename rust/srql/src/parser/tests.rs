@@ -12,6 +12,22 @@ fn parses_basic_query() {
 }
 
 #[test]
+fn parses_canonical_mtr_traces_query() {
+    let ast = parse("in:mtr_traces time:last_1h sort:time:desc limit:1")
+        .expect("mtr_traces is a catalog-advertised SRQL entity");
+
+    assert_eq!(
+        serde_json::to_value(&ast.entity).unwrap(),
+        serde_json::json!("mtr_traces")
+    );
+    assert!(ast.time_filter.is_some());
+    assert_eq!(ast.order.len(), 1);
+    assert_eq!(ast.order[0].field, "time");
+    assert!(matches!(ast.order[0].direction, OrderDirection::Desc));
+    assert_eq!(ast.limit, Some(1));
+}
+
+#[test]
 fn parses_lists() {
     let ast = parse("in:devices discovery_sources:(sweep,armis)").unwrap();
     assert_eq!(ast.filters.len(), 1);
@@ -43,6 +59,48 @@ fn implicitly_promotes_wildcard_text_filters_to_like() {
     assert!(matches!(ast.filters[0].op, FilterOp::Like));
 }
 
+fn assert_implicit_wildcard_filter_is_like(field: &str) {
+    // Filter parsing is entity-independent. Use an existing entity here so a
+    // missing mtr_traces registration cannot mask a missing text-field rule.
+    let query = format!("in:devices {field}:%needle%");
+    let ast = parse(&query).unwrap();
+
+    assert_eq!(ast.filters.len(), 1, "{query}");
+    assert_eq!(ast.filters[0].field, field, "{query}");
+    assert!(matches!(ast.filters[0].op, FilterOp::Like), "{query}");
+    assert_eq!(ast.filters[0].value.as_scalar().unwrap(), "%needle%");
+}
+
+#[test]
+fn implicitly_promotes_mtr_target_ip_wildcards_to_like() {
+    assert_implicit_wildcard_filter_is_like("target_ip");
+}
+
+#[test]
+fn implicitly_promotes_mtr_check_name_wildcards_to_like() {
+    assert_implicit_wildcard_filter_is_like("check_name");
+}
+
+#[test]
+fn implicitly_promotes_mtr_error_wildcards_to_like() {
+    assert_implicit_wildcard_filter_is_like("error");
+}
+
+#[test]
+fn implicitly_promotes_device_type_wildcards_to_like() {
+    for query in ["in:devices type:%rids%", "in:devices device_type:%rids%"] {
+        let ast = parse(query).unwrap();
+
+        assert_eq!(ast.filters.len(), 1, "{query}");
+        assert!(matches!(ast.filters[0].op, FilterOp::Like), "{query}");
+        assert_eq!(
+            ast.filters[0].value.as_scalar().unwrap(),
+            "%rids%",
+            "{query}"
+        );
+    }
+}
+
 #[test]
 fn implicitly_promotes_supported_device_jsonb_wildcards_to_like() {
     for query in [
@@ -52,6 +110,8 @@ fn implicitly_promotes_supported_device_jsonb_wildcards_to_like() {
         "in:devices hw_info.serial_number:%ABC%",
         "in:devices hw_info.cpu_type:%arm%",
         "in:devices hw_info.cpu_architecture:%x86%",
+        "in:devices switch_port_attachment.switch_hostname:%asw%",
+        "in:devices vlan_uid:%56%",
     ] {
         let ast = parse(query).unwrap();
 
@@ -69,6 +129,20 @@ fn implicitly_promotes_dynamic_jsonb_wildcards_to_like() {
     assert!(matches!(ast.filters[0].op, FilterOp::Like));
     assert_eq!(ast.filters[1].field, "metadata.Zone");
     assert!(matches!(ast.filters[1].op, FilterOp::NotLike));
+}
+
+#[test]
+fn parses_source_fact_disagreement_entity() {
+    let ast = parse(
+        "in:source_fact_disagreements fact_key:switch_port_attachment status:open sort:last_detected_at:desc",
+    )
+    .unwrap();
+    assert!(matches!(
+        ast.entity,
+        crate::parser::Entity::SourceFactDisagreements
+    ));
+    assert_eq!(ast.filters[0].field, "fact_key");
+    assert_eq!(ast.filters[1].field, "status");
 }
 
 #[test]

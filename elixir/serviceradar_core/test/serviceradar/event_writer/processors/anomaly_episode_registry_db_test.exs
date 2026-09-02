@@ -4,6 +4,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistryDbTest do
   # pre-encoded binary stored `last_payload` as a JSONB string scalar that Ash
   # could not load as :map (crashing every AnomalyEpisode read). The pure
   # registry test stubs the repo and cannot catch parameter-encoding bugs.
+  # Serial: the registry owns VM-wide named ETS tables
+  # (`:serviceradar_anomaly_episode_rate_guard` and
+  # `:serviceradar_anomaly_episode_tripwire`) and `setup_all` starts core.
+  # Under `integration_tests_async` that collides with other cases and the
+  # sandbox owner disappears (`DBConnection.OwnershipError` on `Repo.query!`).
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor

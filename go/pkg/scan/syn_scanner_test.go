@@ -121,6 +121,35 @@ func TestSYNScannerCapabilitiesReportRawIPv6Enabled(t *testing.T) {
 	assert.Equal(t, "enabled", caps.Diagnostics["raw_syn_ipv6"])
 }
 
+func TestSYNScannerUsesDistinctFanoutGroups(t *testing.T) {
+	log := logger.NewTestLogger()
+	opts := &SYNScannerOptions{
+		RouteDiscoveryHost: "127.0.0.1:9",
+		RingReaders:        2,
+		GlobalRingMemoryMB: 4,
+	}
+
+	first, err := NewSYNScanner(100*time.Millisecond, 1, log, opts)
+	if permissionError(err) {
+		t.Skipf("SYN scanning unavailable without packet socket privileges: %v", err)
+	}
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	t.Cleanup(func() {
+		require.NoError(t, first.Stop())
+	})
+
+	second, err := NewSYNScanner(100*time.Millisecond, 1, log, opts)
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	t.Cleanup(func() {
+		require.NoError(t, second.Stop())
+	})
+
+	assert.NotEqual(t, first.fanoutGroup, second.fanoutGroup,
+		"independent scanners must not load-balance each other's replies")
+}
+
 func TestProcessEthernetFrameIPv6TCPReply(t *testing.T) {
 	t.Parallel()
 

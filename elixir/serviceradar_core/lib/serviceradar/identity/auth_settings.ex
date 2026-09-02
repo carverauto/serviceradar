@@ -256,7 +256,7 @@ defmodule ServiceRadar.Identity.AuthSettings do
     attribute :oidc_scopes, :string do
       default "openid email profile"
       public? true
-      description "OIDC scopes to request"
+      description "OIDC scopes to request. Include offline_access for MCP refresh."
     end
 
     # SAML Configuration

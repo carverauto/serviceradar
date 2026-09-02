@@ -2,6 +2,9 @@ suite: remote access SSH CA signer custody
 templates:
   - templates/core.yaml
   - templates/web.yaml
+# Assertions are scoped with `template:` and select documents by a path that is unique
+# within that template. Selecting on metadata.name matches several documents here and
+# fails with `multiple indexes found`. See README.md in this directory.
 tests:
   - it: mounts one operator-owned CA key into web by default
     set:
@@ -14,9 +17,10 @@ tests:
           content:
             name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ENABLED
             value: "true"
+        template: templates/web.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-web-ng
+          path: kind
+          value: Deployment
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
@@ -24,9 +28,10 @@ tests:
             mountPath: /run/secrets/serviceradar_ssh_ca
             subPath: ca-key
             readOnly: true
+        template: templates/web.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-web-ng
+          path: kind
+          value: Deployment
       - contains:
           path: spec.template.spec.volumes
           content:
@@ -37,9 +42,10 @@ tests:
               items:
                 - key: ca-key
                   path: ca-key
+        template: templates/web.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-web-ng
+          path: kind
+          value: Deployment
 
   - it: can scope key custody to core instead of web
     set:
@@ -54,9 +60,10 @@ tests:
           content:
             name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID
             value: core-ca-v1
+        template: templates/core.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-core
+          path: kind
+          value: Deployment
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
@@ -64,6 +71,7 @@ tests:
             mountPath: /run/secrets/serviceradar_ssh_ca
             subPath: ca-key
             readOnly: true
+        template: templates/core.yaml
         documentSelector:
-          path: metadata.name
-          value: serviceradar-core
+          path: kind
+          value: Deployment

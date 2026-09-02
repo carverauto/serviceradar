@@ -1,6 +1,10 @@
 import React, {useEffect, useMemo, useRef} from "react"
 import {GridStack} from "gridstack"
 
+import {canonicalUtcInstant, formatUserTime} from "../../js/utils/user_time"
+
+const DEFAULT_TIME_ZONE = "Etc/UTC"
+
 const VISUAL_LABELS = {
   table: "Table",
   stat: "Stat",
@@ -118,6 +122,46 @@ function displayTitle(value) {
   return String(value)
 }
 
+function displayTimeZone(timezone) {
+  return typeof timezone === "string" && timezone.trim() !== ""
+    ? timezone
+    : DEFAULT_TIME_ZONE
+}
+
+function fieldMetadata(fields, name) {
+  return fields.find(field => field.name === name) || null
+}
+
+function datetimeField(field) {
+  return String(field?.type || "").toLowerCase() === "datetime"
+}
+
+function cellTitle(value, field) {
+  return datetimeField(field) && canonicalUtcInstant(value) ? undefined : displayTitle(value)
+}
+
+function MiniValue({value, field, timezone}) {
+  const canonical = datetimeField(field) ? canonicalUtcInstant(value) : null
+  if (!canonical) return displayValue(value)
+
+  const displayZone = displayTimeZone(timezone)
+  const text = formatUserTime(canonical, {timeZone: displayZone, style: "full"})?.text || canonical
+  const title = `${canonical} UTC; display zone ${displayZone}`
+  const ariaLabel = `${text}; display zone ${displayZone}; canonical UTC ${canonical}`
+
+  return (
+    <time
+      dateTime={canonical}
+      data-user-time-zone={displayZone}
+      data-user-time-style="full"
+      title={title}
+      aria-label={ariaLabel}
+    >
+      {text}
+    </time>
+  )
+}
+
 function numericValue(value) {
   const next = Number(value)
   return Number.isFinite(next) ? next : null
@@ -180,7 +224,7 @@ function groupedAvailability(rows, valueField, labelField) {
   return matched ? {numerator, denominator} : null
 }
 
-function MiniVisual({panel}) {
+function MiniVisual({panel, timezone = DEFAULT_TIME_ZONE}) {
   const rows = panelRows(panel)
   const fields = panelFields(panel)
   const binding = panel.data_binding || {}
@@ -226,6 +270,8 @@ function MiniVisual({panel}) {
   if (visual === "pivot") {
     const rowField = binding.row_field || firstField(fields, "string")
     const columnField = binding.column_field || fields.find(field => ["status", "state", "health"].includes(field.name))?.name
+    const rowMetadata = fieldMetadata(fields, rowField)
+    const columnMetadata = fieldMetadata(fields, columnField)
 
     return (
       <div className="overflow-hidden rounded border border-slate-800">
@@ -239,8 +285,12 @@ function MiniVisual({panel}) {
           <tbody>
             {rows.slice(0, 3).map((row, index) => (
               <tr key={index}>
-                <td title={displayTitle(valueAt(row, rowField))}>{displayValue(valueAt(row, rowField))}</td>
-                <td title={displayTitle(valueAt(row, columnField))}>{displayValue(valueAt(row, columnField))}</td>
+                <td title={cellTitle(valueAt(row, rowField), rowMetadata)}>
+                  <MiniValue value={valueAt(row, rowField)} field={rowMetadata} timezone={timezone} />
+                </td>
+                <td title={cellTitle(valueAt(row, columnField), columnMetadata)}>
+                  <MiniValue value={valueAt(row, columnField)} field={columnMetadata} timezone={timezone} />
+                </td>
               </tr>
             ))}
           </tbody>
@@ -280,8 +330,8 @@ function MiniVisual({panel}) {
                 const value = valueAt(row, field.name)
 
                 return (
-                  <td key={field.name} className="max-w-44 truncate" title={displayTitle(value)}>
-                    {displayValue(value)}
+                  <td key={field.name} className="max-w-44 truncate" title={cellTitle(value, field)}>
+                    <MiniValue value={value} field={field} timezone={timezone} />
                   </td>
                 )
               })}
@@ -303,6 +353,7 @@ export function Component({
   visualOptions = [],
   selectedId = "",
   canManage = false,
+  timezone = DEFAULT_TIME_ZONE,
   pushEvent = () => {},
 }) {
   const gridRef = useRef(null)
@@ -524,7 +575,7 @@ export function Component({
                       </div>
                     </div>
                     <div className="h-[calc(100%-48px)] overflow-hidden p-3">
-                      <MiniVisual panel={panel} />
+                      <MiniVisual panel={panel} timezone={timezone} />
                     </div>
                   </div>
                 </div>

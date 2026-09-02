@@ -66,7 +66,7 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
         "Community string or SNMPv3 user credentials, reusable across SNMP profiles and targets.",
       "plugin_id" => "snmp",
       "plugin_version" => "native",
-      "supports_rules" => false,
+      "supports_rules" => true,
       "purposes" => ["snmp_monitoring"],
       "scope_types" => ["agent"],
       "auth_methods" => [
@@ -99,6 +99,16 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
               "required" => true,
               "secret" => false,
               "public" => true
+            },
+            # UniFi's SNMP UI is one password with hidden SHA + AES-128 authPriv.
+            # Put the same password in auth and privacy and set these explicitly.
+            %{
+              "id" => "security_level",
+              "label" => "Security level",
+              "control" => "text",
+              "required" => false,
+              "secret" => false,
+              "public" => false
             },
             # Carried with the credential rather than left on the profile: the
             # protocols are part of what these secrets mean, so a credential

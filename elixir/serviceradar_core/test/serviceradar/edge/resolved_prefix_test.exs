@@ -218,6 +218,31 @@ defmodule ServiceRadar.Edge.ResolvedPrefixTest do
       assert ResolvedPrefix.retained_dispositions(done) === 0
     end
 
+    test "release refuses a first-unresolved sequence outside protobuf uint64" do
+      max = 0xFFFFFFFFFFFFFFFF
+      t = max |> ResolvedPrefix.new() |> record!(max, @authoritative)
+
+      assert {:error, :above_lane_max} = ResolvedPrefix.release_below(t, max + 1)
+    end
+
+    test "release preserves pending out-of-order outcomes" do
+      t =
+        1
+        |> ResolvedPrefix.new()
+        |> record!(1, @authoritative)
+        |> record!(2, @audit)
+        |> record!(5, @quarantine)
+        |> record!(7, @retryable)
+
+      assert ResolvedPrefix.resolved_through(t) === 2
+      assert ResolvedPrefix.pending_out_of_order(t) === 2
+
+      assert {:ok, released} = ResolvedPrefix.release_below(t, 3)
+      assert ResolvedPrefix.pending_out_of_order(released) === 2
+      assert ResolvedPrefix.pending_disposition(released, 5) === {:ok, @quarantine}
+      assert ResolvedPrefix.pending_disposition(released, 7) === {:ok, @retryable}
+    end
+
     test "the gateway never infers release from having sent an ack" do
       # There is no API that advances release from gateway-side activity: the only entry point
       # takes the agent's reported sequence. This is structural, not a runtime check.

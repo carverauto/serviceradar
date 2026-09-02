@@ -2,8 +2,9 @@ defmodule ServiceRadar.PrefixTags.ManualIntegrationTest do
   @moduledoc """
   DB-backed regression coverage for operator-authored prefix tags.
 
-  Run with `SERVICERADAR_TEST_DATABASE_URL=... mix test --include integration
-  test/serviceradar/prefix_tags/manual_integration_test.exs`.
+  Run through the guarded Bazel lifecycle, or follow
+  `.agents/skills/srql-fixtures-db-tests/SKILL.md` to create a codex_* scratch database before a
+  focused Mix invocation.
   """
 
   use ServiceRadar.DataCase, async: false

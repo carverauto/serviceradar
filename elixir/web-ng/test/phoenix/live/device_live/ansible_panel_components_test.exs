@@ -41,7 +41,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
         launch_ready: false,
         launch_resolution: nil,
         launch_readiness: "Select a reviewed playbook.",
-        launch_form: Phoenix.Component.to_form(%{})
+        launch_form: Phoenix.Component.to_form(%{}),
+        timezone: "America/Chicago"
       ],
       overrides
     )
@@ -51,6 +52,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
     html = render_component(&AnsiblePanelComponents.ansible_operations_section/1, base_assigns([]))
 
     assert html =~ "device-ansible-panel"
+    assert html =~ "/images/integrations/ansible.svg"
+    assert html =~ "/images/integrations/ansible-dark.svg"
+    refute html =~ "hero-command-line"
     assert html =~ "/ansible/operations"
     assert html =~ "All operations"
     assert html =~ "Launch Playbook"
@@ -101,6 +105,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponentsTest do
     assert operation_text =~ "controller-1 / inventory 34"
     assert operation_text =~ "host 7 · gen 2"
     assert operation_text =~ "controller-local"
+
+    time =
+      LazyHTML.query(
+        document,
+        "#device-ansible-operation-operation-12345678-started-at[data-user-time-zone='America/Chicago']"
+      )
+
+    assert LazyHTML.attribute(time, "datetime") == ["2026-07-13T12:00:05Z"]
 
     assert LazyHTML.attribute(
              LazyHTML.query(document, "a[href='/ansible/operations/operation-12345678']"),

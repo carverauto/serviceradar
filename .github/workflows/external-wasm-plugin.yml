@@ -31,7 +31,7 @@ jobs:
       plugin_version: ${{ steps.bundle.outputs.version }}
     steps:
       - name: Checkout trusted ServiceRadar release code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
 
@@ -55,7 +55,7 @@ jobs:
           fi
 
       - name: Checkout external plugin tag
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: ${{ github.event.inputs.plugin_repository }}
           ref: ${{ github.event.inputs.plugin_tag }}
@@ -94,7 +94,7 @@ jobs:
           printf 'committed_at=%s\n' "${source_committed_at}" >>"${GITHUB_OUTPUT}"
 
       - name: Setup pinned Go
-        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
         with:
           go-version: '1.25.12'
 
@@ -201,7 +201,7 @@ jobs:
             -o spdx-json="${GITHUB_WORKSPACE}/external-plugin-dist/${plugin_id}.spdx.json"
 
       - name: Retain unprivileged build output
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: external-wasm-${{ github.run_id }}
           path: external-plugin-dist/
@@ -245,12 +245,12 @@ jobs:
 
     steps:
       - name: Checkout trusted ServiceRadar release code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
 
       - name: Restore unprivileged build output
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v8
         with:
           name: external-wasm-${{ github.run_id }}
           path: external-plugin-dist
@@ -356,7 +356,7 @@ jobs:
             "${RUNNER_TEMP}/serviceradar-wasm-plugin-index.json"
 
       - name: Retain signed release evidence
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: external-wasm-signed-${{ github.run_id }}
           path: |

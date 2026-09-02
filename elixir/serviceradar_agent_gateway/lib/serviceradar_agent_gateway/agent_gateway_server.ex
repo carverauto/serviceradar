@@ -421,6 +421,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       agent_id: agent_id,
       gateway_id: gateway_id(),
       partition: partition,
+      authenticated_partition: Map.get(identity, :partition_id),
       source_ip: get_peer_ip(stream),
       kv_store_id: request.kv_store_id,
       timestamp: System.os_time(:second),
@@ -570,15 +571,19 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp log_package_telemetry_status(_status), do: :ok
 
-  defp normalize_partition(partition) when is_binary(partition) do
-    partition = String.trim(partition)
+  defp canonical_partition(partition) when is_binary(partition) do
+    trimmed = String.trim(partition)
 
-    if byte_size(partition) > 0 and byte_size(partition) <= 128 and
+    if trimmed == partition and byte_size(partition) > 0 and byte_size(partition) <= 128 and
          not String.contains?(partition, ["\n", "\r", "\t"]) do
       partition
-    else
-      "default"
     end
+  end
+
+  defp canonical_partition(_partition), do: nil
+
+  defp normalize_partition(partition) when is_binary(partition) do
+    partition |> String.trim() |> canonical_partition() || "default"
   end
 
   defp normalize_partition(_partition), do: "default"
@@ -635,6 +640,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       agent_id: metadata.agent_id,
       gateway_id: metadata.gateway_id,
       partition: status_partition(service, metadata, source),
+      authenticated_partition: canonical_partition(Map.get(metadata, :authenticated_partition)),
       source: source,
       kv_store_id: service.kv_store_id || metadata.kv_store_id,
       timestamp: metadata.timestamp,
@@ -647,15 +653,38 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     }
   end
 
-  # Durable ingestion is stamped from the gateway-authenticated view, so the
-  # partition must come from mTLS-derived metadata, never from the payload.
+  # Source routing keeps its existing partition semantics. Authority checks use
+  # the separate authenticated_partition stamped from the raw mTLS identity.
   defp status_partition(service, metadata, source) do
-    if strict_delivery_source?(source, metadata) do
+    if mtls_partition_source?(source, metadata) do
       normalize_partition(metadata.partition)
     else
       normalize_partition(service.partition || metadata.partition)
     end
   end
+
+  # Which sources have their partition forced from the certificate.
+  #
+  # Deliberately a SUPERSET of strict_delivery_source?/2 rather than an addition
+  # to @strict_delivery_sources, because that list does a second, unrelated
+  # thing: a strict-delivery status bypasses the lenient rescue, so any
+  # exception raised while handling it aborts the whole chunk instead of being
+  # swallowed. Adding "addon:" there would change failure semantics for
+  # otel-collector, powerdns, anomaly-addon and bumblebee at the same time --
+  # which is a fleet-wide blast radius for what is meant to be a stamping fix.
+  #
+  # Native add-on telemetry becomes durable inventory and OCSF events, so the
+  # partition it lands under must be the authenticated one and not a value the
+  # add-on supplied. `plugin:` (the wasm package-telemetry prefix) is left alone
+  # here on purpose: wasm inventory writes arrive as the separate
+  # `plugin-result` source, which already has its own conditional strict
+  # handling.
+  defp mtls_partition_source?(source, metadata) do
+    strict_delivery_source?(source, metadata) or addon_telemetry_source?(source)
+  end
+
+  defp addon_telemetry_source?("addon:" <> _addon_id), do: true
+  defp addon_telemetry_source?(_source), do: false
 
   defp normalize_service_message(nil, source), do: normalize_message("", source)
 
@@ -1414,6 +1443,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       chunk_metadata(
         agent_id,
         partition,
+        Map.get(identity, :partition_id),
         peer_ip,
         chunk,
         chunk_index,
@@ -1625,11 +1655,21 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp ensure_stream_registration(true, _identity, _agent_id, _partition, _chunk, _stream), do: :ok
 
-  defp chunk_metadata(agent_id, partition, peer_ip, chunk, chunk_index, total_chunks, delivery_capabilities) do
+  defp chunk_metadata(
+         agent_id,
+         partition,
+         authenticated_partition,
+         peer_ip,
+         chunk,
+         chunk_index,
+         total_chunks,
+         delivery_capabilities
+       ) do
     %{
       agent_id: agent_id,
       gateway_id: gateway_id(),
       partition: partition,
+      authenticated_partition: authenticated_partition,
       source_ip: peer_ip,
       kv_store_id: chunk.kv_store_id,
       timestamp: System.os_time(:second),

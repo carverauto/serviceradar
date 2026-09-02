@@ -27,13 +27,14 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookLaunchableReadTest do
       mix test --include integration \\
         test/serviceradar/automation/ansible/playbook_launchable_read_test.exs
   """
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias Ash.Seed
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.Playbook
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @moduletag :integration
 
@@ -116,7 +117,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookLaunchableReadTest do
       name: "launchable-test-#{tag}-#{suffix}",
       base_url: "https://awx.test.invalid",
       agent_id: "agent-launchable-test",
-      credential_secret_id: Ash.UUID.generate()
+      credential_secret_id: CredentialIntegrationFixtures.secret_id!()
     })
   end
 

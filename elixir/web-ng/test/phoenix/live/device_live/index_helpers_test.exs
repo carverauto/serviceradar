@@ -9,7 +9,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
   @moduletag :db_free
 
   test "parse_csv_file handles quoted commas and pipe-separated tags" do
-    path = Path.join(System.tmp_dir!(), "serviceradar-device-import-#{System.unique_integer([:positive])}.csv")
+    path =
+      Path.join(
+        System.tmp_dir!(),
+        "serviceradar-device-import-#{System.unique_integer([:positive])}.csv"
+      )
+
     on_exit(fn -> File.rm(path) end)
 
     File.write!(path, """
@@ -22,8 +27,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     assert device == %{
              hostname: "router, core",
              ip: "192.0.2.10",
+             partition: "",
              type: "network",
              tags: ["site=lab", "role=edge"],
+             metadata: %{"site" => "lab", "role" => "edge"},
              source_line: 2
            }
   end
@@ -39,6 +46,53 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     assert device.hostname == ""
     assert device.ip == "192.0.2.11"
     assert device.tags == ["gate=B40"]
+    assert device.metadata == %{"gate" => "B40"}
+  end
+
+  test "parse_csv_file copies key=value tags into metadata for All Metadata" do
+    path =
+      csv_fixture("""
+      hostname,ip,type,tags
+      rids-sfo-e6,10.0.4.17,rids,rids=true|site=SFO|concourse=E|gate=E6|model=DAK_VENUS1500_4LINE|config=efids|rows=4|cols=24|source=rids
+      """)
+
+    assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
+
+    assert device.tags == [
+             "rids=true",
+             "site=SFO",
+             "concourse=E",
+             "gate=E6",
+             "model=DAK_VENUS1500_4LINE",
+             "config=efids",
+             "rows=4",
+             "cols=24",
+             "source=rids"
+           ]
+
+    assert device.metadata == %{
+             "rids" => "true",
+             "site" => "SFO",
+             "concourse" => "E",
+             "gate" => "E6",
+             "model" => "DAK_VENUS1500_4LINE",
+             "config" => "efids",
+             "rows" => "4",
+             "cols" => "24",
+             "source" => "rids"
+           }
+  end
+
+  test "parse_csv_file extra columns overlay tag pairs in metadata" do
+    path =
+      csv_fixture("""
+      hostname,ip,tags,site
+      rids-den-a14,10.130.20.228,site=ZZC|gate=A14,ZZC-override
+      """)
+
+    assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
+    assert device.tags == ["site=ZZC", "gate=A14"]
+    assert device.metadata == %{"site" => "ZZC-override", "gate" => "A14"}
   end
 
   test "parse_csv_file accepts a hostname-only row for DNS resolution" do
@@ -211,12 +265,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
       end
     end
 
-    assert {:error, %{created: 2, skipped: 0, errors: ["Row 3: :nxdomain"]}} =
+    assert {:error, %{created: 2, updated: 0, errors: ["Row 3: :nxdomain"]}} =
              IndexCsvImport.import_devices(:scope, devices, create_device)
 
     assert_receive {:attempted, 2}
     assert_receive {:attempted, 3}
     assert_receive {:attempted, 4}
+  end
+
+  test "import_devices formats a StaleRecord without dumping the Ash struct" do
+    stale =
+      Ash.Error.Changes.StaleRecord.exception(
+        resource: ServiceRadar.Inventory.Device,
+        filter: %{uid: "sr:bfb15b4f-c734-4aa4-94d5-33cd282f4afe"}
+      )
+
+    wrapped = Ash.Error.Invalid.exception(errors: [stale])
+
+    create_device = fn _scope, _device -> {:error, wrapped} end
+
+    assert {:error, %{created: 0, updated: 0, errors: [message]}} =
+             IndexCsvImport.import_devices(:scope, [%{source_line: 391}], create_device)
+
+    assert message ==
+             "Row 391: device was updated by another writer during import; retry this row"
+
+    refute message =~ "StaleRecord"
+    refute message =~ "Splode"
   end
 
   test "import_devices rejects an oversized hostname-only batch before resolving or writing" do
@@ -240,7 +315,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     assert {:error,
             %{
               created: 0,
-              skipped: 0,
+              updated: 0,
               errors: [
                 "CSV contains 101 hostname-only rows; the maximum is 100 per import"
               ]
@@ -262,7 +337,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
       send(test_process, {:resolver_started, hostname, self()})
 
       receive do
-        :continue -> {:ok, "192.0.2.#{hostname |> String.replace_prefix("host-", "") |> String.split(".") |> hd()}"}
+        :continue ->
+          {:ok, "192.0.2.#{hostname |> String.replace_prefix("host-", "") |> String.split(".") |> hd()}"}
       end
     end
 
@@ -327,7 +403,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     assert {:error,
             %{
               created: 2,
-              skipped: 0,
+              updated: 0,
               errors: ["Row 3: unable to resolve hostname 'bad.example': :nxdomain"]
             }} = IndexCsvImport.import_devices(:scope, devices, create_device, resolver)
 
@@ -353,7 +429,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     assert {:error,
             %{
               created: 0,
-              skipped: 0,
+              updated: 0,
               errors: ["Row 7: hostname resolution timed out for 'slow.example'"]
             }} =
              IndexCsvImport.import_devices(
@@ -367,5 +443,123 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexHelpersTest do
     assert_receive {:resolver_waiting, resolver_pid}
     refute Process.alive?(resolver_pid)
     refute_receive :unexpected_create
+  end
+
+  test "completed_csv_upload_entry matches Phoenix uploaded_entries {completed, in_progress} tuples" do
+    # uploaded_entries/2 returns this tuple. preview_csv_upload/1 used to match
+    # [] / [entry | _] and CaseClauseError on Preview of a finished upload.
+    entry = %Phoenix.LiveView.UploadEntry{
+      progress: 100,
+      preflighted?: true,
+      upload_config: :csv_file,
+      valid?: true,
+      done?: true,
+      cancelled?: false,
+      client_name: "rids-import.csv",
+      client_type: "text/csv"
+    }
+
+    assert {:ok, ^entry} = IndexCsvImport.completed_csv_upload_entry({[entry], []})
+    assert {:error, :no_file} = IndexCsvImport.completed_csv_upload_entry({[], []})
+    assert {:error, :in_progress} = IndexCsvImport.completed_csv_upload_entry({[], [entry]})
+  end
+
+  test "parse_csv_file accepts a rids spreadsheet row with pipe-separated tags" do
+    path =
+      csv_fixture("""
+      hostname,ip,type,tags
+      rids-bos-b23,10.102.61.31,rids,rids=true|site=BOS|concourse=B|gate=B23
+      """)
+
+    assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
+    assert device.hostname == "rids-bos-b23"
+    assert device.ip == "10.102.61.31"
+    assert device.type == "rids"
+    assert device.tags == ["rids=true", "site=BOS", "concourse=B", "gate=B23"]
+
+    assert device.metadata == %{
+             "rids" => "true",
+             "site" => "BOS",
+             "concourse" => "B",
+             "gate" => "B23"
+           }
+  end
+
+  test "parse_csv_file puts extra columns into metadata" do
+    path =
+      csv_fixture("""
+      hostname,ip,type,tags,model,site
+      rids-bos-b23,10.102.61.31,rids,rids=true,DAK_VENUS1500_4LINE,BOS
+      """)
+
+    assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
+    assert device.tags == ["rids=true"]
+
+    assert device.metadata == %{
+             "rids" => "true",
+             "model" => "DAK_VENUS1500_4LINE",
+             "site" => "BOS"
+           }
+  end
+
+  test "import_devices counts existing-device upserts as updates" do
+    devices = [
+      %{ip: "192.0.2.10", source_line: 2},
+      %{ip: "192.0.2.11", source_line: 3}
+    ]
+
+    persist = fn _scope, device ->
+      case device.source_line do
+        2 -> {:ok, :created, %{}}
+        3 -> {:ok, :updated, %{}}
+      end
+    end
+
+    assert {:ok, {1, 1}} = IndexCsvImport.import_devices(:scope, devices, persist)
+
+    assert IndexCsvImport.import_success_message(1, 1) ==
+             "Created 1 device(s). Updated 1 existing device(s) with imported tags and metadata."
+
+    assert IndexCsvImport.import_success_message(0, 3) ==
+             "Updated 3 existing device(s) with imported tags and metadata."
+  end
+
+  test "parse_csv_file reads a partition column and keeps it out of metadata" do
+    path =
+      csv_fixture("""
+      hostname,ip,type,partition,tags
+      rids-iah-b40,10.0.0.1,rids,rids,rids=true|site=ZZA
+      """)
+
+    assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
+    assert device.partition == "rids"
+    assert device.metadata == %{"rids" => "true", "site" => "ZZA"}
+  end
+
+  test "parse_csv_file downcases a partition slug" do
+    path = csv_fixture("hostname,ip,partition\nhost-a,192.0.2.40,RIDS\n")
+
+    assert {:ok, [device], []} = IndexCsvImport.parse_csv_file(path)
+    assert device.partition == "rids"
+  end
+
+  test "parse_csv_file skips an invalid partition slug" do
+    path = csv_fixture("hostname,ip,partition\nhost-a,192.0.2.41,Not A Slug\n")
+
+    assert {:error, errors} = IndexCsvImport.parse_csv_file(path)
+    assert "No valid device rows found in CSV" in errors
+    assert "Row 2 skipped: invalid partition 'not a slug'" in errors
+  end
+
+  test "apply_import_partition fills blank rows from the modal default" do
+    devices = [
+      %{hostname: "a", ip: "192.0.2.50", partition: ""},
+      %{hostname: "b", ip: "192.0.2.51", partition: "lab"}
+    ]
+
+    assert [
+             %{partition: "rids", ip: "192.0.2.50"},
+             %{partition: "lab", ip: "192.0.2.51"}
+           ] = IndexCsvImport.apply_import_partition(devices, "rids")
   end
 end

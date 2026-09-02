@@ -57,7 +57,15 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
     source_results = fetch_panel_value(panel_assigns, :source_results, fetch_panel_value(panel_assigns, :results, []))
     max_rows = fetch_panel_value(panel_assigns, :max_rows, @max_table_rows)
     sort_col = Map.get(socket.assigns, :sort_col, fetch_panel_value(panel_assigns, :sort_col))
+
     sort_dir = Map.get(socket.assigns, :sort_dir, fetch_panel_value(panel_assigns, :sort_dir, :asc))
+
+    timezone =
+      case fetch_panel_value(panel_assigns, :timezone) do
+        nil -> "Etc/UTC"
+        timezone -> timezone
+      end
+
     results = display_results(source_results, sort_col, sort_dir, max_rows)
 
     socket =
@@ -68,6 +76,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
       |> assign(:results, results)
       |> assign(:sort_col, sort_col)
       |> assign(:sort_dir, normalize_sort_dir(sort_dir))
+      |> assign(:timezone, timezone)
 
     {:ok, socket}
   end
@@ -488,6 +497,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Table do
           sort_dir={@sort_dir}
           sort_event="sort"
           sort_target={@myself}
+          timezone={@timezone}
           empty_message="No results."
         />
       </.ui_panel>

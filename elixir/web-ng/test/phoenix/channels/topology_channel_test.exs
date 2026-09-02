@@ -120,14 +120,32 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     refute_push "snapshot_error", _payload, 500
   end
 
-  test "next_expanded_clusters keeps expansion exclusive" do
-    assert TopologyChannel.next_expanded_clusters(MapSet.new(), "cluster:a", true) ==
-             MapSet.new(["cluster:a"])
+  test "next_expanded_clusters allows concurrent expansions without clearing existing ones" do
+    assert TopologyChannel.next_expanded_clusters([], "cluster:a", true) == ["cluster:a"]
 
-    assert TopologyChannel.next_expanded_clusters(MapSet.new(["cluster:a"]), "cluster:b", true) ==
-             MapSet.new(["cluster:b"])
+    assert TopologyChannel.next_expanded_clusters(["cluster:a"], "cluster:b", true) ==
+             ["cluster:a", "cluster:b"]
 
-    assert TopologyChannel.next_expanded_clusters(MapSet.new(["cluster:b"]), "cluster:b", false) ==
-             MapSet.new()
+    # re-expanding an already expanded cluster keeps the set stable
+    assert TopologyChannel.next_expanded_clusters(["cluster:a", "cluster:b"], "cluster:b", true) ==
+             ["cluster:a", "cluster:b"]
+  end
+
+  test "next_expanded_clusters never evicts an expansion to make room for another" do
+    # There is no cap. A deployment with five endpoint clusters must be able to hold all five
+    # open; the previous limit of four silently collapsed the first when the fifth was opened,
+    # which reads to the operator as a click closing an unrelated group.
+    clusters = for index <- 1..12, do: "cluster:#{index}"
+
+    expanded =
+      Enum.reduce(clusters, [], fn cluster, acc ->
+        TopologyChannel.next_expanded_clusters(acc, cluster, true)
+      end)
+
+    assert expanded == clusters
+
+    # collapsing one leaves every other expansion untouched
+    assert TopologyChannel.next_expanded_clusters(expanded, "cluster:5", false) ==
+             List.delete(clusters, "cluster:5")
   end
 end

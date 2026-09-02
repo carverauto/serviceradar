@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Inventory.ArmisSourceSnapshot
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
 
@@ -142,15 +143,18 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   defp start_ingestion_task(state) do
     queue = state.queue
-    updates = queue.batches |> Enum.reverse() |> List.flatten()
+    ingestion_groups = queue.batches |> Enum.reverse() |> group_batches_for_ingestion()
+    update_count = Enum.sum(Enum.map(ingestion_groups, &length/1))
 
-    Logger.info("Coalesced #{queue.chunk_count} sync chunks into #{length(updates)} updates")
+    Logger.info(
+      "Coalesced #{queue.chunk_count} sync chunks into #{length(ingestion_groups)} run groups and #{update_count} updates"
+    )
 
     queue = %{queue | batches: [], chunk_count: 0, inflight: true, ready: false, timer_ref: nil}
     state = %{state | queue: queue}
 
     task_fun = fn ->
-      ingest_updates(updates)
+      Enum.each(ingestion_groups, &ingest_updates/1)
     end
 
     case start_task(task_fun, state.task_supervisor) do
@@ -222,6 +226,24 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     )
   end
 
+  @doc false
+  def group_batches_for_ingestion(batches) when is_list(batches) do
+    batches
+    |> Enum.chunk_by(&sync_batch_key/1)
+    |> Enum.map(&List.flatten/1)
+  end
+
+  defp sync_batch_key(updates) do
+    case extract_sync_meta(updates) do
+      %{sync_service_id: source_id, sync_run_id: run_id}
+      when is_binary(source_id) and source_id != "" and is_binary(run_id) and run_id != "" ->
+        {:sync_run, source_id, run_id}
+
+      _ ->
+        :legacy
+    end
+  end
+
   defp ingest_updates(updates) do
     Logger.info("Processing sync results")
     Logger.info("Decoded #{length(updates)} sync updates")
@@ -229,9 +251,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:sync_ingestor)
     sync_meta = extract_sync_meta(updates)
+    device_updates = strip_sync_control_updates(updates)
     log_sync_progress("started", updates, sync_meta)
     record_sync_start(updates, actor, sync_meta)
-    result = sync_ingestor().ingest_updates(updates, actor: actor)
+    result = ingest_device_updates(device_updates, actor)
+    result = maybe_activate_source_snapshot(result, updates, sync_meta, actor)
     Logger.info("SyncIngestor result: #{inspect(result)}")
 
     record_sync_status(updates, actor, result, sync_meta)
@@ -243,6 +267,22 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       Logger.warning("Sync results ingestion failed: #{inspect(error)}")
       {:error, error}
   end
+
+  defp ingest_device_updates([], _actor), do: :ok
+
+  defp ingest_device_updates(updates, actor),
+    do: sync_ingestor().ingest_updates(updates, actor: actor)
+
+  @doc false
+  def strip_sync_control_updates(updates) when is_list(updates) do
+    Enum.reject(updates, fn update ->
+      is_map(update) and
+        (Map.get(update, "_sync_control") || Map.get(update, :_sync_control)) ==
+          "collection_final"
+    end)
+  end
+
+  def strip_sync_control_updates(_updates), do: []
 
   defp do_ingest_results(message) do
     case decode_results(message) do
@@ -379,7 +419,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
         acc[:sync_run_id] || get_string(meta, ["sync_run_id", :sync_run_id])
 
       total_devices =
-        acc[:total_devices] || get_integer(meta, ["total_devices", :total_devices])
+        select_max(acc[:total_devices], get_integer(meta, ["total_devices", :total_devices]))
 
       chunk_index =
         select_min(acc[:chunk_index], get_integer(meta, ["chunk_index", :chunk_index]))
@@ -388,13 +428,20 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
       is_final = acc[:is_final] || get_bool(meta, ["is_final", :is_final])
 
+      population =
+        case get_map(meta, ["population", :population]) do
+          value when map_size(value) > 0 -> value
+          _ -> acc[:population]
+        end
+
       %{
         sync_service_id: sync_service_id,
         sync_run_id: sync_run_id,
         total_devices: total_devices,
         chunk_index: chunk_index,
         total_chunks: total_chunks,
-        is_final: is_final
+        is_final: is_final,
+        population: population
       }
     end)
   end
@@ -410,23 +457,29 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
   defp sync_source_device_count(sync_service_id, sync_meta, updates)
        when is_binary(sync_service_id) and sync_service_id != "" do
-    case Repo.query(
-           """
-           SELECT COUNT(DISTINCT d.uid)
-           FROM platform.ocsf_devices AS d
-           LEFT JOIN platform.device_identifiers AS di
-             ON di.device_id = d.uid
-            AND di.identifier_type = 'integration_id'
-           WHERE d.deleted_at IS NULL
-             AND COALESCE(d.metadata->>'sync_service_id', di.metadata->>'sync_service_id') = $1
-           """,
-           [sync_service_id]
-         ) do
-      {:ok, %{rows: [[count]]}} when is_integer(count) ->
+    case exact_population_count(sync_meta) do
+      count when is_integer(count) ->
         count
 
-      _ ->
-        sync_device_count(updates, sync_meta)
+      nil ->
+        case Repo.query(
+               """
+               SELECT COUNT(DISTINCT d.uid)
+               FROM platform.ocsf_devices AS d
+               LEFT JOIN platform.device_identifiers AS di
+                 ON di.device_id = d.uid
+                AND di.identifier_type = 'integration_id'
+               WHERE d.deleted_at IS NULL
+                 AND COALESCE(d.metadata->>'sync_service_id', di.metadata->>'sync_service_id') = $1
+               """,
+               [sync_service_id]
+             ) do
+          {:ok, %{rows: [[count]]}} when is_integer(count) ->
+            count
+
+          _ ->
+            sync_device_count(updates, sync_meta)
+        end
     end
   rescue
     error ->
@@ -437,6 +490,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp sync_source_device_count(_sync_service_id, sync_meta, updates) do
     sync_device_count(updates, sync_meta)
   end
+
+  defp exact_population_count(%{population: population}) when is_map(population) do
+    get_integer(population, ["distinct_source_ids", :distinct_source_ids])
+  end
+
+  defp exact_population_count(_sync_meta), do: nil
 
   defp should_record_sync_start?(sync_meta) do
     cond do
@@ -487,6 +546,29 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
       end
     end)
   end
+
+  defp get_map(map, keys) do
+    Enum.find_value(keys, %{}, fn key ->
+      case map do
+        %{^key => value} when is_map(value) -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp select_max(nil, value), do: value
+  defp select_max(value, nil), do: value
+  defp select_max(left, right), do: max(left, right)
+
+  defp maybe_activate_source_snapshot(:ok, updates, %{is_final: true} = sync_meta, actor) do
+    case ArmisSourceSnapshot.activate(updates, sync_meta, actor: actor) do
+      :ok -> :ok
+      {:error, :not_armis_source} -> :ok
+      {:error, reason} -> {:error, {:source_snapshot_activation_failed, reason}}
+    end
+  end
+
+  defp maybe_activate_source_snapshot(result, _updates, _sync_meta, _actor), do: result
 
   defp get_integer(map, keys) do
     Enum.find_value(keys, fn key ->

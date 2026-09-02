@@ -146,6 +146,7 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
     plugin_upload: [limit: 10, window_seconds: 60],
     oauth_password_grant: [limit: 10, window_seconds: 60],
     oauth_client_credentials: [limit: 20, window_seconds: 60],
+    mcp: [limit: 60, window_seconds: 60],
     remote_access_ssh_certificate_issue: [limit: 10, window_seconds: 60],
     automation_callback_grant: [limit: 30, window_seconds: 60],
     # Notification action links. Unauthenticated by design, so this limit is the
@@ -162,6 +163,10 @@ config :serviceradar_core, Worker,
   emit_verdicts?: true,
   min_points: 24,
   seasonal_period: 24
+
+# Visibility applied to newly created dashboard instances. Existing rows are
+# backfilled to public and are not affected when this setting later changes.
+config :serviceradar_core, :dashboard_packages, default_visibility: :public
 
 config :serviceradar_core, :object_store_retention,
   enabled?: true,
@@ -324,8 +329,20 @@ config :spark,
 #   resources: [
 #     ServiceRadar.Credentials.NetworkCredentialSecret,
 #     ServiceRadar.Credentials.NetworkCredentialRule,
+# Lint-only CI sets SERVICERADAR_SKIP_NIF_COMPILATION so mix deps.compile does
 #     ServiceRadar.Security.AuthLockout
+# not shell out to cargo. mix_app already skips these NIFs under Bazel via
 #   ]
+# extra_config. See elixir/web-ng/config/config.exs for the full rationale.
 config :swoosh, :api_client, false
+
+if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
+  config :serviceradar_core, ServiceRadar.Observability.DispositionKernels,
+    skip_compilation?: true
+
+  config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
+
+  config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true
+end
 
 import_config "#{config_env()}.exs"

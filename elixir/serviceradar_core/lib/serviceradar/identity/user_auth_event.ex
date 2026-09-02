@@ -23,6 +23,7 @@ defmodule ServiceRadar.Identity.UserAuthEvent do
 
   code_interface do
     define :list_for_user, action: :for_user, args: [:user_id]
+    define :latest_of_type, action: :latest_of_type, args: [:user_id, :event_type]
     define :record, action: :create
   end
 
@@ -35,6 +36,18 @@ defmodule ServiceRadar.Identity.UserAuthEvent do
       prepare build(sort: [inserted_at: :desc])
 
       pagination keyset?: true, required?: false, default_limit: 50
+    end
+
+    # The paginated :for_user feed is ordered by time, so the event that explains
+    # a user's current access can sit arbitrarily far down it. Asking for the
+    # newest of one kind directly keeps that answer a single row rather than a
+    # scan the caller has to page through.
+    read :latest_of_type do
+      argument :user_id, :uuid, allow_nil?: false
+      argument :event_type, :string, allow_nil?: false
+
+      filter expr(user_id == ^arg(:user_id) and event_type == ^arg(:event_type))
+      prepare build(sort: [inserted_at: :desc], limit: 1)
     end
 
     create :create do

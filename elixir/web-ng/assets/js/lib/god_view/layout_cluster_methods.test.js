@@ -194,4 +194,66 @@ describe("layout_cluster_methods", () => {
     expect(regionalCtx.reshapeGraph(graph).shape).toEqual("regional")
     expect(regionalCtx.reclusterByGrid).toHaveBeenCalledWith(graph)
   })
+
+  it.each([
+    {layoutMode: "elk-radial-overview", zoomMode: "global", zoomTier: "local"},
+    {layoutMode: "elk-radial-overview", zoomMode: "auto", zoomTier: "regional"},
+    {layoutMode: "elk-scene-detail", zoomMode: "regional", zoomTier: "local"},
+    {layoutMode: "elk-scene-detail", zoomMode: "auto", zoomTier: "global"},
+  ])("keeps an accepted $layoutMode scene authoritative in $zoomMode/$zoomTier", ({layoutMode, zoomMode, zoomTier}) => {
+    const graph = {
+      shape: "global",
+      _layoutMode: layoutMode,
+      _topologyScene: {
+        key: "accepted-scene",
+        nodes: [],
+        routes: [],
+        groups: [],
+        bounds: {minX: 0, minY: 0, maxX: 0, maxY: 0},
+      },
+      nodes: [{id: "node-a", x: 120, y: 80}],
+      edges: [],
+    }
+    const ctx = makeContext({state: {zoomMode, zoomTier}})
+    ctx.reclusterByState = vi.fn(() => ({shape: "global"}))
+    ctx.reclusterByGrid = vi.fn(() => ({shape: "regional"}))
+
+    const reshaped = ctx.reshapeGraph(graph)
+
+    expect(reshaped).toEqual({...graph, shape: "local"})
+    expect(reshaped._topologyScene).toBe(graph._topologyScene)
+    expect(reshaped.nodes).toBe(graph.nodes)
+    expect(ctx.reclusterByState).not.toHaveBeenCalled()
+    expect(ctx.reclusterByGrid).not.toHaveBeenCalled()
+  })
+
+  it("keeps accepted ELK semantic shape local across visual-density changes", () => {
+    const graph = {
+      shape: "regional",
+      _layoutMode: "elk-scene-detail",
+      _topologyScene: {
+        key: "accepted-scene",
+        nodes: [],
+        routes: [],
+        groups: [],
+        bounds: {minX: 0, minY: 0, maxX: 0, maxY: 0},
+      },
+      nodes: [{id: "node-a", x: 120, y: 80}],
+      edges: [],
+    }
+    const ctx = makeContext({state: {managedTopologyVisualDensity: "overview"}})
+    ctx.reclusterByState = vi.fn(() => ({shape: "global", nodes: []}))
+    ctx.reclusterByGrid = vi.fn(() => ({shape: "regional", nodes: []}))
+
+    const overview = ctx.reshapeGraph(graph)
+    ctx.state.managedTopologyVisualDensity = "detail"
+    const detail = ctx.reshapeGraph(graph)
+
+    expect(overview).toEqual({...graph, shape: "local"})
+    expect(detail).toEqual({...graph, shape: "local"})
+    expect(overview._topologyScene).toBe(graph._topologyScene)
+    expect(overview.nodes).toBe(graph.nodes)
+    expect(ctx.reclusterByState).not.toHaveBeenCalled()
+    expect(ctx.reclusterByGrid).not.toHaveBeenCalled()
+  })
 })

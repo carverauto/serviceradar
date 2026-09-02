@@ -54,6 +54,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   @behaviour ServiceRadar.AgentConfig.Compiler
 
+  # Mirrors maxTargetNameLength in go/pkg/agent/snmp/config.go. A name over the
+  # bound is rejected by the agent, so it is enforced here where the name is
+  # built rather than discovered at the far end.
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.TargetedProfileResolver
   alias ServiceRadar.Ash.Page
@@ -75,6 +78,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   require Ash.Query
   require Logger
 
+  @max_target_name_length 128
+
   @impl true
   def config_type, do: :snmp
 
@@ -84,7 +89,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   @impl true
-  def compile(_partition, agent_id, opts \\ []) do
+  def compile(partition, agent_id, opts \\ []) do
     # DB connection's search_path determines the schema
     actor = opts[:actor] || SystemActor.system(:snmp_compiler)
     device_uid = opts[:device_uid]
@@ -98,7 +103,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     profile = resolve_profile(device_uid, agent_id, actor)
 
     if profile && profile.enabled do
-      config = compile_profile(profile, actor)
+      config = compile_profile(profile, actor, agent_id: agent_id, partition: partition)
       publish_duplicate_polling_warning(profile, config)
       {:ok, config}
     else
@@ -157,10 +162,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   2. Load OIDs from profile's oid_template_ids
   3. For each device, build target config with resolved credentials
   """
-  @spec compile_profile(SNMPProfile.t(), map()) :: map()
-  def compile_profile(profile, actor) do
+  @spec compile_profile(SNMPProfile.t(), map(), keyword()) :: map()
+  def compile_profile(profile, actor, opts \\ []) do
     # 1. Load explicit targets (from interface selection or profile overrides)
-    profile_targets = load_profile_targets(profile, actor)
+    profile_targets = load_profile_targets(profile, actor, opts)
 
     # 2. Execute target_query to find matching devices
     target_query = normalize_target_query(profile.target_query, profile.is_default)
@@ -172,13 +177,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     # 4. Build target config for each device (only when templates are present)
     query_targets =
       devices
-      |> Enum.map(fn device -> compile_device_target(device, profile, oids, actor) end)
+      |> Enum.map(fn device -> compile_device_target(device, profile, oids, actor, opts) end)
       |> Enum.reject(&is_nil/1)
 
     compiled_targets =
       profile_targets
       |> merge_targets(query_targets)
       |> sort_targets()
+      |> sanitize_target_names()
 
     %{
       "enabled" => profile.enabled and compiled_targets != [],
@@ -363,7 +369,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   # Compile a device into a target config
-  defp compile_device_target(device, profile, oids, actor) do
+  defp compile_device_target(device, profile, oids, actor, opts) do
     if oids == [] do
       Logger.debug("SNMPCompiler: skipping device #{device.uid} (no OIDs)")
       nil
@@ -375,7 +381,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         Logger.debug("SNMPCompiler: skipping device #{device.uid} (no IP or hostname)")
         nil
       else
-        compile_device_target_with_host(device, profile, oids, actor, host)
+        compile_device_target_with_host(device, profile, oids, actor, host, opts)
       end
     end
   end
@@ -517,8 +523,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp private_ip_tuple?({a, _, _, _, _, _, _, _}) when a in 0xFE80..0xFEBF, do: true
   defp private_ip_tuple?(_), do: false
 
-  defp compile_device_target_with_host(device, profile, oids, actor, host) do
-    credential = resolve_device_credentials(device.uid, profile, actor)
+  defp compile_device_target_with_host(device, profile, oids, actor, host, opts) do
+    credential = resolve_device_credentials(device.uid, profile, actor, opts)
 
     case credential do
       {:error, reason} ->
@@ -629,7 +635,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp maybe_put_positive_int(map, _key, value) when not is_integer(value) or value <= 0, do: map
   defp maybe_put_positive_int(map, key, value), do: Map.put(map, key, value)
 
-  defp load_profile_targets(profile, actor) do
+  defp load_profile_targets(profile, actor, opts) do
     query =
       SNMPTarget
       |> Ash.Query.filter(snmp_profile_id == ^profile.id)
@@ -639,7 +645,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       {:ok, targets} ->
         targets
         |> Enum.sort_by(&target_sort_key/1)
-        |> Enum.map(&compile_profile_target(&1, profile, actor))
+        |> Enum.map(&compile_profile_target(&1, profile, actor, opts))
         |> Enum.reject(&is_nil/1)
         |> sort_targets()
 
@@ -649,7 +655,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     end
   end
 
-  defp compile_profile_target(%SNMPTarget{} = target, profile, actor) do
+  defp compile_profile_target(%SNMPTarget{} = target, profile, actor, opts) do
     oids =
       target.oid_configs
       |> Enum.map(&oid_config_to_map/1)
@@ -660,11 +666,17 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       nil
     else
       credential =
-        CredentialResolver.build_credential(target, actor,
-          consumer_id: "snmp_target:#{target.id}",
-          target_kind: "snmp_target",
-          target_id: target.id
-        )
+        case CredentialResolver.resolve_for_host(target.host, actor, opts) do
+          {:ok, %{credential: rule_cred, source: :credential_rule}} when is_map(rule_cred) ->
+            rule_cred
+
+          _ ->
+            CredentialResolver.build_credential(target, actor,
+              consumer_id: "snmp_target:#{target.id}",
+              target_kind: "snmp_target",
+              target_id: target.id
+            )
+        end
 
       version =
         if is_map(credential),
@@ -706,7 +718,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     end
   end
 
-  defp compile_profile_target(_, _, _), do: nil
+  defp compile_profile_target(_, _, _, _), do: nil
 
   defp oid_config_to_map(%SNMPOIDConfig{} = oid) do
     %{
@@ -830,6 +842,81 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     Enum.sort_by(targets, &target_sort_key/1)
   end
 
+  @doc """
+  Rewrites compiled target names into the form the agent will accept.
+
+  The agent admits only `[A-Za-z0-9_-]` in a target name, caps it at 128 bytes,
+  and rejects duplicates (`isValidNameChar` and `validateTargetName` in
+  `go/pkg/agent/snmp/config.go`). Target names here come from
+  `device.name || device.hostname || device.uid`, none of which is constrained
+  that way: every FQDN-named device carries dots and a device uid carries
+  colons.
+
+  This is public because it encodes a contract defined in another language in
+  another directory, and that contract is worth being able to state and test
+  directly rather than only through a compile.
+  """
+  @spec sanitize_target_names([map()]) :: [map()]
+  def sanitize_target_names(targets) when is_list(targets) do
+    targets
+    |> Enum.map_reduce(MapSet.new(), fn target, seen ->
+      name = target |> Map.get("name") |> sanitize_target_name(Map.get(target, "id"))
+
+      name =
+        if MapSet.member?(seen, name),
+          do: disambiguate_target_name(name, Map.get(target, "id")),
+          else: name
+
+      {Map.put(target, "name", name), MapSet.put(seen, name)}
+    end)
+    |> elem(0)
+  end
+
+  # Falls back when the scrubbed name carries no alphanumeric character at all,
+  # not merely when it is empty. A name of "..." scrubs to "___", which the
+  # agent accepts but which identifies nothing to an operator reading target
+  # status - and every such device scrubs to the same string.
+  defp sanitize_target_name(name, id) do
+    scrubbed = scrub_target_name(name)
+
+    if meaningful_target_name?(scrubbed) do
+      scrubbed
+    else
+      id |> scrub_target_name() |> fallback_target_name(scrubbed)
+    end
+  end
+
+  defp meaningful_target_name?(value), do: String.match?(value, ~r/[A-Za-z0-9]/)
+
+  defp scrub_target_name(value) when is_binary(value) do
+    value
+    |> String.replace(~r/[^A-Za-z0-9_-]/, "_")
+    |> String.slice(0, @max_target_name_length)
+  end
+
+  defp scrub_target_name(_value), do: ""
+
+  defp fallback_target_name(from_id, last_resort) do
+    cond do
+      meaningful_target_name?(from_id) -> from_id
+      last_resort != "" -> last_resort
+      true -> "target"
+    end
+  end
+
+  # Sanitizing can map two distinct devices onto one name (`a.b` and `a_b` both
+  # become `a_b`), and the agent keys collectors, aggregators, and status by
+  # target name - so a collision silently drops one device's polling rather than
+  # erroring. The suffix is derived from the device uid so it stays stable
+  # across compiles instead of shifting with list position.
+  defp disambiguate_target_name(name, id) do
+    suffix = id |> to_string() |> then(&:crypto.hash(:sha256, &1)) |> Base.encode16(case: :lower)
+
+    base = String.slice(name, 0, @max_target_name_length - 9)
+
+    base <> "_" <> String.slice(suffix, 0, 8)
+  end
+
   defp sort_oids(oids) when is_list(oids) do
     Enum.sort_by(oids, fn oid ->
       {Map.get(oid, "name", ""), Map.get(oid, "oid", "")}
@@ -845,19 +932,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   # Resolve credentials: device override → profile fallback
-  defp resolve_device_credentials(device_uid, profile, actor) do
-    case CredentialResolver.resolve_for_device(device_uid, actor) do
-      {:ok, %{credential: credential, source: :device_override}} when is_map(credential) ->
-        credential
-
-      {:ok, %{credential: credential, source: :profile}} when is_map(credential) ->
+  defp resolve_device_credentials(device_uid, profile, actor, opts) do
+    case CredentialResolver.resolve_for_device(device_uid, actor, opts) do
+      {:ok, %{credential: credential}} when is_map(credential) ->
         credential
 
       {:error, reason} ->
         {:error, reason}
 
       _ ->
-        # Use profile credentials as fallback
         CredentialResolver.build_credential(profile, actor,
           consumer_id: profile && "snmp_profile:#{profile.id}",
           target_kind: "snmp_profile",
@@ -870,12 +953,25 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   defp valid_credentials?(credential) when is_map(credential) do
     case Map.get(credential, :version, :v2c) do
       :v3 ->
-        present?(Map.get(credential, :username)) or
-          present?(Map.get(credential, :auth_password)) or
-          present?(Map.get(credential, :priv_password))
+        present?(Map.get(credential, :username)) and
+          valid_v3_secrets?(credential)
 
       _ ->
         present?(Map.get(credential, :community))
+    end
+  end
+
+  defp valid_v3_secrets?(credential) do
+    case Map.get(credential, :security_level) do
+      :auth_priv ->
+        present?(Map.get(credential, :auth_password)) and
+          present?(Map.get(credential, :priv_password))
+
+      :auth_no_priv ->
+        present?(Map.get(credential, :auth_password))
+
+      _ ->
+        true
     end
   end
 

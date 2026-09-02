@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
 
   use Phoenix.Component
 
+  import ServiceRadarWebNGWeb.CoreComponents, only: [user_time: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
@@ -97,6 +98,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           data-testid="timeseries-annotation-window"
           data-annotation-label={annotation.label}
           data-annotation-severity={annotation.severity}
+          data-time-title-iso={Map.get(annotation, :time_iso)}
           x={annotation.window_x1}
           y={@chart_top_pad}
           width={max(annotation.window_x2 - annotation.window_x1, 1)}
@@ -113,6 +115,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           data-annotation-label={annotation.label}
           data-annotation-severity={annotation.severity}
           data-annotation-window-position={Map.get(annotation, :window_position, :in_window)}
+          data-time-title-iso={Map.get(annotation, :time_iso)}
           x1={annotation.x}
           x2={annotation.x}
           y1={@chart_top_pad}
@@ -125,6 +128,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           <title>{annotation.title}</title>
         </line>
         <circle
+          data-time-title-iso={Map.get(annotation, :time_iso)}
           cx={annotation.x}
           cy={@chart_top_pad + 4}
           r={if @compact, do: 2.5, else: 3.5}
@@ -161,6 +165,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           data-testid="timeseries-anomaly-window"
           data-overlay-label={overlay.label}
           data-overlay-severity={overlay.severity}
+          data-time-title-iso={Map.get(overlay, :time_iso)}
           x={overlay.window_x1}
           y={@chart_top_pad}
           width={max(overlay.window_x2 - overlay.window_x1, 1)}
@@ -175,6 +180,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           :if={is_map(Map.get(overlay, :confidence))}
           data-testid="timeseries-capacity-confidence"
           data-overlay-label={overlay.label}
+          data-time-title-iso={Map.get(overlay, :time_iso)}
           x={@chart_left_pad}
           y={overlay.confidence.y}
           width={@chart_width - @chart_left_pad - @chart_right_pad}
@@ -190,6 +196,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           data-testid="timeseries-capacity-runway"
           data-overlay-label={overlay.label}
           data-overlay-severity={overlay.severity}
+          data-time-title-iso={Map.get(overlay, :time_iso)}
           x1={overlay.runway.x1}
           y1={overlay.runway.y1}
           x2={overlay.runway.x2}
@@ -208,6 +215,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           data-overlay-kind={overlay.kind}
           data-overlay-label={overlay.label}
           data-overlay-severity={overlay.severity}
+          data-time-title-iso={Map.get(overlay, :time_iso)}
           x1={overlay.x}
           x2={overlay.x}
           y1={@chart_top_pad}
@@ -224,6 +232,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           :if={is_number(Map.get(overlay, :x)) and is_number(Map.get(overlay, :value_y))}
           data-testid="timeseries-overlay-value"
           data-overlay-label={overlay.label}
+          data-time-title-iso={Map.get(overlay, :time_iso)}
           cx={overlay.x}
           cy={overlay.value_y}
           r={if Map.get(overlay, :selected), do: 4.5, else: 3.5}
@@ -283,6 +292,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
   attr :chart_top_pad, :integer, required: true
   attr :chart_bottom_pad, :integer, required: true
   attr :compact, :boolean, default: false
+  attr :timezone, :string, default: "Etc/UTC"
 
   def chart_card(assigns) do
     assigns =
@@ -308,6 +318,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
       data-chart-width={@chart_width}
       data-chart-left-pad={@effective_chart_left_pad}
       data-chart-right-pad={@chart_right_pad}
+      data-timezone={@timezone}
     >
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-2 min-w-0">
@@ -403,8 +414,15 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
           </g>
 
           <g class="text-[11px] fill-sr-muted font-mono">
-            <%= for {x, label} <- @data.x_ticks do %>
-              <text x={x} y={@chart_height - 4} text-anchor="middle">{label}</text>
+            <%= for {x, instant} <- @data.x_ticks do %>
+              <text
+                x={x}
+                y={@chart_height - 4}
+                text-anchor="middle"
+                data-time-axis-iso={instant}
+              >
+                {instant}
+              </text>
             <% end %>
           </g>
 
@@ -487,10 +505,33 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard do
         @compact && "text-[9px]",
         not @compact && "text-[10px]"
       ]}>
-        <span>{@data.first_dt}</span>
-        <span>{@data.last_dt}</span>
+        <.user_time
+          id={"timeseries-#{@id}-series-#{series_dom_id(@data)}-first-time"}
+          value={@data.first_dt}
+          timezone={@timezone}
+          style={:compact}
+        />
+        <.user_time
+          id={"timeseries-#{@id}-series-#{series_dom_id(@data)}-last-time"}
+          value={@data.last_dt}
+          timezone={@timezone}
+          style={:compact}
+        />
       </div>
     </div>
     """
+  end
+
+  defp series_dom_id(data) do
+    series =
+      data
+      |> Map.get(:raw_series, Map.get(data, :series, "series"))
+      |> to_string()
+
+    if Regex.match?(~r/\A[a-zA-Z0-9_-]+\z/, series) do
+      "s-#{series}"
+    else
+      "e-#{Base.url_encode64(series, padding: false)}"
+    end
   end
 end

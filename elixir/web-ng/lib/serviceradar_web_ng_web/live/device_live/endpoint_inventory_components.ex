@@ -33,6 +33,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   attr(:query_running, :boolean, default: false)
   attr(:force_refresh_running, :boolean, default: false)
   attr(:cohort_running, :boolean, default: false)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def endpoint_inventory_section(assigns) do
     page_packages = assigns.packages || []
@@ -113,10 +114,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             <.summary_stat label="Risk Score" value={risk_score_display(@risk_score)} />
             <.summary_stat label="Risk Level" value={risk_level_display(@risk_level)} />
             <.summary_stat label="Managers" value={map_size(manager_counts(@scan))} />
-            <.summary_stat
-              label="Last Success"
-              value={short_timestamp(field(@scan, :last_successful_scan_at))}
-            />
+            <.summary_stat label="Last Success">
+              <.user_time
+                id={"endpoint-inventory-scan-#{record_dom_id(@scan, "scan")}-last-success-summary"}
+                value={field(@scan, :last_successful_scan_at)}
+                timezone={@timezone}
+                style={:compact}
+                fallback={timestamp_fallback(field(@scan, :last_successful_scan_at))}
+              />
+            </.summary_stat>
           </div>
 
           <div class="sr-ui-table-shell">
@@ -126,15 +132,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                 <.scan_row label="Coverage" value={field(@scan, :coverage_state)} />
                 <.scan_row label="Agent" value={field(@scan, :agent_id)} mono />
                 <.scan_row label="Collector" value={collector_label(@scan)} />
-                <.scan_row label="Last Scan" value={format_timestamp(field(@scan, :last_scan_at))} />
-                <.scan_row
-                  label="Last Success"
-                  value={format_timestamp(field(@scan, :last_successful_scan_at))}
-                />
-                <.scan_row
-                  label="Last Changed"
-                  value={format_timestamp(field(@scan, :last_changed_scan_at))}
-                />
+                <.scan_row label="Last Scan" mono>
+                  <.user_time
+                    id={"endpoint-inventory-scan-#{record_dom_id(@scan, "scan")}-last-scan-at"}
+                    value={field(@scan, :last_scan_at)}
+                    timezone={@timezone}
+                    style={:full}
+                    fallback={timestamp_fallback(field(@scan, :last_scan_at))}
+                  />
+                </.scan_row>
+                <.scan_row label="Last Success" mono>
+                  <.user_time
+                    id={"endpoint-inventory-scan-#{record_dom_id(@scan, "scan")}-last-successful-scan-at"}
+                    value={field(@scan, :last_successful_scan_at)}
+                    timezone={@timezone}
+                    style={:full}
+                    fallback={timestamp_fallback(field(@scan, :last_successful_scan_at))}
+                  />
+                </.scan_row>
+                <.scan_row label="Last Changed" mono>
+                  <.user_time
+                    id={"endpoint-inventory-scan-#{record_dom_id(@scan, "scan")}-last-changed-scan-at"}
+                    value={field(@scan, :last_changed_scan_at)}
+                    timezone={@timezone}
+                    style={:full}
+                    fallback={timestamp_fallback(field(@scan, :last_changed_scan_at))}
+                  />
+                </.scan_row>
                 <.scan_row label="Upload Reason" value={field(@scan, :upload_reason)} />
                 <.scan_row
                   label="Unchanged"
@@ -341,7 +365,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                 <tr :for={artifact <- @artifacts}>
                   <td class="max-w-64 truncate font-mono text-xs">{field(artifact, :object_key)}</td>
                   <td class="font-mono text-xs">{format_bytes(field(artifact, :size_bytes))}</td>
-                  <td class="font-mono text-xs">{format_timestamp(field(artifact, :uploaded_at))}</td>
+                  <td class="font-mono text-xs">
+                    <.user_time
+                      id={"endpoint-inventory-artifact-#{record_dom_id(artifact, "artifact")}-uploaded-at"}
+                      value={field(artifact, :uploaded_at)}
+                      timezone={@timezone}
+                      style={:full}
+                      fallback={timestamp_fallback(field(artifact, :uploaded_at))}
+                    />
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -493,6 +525,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   attr(:package, :any, default: nil)
   attr(:matches, :list, default: [])
   attr(:cpe_catalog_current, :boolean, default: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   @doc """
   Detail modal for a single Current Packages row. Renders the full package
@@ -550,8 +583,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
               <.detail_row label="CPEs" value={cpe_display(field(@package, :cpes))} mono />
               <.detail_row label="Source" value={field(@package, :source)} />
               <.detail_row label="Coordinate" value={coordinate_display(@package)} mono />
-              <.detail_row label="First Seen" value={format_timestamp(field(@package, :inserted_at))} />
-              <.detail_row label="Last Seen" value={format_timestamp(field(@package, :updated_at))} />
+              <.detail_row label="First Seen" mono>
+                <.user_time
+                  id={"endpoint-inventory-package-#{record_dom_id(@package, "package")}-inserted-at"}
+                  value={field(@package, :inserted_at)}
+                  timezone={@timezone}
+                  style={:full}
+                  fallback={timestamp_fallback(field(@package, :inserted_at))}
+                />
+              </.detail_row>
+              <.detail_row label="Last Seen" mono>
+                <.user_time
+                  id={"endpoint-inventory-package-#{record_dom_id(@package, "package")}-updated-at"}
+                  value={field(@package, :updated_at)}
+                  timezone={@timezone}
+                  style={:full}
+                  fallback={timestamp_fallback(field(@package, :updated_at))}
+                />
+              </.detail_row>
               <.detail_row label="Scan Ref" value={field(@package, :scan_ref)} mono />
             </tbody>
           </table>
@@ -597,6 +646,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   attr(:show, :boolean, default: false)
   attr(:group, :any, default: nil)
   attr(:match, :any, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   @doc """
   Detail modal for a consolidated Vulnerability Matches package row.
@@ -749,12 +799,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
               label="CWE"
               value={Enum.join(match_cwes(@match), ", ")}
             />
-            <.detail_row
-              label="Published"
-              value={format_timestamp(advisory_published_at(@advisory))}
-            />
-            <.detail_row label="First seen" value={format_timestamp(field(@match, :first_seen_at))} />
-            <.detail_row label="Last seen" value={format_timestamp(field(@match, :last_seen_at))} />
+            <.detail_row label="Published" mono>
+              <.user_time
+                id={"endpoint-inventory-match-#{record_dom_id(@match, "match")}-advisory-published-at"}
+                value={advisory_published_at(@advisory)}
+                timezone={@timezone}
+                style={:full}
+                fallback={timestamp_fallback(advisory_published_at(@advisory))}
+              />
+            </.detail_row>
+            <.detail_row label="First seen" mono>
+              <.user_time
+                id={"endpoint-inventory-match-#{record_dom_id(@match, "match")}-first-seen-at"}
+                value={field(@match, :first_seen_at)}
+                timezone={@timezone}
+                style={:full}
+                fallback={timestamp_fallback(field(@match, :first_seen_at))}
+              />
+            </.detail_row>
+            <.detail_row label="Last seen" mono>
+              <.user_time
+                id={"endpoint-inventory-match-#{record_dom_id(@match, "match")}-last-seen-at"}
+                value={field(@match, :last_seen_at)}
+                timezone={@timezone}
+                style={:full}
+                fallback={timestamp_fallback(field(@match, :last_seen_at))}
+              />
+            </.detail_row>
           </tbody>
         </table>
       </div>
@@ -778,6 +849,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           :for={advisory <- @advisories}
           match={advisory.primary}
           feeds={advisory.feeds}
+          timezone={@timezone}
         />
       </div>
     </.ui_modal>
@@ -786,6 +858,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   attr(:match, :any, required: true)
   attr(:feeds, :list, default: [])
+  attr(:timezone, :string, required: true)
 
   defp vulnerability_match_card(assigns) do
     assigns =
@@ -887,11 +960,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         </div>
         <div>
           <span class="text-sr-muted">First seen:</span>
-          <span>{format_timestamp(field(@match, :first_seen_at))}</span>
+          <.user_time
+            id={"endpoint-inventory-match-card-#{record_dom_id(@match, "match")}-first-seen-at"}
+            value={field(@match, :first_seen_at)}
+            timezone={@timezone}
+            style={:full}
+            fallback={timestamp_fallback(field(@match, :first_seen_at))}
+          />
         </div>
         <div>
           <span class="text-sr-muted">Last seen:</span>
-          <span>{format_timestamp(field(@match, :last_seen_at))}</span>
+          <.user_time
+            id={"endpoint-inventory-match-card-#{record_dom_id(@match, "match")}-last-seen-at"}
+            value={field(@match, :last_seen_at)}
+            timezone={@timezone}
+            style={:full}
+            fallback={timestamp_fallback(field(@match, :last_seen_at))}
+          />
         </div>
       </div>
 
@@ -1009,26 +1094,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   end
 
   attr(:label, :string, required: true)
-  attr(:value, :any, required: true)
+  attr(:value, :any, default: nil)
   attr(:mono, :boolean, default: false)
+  slot(:inner_block)
 
   defp detail_row(assigns) do
     ~H"""
     <tr>
       <th class="w-36 text-xs text-sr-muted">{@label}</th>
-      <td class={["break-all text-xs", @mono && "font-mono"]}>{empty_dash(@value)}</td>
+      <td class={["break-all text-xs", @mono && "font-mono"]}>
+        <%= if @inner_block == [] do %>
+          {empty_dash(@value)}
+        <% else %>
+          {render_slot(@inner_block)}
+        <% end %>
+      </td>
     </tr>
     """
   end
 
   attr(:label, :string, required: true)
-  attr(:value, :any, required: true)
+  attr(:value, :any, default: nil)
+  slot(:inner_block)
 
   defp summary_stat(assigns) do
     ~H"""
     <div class="rounded border border-sr-line bg-sr-subtle/30 px-3 py-2">
       <div class="text-[0.65rem] font-semibold uppercase text-sr-muted">{@label}</div>
-      <div class="mt-1 truncate text-sm font-semibold">{empty_dash(@value)}</div>
+      <div class="mt-1 truncate text-sm font-semibold">
+        <%= if @inner_block == [] do %>
+          {empty_dash(@value)}
+        <% else %>
+          {render_slot(@inner_block)}
+        <% end %>
+      </div>
     </div>
     """
   end
@@ -1149,14 +1248,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   end
 
   attr(:label, :string, required: true)
-  attr(:value, :any, required: true)
+  attr(:value, :any, default: nil)
   attr(:mono, :boolean, default: false)
+  slot(:inner_block)
 
   defp scan_row(assigns) do
     ~H"""
     <tr>
       <th class="w-32 text-xs text-sr-muted">{@label}</th>
-      <td class={["text-xs", @mono && "font-mono"]}>{empty_dash(@value)}</td>
+      <td class={["text-xs", @mono && "font-mono"]}>
+        <%= if @inner_block == [] do %>
+          {empty_dash(@value)}
+        <% else %>
+          {render_slot(@inner_block)}
+        <% end %>
+      </td>
     </tr>
     """
   end
@@ -2007,19 +2113,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(_value), do: false
 
-  defp short_timestamp(nil), do: "-"
-  defp short_timestamp(%DateTime{} = value), do: Calendar.strftime(value, "%m-%d %H:%M")
-  defp short_timestamp(value), do: to_string(value)
+  defp record_dom_id(record, kind) do
+    identity =
+      field(record, :id) ||
+        field(record, :scan_id) ||
+        field(record, :cve_id) ||
+        field(record, :advisory_id) ||
+        field(record, :object_key) ||
+        field(record, :purl_canonical) ||
+        field(record, :purl)
 
-  defp format_timestamp(nil), do: "-"
-
-  defp format_timestamp(%DateTime{} = value) do
-    value
-    |> DateTime.truncate(:second)
-    |> Calendar.strftime("%Y-%m-%d %H:%M:%S UTC")
+    case dom_id_fragment(identity) do
+      "" -> "#{kind}-#{:erlang.phash2(record)}"
+      fragment -> fragment
+    end
   end
 
-  defp format_timestamp(value), do: to_string(value)
+  defp dom_id_fragment(value) when is_binary(value) or is_atom(value) or is_integer(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^A-Za-z0-9_-]+/, "-")
+    |> String.trim("-")
+  end
+
+  defp dom_id_fragment(_value), do: ""
+
+  defp timestamp_fallback(nil), do: "-"
+  defp timestamp_fallback(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp timestamp_fallback(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+  defp timestamp_fallback(value) when is_binary(value), do: value
+  defp timestamp_fallback(_value), do: "-"
 
   defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1_073_741_824,
     do: "#{Float.round(bytes / 1_073_741_824, 1)} GiB"

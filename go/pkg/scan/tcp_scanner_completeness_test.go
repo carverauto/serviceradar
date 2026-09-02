@@ -18,7 +18,10 @@ package scan
 
 import (
 	"context"
+	"hash/fnv"
+	"io"
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -29,13 +32,57 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
 
+func uniqueLoopbackHost(t *testing.T, ctx context.Context) string {
+	t.Helper()
+
+	h := fnv.New32a()
+	_, _ = io.WriteString(h, t.Name())
+	seed := h.Sum32()
+
+	lc := net.ListenConfig{}
+
+	for i := range 16 {
+		n := seed + uint32(i)*7919
+		host := net.IPv4(127, byte(2+(n/65534)%53), byte(n/256), byte(1+n%254)).String()
+
+		ln, err := lc.Listen(ctx, "tcp", net.JoinHostPort(host, "0"))
+		if err != nil {
+			// macOS often only has 127.0.0.1 configured on lo0.
+			continue
+		}
+
+		require.NoError(t, ln.Close())
+
+		return host
+	}
+
+	return "127.0.0.1"
+}
+
+func tcpAddr(host string, port int) string {
+	return net.JoinHostPort(host, strconv.Itoa(port))
+}
+
+func portClosed(ctx context.Context, host string, port int) bool {
+	d := net.Dialer{Timeout: 50 * time.Millisecond}
+
+	conn, err := d.DialContext(ctx, "tcp", tcpAddr(host, port))
+	if err != nil {
+		return true
+	}
+
+	_ = conn.Close()
+
+	return false
+}
+
 // listenTCP starts a TCP listener on a random port using the context-aware ListenConfig.
-func listenTCP(t *testing.T, ctx context.Context) net.Listener {
+func listenTCP(t *testing.T, ctx context.Context, host string) net.Listener {
 	t.Helper()
 
 	lc := net.ListenConfig{}
 
-	ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
+	ln, err := lc.Listen(ctx, "tcp", net.JoinHostPort(host, "0"))
 	require.NoError(t, err)
 
 	t.Cleanup(func() { _ = ln.Close() })
@@ -43,32 +90,37 @@ func listenTCP(t *testing.T, ctx context.Context) net.Listener {
 	return ln
 }
 
-// closedPortTCP returns a port with nothing listening on it.
+// closedPortTCP returns a port with nothing listening on host.
 //
 // Binding and immediately releasing is what makes the port closed: the kernel
 // has just told us nothing else holds it. Guessing an offset instead -- these
-// tests used openPort+10000 and fixed values like 19991 -- only assumes it. The
-// tests in this file run in parallel and each call listenTCP, so a sibling's
-// listener can land on the guessed port; that is what failed
-// TestTCPScanner_NoEarlyExitOnSuccess in CI with "Closed port 1 should be
-// unavailable". The offsets were also unbounded: an ephemeral openPort above
-// 55535 pushed openPort+10000 past 65535 entirely.
+// tests used openPort+10000 and fixed values like 19991 -- only assumes it.
 //
-// A port could still be taken between the close and the scan, but that needs
-// something to claim this exact port in that window, rather than merely to be
-// running.
-func closedPortTCP(t *testing.T, ctx context.Context) int {
+// Releasing still races: a sibling t.Parallel() listenTCP on the same host can
+// be given the just-freed port, which is how TestTCPScanner_AllPortsChecked
+// failed in CI with "Port 34289 should be unavailable (no listener)". Isolate
+// each test on a unique 127.x.y.z when the OS allows it, and re-check Dial
+// after close so a 0.0.0.0 thief is not accepted.
+func closedPortTCP(t *testing.T, ctx context.Context, host string) int {
 	t.Helper()
 
 	lc := net.ListenConfig{}
 
-	ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
+	for range 32 {
+		ln, err := lc.Listen(ctx, "tcp", net.JoinHostPort(host, "0"))
+		require.NoError(t, err)
 
-	port := ln.Addr().(*net.TCPAddr).Port
-	require.NoError(t, ln.Close())
+		port := ln.Addr().(*net.TCPAddr).Port
+		require.NoError(t, ln.Close())
 
-	return port
+		if portClosed(ctx, host, port) {
+			return port
+		}
+	}
+
+	t.Fatal("could not reserve a TCP port that stays closed")
+
+	return 0
 }
 
 // collectResults drains a result channel into a slice.
@@ -90,10 +142,12 @@ func TestTCPScanner_AllPortsChecked(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	host := uniqueLoopbackHost(t, ctx)
+
 	// Start listeners on multiple ports to have some succeed and some fail
 	ports := make([]int, 3)
 	for i := range 3 {
-		ln := listenTCP(t, ctx)
+		ln := listenTCP(t, ctx, host)
 		ports[i] = ln.Addr().(*net.TCPAddr).Port
 	}
 
@@ -101,20 +155,20 @@ func TestTCPScanner_AllPortsChecked(t *testing.T) {
 	// Host 1 has all ports listening (will succeed), host 2 has none (will fail)
 	targets := make([]models.Target, 0, 8)
 
-	// Host 1: all ports open (127.0.0.1 has listeners)
+	// Host 1: all ports open
 	for _, port := range ports {
 		targets = append(targets, models.Target{
-			Host: "127.0.0.1",
+			Host: host,
 			Port: port,
 			Mode: models.ModeTCP,
 		})
 	}
 
 	// Host 2: no ports open. Reserve-and-release so they really are closed.
-	closedPorts := []int{closedPortTCP(t, ctx), closedPortTCP(t, ctx), closedPortTCP(t, ctx)}
+	closedPorts := []int{closedPortTCP(t, ctx, host), closedPortTCP(t, ctx, host), closedPortTCP(t, ctx, host)}
 	for _, port := range closedPorts {
 		targets = append(targets, models.Target{
-			Host: "127.0.0.1",
+			Host: host,
 			Port: port,
 			Mode: models.ModeTCP,
 		})
@@ -145,7 +199,7 @@ func TestTCPScanner_AllPortsChecked(t *testing.T) {
 
 	// All open ports should have results and be available
 	for _, port := range ports {
-		key := targetKey{host: "127.0.0.1", port: port}
+		key := targetKey{host: host, port: port}
 		r, exists := resultMap[key]
 		assert.True(t, exists, "Missing result for open port %d", port)
 		assert.True(t, r.Available, "Port %d should be available (listener running)", port)
@@ -153,7 +207,7 @@ func TestTCPScanner_AllPortsChecked(t *testing.T) {
 
 	// All closed ports should have results and be unavailable
 	for _, port := range closedPorts {
-		key := targetKey{host: "127.0.0.1", port: port}
+		key := targetKey{host: host, port: port}
 		r, exists := resultMap[key]
 		assert.True(t, exists, "Missing result for closed port %d - scanner skipped it!", port)
 		assert.False(t, r.Available, "Port %d should be unavailable (no listener)", port)
@@ -168,18 +222,20 @@ func TestTCPScanner_NoEarlyExitOnSuccess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	host := uniqueLoopbackHost(t, ctx)
+
 	// Start a listener on one port only
-	ln := listenTCP(t, ctx)
+	ln := listenTCP(t, ctx, host)
 
 	openPort := ln.Addr().(*net.TCPAddr).Port
-	closedPort1 := closedPortTCP(t, ctx)
-	closedPort2 := closedPortTCP(t, ctx)
+	closedPort1 := closedPortTCP(t, ctx, host)
+	closedPort2 := closedPortTCP(t, ctx, host)
 
 	// Create targets: one open port sandwiched between closed ports
 	targets := []models.Target{
-		{Host: "127.0.0.1", Port: closedPort1, Mode: models.ModeTCP},
-		{Host: "127.0.0.1", Port: openPort, Mode: models.ModeTCP},
-		{Host: "127.0.0.1", Port: closedPort2, Mode: models.ModeTCP},
+		{Host: host, Port: closedPort1, Mode: models.ModeTCP},
+		{Host: host, Port: openPort, Mode: models.ModeTCP},
+		{Host: host, Port: closedPort2, Mode: models.ModeTCP},
 	}
 
 	scanner := NewTCPSweeper(2*time.Second, 10, logger.NewTestLogger())
@@ -215,22 +271,24 @@ func TestTCPScanner_LargePortList(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
+	host := uniqueLoopbackHost(t, ctx)
+
 	// Start listeners on 2 out of 20 ports
-	ln1 := listenTCP(t, ctx)
-	ln2 := listenTCP(t, ctx)
+	ln1 := listenTCP(t, ctx, host)
+	ln2 := listenTCP(t, ctx, host)
 
 	openPort1 := ln1.Addr().(*net.TCPAddr).Port
 	openPort2 := ln2.Addr().(*net.TCPAddr).Port
 
 	// Create 20 targets: 2 open, 18 closed
 	targets := make([]models.Target, 0, 20)
-	targets = append(targets, models.Target{Host: "127.0.0.1", Port: openPort1, Mode: models.ModeTCP})
-	targets = append(targets, models.Target{Host: "127.0.0.1", Port: openPort2, Mode: models.ModeTCP})
+	targets = append(targets, models.Target{Host: host, Port: openPort1, Mode: models.ModeTCP})
+	targets = append(targets, models.Target{Host: host, Port: openPort2, Mode: models.ModeTCP})
 
 	for range 18 {
 		targets = append(targets, models.Target{
-			Host: "127.0.0.1",
-			Port: closedPortTCP(t, ctx),
+			Host: host,
+			Port: closedPortTCP(t, ctx, host),
 			Mode: models.ModeTCP,
 		})
 	}
@@ -265,14 +323,17 @@ func TestTCPScanner_MultiHostAllPortsChecked(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// localhost and 127.0.0.1 must share a listener, so this test stays on
+	// 127.0.0.1 rather than a unique 127.x.y.z alias.
+	host := "127.0.0.1"
+
 	// Start a listener
-	ln := listenTCP(t, ctx)
+	ln := listenTCP(t, ctx, host)
 
 	openPort := ln.Addr().(*net.TCPAddr).Port
-	closedPort := closedPortTCP(t, ctx)
+	closedPort := closedPortTCP(t, ctx, host)
 
 	// Two "hosts" (both 127.0.0.1 but with different conceptual targets)
-	// We'll use localhost and 127.0.0.1 to represent different hosts
 	hosts := []string{"127.0.0.1", "localhost"}
 	portsToCheck := []int{openPort, closedPort}
 

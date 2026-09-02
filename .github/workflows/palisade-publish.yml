@@ -58,10 +58,10 @@ jobs:
       MIX_ENV: test
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
 
       - name: Setup Beam
-        uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93 # erlef/setup-beam@v1.24.0
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # erlef/setup-beam@v1.24.1
         env:
           ImageOS: ubuntu24
         with:
@@ -69,7 +69,7 @@ jobs:
           elixir-version: "1.19.4"
 
       - name: Cache deps + _build
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # actions/cache@v5.0.4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v6.1.0
         with:
           path: |
             elixir/palisade/deps

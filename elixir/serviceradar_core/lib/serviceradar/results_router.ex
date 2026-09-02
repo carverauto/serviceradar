@@ -220,6 +220,46 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp plugin_result_status?(_status), do: false
 
+  # Service types carried by the netprobe passive device census stream.
+  #
+  # Exposed via census_service_types/0 so the unit tier can assert that every
+  # value here is one SourcePolicy.passive_census_source?/1 recognises. That
+  # pairing is the whole guardrail: the router decides whether the payload
+  # reaches the SyncIngestor, and the policy decides whether its MAC may anchor
+  # a device. If the two lists drift, the stream ingests with the guardrail
+  # silently inert -- no error, just randomized MACs minting devices.
+  #
+  # It cannot be checked in results_router_test.exs: that file uses
+  # ServiceRadar.DataCase, which carries @moduletag :requires_app, and the unit
+  # tier excludes :requires_app -- so those tests run only in the integration
+  # shards.
+  # Passive netprobe evidence: fingerprints, DPI and the local process listing.
+  # In an attribute with an accessor for the same reason as the census and mDNS
+  # lists below -- discovery_schema_registry_test.exs pins the DISCOVERY_V1
+  # sources against the routes they replace, so the two cannot drift apart
+  # silently while both paths are live.
+  @passive_netprobe_service_types ["passive-netprobe", :passive_netprobe]
+
+  @doc false
+  def passive_netprobe_service_types, do: @passive_netprobe_service_types
+
+  @census_service_types ["netprobe-census", :netprobe_census, "passive-census"]
+
+  @doc false
+  def census_service_types, do: @census_service_types
+
+  # Service types carried by the netprobe mDNS identification stream.
+  #
+  # Paired with SourcePolicy.enrichment_only_source?/1 exactly as the census
+  # list is paired with passive_census_source?/1, and asserted in the unit tier
+  # for the same reason: if the two drift, mDNS ingests as an ordinary source
+  # and starts MINTING devices from announcements instead of only describing
+  # ones the census already found.
+  @mdns_service_types ["netprobe-mdns", :netprobe_mdns, "passive-mdns"]
+
+  @doc false
+  def mdns_service_types, do: @mdns_service_types
+
   defp process(%{source: source, service_type: "sync"} = status, _opts)
        when source in ["results", :results] do
     handle_sync_results(status)
@@ -236,8 +276,37 @@ defmodule ServiceRadar.ResultsRouter do
   end
 
   defp process(%{source: source, service_type: service_type} = status, _opts)
-       when source in ["results", :results] and
-              service_type in ["passive-netprobe", :passive_netprobe] do
+       when source in ["results", :results] and service_type in @passive_netprobe_service_types do
+    schedule_sync_ingestion(status)
+  end
+
+  # The netprobe passive L2 device census (ARP/NDP sightings).
+  #
+  # Same SyncIngestor path as passive-netprobe, deliberately: that pipeline is
+  # where SourcePolicy.include_mac_identifier?/1 is consulted, and the census
+  # MAC guardrail is inert anywhere else.
+  #
+  # Without this clause the stream falls through to the catch-all below, which
+  # returns :ok and lets publish_status_update/1 run -- so the service reports
+  # HEALTHY while its entire payload is discarded with no log line.
+  defp process(%{source: source, service_type: service_type} = status, _opts)
+       when source in ["results", :results] and service_type in @census_service_types do
+    schedule_sync_ingestion(status)
+  end
+
+  # The netprobe mDNS identification stream.
+  #
+  # Same SyncIngestor path again, and the same reason it cannot be left to the
+  # catch-all: that clause returns :ok and publishes a HEALTHY status while
+  # discarding the entire payload without a log line.
+  #
+  # What makes this stream different is what happens once it arrives. Its
+  # updates carry no IP and are not allowed to create a device -- see
+  # SourcePolicy.enrichment_only_source?/1 and the gate in SyncIngestor. An
+  # mDNS announcement describes a host; only the census establishes that the
+  # host is there.
+  defp process(%{source: source, service_type: service_type} = status, _opts)
+       when source in ["results", :results] and service_type in @mdns_service_types do
     schedule_sync_ingestion(status)
   end
 
@@ -369,6 +438,8 @@ defmodule ServiceRadar.ResultsRouter do
           [
             sweep_group_id: sweep_group_id,
             agent_id: status[:agent_id],
+            authenticated_agent_id: status[:agent_id],
+            authenticated_partition_id: status[:authenticated_partition],
             actor: actor,
             expected_total_hosts: expected_total_hosts,
             scanner_metrics: scanner_metrics,

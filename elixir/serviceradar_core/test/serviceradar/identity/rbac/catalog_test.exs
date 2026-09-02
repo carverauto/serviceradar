@@ -143,6 +143,18 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     assert MapSet.member?(viewer, "validation_runs.read")
   end
 
+  test "personal API credential and MCP permissions default to all roles" do
+    keys = Catalog.permission_keys()
+
+    for permission <- ["settings.api_credentials.manage", "settings.mcp.manage"] do
+      assert permission in keys
+
+      for role <- [:viewer, :helpdesk, :operator, :admin] do
+        assert MapSet.member?(Catalog.permissions_for_role(role), permission)
+      end
+    end
+  end
+
   test "prefix tag manage permission is an operator+ catalog key" do
     keys = Catalog.permission_keys()
     admin_permissions = Catalog.permissions_for_role(:admin)
@@ -223,9 +235,119 @@ defmodule ServiceRadar.Identity.RBAC.CatalogTest do
     end
   end
 
+  describe "permission metadata" do
+    test "every catalog entry declares section, resource, and action" do
+      for section <- Catalog.catalog(), permission <- section.permissions do
+        assert is_binary(permission.section) and permission.section != ""
+        assert is_binary(permission.resource) and permission.resource != ""
+        assert is_binary(permission.action) and permission.action != ""
+        assert permission.section == section.section
+      end
+    end
+
+    test "colon-separated keys still declare a non-empty action" do
+      keys = Catalog.permission_keys()
+
+      for key <- ~w(visibility_profiles:read visibility_profiles:write visibility_profiles:delete) do
+        assert key in keys
+        perm = catalog_permission!(key)
+        assert perm.action != ""
+        assert perm.resource == "visibility_profiles"
+      end
+    end
+  end
+
+  describe "dashboards section" do
+    test "authored and package resources share the dashboards section" do
+      section = dashboards_section()
+      resources = section.permissions |> Enum.map(& &1.resource) |> Enum.uniq() |> Enum.sort()
+
+      assert "dashboards.authored" in resources
+      assert "dashboards.packages" in resources
+
+      authored_keys =
+        section.permissions
+        |> Enum.filter(&(&1.resource == "dashboards.authored"))
+        |> Enum.map(& &1.key)
+        |> Enum.sort()
+
+      assert authored_keys == [
+               "analytics.dashboards.create",
+               "analytics.dashboards.delete",
+               "analytics.dashboards.edit",
+               "analytics.dashboards.share",
+               "analytics.dashboards.view_all"
+             ]
+    end
+
+    test "grid hides aliased cli.dashboard keys under the canonical packages actions" do
+      visible =
+        dashboards_section().permissions
+        |> Enum.reject(&Map.get(&1, :alias_of))
+        |> Enum.filter(&(&1.resource == "dashboards.packages"))
+
+      actions = visible |> Enum.map(& &1.action) |> Enum.sort()
+      keys = visible |> Enum.map(& &1.key) |> Enum.sort()
+
+      assert actions == ["disable", "enable", "publish", "share", "view_all"]
+
+      assert keys == [
+               "dashboards.packages.disable",
+               "dashboards.packages.enable",
+               "dashboards.packages.publish",
+               "dashboards.packages.share",
+               "dashboards.packages.view_all"
+             ]
+    end
+
+    test "package share defaults to operators and view_all to admins" do
+      share = catalog_permission!("dashboards.packages.share")
+      view_all = catalog_permission!("dashboards.packages.view_all")
+
+      assert :operator in share.default_roles
+      refute :viewer in share.default_roles
+      assert view_all.default_roles == ServiceRadar.Identity.Constants.admin_roles()
+    end
+  end
+
+  describe "permission aliases" do
+    test "a deprecated key satisfies the canonical check and vice versa" do
+      deprecated = MapSet.new(["cli.dashboard.publish"])
+      canonical = MapSet.new(["dashboards.packages.publish"])
+
+      assert Catalog.holds?(deprecated, "dashboards.packages.publish")
+      assert Catalog.holds?(canonical, "cli.dashboard.publish")
+      refute Catalog.holds?(MapSet.new(["cli.dashboard.enable"]), "dashboards.packages.publish")
+    end
+
+    test "equivalent keys are bidirectional" do
+      assert Enum.sort(Catalog.equivalent_keys("cli.dashboard.enable")) ==
+               Enum.sort(["cli.dashboard.enable", "dashboards.packages.enable"])
+
+      assert Enum.sort(Catalog.equivalent_keys("dashboards.packages.enable")) ==
+               Enum.sort(["cli.dashboard.enable", "dashboards.packages.enable"])
+    end
+  end
+
   defp notifications_section do
     section = Enum.find(Catalog.catalog(), &(&1.section == "notifications"))
     assert section, "the catalog has no notifications section"
     section
+  end
+
+  defp dashboards_section do
+    section = Enum.find(Catalog.catalog(), &(&1.section == "dashboards"))
+    assert section, "the catalog has no dashboards section"
+    section
+  end
+
+  defp catalog_permission!(key) do
+    Catalog.catalog()
+    |> Enum.flat_map(& &1.permissions)
+    |> Enum.find(&(&1.key == key))
+    |> then(fn
+      nil -> flunk("catalog has no #{key}")
+      perm -> perm
+    end)
   end
 end

@@ -72,6 +72,8 @@ ADDON_BUNDLES = [
         "manifest_entries": [
             ("addon.yaml", "//addons/powerdns:addon.yaml"),
             ("config.schema.json", "//addons/powerdns:config.schema.json"),
+            ("schemas/dns_activity.schema.json", "//addons/powerdns:schemas/dns_activity.schema.json"),
+            ("display/dns_activity.display.json", "//addons/powerdns:display/dns_activity.display.json"),
         ],
         "pushed_artifact_tarball": True,
     },

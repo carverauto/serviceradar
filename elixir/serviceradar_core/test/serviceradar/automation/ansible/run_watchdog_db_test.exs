@@ -8,6 +8,7 @@ defmodule ServiceRadar.Automation.Ansible.RunWatchdogDbTest do
   alias ServiceRadar.Automation.Ansible.PlaybookRun
   alias ServiceRadar.Automation.Ansible.RunWatchdog
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @moduletag :integration
 
@@ -24,7 +25,7 @@ defmodule ServiceRadar.Automation.Ansible.RunWatchdogDbTest do
         name: "watchdog-test-#{suffix}",
         base_url: "https://awx.test.invalid",
         agent_id: "agent-watchdog-test",
-        credential_secret_id: Ash.UUID.generate()
+        credential_secret_id: CredentialIntegrationFixtures.secret_id!()
       })
 
     playbook =

@@ -7,13 +7,16 @@ import {parseArgs} from "./args.js"
 import {dispatchAuth} from "./auth/index.js"
 import {dispatchDashboard} from "./dashboard/index.js"
 import {doctorCommand, printVersion} from "./doctor.js"
+import {dispatchPlugin} from "./plugin/index.js"
+import {describeError, ensureExtraCaCertificates} from "./tls_ca.js"
 
 main().catch((error: any) => {
-  console.error(error?.message || error)
+  console.error(describeError(error))
   process.exitCode = 1
 })
 
 async function main(): Promise<void> {
+  ensureExtraCaCertificates()
   const argv = process.argv.slice(2)
   const [first = "help", ...rest] = argv
 
@@ -35,6 +38,12 @@ async function main(): Promise<void> {
     const [authSub = "help", ...authRest] = rest
     const options = parseArgs(authRest)
     return dispatchAuth(authSub, options)
+  }
+
+  if (first === "plugin") {
+    const [pluginSub = "help", ...pluginRest] = rest
+    const options = parseArgs(pluginRest)
+    return dispatchPlugin(pluginSub, options, printHelp)
   }
 
   if (first === "dashboard") {
@@ -61,6 +70,7 @@ Usage:
 Groups:
   auth        Authenticate against a ServiceRadar instance and manage stored credentials.
   dashboard   Author and operate ServiceRadar dashboard packages.
+  plugin      Author and publish ServiceRadar Wasm plugins.
 
 Top-level commands:
   --version   Print the installed @carverauto/serviceradar-cli version.
@@ -75,8 +85,14 @@ Common dashboard subcommands:
   serviceradar-cli dashboard publish --instance <url> [--route <slug>] [--token <bearer>] [--enable] [--yes]
   serviceradar-cli dashboard import [--config dashboard.config.mjs] [--exec "command"]
 
+Plugin subcommands:
+  serviceradar-cli plugin init <name> [--template go|rust] [--plugin-id my-plugin] [--force]
+  serviceradar-cli plugin validate [--manifest plugin.yaml] [--wasm plugin.wasm]
+  serviceradar-cli plugin publish --instance <url> [--token <bearer>] [--wasm plugin.wasm] [--yes]
+  serviceradar-cli plugin status --instance <url> --id <package-id>
+
 Auth subcommands:
-  serviceradar-cli auth login   --instance <url> [--no-browser] [--token <existing-token>]
+  serviceradar-cli auth login   --instance <url> [--no-browser] [--ca-file <pem>] [--token <existing-token>]
   serviceradar-cli auth status  [--instance <url>]
   serviceradar-cli auth logout  [--instance <url>]
 
@@ -98,5 +114,17 @@ Commands:
             harness, --open to open the browser, --mapbox-token to override the
             sample-settings token.
   import    Verify manifest/artifact and optionally run a local import command.
+
+Plugin commands:
+  init      Scaffold a Wasm plugin project. Templates: go (default, builds with
+            TinyGo against serviceradar-sdk-go) and rust (wasm32-wasip1 against
+            serviceradar-sdk-rust).
+  validate  Static check of plugin.yaml against the manifest contract, plus the
+            built plugin.wasm if present. No build, no network.
+  publish   Stage the built plugin on an instance and upload its bundle. The
+            package lands staged; an administrator approves it before agents run
+            it. Needs a token carrying the \`plugin.publish\` scope.
+  status    Read a staged package back to see whether it has been approved, and
+            which capabilities were approved.
 `)
 }

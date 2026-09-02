@@ -155,6 +155,24 @@ Agents fetch updated profiles via `GetConfig` and start publishing host metrics.
 
 See: [Sysmon Profiles](./sysmon-profiles.md)
 
+### Visibility Profiles (passive fingerprint / capture)
+
+Visibility profiles control what enrolled host agents capture and fingerprint.
+They are not sweep profiles: sweeps scan CIDRs; visibility profiles watch
+traffic already crossing an allowlisted NIC.
+
+1. Assign the **netprobe** add-on to the host agent
+   (**Settings -> Agents -> Add-ons**). See [Host Network Visibility](./netprobe.md).
+2. Go to **Settings -> Network Services -> Visibility Profiles**
+   (`/settings/networks/visibility-profiles`)
+3. Create a profile: name, capture interface (exact kernel NIC name), SRQL
+   target (blank means `in:devices`), and only the fingerprint / DPI
+   capabilities you need. Attributed flows come from the netprobe assignment,
+   not from this profile.
+4. Enable the profile after targeting is narrow enough.
+
+See: [Visibility Profiles](./visibility-profiles.md)
+
 ### Network Sweeps (Availability + Discovery Seeds)
 
 Sweep groups schedule scans against device inventories and static targets.

@@ -27,10 +27,14 @@ import (
 )
 
 type snmpMetricResult struct {
-	Target       string
-	Host         string
-	Metric       string
-	OID          string
+	Target string
+	Host   string
+	Metric string
+	OID    string
+	// Raw walk-row index; empty for a scalar get. Carried explicitly because
+	// the only other place it survives is InterfaceUID, which folds it together
+	// with a derived ifIndex and cannot be told apart from one downstream.
+	OIDIndex     string
 	Value        interface{}
 	RawValue     interface{}
 	Timestamp    time.Time
@@ -43,6 +47,10 @@ type snmpMetricResult struct {
 	CounterWidth int
 	IfIndex      *int
 	InterfaceUID string
+	// Collecting profile UUID, copied from the pushed SNMPConfig. Metadata
+	// only: device_snmp_facts uses it for provenance, and it must not become a
+	// series-key tag.
+	ProfileID string
 }
 
 func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
@@ -78,7 +86,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 	}
 
 	// 3. Build results for all drained points
-	results := p.buildSNMPDrainedResults(statuses, metrics)
+	results := p.buildSNMPDrainedResults(statuses, metrics, snmpSvc.GetProfileID())
 	if len(results) == 0 {
 		return false
 	}
@@ -146,6 +154,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 func (p *PushLoop) buildSNMPDrainedResults(
 	statuses map[string]snmpchecker.TargetStatus,
 	metrics map[string][]snmpchecker.DataPoint,
+	profileID string,
 ) []snmpMetricResult {
 	results := make([]snmpMetricResult, 0)
 
@@ -207,6 +216,7 @@ func (p *PushLoop) buildSNMPDrainedResults(
 				Host:         status.HostIP,
 				Metric:       metricName,
 				OID:          pointOID,
+				OIDIndex:     point.OIDIndex,
 				Value:        point.Value,
 				RawValue:     point.RawValue,
 				Timestamp:    point.Timestamp,
@@ -218,6 +228,7 @@ func (p *PushLoop) buildSNMPDrainedResults(
 				IsMonotonic:  point.IsMonotonic,
 				CounterWidth: point.CounterWidth,
 				InterfaceUID: interfaceUIDForSNMPPoint(parsedUID, ifIndex, point.OIDIndex),
+				ProfileID:    profileID,
 			}
 
 			if ifIndex != nil {

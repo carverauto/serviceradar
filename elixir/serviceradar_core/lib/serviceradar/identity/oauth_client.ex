@@ -28,6 +28,7 @@ defmodule ServiceRadar.Identity.OAuthClient do
   - `read` - Read-only access to resources
   - `write` - Create and modify resources
   - `admin` - Full administrative access (requires admin user)
+  - `mcp` - Call the MCP server at `/mcp` (still subject to the caller's RBAC)
 
   ## Security
 
@@ -44,6 +45,11 @@ defmodule ServiceRadar.Identity.OAuthClient do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Identity.AccessCredentialChanges
+  alias ServiceRadar.Identity.Constants
+  alias ServiceRadar.Policies.Checks.ActorHasPermission
+
+  @api_credentials_check {ActorHasPermission,
+                          permission: Constants.api_credentials_manage_permission()}
 
   @client_create_fields [:name, :description, :scopes, :expires_at, :user_id]
   @client_update_fields [:name, :description, :expires_at]
@@ -220,6 +226,14 @@ defmodule ServiceRadar.Identity.OAuthClient do
       authorize_if expr(user_id == ^actor(:id))
       authorize_if is_admin()
     end
+
+    # Catalog visibility is not enough: creating or listing clients is a
+    # privilege. Built-in roles keep it via default_roles; a custom profile
+    # (demo) that omits the key cannot mint API credentials. Authenticate
+    # remains a bypass above; record_use runs as a system actor.
+    policy action_type([:create, :read, :update, :destroy]) do
+      authorize_if @api_credentials_check
+    end
   end
 
   attributes do
@@ -256,7 +270,7 @@ defmodule ServiceRadar.Identity.OAuthClient do
       allow_nil? false
       default ["read"]
       public? true
-      description "Granted scopes (read, write, admin)"
+      description "Granted scopes (read, write, admin, mcp)"
     end
 
     # Status

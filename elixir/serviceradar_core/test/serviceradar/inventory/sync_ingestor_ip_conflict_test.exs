@@ -17,7 +17,9 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -359,6 +361,242 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
     assert length(devices_at_ip) == 1
     assert hd(devices_at_ip).uid in [first_uid, second_uid]
+  end
+
+  describe "primary address preference (GitHub #3905)" do
+    test "the SQL rank and the Elixir rank agree", %{actor: _actor} do
+      # Two implementations exist on purpose: the upsert must compare against
+      # the CURRENT row, which only SQL sees, while alias/in-memory decisions
+      # need it in Elixir. Two implementations drift unless something pins them,
+      # so this is that something.
+      addresses = [
+        "8.8.8.8",
+        "152.117.116.178",
+        "10.0.0.5",
+        "192.168.1.1",
+        "172.16.0.1",
+        "172.15.0.1",
+        "172.32.0.1",
+        "100.64.0.1",
+        "127.0.0.1",
+        "169.254.1.1",
+        "0.0.0.0",
+        "2001:4860:4860::8888",
+        "::1",
+        "::",
+        "fd2f:420a:24b1:1:f692:bfff:fe75:c72a",
+        "fe80::f692:bfff:fe75:c72b",
+        "fe90::1",
+        "febf::1",
+        "fec0::1",
+        "fc00::1",
+        "fdff::1",
+        "::ffff:192.168.1.1",
+        "::ffff:8.8.8.8",
+        # Forms real collectors actually send: SNMP reports link-locals with a
+        # zone, and interface addresses arrive in CIDR form.
+        "fe80::1%eth0",
+        "192.168.1.1/24",
+        "0.0.0.0/0",
+        "  10.0.0.5  ",
+        "not-an-ip",
+        ""
+      ]
+
+      %{rows: rows} =
+        Repo.query!(
+          "SELECT a, platform.sr_address_rank(a) FROM unnest($1::text[]) AS a",
+          [addresses]
+        )
+
+      sql_ranks = Map.new(rows, fn [address, rank] -> {address, rank} end)
+
+      mismatched =
+        Enum.filter(addresses, fn address ->
+          Address.rank(address) != Map.fetch!(sql_ranks, address)
+        end)
+
+      assert mismatched == [],
+             "SQL and Elixir rankings disagree for: " <>
+               Enum.map_join(mismatched, ", ", fn address ->
+                 "#{address} (elixir=#{Address.rank(address)} sql=#{Map.fetch!(sql_ranks, address)})"
+               end)
+    end
+
+    test "a link-local sighting does not overwrite a routable primary", %{actor: actor} do
+      mac = unique_universal_mac()
+      routable = unused_private_ip()
+
+      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, routable)], actor: actor)
+      assert device_ip_for_mac(mac, actor) == routable
+
+      # This is the #3905 mechanism: NDP census sightings arrive carrying a
+      # link-local, and before the rank guard they replaced the primary.
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [mac_update(mac, "fe80::f692:bfff:fe75:c72b")],
+                 actor: actor
+               )
+
+      assert device_ip_for_mac(mac, actor) == routable,
+             "a link-local sighting clobbered the routable primary"
+    end
+
+    test "an equal-ranked address DOES apply, because that is a real re-IP", %{actor: actor} do
+      # The rule is never-downgrade, not only-promote. alma-test01 moved
+      # 192.168.2.243 -> 192.168.1.171; both are private, and refusing equal
+      # ranks would freeze every device at its first address.
+      mac = unique_universal_mac()
+      first = unused_private_ip()
+      second = unused_private_ip()
+
+      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, first)], actor: actor)
+      assert device_ip_for_mac(mac, actor) == first
+
+      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, second)], actor: actor)
+
+      assert device_ip_for_mac(mac, actor) == second,
+             "a same-class re-IP was refused; devices would freeze at their first address"
+    end
+
+    test "a public-to-private re-address is NOT refused", %{actor: actor} do
+      # global outranks private in Identity.Address, which is right when choosing
+      # among addresses known at once. Applying that to the upsert would freeze a
+      # host that genuinely moved from a public to an RFC1918 address on its
+      # stale public one -- so the downgrade check collapses both into one
+      # routable tier.
+      mac = unique_universal_mac()
+      public_ip = "203.0.113.#{:rand.uniform(200) + 20}"
+      private_ip = unused_private_ip()
+
+      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, public_ip)], actor: actor)
+      assert device_ip_for_mac(mac, actor) == public_ip
+
+      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, private_ip)], actor: actor)
+
+      assert device_ip_for_mac(mac, actor) == private_ip,
+             "a genuine public->private re-address was refused; the device would be frozen on a stale public address"
+    end
+
+    test "a ULA still cannot overwrite a routable primary", %{actor: actor} do
+      mac = unique_universal_mac()
+      routable = unused_private_ip()
+
+      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, routable)], actor: actor)
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [mac_update(mac, "fd2f:420a:24b1:1:f692:bfff:fe75:c7ef")],
+                 actor: actor
+               )
+
+      assert device_ip_for_mac(mac, actor) == routable,
+             "a ULA clobbered a routable primary"
+    end
+
+    test "a routable address promotes a link-local primary", %{actor: actor} do
+      mac = unique_universal_mac()
+      link_local = "fe80::f692:bfff:fe75:c7ab"
+      routable = unused_private_ip()
+
+      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, link_local)], actor: actor)
+      assert device_ip_for_mac(mac, actor) == link_local
+
+      assert :ok = SyncIngestor.ingest_updates([mac_update(mac, routable)], actor: actor)
+
+      assert device_ip_for_mac(mac, actor) == routable,
+             "a routable address did not promote over a link-local primary"
+    end
+
+    test "a device with only link-local addresses keeps one", %{actor: actor} do
+      # 8 of the 18 affected devices have no routable address at all. Leaving
+      # them with no address would trade a poor answer for none.
+      mac = unique_universal_mac()
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [mac_update(mac, "fe80::f692:bfff:fe75:c7cd")],
+                 actor: actor
+               )
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [mac_update(mac, "fe80::f692:bfff:fe75:c7ce")],
+                 actor: actor
+               )
+
+      assert device_ip_for_mac(mac, actor) in [
+               "fe80::f692:bfff:fe75:c7cd",
+               "fe80::f692:bfff:fe75:c7ce"
+             ]
+    end
+  end
+
+  # `sweep` is a mapper_like_source?, so SourcePolicy.include_mac_identifier?/1
+  # only admits the MAC when identity_mac_kind names a real chassis address --
+  # without it the MAC is an observation and no device is keyed by it.
+  defp mac_update(mac, ip) do
+    %{
+      "ip" => ip,
+      "mac" => mac,
+      "source" => "sweep",
+      "metadata" => %{
+        "identity_mac" => mac,
+        "identity_mac_kind" => "primary"
+      }
+    }
+  end
+
+  # unique_test_ip/0 does not consult the database, so two of these tests drew
+  # the same address and collided on ocsf_devices_unique_active_ip_idx.
+  defp unused_private_ip do
+    fn -> System.unique_integer([:positive, :monotonic]) end
+    |> Stream.repeatedly()
+    |> Enum.find_value(fn n ->
+      ip = "10.#{rem(div(n, 65_025), 250) + 1}.#{rem(div(n, 255), 250) + 1}.#{rem(n, 250) + 1}"
+
+      case Repo.query("SELECT 1 FROM platform.ocsf_devices WHERE ip = $1 LIMIT 1", [ip]) do
+        {:ok, %{rows: []}} -> ip
+        _ -> nil
+      end
+    end)
+  end
+
+  defp device_ip_for_mac(mac, actor) do
+    normalized = mac |> String.replace(":", "") |> String.upcase()
+
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT d.ip
+        FROM platform.ocsf_devices d
+        JOIN platform.device_identifiers i ON i.device_id = d.uid
+        WHERE i.identifier_type = 'mac' AND i.identifier_value = $1
+        """,
+        [normalized]
+      )
+
+    case rows do
+      [[ip]] ->
+        ip
+
+      other ->
+        flunk(
+          "expected exactly one device for #{mac}, got #{inspect(other)} (actor #{inspect(actor)})"
+        )
+    end
+  end
+
+  defp unique_universal_mac do
+    [:positive]
+    |> System.unique_integer()
+    |> Integer.to_string(16)
+    |> String.pad_leading(10, "0")
+    |> String.upcase()
+    |> String.graphemes()
+    |> Enum.chunk_every(2)
+    |> Enum.map_join(":", &Enum.join/1)
+    |> then(&("A8:" <> &1))
   end
 
   defp integration_update(integration_id, ip, hostname) do

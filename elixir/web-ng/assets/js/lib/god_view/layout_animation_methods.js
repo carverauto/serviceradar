@@ -1,9 +1,16 @@
+import {hasManagedTopologyScene} from "./topology_layout_mode"
+
 export const godViewLayoutAnimationMethods = {
   animateTransition(previousGraph, nextGraph) {
     const {state, deps} = this
-    if (state.pendingAnimationFrame) {
+    if (state.pendingAnimationFrame !== null && state.pendingAnimationFrame !== undefined) {
       cancelAnimationFrame(state.pendingAnimationFrame)
       state.pendingAnimationFrame = null
+    }
+
+    if (hasManagedTopologyScene(nextGraph)) {
+      deps.renderGraph(nextGraph)
+      return
     }
 
     const shouldAnimate =

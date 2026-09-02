@@ -1,5 +1,28 @@
 # `@carverauto/serviceradar-cli` Changelog
 
+## 0.1.5
+
+- Report why a request failed instead of printing a bare `fetch failed`. Node
+  surfaces every fetch fault as `TypeError: fetch failed` and hides the reason
+  on `error.cause`, so the top-level handler printed nothing actionable. It now
+  walks the cause chain — including into an `AggregateError`'s members, which a
+  dual-stack host produces — and prints the reason and its code.
+- Treat a TLS trust failure as a TLS trust failure. `auth login` previously
+  wrapped *any* fetch throw as `DEVICE_CODE_UNAVAILABLE` and reported it as
+  "Device-code login is not available on this instance yet", which sent people
+  looking for a missing server endpoint when the handshake had never completed.
+- Load extra CA material for instances behind a private/corporate issuer: a PEM
+  at `~/.config/serviceradar/ca-bundle.pem`, `--ca-file`, `SERVICERADAR_CA_FILE`,
+  or `NODE_EXTRA_CA_CERTS`. Because Node reads `NODE_EXTRA_CA_CERTS` only at
+  process start, the CLI re-execs once when it finds a bundle that is not yet
+  loaded. `--ca-file=<path>` and `--ca-file <path>` are both accepted.
+- `dashboard publish` no longer loses the reason an upload failed, and says
+  explicitly when the package uploaded but the follow-up `--enable` call did
+  not — retrying the whole publish in that state returns
+  `version_already_published`.
+- `doctor` names a PEM sitting in the config directory under a name the CLI will
+  not load, rather than reporting "no extra CA file" while one is right there.
+
 ## 0.1.4
 
 - Serve Mapbox GL JS and deck.gl HMR harness libraries from the CLI npm

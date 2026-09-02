@@ -310,4 +310,33 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentIdentityTest do
       assert metadata["topology_last_seen_protocol"] == "lldp"
     end
   end
+
+  describe "endpoint IP/MAC bind evidence" do
+    test "same-subnet ARP+FDB may bind a sighting MAC onto an IP-only device" do
+      assert MapperResultsIngestor.endpoint_ip_mac_bind_allowed?(%{
+               "source" => "snmp-arp-fdb",
+               "confidence_reason" => "arp_fdb_port_mapping"
+             })
+
+      assert MapperResultsIngestor.endpoint_ip_mac_bind_allowed?(%{
+               "source" => "lldp"
+             })
+    end
+
+    test "cross-subnet and observed-join FDB must not bind a sighting MAC onto an IP-only device" do
+      refute MapperResultsIngestor.endpoint_ip_mac_bind_allowed?(%{
+               "source" => "snmp-arp-fdb",
+               "confidence_reason" => "cross_subnet_arp_fdb_port_mapping"
+             })
+
+      refute MapperResultsIngestor.endpoint_ip_mac_bind_allowed?(%{
+               "source" => "snmp-arp-fdb",
+               "confidence_reason" => "cross_device_arp_fdb_join"
+             })
+
+      refute MapperResultsIngestor.endpoint_ip_mac_bind_allowed?(%{
+               "topology_last_seen_confidence_reason" => "cross_subnet_arp_fdb_port_mapping"
+             })
+    end
+  end
 end

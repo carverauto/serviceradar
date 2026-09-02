@@ -611,7 +611,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20260821180000"
+    expectedVersion: "20260901084827"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -948,7 +948,11 @@ cnpg:
     # search_path is set automatically based on cnpg.schema
     search_path: ""
   credentialsSecret: serviceradar-db-credentials
-  # Helm reuses existing secrets and does not rotate CNPG credentials on upgrade.
+  # Helm reuses existing secrets (lookup) or cnpg.password / cnpg.superuserPassword
+  # and does not mint a random password when lookup is empty. Argo CD's repo-server
+  # cannot read Secrets, so a random fallback rotated credentials and rolled core
+  # and web-ng on every sync. First-install create-if-missing lives in the
+  # secret-generator PreSync job (HTTP 409 leaves the password unchanged).
   # Delete/recreate cnpg-superuser or serviceradar-db-credentials to rotate.
   sslmode: verify-full
   backup:
@@ -1192,6 +1196,13 @@ webNg:
   # do not use an in-cluster Service name.
   publicUrl: ""
   godViewEnabled: "true"
+  # MCP server at /mcp. Off by default. extraEnv.SERVICERADAR_MCP_ENABLED is ignored.
+  mcpEnabled: "false"
+  # When false, grant_type=client_credentials cannot mint mcp-scoped tokens.
+  # SSO-mandated deployments should set this to "false" and use /oauth/authorize.
+  mcpClientCredentialsEnabled: "true"
+  # Refresh-token backstop TTL in seconds. SSO grants also require a live IdP session.
+  mcpRefreshTtlSeconds: "28800"
   # Keep Phoenix/LiveView WebSocket origin checks enabled by default.
   # Set to "false" only for local/lab reverse-proxy debugging.
   checkOrigin: "true"
@@ -1669,6 +1680,20 @@ flowCollector:
     stream_replicas: 3
     rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
     ready_state_path: "/var/lib/serviceradar/flow-collector.ready"
+    # Serves the Prometheus exposition on /metrics. Must agree with
+    # service.ports.metrics.targetPort below. Unset it to disable the
+    # in-process HTTP server entirely.
+    metrics_addr: "0.0.0.0:50046"
+    # Shared NetFlow/IPFIX template store, persisted in a NATS JetStream KV
+    # bucket. Lets a restarted pod restore learned templates instead of
+    # dropping flows until each exporter re-announces (~60s, RFC 3954).
+    # Omit this block to fall back to in-process-only template caching.
+    # The platform creds must allow create-or-update on KV buckets, or
+    # pre-create the bucket with: nats kv add flow_templates --history=1
+    template_store:
+      kv_bucket: "flow_templates"
+      kv_history: 1
+      kv_ttl_secs: 0
     channel_size: 10000
     batch_size: 100
     publish_timeout_ms: 5000
@@ -1679,6 +1704,10 @@ flowCollector:
       - protocol: "netflow"
         listen_addr: "0.0.0.0:2055"
         subject: "flows.raw.netflow"
+        # Distinct exporters this listener tracks. netflow_parser defaults to
+        # 10000 and evicts past it, so a larger fleet thrashes. Unset = library
+        # default. Watch flow_collector_sources against this number.
+        max_sources: 10000
     security:
       mode: "mtls"
       cert_dir: "/etc/serviceradar/certs"

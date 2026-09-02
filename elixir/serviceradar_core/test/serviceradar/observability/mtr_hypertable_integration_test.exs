@@ -3,7 +3,7 @@ defmodule ServiceRadar.Observability.MtrHypertableIntegrationTest do
   Integration tests for MTR trace and hop insertion into hypertables.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor

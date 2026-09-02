@@ -53,7 +53,7 @@ jobs:
       HELM_VERSION: 3.14.4
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       # ARC runners have no docker.sock. Install a native helm binary.
       - name: Install Helm
@@ -80,7 +80,6 @@ jobs:
           helm template serviceradar helm/serviceradar \
             --set global.imageTag="v1.0.0" \
             --set flowCollector.enabled=true \
-            --show-only templates/flow-collector-strategy-migration-job.yaml \
             --debug > /dev/null
 
       - name: Verify web-ng secret-backed environment values

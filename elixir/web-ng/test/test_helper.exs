@@ -1,6 +1,20 @@
 alias Ecto.Adapters.SQL
 
-ExUnit.start()
+# ExUnit's default `assert_receive` deadline is 100ms. That is not a valid
+# budget here: with ~1120 tests running across `max_cases` concurrent async
+# modules, the VM routinely deschedules a process for far longer. Measured in
+# this suite, a bare `start_supervised!/1` took 105ms to return and a
+# process-to-process round trip took 515ms, while the same code in isolation
+# completes in microseconds.
+#
+# Tests that wait on another process were therefore asserting a latency the
+# environment does not provide -- FirehoseReplayTest failed this way in roughly
+# half of all runs. Raising the deadline costs nothing on a green run, because
+# `assert_receive` returns the moment the message lands; the timeout is only
+# the bound for reporting a genuine failure. `refute_receive` is unaffected: it
+# reads `refute_receive_timeout`, which stays at 100ms so negative assertions
+# stay fast.
+ExUnit.start(assert_receive_timeout: 2_000)
 
 # Test suite should exercise app behavior, not startup migration gating.
 if System.get_env("SERVICERADAR_MIGRATIONS_GATE") in [nil, ""] do
@@ -14,10 +28,74 @@ db_required? = require_db_tests? or ci? or not allow_db_free_tests?
 
 if allow_db_free_tests? and not db_required? do
   ExUnit.configure(exclude: [:test], include: [:db_free])
+
+  # A target that runs zero tests must not report success.
+  #
+  # The filter above is an ALLOW-LIST: every test is excluded and only `:db_free`
+  # is re-included. A file without that tag is still LOADED by the shard -- it
+  # appears in the runner's `-r` list -- and then contributes nothing, so the
+  # shard passes while covering nothing at all. There is no signal that the file
+  # you just wrote will never run.
+  #
+  # Measured when this was added: //elixir/web-ng:unit_tests_property reported
+  # PASSED on "0 tests, 0 failures (11 excluded)", and
+  # //elixir/web-ng:unit_tests_integration likewise -- both green for as long as
+  # they have existed. rules_elixir's own runner tries to assert this
+  # (private/ex_unit_test.bzl) but explicitly skips any log containing
+  # "excluded", which a default-exclude tier defeats by construction.
+  #
+  # This catches SHARD-level vacuity only. It does NOT catch a single untagged
+  # file in an otherwise-populated shard -- that is a tier-design problem
+  # (serviceradar_core defaults to RUNNING via a deny-list; web-ng defaults to
+  # silence), and pretending otherwise is how the next person gets caught.
+  ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
+    if total - excluded - skipped == 0 do
+      IO.puts(:stderr, """
+
+      FAILED: this target executed ZERO tests (#{total} loaded, #{excluded} excluded, #{skipped} skipped).
+
+      Every test here is excluded unless tagged `@moduletag :db_free`. A target that
+      tests nothing must not report success -- add the tag to the files that should
+      run without a database, or route them to a DB-backed target.
+      """)
+
+      System.at_exit(fn _ -> System.halt(1) end)
+    end
+  end)
 end
 
 if db_required? do
   {:ok, _} = Application.ensure_all_started(:serviceradar_web_ng)
+else
+  # db_free tests deliberately do not start the application, but the
+  # device-detail loaders run their fan-outs under this shared, named
+  # Task.Supervisor (see DeviceLive.DeviceTaskData), so it has to exist.
+  #
+  # Unlinked on purpose: `mix test` keeps the process that runs this file alive
+  # for the whole run, but the Bazel ex_unit runner does not, and a linked
+  # supervisor died with it -- every fan-out then failed with "no process".
+  {:ok, task_supervisor} = Task.Supervisor.start_link(name: ServiceRadarWebNG.TaskSupervisor)
+  Process.unlink(task_supervisor)
+
+  # Component tests render `~p` verified routes and vendored static asset paths.
+  # Both read the endpoint's :persistent_term entry, so both need a *warmed*
+  # endpoint -- and nothing in a db-free run starts the application.
+  #
+  # Leaving that to the modules themselves is an ordering bug in two directions.
+  # Modules that never start it (SettingsComponentsTest, the device-detail
+  # provenance tests) only pass when some other module started one first. And a
+  # module that starts one from an `async: true` test opens a window for
+  # everybody else: Phoenix.Endpoint.Supervisor.start_link/3 passes `name: mod`,
+  # so the endpoint's NAME is registered by the supervisor process before its
+  # `:warmup` CHILD writes the term. Anything rendering inside that window sees a
+  # live endpoint with no term and raises "could not find persistent term for
+  # endpoint" -- the flake that hit the wordmark tests at random.
+  #
+  # Starting (and warming) it once here, before any test module is loaded, closes
+  # the window for the whole tier and makes every module's start a no-op.
+  # Unlinked for the same reason as the Task.Supervisor above.
+  {:ok, endpoint} = ServiceRadarWebNGWeb.Endpoint.start_link([])
+  Process.unlink(endpoint)
 end
 
 # Use ServiceRadar.Repo from serviceradar_core directly for SQL adapter operations
@@ -79,6 +157,7 @@ if db_tests_available? do
         {"zone", "text"},
         {"subnet_uid", "text"},
         {"vlan_uid", "text"},
+        {"switch_port_attachment", "jsonb"},
         {"region", "text"},
         # OCSF Temporal
         {"first_seen_time", "timestamptz"},

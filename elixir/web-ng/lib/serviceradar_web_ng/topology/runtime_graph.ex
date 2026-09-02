@@ -18,9 +18,15 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
+  # Published once per process lifetime in `init/1` so readers never have to enter this
+  # GenServer. Reads are the hot path (every God-View snapshot build); the refresh handler
+  # holds the process for the whole projection/AGE round trip.
+  @graph_ref_key {__MODULE__, :graph_ref}
+
   @default_refresh_ms 30_000
   @max_backbone_link_rows 5_000
   @max_attachment_link_rows 2_000
+  @max_inferred_segment_link_rows 2_000
   @max_virtualization_link_rows 5_000
 
   @type state :: %{
@@ -37,14 +43,52 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @doc """
+  Read the cached topology links.
+
+  Reads the published graph reference directly rather than calling this GenServer.
+  `Native.runtime_graph_get_links/1` takes only a read lock, and an ingest replaces the
+  whole vector under a write lock held for the assignment alone -- so a reader observes
+  either the previous or the next snapshot, never a partial one. Going through the
+  process instead would queue every reader behind `handle_info(:refresh, ...)`, which
+  performs the projection/AGE round trip inline; with `GenServer.call/2`'s default 5s
+  that surfaced as a timeout on the God-View snapshot path.
+
+  Falls back to the process only when no reference has been published yet.
+  """
   @spec get_links() :: {:ok, [map()]}
   def get_links do
-    GenServer.call(__MODULE__, :get_links)
+    case published_graph_ref() do
+      {:ok, graph_ref} ->
+        {:ok, graph_ref |> Native.runtime_graph_get_links() |> decode_runtime_rows()}
+
+      :error ->
+        GenServer.call(__MODULE__, :get_links)
+    end
   end
 
   @spec get_graph_ref() :: {:ok, term()}
   def get_graph_ref do
-    GenServer.call(__MODULE__, :get_graph_ref)
+    case published_graph_ref() do
+      {:ok, graph_ref} -> {:ok, graph_ref}
+      :error -> GenServer.call(__MODULE__, :get_graph_ref)
+    end
+  end
+
+  defp published_graph_ref do
+    case :persistent_term.get(@graph_ref_key, :error) do
+      :error -> :error
+      graph_ref -> {:ok, graph_ref}
+    end
+  end
+
+  # One write per process lifetime, so the global scan `:persistent_term.put/2` triggers is
+  # paid at boot and on the rare supervisor restart. The term is deliberately NOT erased on
+  # exit: the resource stays alive through the reference, so a reader racing a restart gets
+  # the last known links instead of a `:noproc`, and `init/1` overwrites it moments later.
+  defp publish_graph_ref(graph_ref) do
+    :persistent_term.put(@graph_ref_key, graph_ref)
+    graph_ref
   end
 
   @spec refresh_now() :: :ok
@@ -77,7 +121,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
         true
 
     state = %{
-      graph_ref: Native.runtime_graph_new(),
+      graph_ref: publish_graph_ref(Native.runtime_graph_new()),
       last_refresh_at: nil,
       last_refresh_started_at_ms: nil,
       refresh_ms: refresh_ms,
@@ -94,7 +138,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     links =
       state.graph_ref
       |> Native.runtime_graph_get_links()
-      |> Enum.map(&decode_row/1)
+      |> decode_runtime_rows()
 
     {:reply, {:ok, links}, state}
   end
@@ -187,7 +231,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   defp fetch_projected_topology_links do
     RuntimeTopologyProjection.read_cached_links(
       repo: Repo,
-      limit: @max_backbone_link_rows + @max_attachment_link_rows
+      limit:
+        @max_backbone_link_rows + @max_attachment_link_rows +
+          @max_inferred_segment_link_rows
     )
   end
 
@@ -334,7 +380,13 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       AND btrim(h.device_uid) <> ''
       AND btrim(g.device_uid) <> ''
       AND h.device_uid <> g.device_uid
-    ORDER BY COALESCE(g.observed_at, h.observed_at, g.updated_at, h.updated_at) DESC
+    ORDER BY COALESCE(g.observed_at, h.observed_at, g.updated_at, h.updated_at) DESC,
+      h.device_uid ASC,
+      g.device_uid ASC,
+      h.provider ASC,
+      h.provider_ref ASC,
+      g.provider ASC,
+      g.provider_ref ASC
     LIMIT $1
     """
   end
@@ -369,11 +421,55 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     {backbone_rows, attachment_rows} =
       Enum.split_with(rows, &backbone_runtime_row?/1)
 
-    Enum.take(backbone_rows, @max_backbone_link_rows) ++
-      Enum.take(attachment_rows, @max_attachment_link_rows)
+    {inferred_segment_rows, ordinary_attachment_rows} =
+      Enum.split_with(attachment_rows, &inferred_segment_runtime_row?/1)
+
+    bounded_runtime_rows(backbone_rows, @max_backbone_link_rows) ++
+      bounded_runtime_rows(inferred_segment_rows, @max_inferred_segment_link_rows) ++
+      bounded_runtime_rows(ordinary_attachment_rows, @max_attachment_link_rows)
   end
 
   def prioritize_runtime_rows(_rows), do: []
+
+  defp bounded_runtime_rows(rows, limit) when is_list(rows) and is_integer(limit) do
+    rows
+    |> Enum.sort_by(&canonical_runtime_row_key/1)
+    |> Enum.take(limit)
+  end
+
+  defp canonical_runtime_row_key(row) when is_map(row) do
+    {
+      runtime_sort_text(map_fetch(row, :local_device_id)),
+      runtime_sort_text(map_fetch(row, :neighbor_device_id)),
+      runtime_relation_type(row),
+      runtime_evidence_class(row),
+      runtime_sort_ifindex(map_fetch(row, :local_if_index)),
+      runtime_sort_text(map_fetch(row, :local_if_name)),
+      runtime_sort_ifindex(map_fetch(row, :neighbor_if_index)),
+      runtime_sort_text(map_fetch(row, :neighbor_if_name)),
+      runtime_sort_text(map_fetch(row, :protocol)),
+      :erlang.term_to_binary(row, [:deterministic])
+    }
+  end
+
+  defp canonical_runtime_row_key(row), do: {"", "", "", "", -1, "", -1, "", "", inspect(row)}
+
+  defp runtime_sort_text(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+  defp runtime_sort_text(value) when is_atom(value), do: value |> Atom.to_string() |> runtime_sort_text()
+  defp runtime_sort_text(_value), do: ""
+
+  defp runtime_sort_ifindex(value) when is_integer(value), do: value
+
+  defp runtime_sort_ifindex(value) when is_float(value), do: trunc(value)
+
+  defp runtime_sort_ifindex(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} -> parsed
+      _ -> -1
+    end
+  end
+
+  defp runtime_sort_ifindex(_value), do: -1
 
   @doc false
   @spec canonical_runtime_row?(map()) :: boolean()
@@ -410,6 +506,12 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   end
 
   def attachment_runtime_row?(_row), do: false
+
+  defp inferred_segment_runtime_row?(row) when is_map(row) do
+    runtime_evidence_class(row) == "inferred-segment"
+  end
+
+  defp inferred_segment_runtime_row?(_row), do: false
 
   defp normalize_runtime_row(%{} = row) do
     row
@@ -467,6 +569,11 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
         _ -> false
       end)
   end
+
+  @doc false
+  @spec decode_runtime_rows([map()]) :: [map()]
+  def decode_runtime_rows(rows) when is_list(rows), do: Enum.map(rows, &decode_row/1)
+  def decode_runtime_rows(_rows), do: []
 
   defp decode_row(%{} = row) do
     local_device_id = map_fetch(row, :local_device_id)

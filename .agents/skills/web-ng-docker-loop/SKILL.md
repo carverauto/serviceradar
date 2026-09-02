@@ -1,6 +1,6 @@
 ---
 name: web-ng-docker-loop
-description: Run ServiceRadar `elixir/web-ng` locally against the Docker Compose CNPG database with copied mTLS certs and Docker secrets, then verify dashboard UI changes with Playwright. Use when iterating on web-ng, dashboard package, custom React dashboard, Example WiFi map, SRQL topbar, or browser screenshot behavior without rebuilding the web-ng release image.
+description: Run ServiceRadar `elixir/web-ng` locally against the Docker Compose CNPG database with copied mTLS certs and Docker secrets, then verify dashboard UI changes with Playwright. Use when iterating on web-ng, dashboard package, custom React dashboard, customer WiFi map, SRQL topbar, or browser screenshot behavior without rebuilding the web-ng release image.
 ---
 
 # Web-NG Docker Loop
@@ -36,8 +36,8 @@ After rebuilding a dashboard package, import it into the Docker-backed database 
 
 ```bash
 .agents/skills/web-ng-docker-loop/scripts/import-dashboard-package.sh \
-  /home/mfreeman/src/wifi-dashboard/dist/manifest.json \
-  /home/mfreeman/src/wifi-dashboard/dist/renderer.js
+  /home/mfreeman/src/example-dashboard/dist/manifest.json \
+  /home/mfreeman/src/example-dashboard/dist/renderer.js
 ```
 
 This imports and enables the package through the running Docker web-ng release RPC, then prints the enabled content hash.
@@ -50,7 +50,7 @@ Use `$playwright-cli` for interactive inspection and screenshots:
 ```bash
 playwright-cli open http://localhost:4000/dashboards/wifi-network-map
 playwright-cli snapshot
-playwright-cli screenshot --filename=tmp/example-local.png
+playwright-cli screenshot --filename=tmp/wifi-map-local.png
 ```
 
 If authentication is required, obtain the admin password from `docker compose logs config-updater` without writing it into committed files.

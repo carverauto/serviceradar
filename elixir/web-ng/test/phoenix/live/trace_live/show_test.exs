@@ -15,7 +15,16 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
   @trace_id "abcdefabcdefabcdefabcdefabcdef12"
 
   setup %{conn: conn} do
-    user = AccountsFixtures.user_fixture(%{role: :operator})
+    user =
+      %{role: :operator}
+      |> AccountsFixtures.user_fixture()
+      |> then(fn user ->
+        Ash.update!(user, %{timezone: "America/Chicago"},
+          action: :update_timezone_preference,
+          actor: user
+        )
+      end)
+
     conn = log_in_user(conn, user)
 
     old = Application.get_env(:serviceradar_web_ng, :srql_module)
@@ -75,6 +84,37 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     html = render(lv)
     # Log rows navigate to the log detail route.
     assert html =~ "/logs/11111111-2222-3333-4444-555555555555"
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "uses the canonical observed instant for correlated logs with unzoned source timestamps", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
+
+    lv
+    |> element("#trace-spans-row-0")
+    |> render_click()
+
+    assert has_element?(
+             lv,
+             ~s(time#trace-span-aaaaaaaaaaaaaaaa-start-time[datetime="2023-11-14T22:13:20.000000Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    assert has_element?(
+             lv,
+             ~s(time#trace-span-aaaaaaaaaaaaaaaa-end-time[datetime="2023-11-14T22:13:20.050000Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    assert has_element?(
+             lv,
+             ~s(time#trace-log-11111111-2222-3333-4444-555555555555-time[datetime="2023-11-14T22:13:20Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    refute has_element?(
+             lv,
+             ~s(time#trace-log-11111111-2222-3333-4444-555555555555-time[datetime="2023-11-14T16:13:20Z"])
+           )
+
+    refute render(lv) =~ "2023-11-14T16:13:20Z"
   end
 
   test "error span gets error styling and expands details", %{conn: conn} do
@@ -175,6 +215,18 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     refute has_element?(lv, "#trace-not-found")
   end
 
+  @tag :web_ng_shared_fixture_db
+  test "does not derive correlated-log bounds from an offset-less summary string", %{conn: conn} do
+    :persistent_term.put({__MODULE__, :scenario}, :unzoned_summary)
+
+    {:ok, _lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
+
+    queries = drain_srql_queries()
+
+    refute Enum.any?(queries, &String.starts_with?(&1, "in:logs "))
+    refute Enum.any?(queries, &String.contains?(&1, "2026-06-10T11:55:00Z"))
+  end
+
   test "orphan trace header falls back to service_set when root service is unknown", %{conn: conn} do
     :persistent_term.put({__MODULE__, :scenario}, :orphan)
 
@@ -246,11 +298,15 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     def query_request(%{"query" => query}) when is_binary(query), do: query(query, %{})
     def query_request(_payload), do: {:error, :invalid_request}
 
-    defp results("in:otel_trace_summaries" <> _rest, scenario) when scenario in [:full, :expired] do
+    defp results("in:otel_trace_summaries" <> _rest, scenario) when scenario in [:full, :expired, :unzoned_summary] do
       [
         %{
           "trace_id" => @trace_id,
-          "timestamp" => "2026-06-10T12:00:00Z",
+          "timestamp" =>
+            if(scenario == :unzoned_summary,
+              do: "2026-06-10T12:00:00",
+              else: "2026-06-10T12:00:00Z"
+            ),
           "root_span_name" => "GET /api/devices",
           "root_service_name" => "web-ng",
           "duration_ms" => 50.0,
@@ -341,7 +397,8 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
       [
         %{
           "id" => "11111111-2222-3333-4444-555555555555",
-          "timestamp" => "2023-11-14T22:13:20Z",
+          "timestamp" => "2023-11-14T16:13:20",
+          "observed_timestamp" => "2023-11-14T22:13:20Z",
           "severity_text" => "ERROR",
           "service_name" => "core-elx",
           "body" => "query exploded",

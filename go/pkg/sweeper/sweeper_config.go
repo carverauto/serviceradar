@@ -176,6 +176,27 @@ func needsICMPScanning(config *models.Config) bool {
 	return false
 }
 
+// needsTCPScanning checks if raw TCP SYN scanning is needed based on config.
+func needsTCPScanning(config *models.Config) bool {
+	// Check global sweep modes
+	for _, mode := range config.SweepModes {
+		if mode == models.ModeTCP {
+			return true
+		}
+	}
+
+	// Check device target sweep modes
+	for _, deviceTarget := range config.DeviceTargets {
+		for _, mode := range deviceTarget.SweepModes {
+			if mode == models.ModeTCP {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // needsTCPConnectScanning checks if TCP connect scanning is needed based on config
 func needsTCPConnectScanning(config *models.Config) bool {
 	// Check global sweep modes
@@ -278,6 +299,10 @@ func configureRingBufferSettings(config *models.Config, opts *scan.SYNScannerOpt
 
 // initializeTCPScanner creates and configures the TCP scanner with graceful fallback
 func initializeTCPScanner(config *models.Config, log logger.Logger) scan.Scanner {
+	if !needsTCPScanning(config) {
+		return nil
+	}
+
 	// Prefer TCP-specific settings if set; otherwise fall back to global settings
 	baseTimeout := config.TCPSettings.Timeout
 	if baseTimeout == 0 {
@@ -508,47 +533,9 @@ func (s *NetworkSweeper) UpdateConfig(config *models.Config) error {
 		}
 	}
 
-	// Re-check if we need ICMP scanner based on updated config
-	needsICMP := false
-
-	// Check global sweep modes
-	for _, mode := range config.SweepModes {
-		if mode == models.ModeICMP {
-			needsICMP = true
-			break
-		}
-	}
-
-	// Also check device target sweep modes
-	if !needsICMP {
-		for _, deviceTarget := range config.DeviceTargets {
-			for _, mode := range deviceTarget.SweepModes {
-				if mode == models.ModeICMP {
-					needsICMP = true
-					break
-				}
-			}
-
-			if needsICMP {
-				break
-			}
-		}
-	}
-
-	// Initialize ICMP scanner if needed and not already initialized
-	if needsICMP && s.icmpScanner == nil {
-		var opts []scan.ICMPSweeperOption
-		if config.ICMPCount > 0 {
-			opts = append(opts, scan.WithICMPCount(config.ICMPCount))
-		}
-		icmpScanner, err := scan.NewICMPSweeper(config.Timeout, config.ICMPRateLimit, s.logger, opts...)
-		if err != nil {
-			s.logger.Warn().Err(err).Msg("Failed to create ICMP scanner during config update, ICMP scanning will be disabled")
-		} else {
-			s.icmpScanner = icmpScanner
-			s.logger.Info().Int("icmpCount", config.ICMPCount).Msg("Initialized ICMP scanner based on updated config")
-		}
-	}
+	// A group can gain a mode without being recreated. Initialize any newly
+	// required scanner while preserving existing scanner instances.
+	s.ensureScannersInitializedLocked()
 
 	return nil
 }

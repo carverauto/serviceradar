@@ -156,6 +156,10 @@ defmodule ServiceRadar.Security.EventsTest do
       assert :csp_violation in kinds
       assert :policy_denied in kinds
       assert :lockout_triggered in kinds
+      assert :mcp_auth_failed in kinds
+      assert :mcp_session_initialized in kinds
+      assert :mcp_tool_called in kinds
+      assert :mcp_tool_denied in kinds
       assert severities == [:info, :warning, :critical]
     end
   end

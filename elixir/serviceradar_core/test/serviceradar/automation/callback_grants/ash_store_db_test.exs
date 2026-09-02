@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
@@ -10,6 +10,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
   alias ServiceRadar.Automation.Callbacks.Use
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @moduletag :integration
   @actor SystemActor.system(:automation_callback_grant_store_db_test)
@@ -657,7 +658,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.AshStoreDbTest do
       VALUES (($1::text)::uuid, $2, 'https://awx.test.invalid', 'agent-gateway-demo',
               ($3::text)::uuid)
       """,
-      [ids.controller, "callback-store-#{suffix}", Ash.UUID.generate()]
+      # ansible_controllers.credential_secret_id is a foreign key onto
+      # network_credential_secrets, so a generated UUID no longer satisfies it.
+      [ids.controller, "callback-store-#{suffix}", CredentialIntegrationFixtures.secret_id!()]
     )
 
     SQL.query!(

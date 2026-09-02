@@ -12,6 +12,7 @@ defmodule ServiceRadar.Integrations do
   resources do
     resource ServiceRadar.Integrations.IntegrationSource
     resource ServiceRadar.Integrations.IntegrationUpdateRun
+    resource ServiceRadar.Integrations.IntegrationUpdateRunTarget
     resource ServiceRadar.Integrations.MapboxSettings
     resource ServiceRadar.Integrations.OutboundMailSettings
   end

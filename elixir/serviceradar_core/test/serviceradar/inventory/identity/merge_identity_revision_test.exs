@@ -13,7 +13,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeIdentityRevisionTest do
   moves by exactly one regardless of how many identifiers moved.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
@@ -86,6 +86,25 @@ defmodule ServiceRadar.Inventory.Identity.MergeIdentityRevisionTest do
            "in-flight work holding this pin must be able to detect it went stale"
   end
 
+  test "automatic merge cannot combine disjoint Armis source IDs", %{actor: actor} do
+    {:ok, survivor} = create_device(actor)
+    {:ok, source} = create_device(actor)
+    source_id = Ecto.UUID.generate()
+
+    register_armis_id(actor, survivor.uid, "armis-survivor", source_id)
+    register_armis_id(actor, source.uid, "armis-source", source_id)
+
+    assert {:error, {:merge_blocked, :source_authority_conflict}} =
+             IdentityReconciler.merge_devices(source.uid, survivor.uid,
+               actor: actor,
+               reason: "identifier_conflict"
+             )
+
+    assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(source.uid, false, actor: actor)
+    assert armis_owner(actor, "armis-source") == source.uid
+    assert armis_owner(actor, "armis-survivor") == survivor.uid
+  end
+
   test "an unmerge bumps both devices", %{actor: actor} do
     {:ok, survivor} = create_device(actor)
     {:ok, source} = create_device(actor)
@@ -144,6 +163,30 @@ defmodule ServiceRadar.Inventory.Identity.MergeIdentityRevisionTest do
       |> Ash.create(actor: actor)
 
     mac
+  end
+
+  defp register_armis_id(actor, device_uid, armis_id, source_id) do
+    DeviceIdentifier
+    |> Ash.Changeset.for_create(:register, %{
+      device_id: device_uid,
+      identifier_type: :armis_device_id,
+      identifier_value: armis_id,
+      partition: "default",
+      source: "armis",
+      metadata: %{"sync_service_id" => source_id}
+    })
+    |> Ash.create!(actor: actor)
+  end
+
+  defp armis_owner(actor, armis_id) do
+    DeviceIdentifier
+    |> Ash.Query.for_read(:lookup, %{
+      identifier_type: :armis_device_id,
+      identifier_value: armis_id,
+      partition: "default"
+    })
+    |> Ash.read_one!(actor: actor)
+    |> Map.fetch!(:device_id)
   end
 
   defp unique_ip do

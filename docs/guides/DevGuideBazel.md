@@ -77,8 +77,8 @@ When ready, open a PR from a feature branch and follow the CI checks.
 
 ## Outer Dev Loop
 
-Forgejo owns lint, integration, and repository policy workflows. The root
-`buildbuddy.yaml` workflow and Forgejo's main build both use the shared
+GitHub Actions owns lint, integration, and repository policy workflows. The root
+`buildbuddy.yaml` workflow and GitHub Actions main build both use the shared
 BuildBuddy cache and remote execution cluster for Bazel compilation and
 eligible tests. Database-backed test actions are the intentional exception:
 their compile actions remain remote, while each mutable DB `TestRunner` is

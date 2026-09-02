@@ -11,7 +11,7 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   every generation.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compiler

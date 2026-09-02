@@ -1,0 +1,18 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "srql-fixture-reaper_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/tools/srql-fixture-reaper",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//go/pkg/srqlfixture/reaper",
+        "@com_github_jackc_pgx_v5//:pgx",
+    ],
+)
+
+go_binary(
+    name = "srql-fixture-reaper",
+    embed = [":srql-fixture-reaper_lib"],
+    visibility = ["//visibility:public"],
+)

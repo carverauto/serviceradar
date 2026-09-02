@@ -42,12 +42,12 @@ pub mod dnsmessage {
 }
 
 const ADDON_ID: &str = "powerdns";
-const ADDON_VERSION: &str = "0.1.3";
+const ADDON_VERSION: &str = "0.1.7";
 const SOURCE_TYPE: &str = "powerdns";
 const DNS_ACTIVITY_SCHEMA_ID: &str = "com.carverauto.powerdns.dns_activity";
 const DNS_ACTIVITY_SCHEMA_VERSION: &str = "1.0.0";
 const DNS_ACTIVITY_DISPLAY_CONTRACT_ID: &str = "com.carverauto.powerdns.dns_activity.display";
-const DNS_ACTIVITY_DISPLAY_CONTRACT_VERSION: &str = "1.0.0";
+const DNS_ACTIVITY_DISPLAY_CONTRACT_VERSION: &str = "1.1.0";
 const DNS_ACTIVITY_DISPLAY_CONTRACT_PATH: &str = "display/dns_activity.display.json";
 const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:6000";
 const DEFAULT_SOURCE_INSTANCE: &str = "powerdns";
@@ -198,6 +198,7 @@ impl Addon for PowerDnsAddon {
             status,
             version: ADDON_VERSION.to_owned(),
             degradation_reason,
+            details: Default::default(),
         })
     }
 
@@ -836,6 +837,137 @@ mod tests {
         SIGNAL_SCHEMA_METADATA_SCHEMA_ID, SIGNAL_SCHEMA_METADATA_SCHEMA_VERSION,
         SIGNAL_SCHEMA_METADATA_SIGNAL_TYPE,
     };
+
+    fn manifest_root_value<'a>(manifest: &'a str, key: &str) -> &'a str {
+        let prefix = format!("{key}:");
+
+        manifest
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix(&prefix)
+                    .map(|value| value.trim().trim_matches('"'))
+            })
+            .unwrap_or_else(|| panic!("manifest is missing root key {key}"))
+    }
+
+    fn manifest_signal_value<'a>(manifest: &'a str, schema_id: &str, key: &str) -> &'a str {
+        let schema_prefix = format!("  - id: {schema_id}");
+        let value_prefix = format!("{key}:");
+        let mut selected = false;
+
+        for line in manifest.lines() {
+            if line.starts_with("  - id:") {
+                selected = line == schema_prefix;
+                continue;
+            }
+
+            if selected {
+                if !line.starts_with("    ") {
+                    break;
+                }
+
+                if let Some(value) = line.trim().strip_prefix(&value_prefix) {
+                    return value.trim().trim_matches('"');
+                }
+            }
+        }
+
+        panic!("manifest schema {schema_id} is missing key {key}")
+    }
+
+    #[test]
+    fn emitted_dns_ref_matches_the_shipped_manifest_and_contract() {
+        let manifest = include_str!("../../../addons/powerdns/addon.yaml");
+        let contract: Value = serde_json::from_str(include_str!(
+            "../../../addons/powerdns/display/dns_activity.display.json"
+        ))
+        .expect("dns display contract json");
+        let message = dnsmessage::PbdnsMessage {
+            r#type: dnsmessage::pbdns_message::Type::DnsResponseType as i32,
+            time_sec: Some(1),
+            response: Some(dnsmessage::pbdns_message::DnsResponse {
+                applied_policy: Some("test-policy".to_owned()),
+                applied_policy_kind: Some(dnsmessage::pbdns_message::PolicyKind::Nxdomain as i32),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let record = map_message_to_record(&message, &Config::default()).expect("record");
+        let metadata = &record.metadata;
+
+        assert_eq!(
+            metadata
+                .get(SIGNAL_SCHEMA_METADATA_PRODUCER_ID)
+                .map(String::as_str),
+            Some(manifest_root_value(manifest, "id"))
+        );
+        assert_eq!(
+            metadata
+                .get(SIGNAL_SCHEMA_METADATA_PRODUCER_VERSION)
+                .map(String::as_str),
+            Some(manifest_root_value(manifest, "version"))
+        );
+
+        let schema_id = metadata
+            .get(SIGNAL_SCHEMA_METADATA_SCHEMA_ID)
+            .expect("schema id");
+
+        assert_eq!(
+            metadata
+                .get(SIGNAL_SCHEMA_METADATA_SCHEMA_VERSION)
+                .map(String::as_str),
+            Some(manifest_signal_value(manifest, schema_id, "version"))
+        );
+        assert_eq!(
+            metadata
+                .get(SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT)
+                .map(String::as_str),
+            Some(manifest_signal_value(
+                manifest,
+                schema_id,
+                "display_contract"
+            ))
+        );
+        assert_eq!(
+            metadata
+                .get(SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT_ID)
+                .map(String::as_str),
+            Some(manifest_signal_value(
+                manifest,
+                schema_id,
+                "display_contract_id"
+            ))
+        );
+        assert_eq!(
+            metadata
+                .get(SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT_VERSION)
+                .map(String::as_str),
+            Some(manifest_signal_value(
+                manifest,
+                schema_id,
+                "display_contract_version"
+            ))
+        );
+        assert_eq!(contract["schema_id"].as_str(), Some(schema_id.as_str()));
+        assert_eq!(
+            contract["schema_version"].as_str(),
+            metadata
+                .get(SIGNAL_SCHEMA_METADATA_SCHEMA_VERSION)
+                .map(String::as_str)
+        );
+        assert_eq!(
+            contract["id"].as_str(),
+            metadata
+                .get(SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT_ID)
+                .map(String::as_str)
+        );
+        assert_eq!(
+            contract["version"].as_str(),
+            metadata
+                .get(SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT_VERSION)
+                .map(String::as_str)
+        );
+    }
 
     fn health_test_state(now: Instant) -> State {
         State {

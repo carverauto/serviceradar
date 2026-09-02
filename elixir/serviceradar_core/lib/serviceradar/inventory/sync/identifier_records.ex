@@ -129,7 +129,14 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
   end
 
   def build_identifier_metadata(update) do
-    metadata = Map.take(update.metadata, ["sync_service_id", "integration_type"])
+    metadata =
+      Map.take(update.metadata, [
+        "sync_service_id",
+        "sync_run_id",
+        "sync_total_devices",
+        "integration_type",
+        "source_duplicate_conflict"
+      ])
 
     case HardwareSerial.evidence(update) do
       {:ok, evidence} ->

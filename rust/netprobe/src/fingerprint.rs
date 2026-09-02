@@ -3,6 +3,9 @@ use std::{
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     sync::{Arc, Mutex},
 };
+// Only the Linux ring-reader publishes fingerprints.
+#[cfg(target_os = "linux")]
+use tokio::sync::broadcast;
 
 #[cfg(target_os = "linux")]
 use std::{
@@ -19,8 +22,6 @@ use anyhow::Result;
 #[cfg(feature = "remote-capture")]
 use etherparse::{NetHeaders, PacketHeaders, TcpHeader, TcpOptionElement, TransportHeader};
 
-#[cfg(target_os = "linux")]
-use crate::event_queue::EventSender;
 use crate::hassh;
 use crate::proto::netprobe::{
     FingerprintDisagreement, FingerprintEvent, FingerprintMatch, LicenseCleanFingerprint,
@@ -1218,7 +1219,7 @@ impl<'a> P0fSignatureRing<'a> {
 
     pub fn poll_once(
         &mut self,
-        tx: &EventSender<FingerprintEvent>,
+        tx: &broadcast::Sender<FingerprintEvent>,
         gate: &std::sync::Arc<std::sync::Mutex<FingerprintEventGate>>,
         metrics: &Metrics,
         accumulator: Option<&FingerprintAccumulator>,
@@ -1240,8 +1241,8 @@ impl<'a> P0fSignatureRing<'a> {
                 continue;
             };
             metrics.inc_fingerprint_events();
-            if tx.try_send(event).is_err() {
-                metrics.inc_fingerprint_events_dropped("ipc_queue_full", 1);
+            if tx.send(event).is_err() {
+                metrics.inc_fingerprint_events_dropped("no_receiver", 1);
             } else {
                 emitted += 1;
             }
@@ -1264,7 +1265,7 @@ impl P0fSignatureRuntime {
     pub fn start_from_ebpf(
         interface_name: impl Into<String>,
         ebpf: &mut aya::Ebpf,
-        tx: EventSender<FingerprintEvent>,
+        tx: broadcast::Sender<FingerprintEvent>,
         gate: Arc<Mutex<FingerprintEventGate>>,
         accumulator: FingerprintAccumulator,
         metrics: Metrics,
@@ -1319,7 +1320,7 @@ struct P0fSignatureConsumer {
 impl P0fSignatureConsumer {
     fn poll_once(
         &mut self,
-        tx: &EventSender<FingerprintEvent>,
+        tx: &broadcast::Sender<FingerprintEvent>,
         gate: &Arc<Mutex<FingerprintEventGate>>,
         metrics: &Metrics,
         accumulator: Option<&FingerprintAccumulator>,
@@ -1341,8 +1342,8 @@ impl P0fSignatureConsumer {
                 continue;
             };
             metrics.inc_fingerprint_events();
-            if tx.try_send(event).is_err() {
-                metrics.inc_fingerprint_events_dropped("ipc_queue_full", 1);
+            if tx.send(event).is_err() {
+                metrics.inc_fingerprint_events_dropped("no_receiver", 1);
             } else {
                 emitted += 1;
             }

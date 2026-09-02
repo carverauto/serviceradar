@@ -7,14 +7,18 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   import ServiceRadarWebNGWeb.PluginConfigForm
 
+  alias Ash.Error.Invalid
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.IntegrationCatalog
   alias ServiceRadar.Plugins.Manifest
+  alias ServiceRadar.Plugins.PluginRepository
+  alias ServiceRadar.Plugins.RepositoryCredentials
   alias ServiceRadarWebNG.Observability.ContractRegistry
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.CredentialCoverage
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.Packages
+  alias ServiceRadarWebNG.Plugins.Repositories
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -27,8 +31,18 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   @package_page_size 10
   @first_party_catalog_page_size 10
   @official_release_tag_regex ~r/^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$/
+
+  # Sentinel release option meaning "every release this repository publishes".
+  # A repository that tags per plugin (one release per plugin, the pattern
+  # third-party repositories are documented to use) has no single release
+  # holding its whole catalog, so selecting one tag would show one plugin and
+  # hide the rest.
+  @all_releases_tag "__all_releases__"
   @plugin_assignment_manage_permission "settings.plugins.manage"
   @credential_manage_permission "settings.credentials.manage"
+  # Deliberately not implied by plugins.stage: staging imports from a source the
+  # platform already trusts, while this decides which sources are trusted.
+  @repository_manage_permission "plugins.repositories.manage"
   @policy_recovery_poll_delay_ms 2_000
   @policy_recovery_poll_attempt_limit 30
   @legacy_recovery_candidate_page_size 50
@@ -72,6 +86,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:current_path, nil)
         |> assign(:plugins_base_path, "/admin/plugins")
         |> assign(:packages, packages)
+        |> assign(:catalog_packages, packages)
         |> assign(:package_page, 1)
         |> assign(:package_page_size, @package_page_size)
         |> assign(:filter_status, nil)
@@ -85,8 +100,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:first_party_release_options, release_options)
         |> assign(:first_party_release_tag, selected_first_party_release(release_options, nil))
         |> assign(:first_party_release_selected?, false)
-        |> assign(:first_party_repo_url, first_party_repo_url())
-        |> assign_first_party_repository_form()
+        |> assign(:can_manage_repositories, RBAC.can?(scope, @repository_manage_permission))
+        |> assign_plugin_repositories(scope)
+        |> assign(:show_repository_modal, false)
+        |> assign(:repository_form, default_repository_form())
+        |> assign(:repository_errors, [])
+        |> assign(:editing_repository_id, nil)
         |> assign(:import_running?, false)
         |> assign(:show_create_modal, false)
         |> assign(:show_details_modal, false)
@@ -174,7 +193,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:selected_package, package)
         |> assign(:show_details_modal, true)
         |> assign(:review_form, build_review_form(package))
-        |> assign(:assignment_form, default_assignment_form())
+        |> assign(:assignment_form, default_assignment_form(package))
         |> assign(:assignments, list_plugin_assignments(package.plugin_id, scope))
         |> assign(:authenticated_partition_preview, nil)
         |> assign(:recovery_confirmation, nil)
@@ -303,11 +322,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   def handle_event("refresh", _params, socket) do
     scope = socket.assigns.current_scope
-    packages = list_packages(current_filters(socket), scope)
 
     {:noreply,
      socket
-     |> assign(:packages, packages)
+     |> assign_package_views(scope)
      |> assign(:agents, list_agents(scope))
      |> assign_capacity(scope)
      |> assign(:verification_policy, plugin_verification_policy())
@@ -348,17 +366,25 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
      |> assign_first_party_catalog_view(socket.assigns.first_party_catalog_all, release_tag)}
   end
 
-  def handle_event("select_first_party_repository", _params, %{assigns: %{can_stage_plugins: false}} = socket) do
-    {:noreply, put_flash(socket, :error, "You don't have permission to stage plugin packages.")}
+  # Selecting a repository is a read: anyone who can view plugins may switch the
+  # catalog they are looking at. Managing repositories is the gated action.
+  def handle_event("select_first_party_repository", %{"repository_id" => "__add_new__"}, socket) do
+    if socket.assigns.can_manage_repositories do
+      {:noreply,
+       socket
+       |> assign(:show_repository_modal, true)
+       |> assign(:editing_repository_id, nil)
+       |> assign(:repository_form, default_repository_form())
+       |> assign(:repository_errors, [])}
+    else
+      {:noreply, put_flash(socket, :error, repository_permission_message())}
+    end
   end
 
-  def handle_event("select_first_party_repository", %{"catalog_repository" => %{"repo_url" => repo_url}}, socket) do
-    repo_url = normalize_first_party_repo_url(repo_url)
-
+  def handle_event("select_first_party_repository", %{"repository_id" => repository_id}, socket) do
     {:noreply,
      socket
-     |> assign(:first_party_repo_url, repo_url)
-     |> assign_first_party_repository_form()
+     |> assign_plugin_repositories(socket.assigns.current_scope, repository_id)
      |> assign(:first_party_release_selected?, false)
      |> assign(:first_party_release_tag, nil)
      |> assign(:first_party_catalog, [])
@@ -371,11 +397,137 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {:noreply, put_flash(socket, :error, "Catalog repository is required.")}
   end
 
+  def handle_event("open_repository_modal", _params, %{assigns: %{can_manage_repositories: false}} = socket) do
+    {:noreply, put_flash(socket, :error, repository_permission_message())}
+  end
+
+  def handle_event("open_repository_modal", %{"id" => id}, socket) do
+    case Enum.find(socket.assigns.plugin_repositories, &(&1.id == id)) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "That repository no longer exists.")}
+
+      repository ->
+        {:noreply,
+         socket
+         |> assign(:show_repository_modal, true)
+         |> assign(:editing_repository_id, repository.id)
+         |> assign(:repository_form, repository_form_from(repository))
+         |> assign(:repository_errors, [])}
+    end
+  end
+
+  def handle_event("close_repository_modal", _params, socket) do
+    # Dismissing returns the dropdown to its prior selection: the `… Add New`
+    # option is an action, not a selectable value, so leaving it selected would
+    # misreport which catalog is being viewed.
+    {:noreply,
+     socket
+     |> assign(:show_repository_modal, false)
+     |> assign(:editing_repository_id, nil)
+     |> assign(:repository_errors, [])}
+  end
+
+  def handle_event("save_repository", _params, %{assigns: %{can_manage_repositories: false}} = socket) do
+    {:noreply, put_flash(socket, :error, repository_permission_message())}
+  end
+
+  def handle_event("save_repository", %{"repository" => params}, socket) do
+    socket = assign(socket, :repository_form, params)
+    scope = socket.assigns.current_scope
+
+    case save_repository(socket.assigns.editing_repository_id, params, scope) do
+      {:ok, repository} ->
+        {:noreply,
+         socket
+         |> assign(:show_repository_modal, false)
+         |> assign(:editing_repository_id, nil)
+         |> assign(:repository_form, default_repository_form())
+         |> assign(:repository_errors, [])
+         |> put_flash(:info, "Saved plugin repository #{repository.name}")
+         |> assign_plugin_repositories(scope, repository.id)
+         |> assign(:first_party_catalog, [])
+         |> assign(:first_party_catalog_all, [])
+         |> assign(:first_party_release_tag, nil)
+         |> assign(:first_party_release_selected?, false)
+         |> load_first_party_catalog()}
+
+      {:error, errors} ->
+        # Modal stays open with field-level errors rather than closing and
+        # dropping what was typed.
+        {:noreply, assign(socket, :repository_errors, errors)}
+    end
+  end
+
+  def handle_event("toggle_repository", _params, %{assigns: %{can_manage_repositories: false}} = socket) do
+    {:noreply, put_flash(socket, :error, repository_permission_message())}
+  end
+
+  def handle_event("toggle_repository", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with repository when not is_nil(repository) <-
+           Enum.find(socket.assigns.plugin_repositories, &(&1.id == id)),
+         action = if(repository.enabled, do: :disable, else: :enable),
+         {:ok, updated} <- update_repository_state(repository, action, scope) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "#{if updated.enabled, do: "Enabled", else: "Disabled"} #{updated.name}")
+       |> assign_plugin_repositories(scope)
+       |> load_first_party_catalog()}
+    else
+      nil -> {:noreply, put_flash(socket, :error, "That repository no longer exists.")}
+      {:error, reason} -> {:noreply, put_flash(socket, :error, "Could not update repository: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("delete_repository", _params, %{assigns: %{can_manage_repositories: false}} = socket) do
+    {:noreply, put_flash(socket, :error, repository_permission_message())}
+  end
+
+  def handle_event("delete_repository", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with repository when not is_nil(repository) <-
+           Enum.find(socket.assigns.plugin_repositories, &(&1.id == id)),
+         :ok <- destroy_repository(repository, scope) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Removed plugin repository #{repository.name}")
+       |> assign_plugin_repositories(scope)
+       |> assign(:first_party_catalog, [])
+       |> assign(:first_party_catalog_all, [])
+       |> load_first_party_catalog()}
+    else
+      nil -> {:noreply, put_flash(socket, :error, "That repository no longer exists.")}
+      {:error, reason} -> {:noreply, put_flash(socket, :error, "Could not remove repository: #{format_error(reason)}")}
+    end
+  end
+
+  def handle_event("clear_repository_token", _params, %{assigns: %{can_manage_repositories: false}} = socket) do
+    {:noreply, put_flash(socket, :error, repository_permission_message())}
+  end
+
+  def handle_event("clear_repository_token", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    with repository when not is_nil(repository) <-
+           Enum.find(socket.assigns.plugin_repositories, &(&1.id == id)),
+         {:ok, _repository} <- RepositoryCredentials.clear_token(repository, actor: scope_actor(scope)) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Removed the access token for #{repository.name}")
+       |> assign_plugin_repositories(scope, repository.id)}
+    else
+      nil -> {:noreply, put_flash(socket, :error, "That repository no longer exists.")}
+      {:error, reason} -> {:noreply, put_flash(socket, :error, "Could not clear the token: #{format_error(reason)}")}
+    end
+  end
+
   def handle_event("first_party_catalog_page", %{"page" => page}, socket) do
     catalog_row_count =
       socket.assigns.first_party_catalog
       |> combined_catalog_rows(
-        socket.assigns.packages,
+        repository_packages(socket.assigns.catalog_packages, socket.assigns.selected_repository),
         socket.assigns.first_party_release_tag
       )
       |> length()
@@ -456,7 +608,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply,
          socket
          |> put_flash(:info, "Imported first-party plugin #{package.name} #{package.version}")
-         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign_package_views(scope)
          |> load_first_party_catalog()
          |> push_navigate(to: plugins_show_path(socket, package.id))}
 
@@ -495,7 +647,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
              {:ok, package} <- Packages.create(attrs, scope: scope) do
           {:noreply,
            socket
-           |> assign(:packages, list_packages(current_filters(socket), scope))
+           |> assign_package_views(scope)
            |> assign(:show_create_modal, false)
            |> assign(:create_form, default_create_form())
            |> assign(:create_errors, [])
@@ -589,7 +741,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
              {:ok, package} <- Packages.create(attrs, scope: scope) do
           {:noreply,
            socket
-           |> assign(:packages, list_packages(current_filters(socket), scope))
+           |> assign_package_views(scope)
            |> assign(:show_create_modal, false)
            |> assign(:create_form, default_create_form())
            |> assign(:create_errors, [])
@@ -682,7 +834,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            ) do
       {:noreply,
        socket
-       |> assign(:packages, list_packages(current_filters(socket), scope))
+       |> assign_package_views(scope)
        |> assign(:selected_package, package)
        |> assign(:review_form, build_review_form(package))
        |> put_flash(:info, "Package approved")}
@@ -727,7 +879,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:ok, package} ->
         {:noreply,
          socket
-         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign_package_views(scope)
          |> assign(:selected_package, package)
          |> assign(:review_form, build_review_form(package))
          |> put_flash(:info, "Package denied")}
@@ -749,7 +901,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:ok, package} ->
         {:noreply,
          socket
-         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign_package_views(scope)
          |> assign(:selected_package, package)
          |> assign(:review_form, build_review_form(package))
          |> put_flash(:info, "Package revoked")}
@@ -768,20 +920,23 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   def handle_event("create_assignment", %{"assignment" => params}, socket) do
-    scope = socket.assigns.current_scope
-    config_schema = socket.assigns.selected_package.config_schema
+    if producer_schedule_provisioned?(socket.assigns.selected_package) do
+      {:noreply, put_flash(socket, :error, producer_schedule_assignment_message())}
+    else
+      scope = socket.assigns.current_scope
 
-    case parse_assignment_params(params, socket.assigns.selected_package.id, config_schema) do
-      {:ok, attrs} ->
-        handle_assignment_upsert(socket, scope, attrs)
+      case parse_assignment_params(params, socket.assigns.selected_package) do
+        {:ok, attrs} ->
+          handle_assignment_upsert(socket, scope, attrs)
 
-      {:error, {:invalid_json, message}} ->
-        Logger.error("Plugin assignment failed - invalid JSON: #{message}")
-        {:noreply, put_flash(socket, :error, message)}
+        {:error, {:invalid_json, message}} ->
+          Logger.error("Plugin assignment failed - invalid JSON: #{message}")
+          {:noreply, put_flash(socket, :error, message)}
 
-      {:error, error} ->
-        Logger.error("Plugin assignment failed: #{inspect(error)}")
-        {:noreply, put_flash(socket, :error, "Failed to assign: #{format_error(error)}")}
+        {:error, error} ->
+          Logger.error("Plugin assignment failed: #{inspect(error)}")
+          {:noreply, put_flash(socket, :error, "Failed to assign: #{format_error(error)}")}
+      end
     end
   end
 
@@ -898,7 +1053,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:ok, package} ->
         {:noreply,
          socket
-         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign_package_views(scope)
          |> assign(:selected_package, package)
          |> assign(:review_form, build_review_form(package))
          |> put_flash(:info, "Package moved back to staged")}
@@ -920,7 +1075,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       :ok ->
         {:noreply,
          socket
-         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign_package_views(scope)
+         |> assign_first_party_catalog_view(
+           socket.assigns.first_party_catalog_all,
+           socket.assigns.first_party_release_tag
+         )
          |> assign(:show_details_modal, false)
          |> assign(:selected_package, nil)
          |> assign(:assignments, [])
@@ -1011,7 +1170,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            :assignments,
            list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope)
          )
-         |> assign(:assignment_form, default_assignment_form())
+         |> assign(:assignment_form, default_assignment_form(socket.assigns.selected_package))
          |> assign(:show_details_modal, false)
          |> assignment_saved_flash("Assignment created", attrs.agent_uid)}
 
@@ -1035,7 +1194,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            :assignments,
            list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope)
          )
-         |> assign(:assignment_form, default_assignment_form())
+         |> assign(:assignment_form, default_assignment_form(socket.assigns.selected_package))
          |> assign(:show_details_modal, false)
          |> assignment_saved_flash("Assignment updated", assignment.agent_uid)}
 
@@ -1055,7 +1214,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            :assignments,
            list_plugin_assignments(socket.assigns.selected_package.plugin_id, scope)
          )
-         |> assign(:assignment_form, default_assignment_form())
+         |> assign(:assignment_form, default_assignment_form(socket.assigns.selected_package))
          |> assign(:show_details_modal, false)
          |> assignment_saved_flash("Assignment upgraded", attrs.agent_uid)}
 
@@ -1170,7 +1329,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         {:noreply,
          socket
          |> assign_package_urls(updated, scope)
-         |> assign(:packages, list_packages(current_filters(socket), scope))
+         |> assign_package_views(scope)
          |> assign(:upload_errors, [])
          |> put_flash(:info, "Wasm blob uploaded")}
 
@@ -1194,15 +1353,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
     case result do
       {:ok, summary} ->
-        release_label = socket.assigns.first_party_release_tag || "the selected release"
+        release_label = release_flash_label(socket.assigns.first_party_release_tag)
 
         {:noreply,
          socket
          |> put_flash(import_summary_flash_kind(summary), import_summary_message(summary, release_label))
-         |> assign(
-           :packages,
-           list_packages(current_filters(socket), socket.assigns.current_scope)
-         )
+         |> assign_package_views(socket.assigns.current_scope)
          |> load_first_party_catalog()}
 
       {:error, reason} ->
@@ -1256,44 +1412,221 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           </div>
         </div>
 
+        <.ui_panel id="imported-plugin-packages">
+          <:header>
+            <div>
+              <div class="text-sm font-semibold">Imported packages</div>
+              <p class="text-xs text-sr-muted">
+                {length(@packages)} package(s) available in this ServiceRadar instance.
+              </p>
+            </div>
+            <form
+              id="filter-imported-plugin-packages"
+              phx-change="filter"
+              class="flex flex-wrap items-center justify-end gap-2"
+            >
+              <label for="imported-plugin-status-filter" class="sr-only">Package status</label>
+              <select
+                id="imported-plugin-status-filter"
+                name="status"
+                class={ui_field_class(size: "sm")}
+              >
+                <option value="">All statuses</option>
+                <option value="staged" selected={@filter_status == "staged"}>Staged</option>
+                <option value="approved" selected={@filter_status == "approved"}>Approved</option>
+                <option value="denied" selected={@filter_status == "denied"}>Denied</option>
+                <option value="revoked" selected={@filter_status == "revoked"}>Revoked</option>
+              </select>
+              <label for="imported-plugin-source-filter" class="sr-only">Package source</label>
+              <select
+                id="imported-plugin-source-filter"
+                name="source_type"
+                class={ui_field_class(size: "sm")}
+              >
+                <option value="">All sources</option>
+                <option value="upload" selected={@filter_source_type == "upload"}>Upload</option>
+                <option value="github" selected={@filter_source_type == "github"}>GitHub</option>
+                <option value="first_party" selected={@filter_source_type == "first_party"}>
+                  First-party
+                </option>
+              </select>
+            </form>
+          </:header>
+
+          <%= if @packages == [] do %>
+            <div class="rounded-xl border border-dashed border-sr-line bg-sr-surface p-8 text-center">
+              <div class="text-sm font-semibold text-sr-ink">No packages found</div>
+              <p class="mt-1 text-xs text-sr-muted">
+                Stage a plugin package to begin the review workflow.
+              </p>
+            </div>
+          <% else %>
+            <div class="sr-ui-table-shell">
+              <table class={ui_table_class(size: "sm")}>
+                <thead>
+                  <tr class="text-xs uppercase tracking-wide text-sr-muted">
+                    <th>Plugin</th>
+                    <th>Version</th>
+                    <th>Status</th>
+                    <th>Source</th>
+                    <th>Updated</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <%= for package <- paginated_items(@packages, @package_page, @package_page_size) do %>
+                    <tr
+                      id={"imported-plugin-package-#{package.id}"}
+                      class="hover:bg-sr-subtle/30"
+                    >
+                      <td>
+                        <div class="font-medium">{package.name}</div>
+                        <div class="text-xs text-sr-muted font-mono">{package.plugin_id}</div>
+                      </td>
+                      <td class="text-xs">{package.version}</td>
+                      <td>
+                        <.status_badge status={package.status} />
+                      </td>
+                      <td>
+                        <.ui_badge variant="ghost" size="xs">
+                          {package.source_type}
+                        </.ui_badge>
+                      </td>
+                      <td class="text-xs text-sr-muted">
+                        <.user_time
+                          id={"admin-plugin-package-#{package.id}-updated-at"}
+                          value={package.updated_at || package.inserted_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                        />
+                      </td>
+                      <td>
+                        <.ui_button
+                          variant="ghost"
+                          size="xs"
+                          navigate={plugins_show_path(@plugins_base_path, package.id)}
+                        >
+                          View
+                        </.ui_button>
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+              <.pagination_controls
+                id_prefix="plugin-packages"
+                event="package_page"
+                page={@package_page}
+                total_items={length(@packages)}
+                page_size={@package_page_size}
+              />
+            </div>
+          <% end %>
+        </.ui_panel>
+
         <% catalog_rows =
           combined_catalog_rows(
             @first_party_catalog,
-            @packages,
+            repository_packages(@catalog_packages, @selected_repository),
             @first_party_release_tag
           ) %>
         <% import_state = catalog_import_state(catalog_rows) %>
 
-        <.ui_panel>
+        <.ui_panel id="plugin-catalog">
           <:header>
             <div>
               <div class="text-sm font-semibold">Plugin catalog</div>
               <p class="text-xs text-sr-muted">
-                Signed Wasm plugins discovered from {@first_party_repo_url}, plus imported packages.
+                <span :if={@selected_repository}>
+                  Signed Wasm plugins discovered from {@selected_repository.name} ({@selected_repository.repo_url}), plus imported packages.
+                </span>
+                <span :if={is_nil(@selected_repository)}>
+                  No enabled plugin repository. Imported packages remain available in their own panel.
+                </span>
               </p>
             </div>
             <div class="flex flex-wrap items-center justify-end gap-2">
-              <.form
-                :if={@can_stage_plugins}
-                for={@first_party_repository_form}
+              <form
                 id="select-first-party-repository-form"
-                phx-submit="select_first_party_repository"
+                phx-change="select_first_party_repository"
                 class="flex w-full min-w-0 items-center gap-2 sm:w-auto"
               >
-                <.input
-                  field={@first_party_repository_form[:repo_url]}
-                  id="first-party-repository-url"
-                  type="url"
-                  label="Catalog repository"
-                  label_class="sr-only"
-                  wrapper_class="min-w-0 flex-1 sm:w-80"
-                  class={ui_field_class(size: "sm", class: "w-full")}
-                  required
-                />
-                <.ui_button type="submit" variant="ghost" size="sm">
-                  <.icon name="hero-folder-open" class="size-4" /> Load
-                </.ui_button>
-              </.form>
+                <label for="plugin-repository-select" class="sr-only">Catalog repository</label>
+                <select
+                  id="plugin-repository-select"
+                  name="repository_id"
+                  class={ui_field_class(size: "sm", class: "w-full sm:w-72")}
+                >
+                  <option
+                    :for={repository <- @enabled_plugin_repositories}
+                    value={repository.id}
+                    selected={@selected_repository && repository.id == @selected_repository.id}
+                  >
+                    {repository.name}{if repository.builtin, do: " (built-in)", else: ""}
+                  </option>
+                  <%!--
+                    An action, not a value. `close_repository_modal` restores the
+                    prior selection so dismissing the modal cannot leave the
+                    dropdown claiming a catalog that is not loaded.
+                  --%>
+                  <option :if={@can_manage_repositories} value="__add_new__">… Add New</option>
+                </select>
+              </form>
+              <div
+                :if={@can_manage_repositories and @selected_repository}
+                class="flex items-center gap-1"
+              >
+                <.ui_icon_button
+                  :if={not @selected_repository.builtin}
+                  size="sm"
+                  title="Edit repository"
+                  aria-label="Edit repository"
+                  phx-click="open_repository_modal"
+                  phx-value-id={@selected_repository.id}
+                >
+                  <.icon name="hero-pencil-square" class="size-4" />
+                </.ui_icon_button>
+                <.ui_icon_button
+                  size="sm"
+                  title={
+                    if @selected_repository.enabled,
+                      do: "Disable repository",
+                      else: "Enable repository"
+                  }
+                  aria-label={
+                    if @selected_repository.enabled,
+                      do: "Disable repository",
+                      else: "Enable repository"
+                  }
+                  phx-click="toggle_repository"
+                  phx-value-id={@selected_repository.id}
+                >
+                  <.icon
+                    name={
+                      if @selected_repository.enabled,
+                        do: "hero-pause-circle",
+                        else: "hero-play-circle"
+                    }
+                    class="size-4"
+                  />
+                </.ui_icon_button>
+                <%!--
+                  The built-in source is seeded and cannot be edited or removed
+                  -- only disabled. Hiding the controls matches what the resource
+                  enforces, so the UI cannot offer an action that always fails.
+                --%>
+                <.ui_icon_button
+                  :if={not @selected_repository.builtin}
+                  size="sm"
+                  title="Remove repository"
+                  aria-label="Remove repository"
+                  phx-click="delete_repository"
+                  phx-value-id={@selected_repository.id}
+                  data-confirm={"Remove #{@selected_repository.name}? Packages already imported from it are kept."}
+                >
+                  <.icon name="hero-trash" class="size-4" />
+                </.ui_icon_button>
+              </div>
               <form
                 :if={@first_party_release_options != []}
                 id="select-plugin-release-form"
@@ -1306,7 +1639,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                     value={release_tag}
                     selected={release_tag == @first_party_release_tag}
                   >
-                    {release_tag}
+                    {release_option_label(release_tag)}
                   </option>
                 </select>
               </form>
@@ -1381,7 +1714,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                           </.ui_badge>
                         </td>
                         <td class="text-xs text-sr-muted">
-                          {format_datetime(catalog_row_updated_at(row))}
+                          <.user_time
+                            id={"admin-plugin-catalog-#{dom_id_segment(row.plugin_id)}-#{dom_id_segment(row.version)}-updated-at"}
+                            value={catalog_row_updated_at(row)}
+                            timezone={@current_scope.user.timezone || "Etc/UTC"}
+                            style={:compact}
+                          />
                         </td>
                         <td>
                           <div class="flex gap-1">
@@ -1560,8 +1898,180 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         download_expires_at={@download_expires_at}
         plugins_base_path={@plugins_base_path}
       />
+      <.repository_modal
+        show_repository_modal={@show_repository_modal}
+        repository_form={@repository_form}
+        repository_errors={@repository_errors}
+        editing_repository_id={@editing_repository_id}
+        plugin_repositories={@plugin_repositories}
+      />
     </Layouts.app>
     """
+  end
+
+  defp repository_modal(assigns) do
+    ~H"""
+    <.ui_modal
+      :if={@show_repository_modal}
+      id="plugin-repository-modal"
+      open={true}
+      size="lg"
+      on_cancel="close_repository_modal"
+    >
+      <:title>
+        {if @editing_repository_id, do: "Edit plugin repository", else: "Add plugin repository"}
+      </:title>
+
+      <form id="plugin-repository-form" phx-submit="save_repository" class="space-y-4">
+        <div
+          :if={@repository_errors != []}
+          class="rounded-xl border border-error/30 bg-error/5 p-3 text-xs text-error"
+        >
+          <ul class="list-disc space-y-1 pl-4">
+            <li :for={error <- @repository_errors}>{error}</li>
+          </ul>
+        </div>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="block">
+            <span class="text-xs font-medium text-sr-ink">Name</span>
+            <input
+              type="text"
+              name="repository[name]"
+              value={@repository_form["name"]}
+              class={ui_field_class(size: "sm", class: "w-full")}
+              placeholder="Acme Plugins"
+              required
+            />
+          </label>
+
+          <label class="block">
+            <span class="text-xs font-medium text-sr-ink">Repository URL</span>
+            <input
+              type="url"
+              name="repository[repo_url]"
+              value={@repository_form["repo_url"]}
+              class={ui_field_class(size: "sm", class: "w-full")}
+              placeholder="https://github.com/acme/sr-plugins"
+              required
+            />
+          </label>
+        </div>
+
+        <label class="block">
+          <span class="text-xs font-medium text-sr-ink">Index asset name</span>
+          <input
+            type="text"
+            name="repository[index_asset_name]"
+            value={@repository_form["index_asset_name"]}
+            class={ui_field_class(size: "sm", class: "w-full")}
+            required
+          />
+          <span class="mt-1 block text-xs text-sr-muted">
+            The release asset holding this repository's plugin index.
+          </span>
+        </label>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <label class="block">
+            <span class="text-xs font-medium text-sr-ink">Signing key id</span>
+            <input
+              type="text"
+              name="repository[signing_key_id]"
+              value={@repository_form["signing_key_id"]}
+              class={ui_field_class(size: "sm", class: "w-full")}
+              placeholder="acme-v1"
+              required
+            />
+          </label>
+
+          <label class="block">
+            <span class="text-xs font-medium text-sr-ink">Signing public key</span>
+            <input
+              type="text"
+              name="repository[signing_public_key]"
+              value={@repository_form["signing_public_key"]}
+              class={ui_field_class(size: "sm", class: "w-full font-mono")}
+              placeholder="base64 ed25519 public key"
+              required
+            />
+          </label>
+        </div>
+
+        <p class="text-xs text-sr-muted">
+          Bundles from this repository are verified against this key. A repository
+          cannot be saved without one: without a trust anchor it could never
+          import anything.
+        </p>
+
+        <label class="block">
+          <span class="text-xs font-medium text-sr-ink">
+            Access token <span class="text-sr-muted">(private repositories only)</span>
+          </span>
+          <input
+            type="password"
+            name="repository[github_token]"
+            value=""
+            autocomplete="off"
+            class={ui_field_class(size: "sm", class: "w-full")}
+            placeholder={
+              if @editing_repository_id &&
+                   repository_credential_attached?(@plugin_repositories, @editing_repository_id),
+                 do: "•••••••• stored — type to replace",
+                 else: "ghp_… (stored encrypted)"
+            }
+          />
+          <%!--
+            The hint has to differ for a new repository. "Leave blank to keep
+            the stored token" is true when editing and actively misleading when
+            creating: there is nothing stored, so blank stores nothing, and a
+            private repository then fails with a 404 that reads as a missing
+            release rather than a missing credential.
+          --%>
+          <span class="mt-1 block text-xs text-sr-muted">
+            A fine-grained token with read-only Contents access to this repository is enough.
+            <%= if @editing_repository_id &&
+                     repository_credential_attached?(@plugin_repositories, @editing_repository_id) do %>
+              Leave blank to keep the stored token.
+            <% else %>
+              A private repository needs one: without it GitHub answers 404, the same as a missing release.
+            <% end %>
+          </span>
+        </label>
+
+        <div class="flex items-center justify-between gap-2 pt-2">
+          <.ui_button
+            :if={
+              @editing_repository_id &&
+                repository_credential_attached?(@plugin_repositories, @editing_repository_id)
+            }
+            type="button"
+            variant="ghost"
+            size="sm"
+            phx-click="clear_repository_token"
+            phx-value-id={@editing_repository_id}
+          >
+            Remove stored token
+          </.ui_button>
+          <div class="ml-auto flex items-center gap-2">
+            <.ui_button type="button" variant="ghost" size="sm" phx-click="close_repository_modal">
+              Cancel
+            </.ui_button>
+            <.ui_button type="submit" variant="primary" size="sm">
+              {if @editing_repository_id, do: "Save", else: "Add repository"}
+            </.ui_button>
+          </div>
+        </div>
+      </form>
+    </.ui_modal>
+    """
+  end
+
+  defp repository_credential_attached?(repositories, id) do
+    case Enum.find(repositories, &(&1.id == id)) do
+      nil -> false
+      repository -> not is_nil(repository.credential_secret_id)
+    end
   end
 
   defp create_modal(assigns) do
@@ -1858,7 +2368,19 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
               <div class="text-xs text-sr-muted mt-2">Blob stored</div>
               <div class="text-xs">{blob_status(@blob_present)}</div>
               <div class="text-xs text-sr-muted mt-2">GPG verification</div>
-              <div class="text-xs">{gpg_status(@package.gpg_verified_at, @package.gpg_key_id)}</div>
+              <div class="text-xs">
+                <%= if @package.gpg_verified_at do %>
+                  Verified
+                  <.user_time
+                    id={"admin-plugin-package-#{@package.id}-gpg-verified-at"}
+                    value={@package.gpg_verified_at}
+                    timezone={@current_scope.user.timezone || "Etc/UTC"}
+                    style={:compact}
+                  />{gpg_key_suffix(@package.gpg_key_id)}
+                <% else %>
+                  {gpg_status(@package.gpg_key_id)}
+                <% end %>
+              </div>
               <div class="text-xs text-sr-muted mt-2">Signature metadata</div>
               <div class="text-xs font-mono">{signature_status(@package.signature)}</div>
             </div>
@@ -1940,7 +2462,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
             <div class="rounded-xl border border-sr-line p-4 space-y-2">
               <div class="text-sm font-semibold">Wasm Package Requests</div>
               <div class="text-xs text-sr-muted">
-                Upload endpoint expires {format_datetime(@upload_expires_at)}
+                Upload endpoint expires
+                <.user_time
+                  id="admin-plugin-upload-endpoint-expires-at"
+                  value={@upload_expires_at}
+                  timezone={@current_scope.user.timezone || "Etc/UTC"}
+                  style={:compact}
+                />
               </div>
               <pre class="bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
     <%= @upload_url %>
@@ -1952,7 +2480,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     <%= @upload_token %>
     </pre>
               <div class="text-xs text-sr-muted">
-                Download endpoint expires {format_datetime(@download_expires_at)}
+                Download endpoint expires
+                <.user_time
+                  id="admin-plugin-download-endpoint-expires-at"
+                  value={@download_expires_at}
+                  timezone={@current_scope.user.timezone || "Etc/UTC"}
+                  style={:compact}
+                />
               </div>
               <pre class="bg-sr-subtle/50 p-3 rounded-lg text-xs font-mono overflow-x-auto">
     <%= @download_url %>
@@ -2298,11 +2832,20 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           <div class="rounded-xl border border-sr-line p-4 space-y-3">
             <div class="text-sm font-semibold">Assign to Agent</div>
             <.credential_rule_assignment_banner
-              :if={is_list(@credential_fields) and @credential_fields != []}
+              :if={
+                producer_schedule_provisioned?(@package) or
+                  (is_list(@credential_fields) and @credential_fields != [])
+              }
               plugin_id={@package.plugin_id}
               coverage={@credential_coverage}
+              producer_schedule?={producer_schedule_provisioned?(@package)}
             />
-            <form phx-submit="create_assignment" phx-change="assignment_change" class="space-y-3">
+            <form
+              :if={!producer_schedule_provisioned?(@package)}
+              phx-submit="create_assignment"
+              phx-change="assignment_change"
+              class="space-y-3"
+            >
               <div>
                 <label class="flex items-center justify-between gap-2">
                   <span class="text-sm font-medium text-sr-ink">Agent</span>
@@ -2358,7 +2901,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   </label>
                   <input
                     type="number"
-                    min="5"
+                    min={assignment_interval_min(@package)}
                     name="assignment[interval_seconds]"
                     value={@assignment_form["interval_seconds"]}
                     class={ui_field_class(class: "w-full")}
@@ -2370,7 +2913,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                   </label>
                   <input
                     type="number"
-                    min="1"
+                    min={assignment_timeout_min(@package)}
                     name="assignment[timeout_seconds]"
                     value={@assignment_form["timeout_seconds"]}
                     class={ui_field_class(class: "w-full")}
@@ -2458,12 +3001,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
                 </.ui_button>
               </div>
             </form>
-            <%= if @package.status != :approved do %>
+            <%= if not producer_schedule_provisioned?(@package) and @package.status != :approved do %>
               <p class="text-xs text-sr-muted">
                 Approve the package before assigning it to agents.
               </p>
             <% end %>
-            <%= if @package.status == :approved and not blob_present?(@blob_present) do %>
+            <%= if not producer_schedule_provisioned?(@package) and @package.status == :approved and
+                    not blob_present?(@blob_present) do %>
               <p class="text-xs text-warning">
                 Upload the Wasm blob before assigning this package.
               </p>
@@ -2610,6 +3154,22 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp list_packages(filters, scope) do
     Packages.list(filters, scope: scope)
+  end
+
+  defp assign_package_views(socket, scope) do
+    catalog_packages = list_packages(%{}, scope)
+    filters = current_filters(socket)
+
+    packages =
+      if map_size(filters) == 0 do
+        catalog_packages
+      else
+        list_packages(filters, scope)
+      end
+
+    socket
+    |> assign(:catalog_packages, catalog_packages)
+    |> assign(:packages, packages)
   end
 
   defp list_assignments(package_id, scope) do
@@ -2792,9 +3352,19 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp active_agent?(_agent), do: false
 
+  defp load_first_party_catalog(%{assigns: %{selected_repository: nil}} = socket) do
+    socket
+    |> assign_first_party_catalog_view([], socket.assigns[:first_party_release_tag])
+    |> assign(:first_party_catalog_error, nil)
+    |> assign(
+      :first_party_catalog_status,
+      "No enabled plugin repository. Add one, or enable an existing one, to browse a catalog."
+    )
+  end
+
   defp load_first_party_catalog(socket) do
     case FirstPartyImporter.list_recent_plugins_with_summary(
-           %{"repo_url" => socket.assigns.first_party_repo_url},
+           repository_import_attrs(socket.assigns.selected_repository, socket.assigns.current_scope),
            first_party_sync_limit()
          ) do
       {:ok, summary} ->
@@ -2824,12 +3394,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:first_party_catalog_page, 1)
         |> assign(
           :first_party_release_options,
-          combined_release_options([], socket.assigns.packages)
+          combined_release_options([], socket.assigns.catalog_packages)
         )
         |> assign(
           :first_party_release_tag,
           selected_first_party_release(
-            combined_release_options([], socket.assigns.packages),
+            combined_release_options([], socket.assigns.catalog_packages),
             socket.assigns[:first_party_release_tag]
           )
         )
@@ -2839,7 +3409,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp assign_first_party_catalog_view(socket, plugins, requested_release_tag) do
-    packages = socket.assigns[:packages] || []
+    packages =
+      repository_packages(
+        socket.assigns[:catalog_packages] || [],
+        socket.assigns[:selected_repository]
+      )
+
     release_options = combined_release_options(plugins, packages)
     selected_release_tag = selected_first_party_release(release_options, requested_release_tag)
     visible_plugins = filter_first_party_plugins(plugins, selected_release_tag)
@@ -2852,13 +3427,24 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     |> assign(:first_party_catalog_page, 1)
   end
 
+  # Every tag the entries actually carry. Filtering these by
+  # `official_release_tag?/1` discarded every tag from a repository that names
+  # its releases per plugin (`clearpass-policy-manager-v0.1.0`), which left the
+  # options list to fall back on an *imported* package's tag from a different
+  # repository -- and the catalog then filtered its own entries against that
+  # foreign tag and reported "no import-ready plugin entries were found".
   defp first_party_release_options(plugins) do
     plugins
     |> Enum.map(& &1.release_tag)
-    |> Enum.filter(&official_release_tag?/1)
+    |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.uniq()
   end
 
+  # Imported packages keep the official-tag filter that discovered entries must
+  # not have. A discovered entry's tag is a release the repository actually
+  # published, so every one belongs in the selector; an imported package's
+  # provenance tag can be a one-off dev build (`sha-abc1234`), which would only
+  # clutter it.
   defp package_release_options(packages) do
     packages
     |> Enum.map(& &1.source_release_tag)
@@ -2867,11 +3453,23 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   defp combined_release_options(plugins, packages) do
-    plugins
-    |> first_party_release_options()
-    |> Kernel.++(package_release_options(packages))
-    |> Enum.uniq()
-    |> Enum.sort_by(&release_sort_key/1, :desc)
+    tags =
+      plugins
+      |> first_party_release_options()
+      |> Kernel.++(package_release_options(packages))
+      |> Enum.uniq()
+
+    # Official tags stay newest-first so the first-party default is unchanged;
+    # per-plugin tags have no meaningful version order between them, so they
+    # follow in a stable alphabetical order.
+    {official, other} = Enum.split_with(tags, &official_release_tag?/1)
+    sorted = Enum.sort_by(official, &release_sort_key/1, :desc) ++ Enum.sort(other)
+
+    case sorted do
+      [] -> []
+      [_only] -> sorted
+      _ -> [@all_releases_tag | sorted]
+    end
   end
 
   defp selected_first_party_release([], _requested), do: nil
@@ -2880,15 +3478,32 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     if requested in release_options do
       requested
     else
-      List.first(release_options)
+      default_release_option(release_options)
     end
+  end
+
+  # First-party keeps its old default: the newest official release, which
+  # `combined_release_options/2` has already sorted to the front. A repository
+  # with no official tag defaults to "all releases" rather than to one arbitrary
+  # per-plugin tag, which would present one plugin as the whole catalog.
+  defp default_release_option(release_options) do
+    Enum.find(release_options, &official_release_tag?/1) || List.first(release_options)
   end
 
   defp filter_first_party_plugins(_plugins, nil), do: []
 
+  defp filter_first_party_plugins(plugins, @all_releases_tag), do: plugins
+
   defp filter_first_party_plugins(plugins, release_tag) do
     Enum.filter(plugins, &(&1.release_tag == release_tag))
   end
+
+  defp release_option_label(@all_releases_tag), do: "All releases"
+  defp release_option_label(release_tag), do: release_tag
+
+  defp release_flash_label(nil), do: "the selected release"
+  defp release_flash_label(@all_releases_tag), do: "all releases"
+  defp release_flash_label(release_tag), do: release_tag
 
   defp first_party_catalog_status(summary, visible_plugins, all_plugins) do
     cond do
@@ -2906,10 +3521,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp selected_release_status_label([]), do: "the selected release"
 
   defp selected_release_status_label(plugins) do
-    plugins
-    |> first_party_release_options()
-    |> case do
-      [release_tag | _] -> "release #{release_tag}"
+    case first_party_release_options(plugins) do
+      [release_tag] -> "release #{release_tag}"
+      [_ | _] -> "all releases"
       [] -> "the selected release"
     end
   end
@@ -2957,7 +3571,36 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     {package.plugin_id, package.version, package.source_release_tag}
   end
 
+  # Imported packages are shown alongside discovered entries, but only the ones
+  # that came from the repository being browsed. Without this an "All releases"
+  # selection matches every package, so a package imported from the built-in
+  # repository appears inside a third-party repository's catalog.
+  defp repository_packages(packages, nil), do: packages
+
+  defp repository_packages(packages, repository) do
+    Enum.filter(packages, &package_from_repository?(&1, repository))
+  end
+
+  # A package with no recorded origin cannot be attributed to any repository.
+  # It stays visible in the "Imported packages" list above, which is not scoped.
+  defp package_from_repository?(%{source_repo_url: origin}, _repository) when origin in [nil, ""], do: false
+
+  defp package_from_repository?(package, repository) do
+    normalize_repo_url(package.source_repo_url) == normalize_repo_url(repository.repo_url)
+  end
+
+  defp normalize_repo_url(url) do
+    url
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> String.replace_suffix(".git", "")
+    |> String.trim_trailing("/")
+  end
+
   defp package_matches_release?(_package, nil), do: false
+
+  defp package_matches_release?(_package, @all_releases_tag), do: true
 
   defp package_matches_release?(package, release_tag), do: package.source_release_tag == release_tag
 
@@ -3052,26 +3695,145 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp safe_import_failure_reason(_reason), do: "import was rejected"
 
-  defp first_party_repo_url do
-    config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
-    Keyword.get(config, :repo_url, FirstPartyImporter.default_repo_url())
+  # Repository state for the catalog picker. `first_party_repo_url` stays as the
+  # assign name the template already uses, but it now comes from the selected
+  # repository record rather than config.
+  defp assign_plugin_repositories(socket, scope, selected_id \\ nil) do
+    repositories = Repositories.list(scope: scope)
+    enabled = Enum.filter(repositories, & &1.enabled)
+
+    selected =
+      Enum.find(enabled, &(&1.id == selected_id)) ||
+        Enum.find(enabled, & &1.is_default) ||
+        List.first(enabled)
+
+    socket
+    |> assign(:plugin_repositories, repositories)
+    |> assign(:enabled_plugin_repositories, enabled)
+    |> assign(:selected_repository, selected)
+    |> assign(:first_party_repo_url, selected && selected.repo_url)
   end
 
-  defp normalize_first_party_repo_url(repo_url) when is_binary(repo_url) do
-    case String.trim(repo_url) do
-      "" -> first_party_repo_url()
-      normalized -> normalized
+  defp repository_permission_message, do: "You don't have permission to manage plugin repositories."
+
+  defp scope_actor(%{user: user}) when not is_nil(user), do: user
+  defp scope_actor(_scope), do: nil
+
+  defp save_repository(nil, params, scope) do
+    attrs = repository_attrs(params)
+
+    with {:ok, repository} <-
+           PluginRepository
+           |> Ash.Changeset.for_create(:create, attrs, actor: scope_actor(scope))
+           |> Ash.create()
+           |> normalize_repository_result() do
+      apply_repository_token(repository, params, scope)
     end
   end
 
-  defp normalize_first_party_repo_url(_repo_url), do: first_party_repo_url()
+  defp save_repository(id, params, scope) do
+    attrs = repository_attrs(params)
+    actor = scope_actor(scope)
 
-  defp assign_first_party_repository_form(socket) do
-    assign(
-      socket,
-      :first_party_repository_form,
-      to_form(%{"repo_url" => socket.assigns.first_party_repo_url}, as: :catalog_repository)
-    )
+    with {:ok, repository} <- fetch_repository(id, actor),
+         {:ok, repository} <-
+           repository
+           |> Ash.Changeset.for_update(:update, attrs, actor: actor)
+           |> Ash.update()
+           |> normalize_repository_result() do
+      apply_repository_token(repository, params, scope)
+    end
+  end
+
+  # The token field is write-only: an empty value on an edit means "leave the
+  # existing token alone", not "clear it". Clearing is its own explicit action,
+  # so a save cannot silently drop a credential the operator did not re-type.
+  defp apply_repository_token(repository, params, scope) do
+    case String.trim(Map.get(params, "github_token") || "") do
+      "" ->
+        {:ok, repository}
+
+      token ->
+        case RepositoryCredentials.put_token(repository, token, actor: scope_actor(scope)) do
+          {:ok, repository} -> {:ok, repository}
+          {:error, reason} -> {:error, ["access token: #{format_error(reason)}"]}
+        end
+    end
+  end
+
+  defp repository_attrs(params) do
+    %{
+      name: String.trim(Map.get(params, "name") || ""),
+      repo_url: String.trim(Map.get(params, "repo_url") || ""),
+      index_asset_name: String.trim(Map.get(params, "index_asset_name") || ""),
+      signing_key_id: String.trim(Map.get(params, "signing_key_id") || ""),
+      signing_public_key: String.trim(Map.get(params, "signing_public_key") || "")
+    }
+  end
+
+  defp fetch_repository(id, actor) do
+    case PluginRepository.get_by_id(id, actor: actor) do
+      {:ok, repository} -> {:ok, repository}
+      {:error, reason} -> {:error, [format_error(reason)]}
+    end
+  end
+
+  defp update_repository_state(repository, action, scope) do
+    repository
+    |> Ash.Changeset.for_update(action, %{}, actor: scope_actor(scope))
+    |> Ash.update()
+  end
+
+  defp destroy_repository(repository, scope) do
+    case Ash.destroy(repository, actor: scope_actor(scope)) do
+      :ok -> :ok
+      {:ok, _record} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp normalize_repository_result({:ok, repository}), do: {:ok, repository}
+
+  defp normalize_repository_result({:error, %Invalid{errors: errors}}),
+    do: {:error, Enum.map(errors, &repository_error_message/1)}
+
+  defp normalize_repository_result({:error, reason}), do: {:error, [format_error(reason)]}
+
+  defp repository_error_message(%{field: field, message: message}) when not is_nil(field), do: "#{field}: #{message}"
+
+  defp repository_error_message(error), do: format_error(error)
+
+  defp default_repository_form do
+    %{
+      "name" => "",
+      "repo_url" => "",
+      "index_asset_name" => "serviceradar-wasm-plugin-index.json",
+      "signing_key_id" => "",
+      "signing_public_key" => "",
+      "github_token" => ""
+    }
+  end
+
+  defp repository_form_from(repository) do
+    %{
+      "name" => repository.name,
+      "repo_url" => repository.repo_url,
+      "index_asset_name" => repository.index_asset_name,
+      "signing_key_id" => repository.signing_key_id,
+      "signing_public_key" => repository.signing_public_key,
+      # Never round-trip the token into the form: it is write-only, and the
+      # form shows only whether one is attached.
+      "github_token" => ""
+    }
+  end
+
+  defp repository_import_attrs(nil, _scope), do: %{}
+
+  defp repository_import_attrs(repository, scope) do
+    case Repositories.import_attrs(repository, scope: scope) do
+      {:ok, attrs} -> attrs
+      {:error, _reason} -> %{"repo_url" => repository.repo_url}
+    end
   end
 
   defp first_party_sync_limit do
@@ -3538,14 +4300,24 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
   defp stringify_keys(value), do: value
 
-  defp parse_assignment_params(params, package_id, config_schema) do
+  defp parse_assignment_params(params, package) do
     agent_uid = params["agent_uid"]
-    interval_seconds = parse_int(params["interval_seconds"], 60)
-    timeout_seconds = parse_int(params["timeout_seconds"], 10)
+    timing = assignment_timing_defaults(package)
+
+    interval_seconds =
+      params["interval_seconds"]
+      |> parse_int(timing.interval_seconds)
+      |> clamp_int(timing.min_interval_seconds, timing.max_interval_seconds)
+
+    timeout_seconds =
+      params["timeout_seconds"]
+      |> parse_int(timing.timeout_seconds)
+      |> max(timing.min_timeout_seconds)
 
     # Prefer structured params (from config fields) over raw JSON
     # Only use params_raw if params["params"] is empty/nil
     params_source = resolve_params_source(params)
+    config_schema = package.config_schema
 
     with true <-
            (is_binary(agent_uid) and String.trim(agent_uid) != "") ||
@@ -3562,7 +4334,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       {:ok,
        %{
          agent_uid: String.trim(agent_uid),
-         plugin_package_id: package_id,
+         plugin_package_id: package.id,
          interval_seconds: interval_seconds,
          timeout_seconds: timeout_seconds,
          params: normalized_params,
@@ -3761,17 +4533,94 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp action_atom_key("scopes"), do: :scopes
   defp action_atom_key(_key), do: nil
 
-  defp default_assignment_form do
+  @fallback_assignment_interval_seconds 60
+  @fallback_assignment_timeout_seconds 10
+  @fallback_assignment_interval_min 5
+  @fallback_assignment_timeout_min 1
+
+  defp default_assignment_form(package \\ nil) do
+    timing = assignment_timing_defaults(package)
+
     %{
       "agent_uid" => "",
-      "interval_seconds" => "60",
-      "timeout_seconds" => "10",
+      "interval_seconds" => Integer.to_string(timing.interval_seconds),
+      "timeout_seconds" => Integer.to_string(timing.timeout_seconds),
       "params" => "",
       "params_raw" => "",
       "permissions_override" => "",
       "resources_override" => ""
     }
   end
+
+  defp assignment_interval_min(package), do: assignment_timing_defaults(package).min_interval_seconds
+
+  defp assignment_timeout_min(package), do: assignment_timing_defaults(package).min_timeout_seconds
+
+  defp assignment_timing_defaults(package) do
+    schedule = first_producer_schedule(package)
+
+    %{
+      interval_seconds:
+        positive_int(
+          schedule_get(schedule, "default_cadence_seconds"),
+          @fallback_assignment_interval_seconds
+        ),
+      timeout_seconds:
+        positive_int(
+          schedule_get(schedule, "timeout_seconds"),
+          @fallback_assignment_timeout_seconds
+        ),
+      min_interval_seconds:
+        positive_int(
+          schedule_get(schedule, "min_cadence_seconds"),
+          @fallback_assignment_interval_min
+        ),
+      max_interval_seconds: positive_int(schedule_get(schedule, "max_cadence_seconds"), nil),
+      min_timeout_seconds: @fallback_assignment_timeout_min
+    }
+  end
+
+  defp first_producer_schedule(%{producer_schedules: [schedule | _]}) when is_map(schedule), do: schedule
+
+  defp first_producer_schedule(%{"producer_schedules" => [schedule | _]}) when is_map(schedule), do: schedule
+
+  defp first_producer_schedule(_package), do: nil
+
+  defp producer_schedule_provisioned?(package), do: match?(%{}, first_producer_schedule(package))
+
+  defp producer_schedule_assignment_message do
+    "This plugin is assigned from a credential rule under Settings → Networks → Credentials. Pick the agent as the rule Scope Value; do not assign it here."
+  end
+
+  defp schedule_get(nil, _key), do: nil
+
+  defp schedule_get(schedule, key) when is_map(schedule) do
+    Map.get(schedule, key) || Map.get(schedule, schedule_atom_key(key))
+  end
+
+  defp schedule_atom_key("default_cadence_seconds"), do: :default_cadence_seconds
+  defp schedule_atom_key("timeout_seconds"), do: :timeout_seconds
+  defp schedule_atom_key("min_cadence_seconds"), do: :min_cadence_seconds
+  defp schedule_atom_key("max_cadence_seconds"), do: :max_cadence_seconds
+  defp schedule_atom_key(_key), do: nil
+
+  defp positive_int(value, _fallback) when is_integer(value) and value > 0, do: value
+
+  defp positive_int(value, fallback) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} when int > 0 -> int
+      _ -> fallback
+    end
+  end
+
+  defp positive_int(_value, fallback), do: fallback
+
+  defp clamp_int(value, low, high) when is_integer(low) and is_integer(high) and high >= low do
+    value |> Kernel.max(low) |> Kernel.min(high)
+  end
+
+  defp clamp_int(value, low, _high) when is_integer(low), do: Kernel.max(value, low)
+  defp clamp_int(value, _low, _high), do: value
 
   defp agent_label(agent) do
     name = agent.name || agent.host || agent.uid
@@ -4562,6 +5411,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   attr :plugin_id, :string, required: true
   attr :coverage, :map, default: nil
+  attr :producer_schedule?, :boolean, default: false
 
   defp credential_rule_assignment_banner(assigns) do
     provider =
@@ -4576,17 +5426,34 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       |> assign(:new_rule_path, credential_rule_new_path(provider))
 
     ~H"""
-    <div class="rounded-lg border border-info/20 bg-info/10 p-3 text-sm space-y-2">
-      <div class="font-semibold">Create a credential rule first</div>
-      <p class="text-xs text-sr-ink/80">
-        Passwords, API keys, and controller logins belong in <span class="font-medium">Settings → Networks → Credentials</span>,
-        not on this assignment. Create a <span class="font-mono">{@provider}</span>
-        rule, attach the secret, then assign this plugin to an agent that rule covers.
-      </p>
-      <p :if={match?(%{state: :uncovered}, @coverage)} class="text-xs text-warning">
-        No enabled {@provider} rule covers the selected agent yet. The plugin will
-        fail at runtime until one does.
-      </p>
+    <div class={[
+      "rounded-lg p-3 text-sm space-y-2",
+      if(@producer_schedule?,
+        do: "border border-warning/30 bg-warning/10",
+        else: "border border-info/20 bg-info/10"
+      )
+    ]}>
+      <%= if @producer_schedule? do %>
+        <div class="font-semibold">Do not assign this plugin here</div>
+        <p class="text-xs text-sr-ink/80">
+          This scheduled inventory plugin runs from a credential rule, not from this form.
+          Create a <span class="font-mono">{@provider}</span>
+          username/password credential and rule under <span class="font-medium">Settings → Networks → Credentials</span>.
+          The rule's Scope Value is the agent that executes the Wasm module; saving
+          the rule creates the assignment.
+        </p>
+      <% else %>
+        <div class="font-semibold">Create a credential rule first</div>
+        <p class="text-xs text-sr-ink/80">
+          Passwords, API keys, and controller logins belong in <span class="font-medium">Settings → Networks → Credentials</span>,
+          not on this assignment. Create a <span class="font-mono">{@provider}</span>
+          rule, attach the secret, then assign this plugin to an agent that rule covers.
+        </p>
+        <p :if={match?(%{state: :uncovered}, @coverage)} class="text-xs text-warning">
+          No enabled {@provider} rule covers the selected agent yet. The plugin will
+          fail at runtime until one does.
+        </p>
+      <% end %>
       <.link navigate={@new_rule_path} class="link link-primary text-xs">
         Open the {@provider} credential rule form
       </.link>
@@ -4777,21 +5644,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp blob_present?(true), do: true
   defp blob_present?(_), do: false
 
-  defp gpg_status(nil, nil), do: "Not verified"
-  defp gpg_status(nil, key_id) when is_binary(key_id), do: "Unverified (key #{key_id})"
+  defp gpg_status(nil), do: "Not verified"
+  defp gpg_status(key_id) when is_binary(key_id), do: "Unverified (key #{key_id})"
+  defp gpg_status(_key_id), do: "Unknown"
 
-  defp gpg_status(%DateTime{} = dt, key_id) do
-    key = if is_binary(key_id) and key_id != "", do: " (#{key_id})", else: ""
-    "Verified #{Calendar.strftime(dt, "%Y-%m-%d %H:%M")}#{key}"
-  end
-
-  defp gpg_status(%NaiveDateTime{} = dt, key_id) do
-    dt
-    |> DateTime.from_naive!("Etc/UTC")
-    |> gpg_status(key_id)
-  end
-
-  defp gpg_status(_value, _key_id), do: "Unknown"
+  defp gpg_key_suffix(key_id) when is_binary(key_id) and key_id != "", do: " (#{key_id})"
+  defp gpg_key_suffix(_key_id), do: ""
 
   defp signature_status(nil), do: "none"
   defp signature_status(%{} = signature) when map_size(signature) == 0, do: "none"
@@ -4855,16 +5713,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   defp package_status_badge_variant(_status), do: "ghost"
 
-  defp format_datetime(nil), do: "-"
-
-  defp format_datetime(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  end
-
-  defp format_datetime(%NaiveDateTime{} = dt) do
-    dt
-    |> DateTime.from_naive!("Etc/UTC")
-    |> format_datetime()
+  defp dom_id_segment(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^A-Za-z0-9_-]/u, "-")
   end
 
   defp package_for_assignment(assignment, versions) do
@@ -4970,6 +5822,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp format_error(:plugin_id_mismatch), do: "target package is for a different plugin"
   defp format_error(:already_on_target_version), do: "assignment is already on that version"
   defp format_error(error) when is_atom(error), do: Atom.to_string(error)
-  defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
+  defp format_error(%Invalid{} = error), do: Exception.message(error)
   defp format_error(error), do: inspect(error)
 end

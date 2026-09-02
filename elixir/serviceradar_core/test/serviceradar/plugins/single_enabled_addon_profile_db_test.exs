@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Plugins.SingleEnabledAddonProfileDbTest do
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   import Ecto.Query
 

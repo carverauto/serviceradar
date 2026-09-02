@@ -26,7 +26,7 @@ git_override(
 # @openssl would break that pairing. zstd and zlib have no such coupling.
 bazel_dep(name = "zstd", version = "1.5.7.bcr.1")
 bazel_dep(name = "zlib", version = "1.3.2")
-bazel_dep(name = "rules_python", version = "2.2.0")
+bazel_dep(name = "rules_python", version = "2.3.2")
 bazel_dep(name = "rules_nodejs", version = "6.7.5")
 bazel_dep(name = "rules_proto", version = "7.1.0")
 bazel_dep(name = "protobuf", version = "35.1", repo_name = "com_google_protobuf")
@@ -52,6 +52,7 @@ bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "aspect_rules_js", version = "2.6.0")
 bazel_dep(name = "aspect_rules_ts", version = "3.7.0")
 bazel_dep(name = "rules_cc", version = "0.2.22")
+
 # OpenSSL as cc_library; The one consumer is openssl-sys (annotation below), which in turn feeds pq-src.
 bazel_dep(name = "openssl", version = "3.5.5.bcr.4")
 bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.3")
@@ -258,6 +259,13 @@ aya_ebpf_ext.bpf_linker(
 # Configure hermetic Python toolchains for consistent behavior across
 # local builds and remote cache. This prevents architecture mismatches
 # when rules_multirun pulls cached artifacts.
+#
+# Declare that this module uses explicit packages. The matching root Bazel
+# option also applies the future rules_python default to transitive tools so
+# their implicit-package deprecation warnings do not leak into our builds.
+rules_python_config = use_extension("@rules_python//python/extensions:config.bzl", "config")
+rules_python_config.explicit_init_py(default = True)
+
 #
 # IMPORTANT: Register host toolchains FIRST so they take precedence for
 # host-transitioned targets like rules_multirun (which use cfg="host").
@@ -482,10 +490,8 @@ rdp_connector_crates.annotation(
     deps = ["@zlib"],
 )
 
-# aws-lc-sys is never compiled. Both rustls consumers here -- the probe and sspi -- pin
-# `ring`/`std`/`tls12` with default-features off, so aws-lc-rs is never enabled. rules_rs warns
-# anyway because it checks every lockfile package rather than what builds; adopting its
-# suggestion would add the @aws-lc module and a bindgen toolchain for zero actions.
+# aws-lc-sys silence lives in Cargo.toml metadata (root hub and rdp-connector-probe).
+# Do not adopt the well-known @aws-lc + bindgen snippet: that crate is never compiled.
 use_repo(
     rdp_connector_crates,
     "rdp_connector_crates",
@@ -1075,6 +1081,43 @@ http_file(
         "https://snapshot.debian.org/archive/debian/20250415T084322Z/pool/main/g/gcc-12/libgcc-s1_12.2.0-14+deb12u1_amd64.deb",
     ],
 )
+
+# --- helm-unittest ----------------------------------------------------------
+# The chart unit suite for //helm/serviceradar:helm_unittest_suite_test.
+#
+# Pinned and fetched here rather than installed by a workflow step, so the suite runs
+# under a plain `bazel test //...`. That distinction is the whole point of the target:
+# `helm unittest` was invoked by NO CI job, and 26 assertions across 10 suites were
+# committed having never once been executed -- they asserted `helm template`'s
+# kind-sorted document order and its `default` release namespace, neither of which is
+# what the plugin produces.
+#
+# Only the plugin is fetched, not helm itself. `untt` is a self-contained binary that
+# links the Helm libraries and renders the chart on its own -- `helm unittest` does no
+# more than exec it (plugin.yaml: `command: "$HELM_PLUGIN_DIR/untt"`, ignoreFlags
+# false), so running it directly is the same code path with no HELM_PLUGINS layout to
+# stage. It also keeps the result independent of whichever helm a developer happens to
+# have installed. The deciding constraint is that get.helm.sh is not reachable from the
+# BuildBuddy runners (read timeout) while github.com is, so depending on a helm tarball
+# would break the gate in exactly the CI it exists to run in.
+[
+    http_archive(
+        name = "helm_unittest_" + suffix,
+        build_file_content = """
+exports_files(["untt"])
+""",
+        sha256 = sha256,
+        urls = [
+            "https://github.com/helm-unittest/helm-unittest/releases/download/v0.7.2/helm-unittest-" + platform + "-0.7.2.tgz",
+        ],
+    )
+    for suffix, platform, sha256 in [
+        ("linux_amd64", "linux-amd64", "25a9a7867eff63e567511cc488b370f22ea06ae8d2bdb0a418de7ab83a143b9e"),
+        ("linux_arm64", "linux-arm64", "f846181c854d6330b255acb22c8864cd5f1feb79190e3dca5e425428112926e8"),
+        ("macos_amd64", "macos-amd64", "ca51e4bc4377ecbf1589930049af34dbe9ead4e31d0bff0b4c676913d07a0d27"),
+        ("macos_arm64", "macos-arm64", "9a1d903e7fb1d2cd151c23fdae65ff14079686eab390bfe37c225c6bc50a5681"),
+    ]
+]
 
 # --- Membrane precompiled OS-deps ------------------------------------------
 # core-elx pulls ~13 Membrane plugins (via vendored boombox) whose Bundlex downloads one
@@ -1786,49 +1829,49 @@ http_file(
 
 http_file(
     name = "alpine_3_24_openssl_apk",
-    sha256 = "594ebf664c48b6e865f7532b1722ee08ff54c557410869410d4ed545eff7d22f",
+    sha256 = "e18c561e6a8fb744b42fe000f4a8cdfcc38e7956e62a6ab44b0a0580db948450",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/openssl-3.5.7-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/openssl-3.5.8-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_openssl_apk_arm64",
-    sha256 = "d024c35b869e5d4f92478affbcefe09c99c2ba2ada6816f6885b3fad1151cdbc",
+    sha256 = "0d12f4f145ec045dd19e8465bd3cb07b08197f96a3776641511dc2bec53cc0b7",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/openssl-3.5.7-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/openssl-3.5.8-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_libssl3_apk",
-    sha256 = "84b1da6cb64ab8018c3dcfb80647c03b14d609de3d49ff90dd8356f63836217e",
+    sha256 = "aca521e5ae4a321322a9d47ed64a1775f5ab1ffd215d1e9fc0433c58f7bfd037",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libssl3-3.5.7-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libssl3-3.5.8-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_libssl3_apk_arm64",
-    sha256 = "7b8f7b8b83d799987ad892ff16efd838368e778b4406bd5f4b046547ab7e5551",
+    sha256 = "d6ec970cc10e01539e41626f720c4e0ac69016eaa2079a10ef776ffd3243db5b",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libssl3-3.5.7-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libssl3-3.5.8-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_libcrypto3_apk",
-    sha256 = "b709346666ff1343ebbc780950e61d9a0217e460c5e0836fe11b7cd3c5656b04",
+    sha256 = "161223a16f042b8e469e9441291e071464fd91d4f4bbe6f496ee8d0abd4e0701",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libcrypto3-3.5.7-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libcrypto3-3.5.8-r0.apk",
     ],
 )
 
 http_file(
     name = "alpine_3_24_libcrypto3_apk_arm64",
-    sha256 = "936ce77a0f5621c9ebc91395d01c62d1127b13e6981d5eb55cdcae7a389540d0",
+    sha256 = "35b892813c23664a3592e4fc8c12a03538a22c579057655361c7043305272a9a",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libcrypto3-3.5.7-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/aarch64/libcrypto3-3.5.8-r0.apk",
     ],
 )
 

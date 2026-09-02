@@ -57,6 +57,7 @@ concurrency:
 permissions:
   contents: write
   id-token: write
+  statuses: read
 
 jobs:
   publish:
@@ -119,7 +120,7 @@ jobs:
       BAZEL_BUILD_FLAGS: -c opt --config=remote --remote_download_outputs=all
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -164,7 +165,7 @@ jobs:
           printf 'tag=%s\ncommit=%s\n' "${tag}" "${release_commit}" >> "${GITHUB_OUTPUT}"
 
       - name: Cache Bazel artifacts
-        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # actions/cache@v5.0.4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # actions/cache@v6.1.0
         with:
           path: |
             ${{ env.BAZELISK_HOME }}
@@ -189,6 +190,48 @@ jobs:
 
       - name: Install Bazelisk
         run: ./scripts/install-bazelisk.sh
+
+      # The large-ingestion waiter shells out to `gh`. serviceradar-signing does
+      # not ship it, and `bazel run` hides $HOME/.local/bin. Install here so the
+      # next step can see it; the waiter also prepends this directory to PATH.
+      - name: Install GitHub CLI
+        run: |
+          set -euo pipefail
+          source ./scripts/install-download-integrity.sh
+          VERSION="2.98.0"
+          INSTALL_DIR="${HOME}/.local/bin"
+          mkdir -p "${INSTALL_DIR}"
+          echo "${INSTALL_DIR}" >> "${GITHUB_PATH}"
+          if [[ -x "${INSTALL_DIR}/gh" ]]; then
+            echo "gh already installed at ${INSTALL_DIR}/gh"
+            "${INSTALL_DIR}/gh" --version
+            exit 0
+          fi
+          archive="gh_${VERSION}_linux_amd64.tar.gz"
+          url="https://github.com/cli/cli/releases/download/v${VERSION}/${archive}"
+          expected_sha256="3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "${tmpdir}"' EXIT
+          sr_require_sha256 "$expected_sha256" "gh v${VERSION} ${archive}"
+          curl --fail --location --retry 5 --retry-all-errors --output "${tmpdir}/${archive}" "${url}"
+          sr_verify_sha256 "${tmpdir}/${archive}" "$expected_sha256" "gh v${VERSION} ${archive}"
+          tar -xzf "${tmpdir}/${archive}" -C "${tmpdir}"
+          install -m 0755 "${tmpdir}/gh_${VERSION}_linux_amd64/bin/gh" "${INSTALL_DIR}/gh"
+          echo "Installed gh $("${INSTALL_DIR}/gh" --version | head -n1) to ${INSTALL_DIR}/gh"
+
+      - name: Wait for large-ingestion gate
+        env:
+          RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
+        run: |
+          set -euo pipefail
+          bazel run ${BAZEL_BUILD_FLAGS} //build/ci:wait_for_large_ingestion_gate -- \
+            --repository "${GITHUB_REPOSITORY}" \
+            --commit "${RELEASE_COMMIT}" \
+            --base-ref origin/staging \
+            --token-env GH_TOKEN \
+            --timeout-seconds 5400 \
+            --poll-seconds 15 \
+            --target-url-prefix https://carverauto.buildbuddy.io/invocation/
 
       - name: Install Cosign
         run: ./scripts/install-cosign.sh
@@ -726,7 +769,7 @@ jobs:
       GITHUB_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout release commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # actions/checkout@v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ needs.publish.outputs.commit }}

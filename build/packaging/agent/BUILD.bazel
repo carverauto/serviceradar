@@ -1,3 +1,4 @@
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
 load("@rules_pkg//pkg:pkg.bzl", "pkg_tar")
 load("//build/packaging:package_rules.bzl", "serviceradar_package_from_config")
@@ -14,6 +15,21 @@ exports_files([
 serviceradar_package_from_config(
     name = "agent",
     config = PACKAGES["agent"],
+)
+
+# Stage the built agent RPM outside the output tree, for manual delivery to a
+# lab host. Same rationale and same script as
+# //build/native_addons:stage_netprobe_addon: the RPM is a declared input
+# consumed through runfiles, so this never hand-resolves a bazel-out path.
+#
+#   bazel run //build/packaging/agent:stage_agent_rpm -- /tmp/agent.rpm
+sh_binary(
+    name = "stage_agent_rpm",
+    srcs = ["//build/native_addons:stage_addon_bundle.sh"],
+    data = [":agent_rpm"],
+    env = {
+        "BUNDLE_RUNFILE": "$(rootpath :agent_rpm)",
+    },
 )
 
 # netprobe is no longer bundled here: it is carved out of the base agent and

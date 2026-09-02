@@ -38,16 +38,6 @@ members = [
     "rust/anomaly-core",
     "rust/anomaly-addon",
     "rust/anomaly-disposition",
-    "rust/causal-model",
-    "rust/causal-ports",
-    "rust/causal-config",
-    "rust/causal-context",
-    "rust/causal-ingest",
-    "rust/causal-causaloids",
-    "rust/causal-reasoning",
-    "rust/causal-mitigation",
-    "rust/causal-emit",
-    "rust/causal-engine",
     "rust/protoc-plugins",
 ]
 
@@ -70,9 +60,8 @@ rust-version = "1.93.0"
 # the features it uses; `std` is hoisted since nothing in this workspace is no_std.
 # Small crates are a bare version. Keep alphabetical.
 anyhow = "1.0"
-# 0.7.4 requires Rust 1.95; keep the supported Bazel Rust 1.93 baseline until
-# the toolchain upgrade is reviewed independently.
-arancini-lib = "=0.7.3"
+# 0.7.6 is the first release on bgpkit-parser 0.20 and declares MSRV 1.93.
+arancini-lib = "=0.7.6"
 arrow-array = "59"
 arrow-ipc = "59"
 arrow-schema = "59"
@@ -84,7 +73,7 @@ axum = "0.8"
 aya-build = "0.1.3"
 base64 = "0.22"
 bb8 = "0.8"
-bgpkit-parser = { version = "0.15", default-features = false }
+bgpkit-parser = { version = "0.20", default-features = false }
 bytes = "1"
 capnp = "0.25.1"
 capnpc = "0.25.0"
@@ -206,7 +195,7 @@ ureq = "3.3"
 urlencoding = "2"
 uuid = { version = "1", default-features = false, features = ["std"] }
 which = "8.0"
-zen-engine = "0.55"
+zen-engine = "2.0"
 zeroize = { version = "1", default-features = false }
 
 [patch.crates-io]
@@ -247,3 +236,12 @@ gen_build_script = "off"
 [workspace.metadata.rules_rs.annotations."libz-sys"]
 deps = ["zlib"]
 gen_build_script = "off"
+
+# aws-lc-sys is never compiled. rustls is pinned to ring/tls12 with default-features
+# off, so aws-lc-rs is never enabled. rules_rs still warns because it scans every
+# lockfile package rather than what actually builds. Adopting its well-known
+# annotation would add the @aws-lc module and a bindgen toolchain for zero actions;
+# this keeps the default build-script path and silences that warning. Same table
+# in rust/rdp-connector-probe/Cargo.toml for the detached RDP hub.
+[workspace.metadata.rules_rs.annotations."aws-lc-sys"]
+gen_build_script = "on"

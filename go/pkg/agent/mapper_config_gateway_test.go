@@ -63,6 +63,55 @@ func TestParseGatewayMapperConfigPreservesMikroTikEndpoints(t *testing.T) {
 	}
 }
 
+func TestParseMapperJobCredsRoundTripsSNMPv3(t *testing.T) {
+	raw := []byte(`{
+		"mapper": {
+			"scheduled_jobs": [
+				{
+					"name": "farm",
+					"enabled": true,
+					"interval": "5m",
+					"type": "full",
+					"credentials": {
+						"version": "v3",
+						"username": "serviceradar",
+						"security_level": "authPriv",
+						"auth_protocol": "SHA",
+						"auth_password": "auth-secret",
+						"privacy_protocol": "AES",
+						"privacy_password": "auth-secret"
+					}
+				}
+			]
+		}
+	}`)
+
+	cfg, err := parseGatewayMapperConfig(raw)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+
+	log := logger.NewTestLogger()
+	jobs := convertMapperJobs(cfg.ScheduledJobs, log)
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+
+	creds := jobs[0].Credentials
+	if creds.Version != "v3" {
+		t.Fatalf("version = %q", creds.Version)
+	}
+	if creds.Username != "serviceradar" {
+		t.Fatalf("username = %q", creds.Username)
+	}
+	if creds.SecurityLevel != "authPriv" {
+		t.Fatalf("security_level = %q", creds.SecurityLevel)
+	}
+	if creds.AuthProtocol != "SHA" || creds.PrivacyProtocol != "AES" {
+		t.Fatalf("protocols = %q / %q", creds.AuthProtocol, creds.PrivacyProtocol)
+	}
+}
+
 func TestParseGatewayMapperConfigPreservesProxmoxEndpoints(t *testing.T) {
 	raw := []byte(`{
 		"mapper": {

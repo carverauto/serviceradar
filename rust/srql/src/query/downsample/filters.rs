@@ -8,6 +8,7 @@ use crate::query::flows::{
 use crate::{
     error::{Result, ServiceError},
     parser::{Entity, Filter, FilterOp},
+    query::filters_common::is_valid_jsonb_key,
 };
 
 pub(super) fn filter_clause(
@@ -35,6 +36,10 @@ fn flows_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
         "src_endpoint_ip" | "src_ip" => text_clause("src_endpoint_ip", filter),
         "dst_endpoint_ip" | "dst_ip" => text_clause("dst_endpoint_ip", filter),
         "ip" | "endpoint_ip" => bidirectional_ip_clause(filter),
+        // Same device address set as the row/stats paths. Without this the
+        // timeseries query for a device rejected `device_id:` outright, so the
+        // Traffic Profile chart and the sparkline had no data at all.
+        "device_addr" | "device_address" => device_addr_clause(filter),
         "src_cidr" => cidr_clause("src_endpoint_ip", filter),
         "dst_cidr" => cidr_clause("dst_endpoint_ip", filter),
         // Bare `cidr:` matches either endpoint (same shape as row/stats paths).
@@ -80,6 +85,37 @@ fn bidirectional_ip_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>
     binds.extend(dst_binds);
 
     Ok((format!("({src_clause}{joiner}{dst_clause})"), binds))
+}
+
+/// Any of a device's addresses against either endpoint or the sampler.
+///
+/// An empty list is rejected rather than delegated. `text_clause` would render
+/// it as `1=0` here, which is harmless, but the stats path's equivalent renders
+/// `1=1` and the row path cannot express it at all -- so rejecting in all three
+/// is the only behaviour a caller can reason about.
+fn device_addr_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)> {
+    if !matches!(filter.op, FilterOp::Eq | FilterOp::In) {
+        return Err(ServiceError::InvalidRequest(
+            "device_addr filter supports equality and list matching".into(),
+        ));
+    }
+
+    if matches!(filter.op, FilterOp::In) && filter.value.as_list()?.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "device_addr filter requires at least one address".into(),
+        ));
+    }
+
+    let (src_clause, mut binds) = text_clause("src_endpoint_ip", filter)?;
+    let (dst_clause, dst_binds) = text_clause("dst_endpoint_ip", filter)?;
+    let (sampler_clause, sampler_binds) = text_clause("sampler_address", filter)?;
+    binds.extend(dst_binds);
+    binds.extend(sampler_binds);
+
+    Ok((
+        format!("({src_clause} OR {dst_clause} OR {sampler_clause})"),
+        binds,
+    ))
 }
 
 /// Single-side CIDR containment against a flow endpoint IP column.
@@ -304,6 +340,21 @@ fn timeseries_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue
         | "target_device_ip" | "partition" => text_clause(filter.field.as_str(), filter),
         "if_index" => int_clause("if_index", filter, false),
         "value" => float_clause("value", filter, true),
+        // Completes the tag story. Filters already accept `tags.<key>` on the raw
+        // and stats paths, and `series:tags.<key>` splits a bucketed aggregate by
+        // one — but a bucketed query could not be SCOPED to a tag, so "clients at
+        // ORD over time" was inexpressible while "clients per site over time" was
+        // fine. The key is validated before interpolation, as everywhere else.
+        field if field.starts_with("tags.") => {
+            let key = field.strip_prefix("tags.").unwrap_or_default();
+            if !is_valid_jsonb_key(key) {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "invalid tag key '{key}' in downsample filter"
+                )));
+            }
+
+            text_clause(&format!("tags->>'{key}'"), filter)
+        }
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for downsample timeseries_metrics: '{other}'"
         ))),
@@ -363,5 +414,64 @@ fn process_filter_clause(filter: &Filter) -> Result<(String, Vec<SqlBindValue>)>
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for downsample process_metrics: '{other}'"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod device_addr_tests {
+    use super::*;
+    use crate::parser::FilterValue;
+
+    fn device_addr(op: FilterOp, value: FilterValue) -> Filter {
+        Filter {
+            field: "device_addr".into(),
+            op,
+            value,
+        }
+    }
+
+    /// The downsample path is what feeds the Traffic Profile chart and the
+    /// sparkline. It rejects `device_id:` outright, so before `device_addr`
+    /// existed a device scope produced no timeseries at all.
+    #[test]
+    fn device_addr_matches_either_endpoint_or_the_sampler() {
+        let filter = device_addr(
+            FilterOp::In,
+            FilterValue::List(vec!["192.168.6.1".into(), "192.168.7.1".into()]),
+        );
+
+        let (clause, binds) =
+            flows_filter_clause(&filter).expect("device_addr must translate for downsample");
+
+        assert!(clause.contains("src_endpoint_ip"), "missing src: {clause}");
+        assert!(clause.contains("dst_endpoint_ip"), "missing dst: {clause}");
+        assert!(
+            clause.contains("sampler_address"),
+            "missing sampler: {clause}"
+        );
+        // One array bind per arm; a mismatch here shifts every later placeholder.
+        assert_eq!(binds.len(), 3, "expected one bind per arm, got {binds:?}");
+    }
+
+    #[test]
+    fn device_addr_rejects_an_empty_address_list() {
+        let filter = device_addr(FilterOp::In, FilterValue::List(Vec::new()));
+
+        let err = flows_filter_clause(&filter).expect_err("empty device_addr must be rejected");
+        assert!(
+            err.to_string().contains("at least one address"),
+            "expected an explicit empty-scope error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn device_addr_rejects_operators_it_cannot_express() {
+        let filter = device_addr(FilterOp::Like, FilterValue::Scalar("192.168.%".into()));
+
+        let err = flows_filter_clause(&filter).expect_err("device_addr must reject LIKE");
+        assert!(
+            err.to_string().contains("equality and list matching"),
+            "expected an operator error, got: {err}"
+        );
     }
 }

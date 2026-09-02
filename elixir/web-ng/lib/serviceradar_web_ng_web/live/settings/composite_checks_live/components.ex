@@ -13,8 +13,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
   alias ServiceRadar.CompositeChecks.Rollup
   alias ServiceRadarWebNGWeb.Settings.CompositeChecksLive.RuleTable
 
-  attr :entries, :list, required: true
-  attr :can_manage, :boolean, default: false
+  attr(:entries, :list, required: true)
+  attr(:can_manage, :boolean, default: false)
 
   def check_list(assigns) do
     ~H"""
@@ -77,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     """
   end
 
-  attr :state, :atom, required: true
+  attr(:state, :atom, required: true)
 
   def state_badge(assigns) do
     ~H"""
@@ -92,7 +92,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     """
   end
 
-  attr :rollup, :list, default: nil
+  attr(:rollup, :list, default: nil)
 
   def verdict_rollup(assigns) do
     assigns = assign(assigns, :total, Rollup.total(assigns.rollup))
@@ -123,19 +123,20 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     """
   end
 
-  attr :form, :map, required: true
-  attr :errors, :list, default: []
-  attr :mode, :atom, required: true
-  attr :check_id, :any, default: nil
-  attr :state, :atom, default: nil
-  attr :scope_count, :integer, default: nil
-  attr :builder, :map, required: true
-  attr :builder_in_sync, :boolean, default: true
-  attr :save_error, :string, default: nil
-  attr :vantage_points, :list, default: []
-  attr :device_facts, :list, default: []
-  attr :fact_key_suggestions, :list, default: []
-  attr :agents, :list, default: []
+  attr(:form, :map, required: true)
+  attr(:errors, :list, default: [])
+  attr(:mode, :atom, required: true)
+  attr(:check_id, :any, default: nil)
+  attr(:state, :atom, default: nil)
+  attr(:scope_count, :integer, default: nil)
+  attr(:builder, :map, required: true)
+  attr(:builder_in_sync, :boolean, default: true)
+  attr(:save_error, :string, default: nil)
+  attr(:vantage_points, :list, default: [])
+  attr(:coverage_intervals, :map, default: %{})
+  attr(:device_facts, :list, default: [])
+  attr(:fact_key_suggestions, :list, default: [])
+  attr(:agents, :list, default: [])
 
   def check_form(assigns) do
     ~H"""
@@ -199,6 +200,19 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
           value={@form["evaluation_interval_seconds"]}
           label="Evaluation interval (seconds)"
         />
+        <.input
+          type="checkbox"
+          name="form[write_canonical_availability]"
+          value={@form["write_canonical_availability"]}
+          checked={@form["write_canonical_availability"] in [true, "true"]}
+          label="Write canonical device availability"
+        />
+        <p class="text-xs text-sr-ink-muted">
+          Off by default. When on, a healthy verdict sets the device available bit and a
+          down verdict clears it. Armis northbound still exports this check's verdict as
+          its own custom field. Use Availability Sources to pick which sweep agent owns
+          the canonical bit.
+        </p>
         <.field_errors errors={@errors} />
       </section>
 
@@ -212,6 +226,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
       <.vantage_points
         rows={@vantage_points}
         agents={@agents}
+        coverage_intervals={@coverage_intervals}
         errors={Enum.filter(@errors, fn {field, _msg} -> field == "vantage_points" end)}
       />
 
@@ -224,10 +239,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     """
   end
 
-  attr :form, :map, required: true
-  attr :scope_count, :integer, default: nil
-  attr :builder, :map, required: true
-  attr :builder_in_sync, :boolean, default: true
+  attr(:form, :map, required: true)
+  attr(:scope_count, :integer, default: nil)
+  attr(:builder, :map, required: true)
+  attr(:builder_in_sync, :boolean, default: true)
 
   def scope_panel(assigns) do
     ~H"""
@@ -316,9 +331,9 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     """
   end
 
-  attr :rows, :list, required: true
-  attr :errors, :list, default: []
-  attr :key_suggestions, :list, default: []
+  attr(:rows, :list, required: true)
+  attr(:errors, :list, default: [])
+  attr(:key_suggestions, :list, default: [])
 
   @doc """
   Device facts: the third input kind, alongside the vantage points.
@@ -410,9 +425,12 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     """
   end
 
-  attr :rows, :list, required: true
-  attr :agents, :list, required: true
-  attr :errors, :list, default: []
+  attr(:rows, :list, required: true)
+  attr(:agents, :list, required: true)
+  attr(:errors, :list, default: [])
+  # agent_id => slowest covering sweep interval in seconds. Empty on :new,
+  # where no inputs exist yet and there is nothing to compare against.
+  attr(:coverage_intervals, :map, default: %{})
 
   def vantage_points(assigns) do
     ~H"""
@@ -449,6 +467,34 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
 
         <.vantage_role_badge expected={row["expected"]} />
 
+        <span class="text-xs text-sr-ink-muted">using results younger than</span>
+
+        <input
+          type="text"
+          inputmode="numeric"
+          name={"vantage_points[#{index}][max_age_seconds]"}
+          value={row["max_age_seconds"]}
+          aria-label="Freshness window in seconds"
+          class="w-24 rounded-sr-control border border-sr-border bg-sr-surface-muted px-2 py-1 text-sm text-sr-ink"
+        />
+
+        <span class="text-xs text-sr-ink-muted">seconds</span>
+
+        <p
+          :if={stale_window?(row, @coverage_intervals)}
+          class="basis-full rounded-sr-control border border-amber-500/40 bg-amber-500/5 p-3 text-xs text-amber-400"
+          data-vantage-stale-window={row["agent_id"]}
+        >
+          <span class="font-medium">
+            This window is shorter than the sweep that feeds it.
+          </span>
+          The slowest group covering this agent runs every {covering_interval(
+            row,
+            @coverage_intervals
+          )}s, so between runs every device resolves unknown and the check reports no results for
+          this vantage point. Use at least that long.
+        </p>
+
         <button
           type="button"
           phx-click="remove_vantage_point"
@@ -484,7 +530,36 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     """
   end
 
-  attr :expected, :string, default: nil
+  # A freshness window shorter than the sweep interval feeding it cannot ever be
+  # satisfied for the whole scope: between two runs of an hourly sweep, a
+  # 15-minute window leaves 45 minutes where every device resolves unknown. This
+  # is the check that makes that visible while it is still editable, rather than
+  # as an unexplained "0 of N devices have results" on the readiness panel.
+  defp stale_window?(row, coverage_intervals) do
+    with interval when is_integer(interval) <- covering_interval(row, coverage_intervals),
+         max_age when is_integer(max_age) <- parse_seconds(row["max_age_seconds"]) do
+      max_age < interval
+    else
+      _ -> false
+    end
+  end
+
+  defp covering_interval(row, coverage_intervals) do
+    Map.get(coverage_intervals, row["agent_id"])
+  end
+
+  defp parse_seconds(value) when is_integer(value), do: value
+
+  defp parse_seconds(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {seconds, ""} when seconds > 0 -> seconds
+      _ -> nil
+    end
+  end
+
+  defp parse_seconds(_value), do: nil
+
+  attr(:expected, :string, default: nil)
 
   def vantage_role_badge(assigns) do
     ~H"""
@@ -518,7 +593,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     end
   end
 
-  attr :errors, :list, default: []
+  attr(:errors, :list, default: [])
 
   def field_errors(assigns) do
     ~H"""
@@ -528,11 +603,11 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     """
   end
 
-  attr :rules, :list, required: true
-  attr :columns, :list, required: true
-  attr :mode, :atom, required: true
-  attr :confirm_regenerate, :boolean, default: false
-  attr :error, :string, default: nil
+  attr(:rules, :list, required: true)
+  attr(:columns, :list, required: true)
+  attr(:mode, :atom, required: true)
+  attr(:confirm_regenerate, :boolean, default: false)
+  attr(:error, :string, default: nil)
 
   @doc """
   The decision table: rules in evaluation order, first match wins.
@@ -625,10 +700,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     """
   end
 
-  attr :rule, :map, required: true
-  attr :columns, :list, required: true
-  attr :first, :boolean, default: false
-  attr :last, :boolean, default: false
+  attr(:rule, :map, required: true)
+  attr(:columns, :list, required: true)
+  attr(:first, :boolean, default: false)
+  attr(:last, :boolean, default: false)
 
   # Each row is its own form: rule edits persist immediately against their own
   # resource, and the whole table sits outside the check form because a form
@@ -752,15 +827,16 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     "grid-template-columns: repeat(#{length(columns)}, minmax(7rem, 1fr)) 13rem 12rem 8rem 6rem"
   end
 
-  attr :entries, :list, default: []
-  attr :mode, :atom, required: true
+  attr(:entries, :list, default: [])
+  attr(:mode, :atom, required: true)
 
   @doc """
   The sweeps that actually feed each vantage point, read-only.
 
   A vantage point maps to zero or more sweep groups, not to one scan profile:
-  `SweepGroup.agent_id` is nullable and means "any agent in partition". Naming
-  one group as the check's profile would misstate which ports are probed.
+  an empty `SweepGroup.agent_ids` means every agent in the device partition,
+  while a non-empty array is a fixed scanner subset. Naming one group as the
+  check's profile would misstate which ports are probed.
   """
   def sweep_context(assigns) do
     ~H"""
@@ -817,7 +893,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
             </.link>
 
             <span class="text-sr-ink-muted">
-              {if group.assigned?, do: "assigned to this agent", else: "any agent in partition"}
+              {if group.assigned?, do: "selected for this agent", else: "all agents in partition"}
             </span>
 
             <span :if={group.interval} class="text-sr-ink-muted">every {group.interval}</span>
@@ -850,11 +926,11 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     end
   end
 
-  attr :readiness, :map, default: nil
-  attr :error, :string, default: nil
-  attr :mode, :atom, required: true
-  attr :state, :atom, default: nil
-  attr :labels, :map, default: %{}
+  attr(:readiness, :map, default: nil)
+  attr(:error, :string, default: nil)
+  attr(:mode, :atom, required: true)
+  attr(:state, :atom, default: nil)
+  attr(:labels, :map, default: %{})
 
   @doc """
   Whether the check is safe to enable, and what stops it.
@@ -980,11 +1056,11 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     Enum.all?(blocking, &(&1.code == :no_coverage))
   end
 
-  attr :preview, :map, default: nil
-  attr :error, :string, default: nil
-  attr :mode, :atom, required: true
-  attr :can_evaluate, :boolean, default: false
-  attr :state, :atom, default: nil
+  attr(:preview, :map, default: nil)
+  attr(:error, :string, default: nil)
+  attr(:mode, :atom, required: true)
+  attr(:can_evaluate, :boolean, default: false)
+  attr(:state, :atom, default: nil)
 
   @doc """
   What the check would decide, right now, for a sample of its scope.
@@ -1038,8 +1114,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     """
   end
 
-  attr :preview, :map, required: true
-  attr :state, :atom, default: nil
+  attr(:preview, :map, required: true)
+  attr(:state, :atom, default: nil)
 
   defp preview_rollup(assigns) do
     ~H"""
@@ -1074,7 +1150,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.Components do
     """
   end
 
-  attr :row, :map, required: true
+  attr(:row, :map, required: true)
 
   # The data-preview-* attributes are the addressable version of what this row
   # says. Every value it renders — a verdict, an expectation, a status — also

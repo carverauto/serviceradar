@@ -199,10 +199,13 @@ diesel::table! {
         discovery_sources -> Nullable<Array<Text>>,
         is_available -> Nullable<Bool>,
         is_active -> Nullable<Bool>,
+        tags -> Nullable<Jsonb>,
         metadata -> Nullable<Jsonb>,
         deleted_at -> Nullable<Timestamptz>,
         deleted_by -> Nullable<Text>,
         deleted_reason -> Nullable<Text>,
+        partition -> Text,
+        switch_port_attachment -> Nullable<Jsonb>,
     }
 }
 
@@ -335,6 +338,30 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    mtr_traces (time, id) {
+        time -> Timestamptz,
+        id -> Uuid,
+        agent_id -> Text,
+        gateway_id -> Nullable<Text>,
+        check_id -> Nullable<Text>,
+        check_name -> Nullable<Text>,
+        device_id -> Nullable<Text>,
+        target -> Text,
+        target_ip -> Text,
+        target_reached -> Bool,
+        total_hops -> Int4,
+        protocol -> Text,
+        ip_version -> Int4,
+        packet_size -> Nullable<Int4>,
+        partition -> Nullable<Text>,
+        error -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     ocsf_events (time, id) {
         time -> Timestamptz,
         id -> Uuid,
@@ -421,7 +448,7 @@ diesel::table! {
     use diesel::pg::sql_types::Array;
     use diesel::sql_types::*;
 
-    discovered_interfaces (timestamp, device_id, interface_uid) {
+    discovered_interfaces (device_id, interface_uid) {
         timestamp -> Timestamptz,
         agent_id -> Nullable<Text>,
         gateway_id -> Nullable<Text>,
@@ -773,5 +800,26 @@ diesel::table! {
         ocsf_payload -> Jsonb,
         partition -> Nullable<Text>,
         created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    source_fact_disagreements (id) {
+        id -> Uuid,
+        device_uid -> Text,
+        fact_key -> Text,
+        status -> Text,
+        compare_signature -> Text,
+        values -> Jsonb,
+        configuration_conflict -> Bool,
+        first_detected_at -> Timestamptz,
+        last_detected_at -> Timestamptz,
+        cleared_at -> Nullable<Timestamptz>,
+        dismissed_at -> Nullable<Timestamptz>,
+        metadata -> Jsonb,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }

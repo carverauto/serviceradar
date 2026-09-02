@@ -62,6 +62,10 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       href navigate patch method download name value type disabled form
       target rel
       phx-click phx-target phx-value-idx phx-value-id phx-value-entity phx-value-group_id phx-value-metric
+      phx-value-q phx-value-type phx-value-favorite phx-value-field phx-value-value
+      phx-value-state phx-value-severity phx-value-mode phx-value-cursor phx-value-page
+      phx-value-addon_id phx-value-version phx-value-release_tag phx-value-replace
+      phx-value-reset
       phx-confirm data-confirm
       aria-label aria-controls aria-expanded title
     )
@@ -227,6 +231,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :placement, :string, default: "bottom", values: ~w(bottom top)
   attr :class, :any, default: nil
   attr :menu_class, :any, default: nil
+  attr :aria_label, :string, default: nil
   slot :trigger, required: true
   slot :item, required: true
 
@@ -239,7 +244,10 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       table/panel ancestors (overflow-x-auto / rounded panels).
     --%>
     <details class={["sr-ui-dropdown group relative inline-block text-left", @class]}>
-      <summary class="sr-ui-dropdown-trigger list-none cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-sr-focus [&::-webkit-details-marker]:hidden">
+      <summary
+        class="sr-ui-dropdown-trigger list-none cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-sr-focus [&::-webkit-details-marker]:hidden"
+        aria-label={@aria_label}
+      >
         <span class="pointer-events-none inline-flex items-center">
           {render_slot(@trigger)}
         </span>
@@ -265,6 +273,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
     """
   end
 
+  attr :id, :string, default: nil
   attr :class, :any, default: nil
   attr :header_class, :any, default: nil
   attr :body_class, :any, default: nil
@@ -278,10 +287,13 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       No overflow-hidden on the section: it clips absolute menus (row ⋮ actions).
       Radius still clips painted backgrounds via border-radius + background.
     --%>
-    <section class={[
-      "relative rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface",
-      @class
-    ]}>
+    <section
+      id={@id}
+      class={[
+        "relative rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface",
+        @class
+      ]}
+    >
       <header
         :if={@header != []}
         class={[
@@ -586,6 +598,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       phx-hook="DialogTopLayer"
       data-cancel={@on_cancel}
       data-cancel-target={@on_cancel_target}
+      aria-labelledby={if @title != [], do: "#{@id}-title"}
       {@rest}
     >
       <div class={[
@@ -606,7 +619,9 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
           <.icon name="hero-x-mark" class="size-4" />
         </.ui_icon_button>
         <div :if={@title != []} class="mb-3 flex items-start justify-between gap-3 pr-8">
-          <h3 class="text-lg font-semibold tracking-tight text-sr-ink">{render_slot(@title)}</h3>
+          <h3 id={"#{@id}-title"} class="text-lg font-semibold tracking-tight text-sr-ink">
+            {render_slot(@title)}
+          </h3>
         </div>
         <div class="space-y-3">{render_slot(@inner_block)}</div>
         <div :if={@actions != []} class="sr-ui-modal-action">{render_slot(@actions)}</div>
@@ -753,7 +768,7 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
       </div>
       <div class="flex items-center gap-1">
         <.ui_button
-          :if={@has_prev and @current_page > 2}
+          :if={@current_page > 1}
           type="button"
           variant="outline"
           size="sm"

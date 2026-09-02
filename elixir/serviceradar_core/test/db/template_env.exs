@@ -26,6 +26,12 @@ template_database = "sr_core_template"
 # parsed one.
 fixture = ServiceRadar.DB.FixtureConfig.resolve!(template_database)
 
+# Config/test.exs allows the long-lived clone template only when this typed preloader has marked
+# the current BEAM. An ambient flag cannot opt an ordinary Mix invocation into the exception.
+guard_path = Path.expand("../../config/test_database_guard.exs", __DIR__)
+Code.require_file(guard_path)
+ServiceRadar.DB.TestDatabaseGuard.authorize_template_lifecycle!()
+
 # System.put_env, still, and deliberately: this is a handoff INSIDE one OS process to
 # config/test.exs, which is a Config script evaluated before any of our code can pass it a value
 # by any other means. What changed is where the values come from -- configuration and

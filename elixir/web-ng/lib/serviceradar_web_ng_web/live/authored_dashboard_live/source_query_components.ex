@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
   attr :source_queries, :list, default: []
   attr :templates, :list, default: []
   attr :can_manage?, :boolean, default: false
+  attr :timezone, :string, default: "Etc/UTC"
 
   def source_query_workbench(assigns) do
     ~H"""
@@ -103,10 +104,20 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
                     </tr>
                   </thead>
                   <tbody>
-                    <tr :for={field <- @preview.fields}>
+                    <tr :for={field <- @preview.fields} data-source-field={field.name}>
                       <td class="font-mono">{field.name}</td>
                       <td>{field.type}</td>
-                      <td class="max-w-36 truncate">{format_sample(field.sample)}</td>
+                      <td class="max-w-36 truncate">
+                        <.user_time
+                          :if={datetime_field?(field)}
+                          id={source_sample_time_id(field.name)}
+                          value={field.sample}
+                          timezone={@timezone}
+                          style={:compact}
+                          fallback={format_sample(field.sample)}
+                        />
+                        <span :if={!datetime_field?(field)}>{format_sample(field.sample)}</span>
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -207,4 +218,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueryComponents do
   defp format_sample(value) when is_boolean(value), do: to_string(value)
   defp format_sample(nil), do: ""
   defp format_sample(value), do: inspect(value)
+
+  defp datetime_field?(%{type: type}), do: type in [:datetime, "datetime"]
+  defp datetime_field?(%{"type" => type}), do: type in [:datetime, "datetime"]
+  defp datetime_field?(_field), do: false
+
+  defp source_sample_time_id(field_name) do
+    encoded_name = field_name |> to_string() |> Base.url_encode64(padding: false)
+    "authored-dashboard-source-field-#{encoded_name}-sample"
+  end
 end

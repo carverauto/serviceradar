@@ -126,7 +126,7 @@ Enhancement suggestions are tracked as [GitHub issues](ServiceRadar/issues).
 <!-- You might want to create an issue template for enhancement suggestions that can be used as a guide and that defines the structure of the information to be included. If you do so, reference it here in the description. -->
 
 ### Your First Code Contribution
-For local guardrails before code reaches Forgejo:
+For local guardrails before code reaches GitHub:
 
 - set the repo hooks path once with `git config core.hooksPath .githooks`
 - install `pre-commit` on your workstation
@@ -135,9 +135,14 @@ For local guardrails before code reaches Forgejo:
 This repo uses:
 
 - `.githooks/pre-commit` to chain the repo-managed checks and the existing `god_view` quick checks
+- `.githooks/mix-format-elixir` (via pre-commit) to `mix format` staged Elixir files and
+  **fail the commit** if that Mix project has no `deps/styler` or is still unformatted.
+  CI runs `mix format --check-formatted` on every Elixir project; the hook used to
+  `|| true` and skip missing deps, which is how unformatted files reached PRs.
+  Run `mix deps.get` in the Mix project you are editing so the hook can see Styler.
 - `.githooks/pre-push` to run a local `gitleaks` scan of commits being pushed when `gitleaks` or Docker is available
 
-The authoritative merge gate remains Forgejo Actions, but keeping the local hooks enabled is the fastest way to catch accidental secrets before they leave your machine.
+The authoritative merge gate remains GitHub Actions, but keeping the local hooks enabled is the fastest way to catch accidental secrets before they leave your machine.
 
 ### Improving The Documentation
 <!-- TODO

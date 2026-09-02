@@ -1,5 +1,8 @@
 import {timeseriesClientXToPointIndex, timeseriesNearestPointIndexByX, timeseriesPointToLocalX} from "./geometry"
 import {hoverPosition, plotGeometryFromDataset} from "../../utils/chart_hover_geometry"
+import {dashboardUserTimeHtml} from "../../utils/dashboard_user_time"
+import {axisUserTimeFormatter} from "../../utils/user_time"
+import {localizeTimeseriesTimeTitles} from "./TimeseriesChart"
 
 export default {
   mounted() {
@@ -19,6 +22,15 @@ export default {
     const tooltip = el.querySelector("[data-tooltip]")
     const hoverLine = el.querySelector("[data-hover-line]")
     const seriesData = JSON.parse(el.dataset.series || "[]")
+    const timezone = el.dataset.timezone || "Etc/UTC"
+    const axisFormatter = axisUserTimeFormatter({timeZone: timezone})
+
+    el.querySelectorAll?.("[data-time-axis-iso]").forEach((node) => {
+      const instant = node.dataset.timeAxisIso
+      node.textContent = axisFormatter(instant) || instant
+    })
+
+    localizeTimeseriesTimeTitles(el, timezone)
 
     const escapeHtml = (s) =>
       String(s || "")
@@ -117,7 +129,8 @@ export default {
 
       if (rows.length === 0) return
 
-      const timeLabel = rows.find((row) => row.dt)?.dt || ""
+      const instant = rows.find((row) => row.dt)?.dt || ""
+      const timeHtml = dashboardUserTimeHtml(instant, {timeZone: timezone, style: "tooltip"})
       const lines = rows
         .map((row) => {
           const bullet = `<span style="color:${escapeHtml(row.color)}">&bull;</span>`
@@ -125,7 +138,7 @@ export default {
         })
         .join("")
 
-      tooltip.innerHTML = `${lines}<div class="text-[10px] text-base-content/60 mt-1">${escapeHtml(timeLabel)}</div>`
+      tooltip.innerHTML = `${lines}<div class="text-[10px] text-base-content/60 mt-1">${timeHtml}</div>`
       tooltip.classList.remove("hidden")
       hoverLine.classList.remove("hidden")
 

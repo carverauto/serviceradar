@@ -1,3 +1,5 @@
+import {dashboardUserTimeHtml} from "../utils/dashboard_user_time"
+
 const QUERIES = {
   scans: "in:endpoint_inventory_status current:true sort:last_scan_at:desc limit:200",
   packages: "in:endpoint_packages current:true sort:updated_at:desc limit:120",
@@ -9,7 +11,7 @@ export function mountEndpointInventory(element, host, api) {
   const state = {host, api}
 
   const render = () => {
-    element.innerHTML = dashboardHtml(state.host)
+    element.innerHTML = dashboardHtml(state.host, element.dataset.timezone || "Etc/UTC")
     bindActions(element, api)
   }
 
@@ -31,7 +33,7 @@ export function mountEndpointInventory(element, host, api) {
   }
 }
 
-function dashboardHtml(host) {
+function dashboardHtml(host, timeZone) {
   const frames = frameMap(host)
   const scans = rows(frames.scan_status)
   const packages = rows(frames.package_rollup)
@@ -96,7 +98,7 @@ function dashboardHtml(host) {
           <div class="sr-pkg-incident-list">
             ${
               scans.length
-                ? scans.slice(0, 24).map(scanRow).join("")
+                ? scans.slice(0, 24).map((row) => scanRow(row, timeZone)).join("")
                 : emptyState("No endpoint inventory scans returned.")
             }
           </div>
@@ -162,7 +164,7 @@ function dashboardHtml(host) {
           <div class="sr-pkg-incident-list">
             ${
               cpes.length
-                ? cpes.slice(0, 16).map(cpeRow).join("")
+                ? cpes.slice(0, 16).map((row) => cpeRow(row, timeZone)).join("")
                 : emptyState("No CPE rollups returned.")
             }
           </div>
@@ -185,7 +187,7 @@ function dashboardHtml(host) {
           <div class="sr-pkg-incident-list">
             ${
               recent.length
-                ? recent.slice(0, 18).map(packageRow).join("")
+                ? recent.slice(0, 18).map((row) => packageRow(row, timeZone)).join("")
                 : emptyState("No package rows returned.")
             }
           </div>
@@ -230,7 +232,7 @@ function metricCard({title, value, caption, status, query}) {
   `
 }
 
-function scanRow(row) {
+function scanRow(row, timeZone) {
   const state = freshness(row)
   return `
     <article class="sr-pkg-row sr-pkg-cols-scan">
@@ -241,14 +243,15 @@ function scanRow(row) {
       <div class="sr-pkg-cell-muted">${escapeHtml(row.agent_id || "unknown")}</div>
       <div>${freshnessBadge(state)}</div>
       <div class="sr-pkg-cell-num">${number(row.package_count)}</div>
-      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${escapeHtml(
-        formatTime(row.last_scan_at || row.last_successful_scan_at)
+      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${dashboardUserTimeHtml(
+        row.last_scan_at || row.last_successful_scan_at,
+        {timeZone},
       )}</div>
     </article>
   `
 }
 
-function packageRow(row) {
+function packageRow(row, timeZone) {
   const name = [row.name, row.version].filter(Boolean).join("@") || row.canonical_purl || "Package"
   const purl = row.canonical_purl || row.purl_canonical || row.purl || ""
   return `
@@ -259,21 +262,22 @@ function packageRow(row) {
       </div>
       <div>${deviceLink(row)}</div>
       <div class="sr-pkg-cell-muted">${escapeHtml(row.package_manager || row.ecosystem || "unknown")}</div>
-      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${escapeHtml(
-        formatTime(row.updated_at || row.last_seen_at)
+      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${dashboardUserTimeHtml(
+        row.updated_at || row.last_seen_at,
+        {timeZone},
       )}</div>
     </article>
   `
 }
 
-function cpeRow(row) {
+function cpeRow(row, timeZone) {
   return `
     <article class="sr-pkg-row sr-pkg-cols-cpe">
       <div class="sr-pkg-cell-main">
         <strong class="sr-pkg-mono">${escapeHtml(row.cpe || "unknown")}</strong>
       </div>
       <div class="sr-pkg-cell-num">${number(row.host_count)}</div>
-      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${escapeHtml(formatTime(row.last_seen_at))}</div>
+      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${dashboardUserTimeHtml(row.last_seen_at, {timeZone})}</div>
     </article>
   `
 }
@@ -404,13 +408,6 @@ function number(value) {
 function percent(value, total) {
   if (!total) return "0%"
   return `${Math.round((value / total) * 100)}%`
-}
-
-function formatTime(value) {
-  if (!value) return "n/a"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value)
-  return date.toLocaleString()
 }
 
 function stringAt(value, path) {

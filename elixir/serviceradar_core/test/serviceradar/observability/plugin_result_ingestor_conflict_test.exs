@@ -38,12 +38,18 @@ defmodule ServiceRadar.Observability.PluginResultIngestorConflictTest do
     assert [[false, "same-observation critical result", _timestamp]] =
              current_state_rows(second_status)
 
-    Enum.each(1..130, fn index ->
-      payload = if rem(index, 2) == 0, do: healthy_payload, else: critical_payload
+    reported_before_replay = MapSet.new(reported_results(first_status))
+    current_before_replay = current_state_rows(first_status)
+
+    # One replay of each digest proves idempotency here. Repeating these same two handlerless
+    # payloads 130 times does not advance the separate 128-generation handler-marker window.
+    Enum.each([critical_payload, healthy_payload], fn payload ->
       assert :ok = PluginResultIngestor.ingest(payload, first_status)
     end)
 
-    assert length(reported_results(first_status)) == 2
+    assert MapSet.new(reported_results(first_status)) == reported_before_replay
+    assert MapSet.size(reported_before_replay) == 2
+    assert current_state_rows(first_status) == current_before_replay
 
     rebuild_current_states([first_status, second_status])
 

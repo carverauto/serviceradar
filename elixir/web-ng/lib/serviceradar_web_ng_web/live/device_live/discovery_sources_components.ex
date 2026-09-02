@@ -16,8 +16,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.DeviceLive.IntegrationLogos, only: [wordmark: 1]
+
   attr(:device_row, :map, required: true)
   attr(:source_observations, :list, default: [])
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def discovery_sources_section(assigns) do
     metadata = row_metadata(assigns.device_row)
@@ -55,7 +58,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
           ]}
           data-tip={chip.tip}
         >
+          <.wordmark :if={chip.logo} name={chip.logo} class="h-3.5 w-auto" />
           <.icon
+            :if={is_nil(chip.logo)}
             name={chip.icon}
             class={[
               "size-3.5 shrink-0",
@@ -63,7 +68,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
               !chip.tip && "text-sr-muted"
             ]}
           />
-          <span class="truncate">{chip.label}</span>
+          <span :if={is_nil(chip.logo)} class="truncate">{chip.label}</span>
+          <.user_time
+            :if={chip.timestamp}
+            id={"discovery-source-#{chip.key}-discovery-time"}
+            value={chip.timestamp}
+            timezone={@timezone}
+            style={:compact}
+            fallback="—"
+            class="font-mono text-[10px]"
+          />
           <span
             :if={chip.item_count > 0}
             class="rounded-full bg-secondary/15 px-1.5 text-[10px] font-semibold leading-4 text-secondary"
@@ -107,7 +121,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
                 </.ui_badge>
               </td>
               <td class="font-mono text-xs">
-                {observation_value(observation, "last_observed_at")}
+                <.user_time
+                  id={observation_time_id(observation)}
+                  value={observation_value(observation, "last_observed_at")}
+                  timezone={@timezone}
+                  style={:compact}
+                  fallback="—"
+                />
               </td>
               <td class="font-mono text-xs">
                 {observation_value(observation, "collection_id")}
@@ -185,15 +205,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
   defp source_chip(source, metadata, row) do
     {label, icon} = source_label_icon(source)
     items = source_items(source, metadata, row)
+    timestamp = source_timestamp(source, metadata)
 
     %{
       key: source,
       label: label,
       icon: icon,
-      item_count: length(items),
+      logo: source_logo(source),
+      item_count: length(items) + if(timestamp, do: 1, else: 0),
+      timestamp: timestamp,
       tip: chip_tip(items)
     }
   end
+
+  defp source_timestamp("sighting", metadata), do: metadata_lookup(metadata, "discovery_time")
+  defp source_timestamp(_source, _metadata), do: nil
+
+  defp source_logo("armis"), do: :armis
+  defp source_logo("netbox"), do: :netbox
+  defp source_logo(source) when source in ["proxmox", "proxmox-api", "proxmox_candidate"], do: :proxmox
+  defp source_logo(source) when source in ["awx", "ansible"], do: :ansible
+  defp source_logo(_source), do: nil
 
   # Concise "Label: value · Label: value" summary surfaced on hover for sources
   # that carry curated scoped metadata. `nil` for sources with none, which keeps
@@ -232,6 +264,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
   defp source_label_icon("camera_plugin"), do: {"Camera", "hero-video-camera"}
   defp source_label_icon("camera"), do: {"Camera", "hero-video-camera"}
   defp source_label_icon("snmp"), do: {"SNMP", "hero-radio"}
+  # Acronym casing humanize/1 cannot infer: it title-cases each word, so
+  # "netprobe-mdns" renders as "Netprobe Mdns". mDNS is a protocol name, not a
+  # word. Both separator spellings are listed because SourcePolicy accepts both.
+  defp source_label_icon("netprobe-mdns"), do: {"Netprobe mDNS", "hero-arrow-path-rounded-square"}
+  defp source_label_icon("netprobe_mdns"), do: {"Netprobe mDNS", "hero-arrow-path-rounded-square"}
+  defp source_label_icon("passive-mdns"), do: {"Passive mDNS", "hero-arrow-path-rounded-square"}
+  defp source_label_icon("passive_mdns"), do: {"Passive mDNS", "hero-arrow-path-rounded-square"}
+  defp source_label_icon("mdns"), do: {"mDNS", "hero-arrow-path-rounded-square"}
   defp source_label_icon("unknown"), do: {"Unknown", "hero-question-mark-circle"}
   defp source_label_icon(source), do: {humanize(source), "hero-arrow-path-rounded-square"}
 
@@ -308,7 +348,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
 
   defp source_items("sighting", metadata, _row) do
     build_items([
-      {"Discovery time", metadata_lookup(metadata, "discovery_time"), mono: true}
+      {"Discovery ID", metadata_lookup(metadata, "discovery_id"), mono: true}
     ])
   end
 
@@ -368,6 +408,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DiscoverySourcesComponents do
 
   defp observation_value(observation, key) when is_map(observation) do
     map_value(observation, key)
+  end
+
+  defp observation_time_id(observation) do
+    identity =
+      {
+        observation_value(observation, "source"),
+        observation_value(observation, "source_instance"),
+        observation_value(observation, "source_object_id"),
+        observation_value(observation, "collection_id")
+      }
+
+    "discovery-source-observation-#{:erlang.phash2(identity)}-last-observed"
   end
 
   # ---------------------------------------------------------------------------

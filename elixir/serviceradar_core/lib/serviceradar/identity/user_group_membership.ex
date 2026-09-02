@@ -12,7 +12,7 @@ defmodule ServiceRadar.Identity.UserGroupMembership do
 
   @view_check {ActorHasPermission, permission: "identity.user_groups.view"}
   @manage_check {ActorHasPermission, permission: "identity.user_groups.manage"}
-  @fields [:group_id, :user_id, :role, :metadata]
+  @fields [:group_id, :user_id, :role, :metadata, :source]
 
   postgres do
     table "user_group_memberships"
@@ -28,6 +28,7 @@ defmodule ServiceRadar.Identity.UserGroupMembership do
 
   code_interface do
     define :list, action: :read
+    define :list_by_user, action: :by_user, args: [:user_id]
     define :create_membership, action: :create
     define :update_membership, action: :update
   end
@@ -39,11 +40,16 @@ defmodule ServiceRadar.Identity.UserGroupMembership do
       accept @fields
       upsert? true
       upsert_identity :unique_group_user
-      upsert_fields [:role, :metadata, :updated_at]
+      upsert_fields [:role, :metadata, :source, :updated_at]
     end
 
     update :update do
       accept [:role, :metadata]
+    end
+
+    read :by_user do
+      argument :user_id, :uuid, allow_nil?: false
+      filter expr(user_id == ^arg(:user_id))
     end
   end
 
@@ -79,6 +85,20 @@ defmodule ServiceRadar.Identity.UserGroupMembership do
       allow_nil? false
       public? true
       default %{}
+    end
+
+    attribute :source, :atom do
+      allow_nil? false
+      public? true
+      default :manual
+      constraints one_of: [:manual, :idp]
+
+      description """
+      Who created this membership. An identity provider may withdraw the
+      memberships it created when a user leaves the mapped group, and must never
+      withdraw one an operator added by hand -- the IdP knows nothing about
+      those.
+      """
     end
 
     create_timestamp :inserted_at

@@ -113,6 +113,30 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     end
   end
 
+  defmodule ResolverContainerAgent do
+    @moduledoc false
+
+    def resolve([%{entity: entity, query: query} | _], _opts) do
+      {:ok,
+       [
+         %{
+           name: "targets",
+           entity: entity,
+           query: query,
+           rows: [
+             %{
+               "uid" => "agent-container",
+               "os" => "linux",
+               "arch" => "amd64",
+               "agent_version" => "1.2.3",
+               "capabilities" => ["endpoint-inventory"]
+             }
+           ]
+         }
+       ]}
+    end
+  end
+
   defmodule ResolverDefaultQuery do
     @moduledoc false
 
@@ -179,7 +203,15 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
         "agent-arm" => agent("agent-arm", metadata: %{"os" => "linux", "arch" => "arm64"}),
         "agent-old" => agent("agent-old", version: "1.1.9"),
         "agent-missing-cap" => agent("agent-missing-cap", capabilities: []),
-        "agent-offline" => agent("agent-offline", status: :disconnected)
+        "agent-offline" => agent("agent-offline", status: :disconnected),
+        "agent-container" =>
+          agent("agent-container",
+            metadata: %{
+              "os" => "linux",
+              "arch" => "amd64",
+              "deployment_type" => "kubernetes"
+            }
+          )
       }
     end
 
@@ -588,6 +620,44 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert preview.summary.skip_counts == %{"missing_required_capability" => 1}
     assert [skipped] = preview.summary.skipped_targets
     assert skipped.detail =~ "host-network-visibility"
+  end
+
+  test "a containerized agent is skipped for a systemd-supervised add-on" do
+    # A container has no host system unit dir and no root-owned agent-updater, and the
+    # agent refuses the whole assignment set on such a host. Materializing one anyway is
+    # what produced a permanently-silent rollout target that timed out and failed the
+    # rollout for every bare-metal host in the fleet.
+    profile =
+      endpoint_inventory_profile()
+      |> Map.put(:target_query, "in:agents")
+      |> put_in([:addon_package, :supervision], "systemd_timer")
+
+    assert {:ok, preview} =
+             AddonProfileReconciler.preview(profile,
+               resolver: ResolverContainerAgent,
+               agent_loader: AgentLoader,
+               store: MemoryStore
+             )
+
+    assert preview.summary.desired_assignments == 0
+    assert preview.summary.skip_counts == %{"cannot_host_native_addons" => 1}
+  end
+
+  test "a bare-metal agent still gets native add-ons" do
+    profile =
+      endpoint_inventory_profile()
+      |> Map.put(:target_query, "in:agents")
+      |> put_in([:addon_package, :supervision], "systemd_timer")
+
+    assert {:ok, preview} =
+             AddonProfileReconciler.preview(profile,
+               resolver: ResolverDefaultQuery,
+               agent_loader: AgentLoader,
+               store: MemoryStore
+             )
+
+    assert preview.summary.desired_assignments == 1
+    assert preview.summary.skip_counts == %{}
   end
 
   test "package platform requirements apply even without artifact metadata" do

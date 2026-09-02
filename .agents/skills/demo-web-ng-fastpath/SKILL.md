@@ -122,6 +122,40 @@ Capture the pushed digest with:
 /tmp/gobin/crane digest registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>
 ```
 
+## Verified Facts (2026-08-22, live run)
+
+These were each confirmed against the live `carverauto` cluster during a real web-ng roll.
+Do not re-derive them.
+
+- **OpenBao is HTTPS.** Through the port-forward, `https://127.0.0.1:18200` works and
+  `http://` returns `400 Client sent an HTTP request to an HTTPS server`.
+- **The role is `forgejo-signing-runner` (namespace `forgejo-actions`), NOT `forgejo-runner`.**
+  The plain `forgejo-runner` role does not exist. A successful login returns policies
+  `["cosign-runner","default","plugin-upload-signing"]`.
+- **`.argocd-source-serviceradar-demo-prod.yaml` REPLACES `helm.parameters` at render time.**
+  This is stronger than a race: a `kubectl patch` of `spec.source.helm.parameters` on
+  `serviceradar-demo-prod` persists in the Application spec, syncs `Synced|Healthy|Succeeded`,
+  and is still **completely ignored** — only the parameters listed in that file on
+  `demo/prod-release` reach Helm. Any parameter you need (`global.imageTag`,
+  `image.digests.*`) must be committed to that file on `demo/prod-release`.
+- **`image.digests.<service>` is a real per-service escape hatch** (`_helpers.tpl`
+  `serviceradar.imageRefSuffix`): it short-circuits ahead of the tag, so you can move ONE
+  service and leave every other image on the already-signed release tag — one signature
+  instead of fifteen. Service key for web-ng is `webNg`. It still has to go in the
+  `.argocd-source-...` file to take effect.
+- **`make push_all` also moves `latest`** on every image (`oci_push` carries
+  `static_tags = ["latest"]`), despite advice elsewhere to "tag only sha-<commit>".
+  It does NOT move `v<VERSION>`: `scripts/workspace_status.sh` emits `STABLE_VERSION dev`
+  unless a matching `v<VERSION>` git tag points at HEAD, and `container_tags.bzl` filters
+  `vdev`. Verify with `git tag --points-at HEAD` before pushing.
+- **Claude Code auto mode blocks the signing flow** unless these allow rules exist in
+  `.claude/settings.local.json`, and the commands are run discretely (a `bash -c '...'`
+  wrapper defeats prefix matching):
+  `Bash(kubectl create token:*)`,
+  `Bash(curl -sS -k -X POST https://127.0.0.1:18200/v1/auth/kubernetes/login:*)`,
+  `Bash(cosign sign:*)`, `Bash(cosign verify:*)`.
+  Keep the JWT and Vault token in files; never put them on a command line.
+
 ## Prepare OpenBao Signing Env
 
 Port-forward the signer if needed:
@@ -133,14 +167,14 @@ kubectl port-forward -n openbao-system svc/openbao-active 18200:8200
 Mint a Forgejo runner service-account token and exchange it for a Vault token:
 
 ```bash
-OPENBAO_ADDR=http://127.0.0.1:18200
-OPENBAO_K8S_ROLE=forgejo-runner
-sa_jwt="$(kubectl create token -n forgejo-actions forgejo-runner)"
+OPENBAO_ADDR=https://127.0.0.1:18200
+OPENBAO_K8S_ROLE=forgejo-signing-runner   # NOT forgejo-runner (that role does not exist -> 403)
+sa_jwt="$(kubectl create token -n forgejo-actions forgejo-signing-runner)"
 vault_token="$({
-  curl -fsSL \
+  curl -sS -k \
     -H 'Content-Type: application/json' \
     -d "{\"role\":\"${OPENBAO_K8S_ROLE}\",\"jwt\":\"${sa_jwt}\"}" \
-    "${OPENBAO_ADDR}/v1/auth/kubernetes/login"
+    "${OPENBAO_ADDR}/v1/auth/kubernetes/login"  # HTTPS + -k: the listener is TLS, http:// returns 400
 } | jq -er '.auth.client_token')"
 ```
 

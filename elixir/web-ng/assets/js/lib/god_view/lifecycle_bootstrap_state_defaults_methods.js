@@ -151,7 +151,15 @@ export const godViewLifecycleBootstrapStateDefaultsMethods = {
     this.state.themeMediaQuery = null
     this.state.themeMediaListener = null
     this.state.layers = {mantle: true, crust: true, atmosphere: true, security: true}
-    this.state.topologyLayers = {backbone: true, inferred: false, endpoints: false, mtr_paths: true}
+    // `endpoints` carries the attachment plane. Only 8 of 240 devices in a
+    // typical fleet have a backbone adjacency, so defaulting it off filtered
+    // every attachment edge out of first paint and drew infrastructure that
+    // genuinely has links -- APs, gateways -- as isolated dots. Expanding a
+    // cluster then flipped it on as a side effect, which read as "clicking a
+    // census bubble invented new edges". Default it on so an attachment edge
+    // between two visible glyphs always draws; collapsed cluster members stay
+    // hidden, so this does not reintroduce the endpoint hairball.
+    this.state.topologyLayers = {backbone: true, inferred: false, endpoints: true, mtr_paths: true}
     this.state.mtrPathData = []
     this.state.lastPipelineStats = null
     this.state.packetFlowCache = null
@@ -166,9 +174,18 @@ export const godViewLifecycleBootstrapStateDefaultsMethods = {
     this.state.layoutCache = new Map()
     this.state.lastLayoutKey = null
     this.state.layoutRequestToken = 0
+    this.state.viewportWidth = 1280
+    this.state.viewportHeight = 720
+    this.state.viewportSafeInsets = {top: 0, right: 0, bottom: 0, left: 0}
     this.state.lastRevision = null
     this.state.lastTopologyStamp = null
     this.state.pendingClusterFocus = null
+    this.state.managedTopologyCameraBaseMinZoom = -2
+    this.state.managedTopologySceneMinZoom = null
+    this.state.managedTopologySceneMinZoomKey = null
+    this.state.managedTopologySceneForMinZoom = null
+    this.state.managedTopologyCameraErrorActive = false
+    this.state.managedTopologyCameraErrorPreviousSummary = null
     this.state.visual = visualForTheme(detectThemeMode())
     this.state.viewState = {
       target: [320, 160, 0],

@@ -67,4 +67,12 @@ defmodule ServiceRadarWebNG.Authorization.PermissionsTest do
     refute Authorization.read?(auth, AuthorizationSettings)
     refute Authorization.read?(auth, AuthSettings)
   end
+
+  test "operator cannot manage authorization settings" do
+    auth = Authorization.can(%User{role: :operator})
+
+    refute Authorization.read?(auth, AuthorizationSettings)
+    refute Authorization.update?(auth, AuthorizationSettings)
+    refute Authorization.read?(auth, AuthSettings)
+  end
 end

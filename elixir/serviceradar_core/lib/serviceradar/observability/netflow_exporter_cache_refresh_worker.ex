@@ -17,6 +17,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability
   alias ServiceRadar.Observability.NetflowExporterCache
@@ -167,19 +168,124 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
 
   defp load_devices_by_ip([], _actor), do: %{}
 
+  # Two tiers. A sampler address is matched against `ocsf_devices.ip` first, and
+  # only the addresses that tier leaves unresolved are looked up against IP
+  # aliases.
+  #
+  # Primary-only matching is why exporters go unattributed: a router commonly
+  # exports from an interface that is not its primary address -- one router's
+  # primary is 192.168.10.1 while it exports from its WAN address, which is held
+  # as a *confirmed alias*. `device_uid` then stays NULL, and because both
+  # `flow_device_scope_expr` (rust/srql) and `FlowData.device_flow_samplers/1`
+  # match exporters by `device_uid`, that device's own exported flows attribute
+  # to nothing and its Flows tab stays empty.
+  #
+  # Primary wins outright. That ordering is load-bearing: an alias row can name
+  # an address another device owns as its primary (routers record neighbours
+  # from ARP/next-hop data), and the primary owner is the stronger claim. The
+  # primary tier is also unique by construction -- `ocsf_devices_unique_active_ip_idx`
+  # is a partial unique index on `ip` for non-deleted rows -- so ambiguity is
+  # confined to the alias tier.
   defp load_devices_by_ip(ips, actor) when is_list(ips) do
-    ips
-    |> Enum.chunk_every(2_000)
-    |> Enum.reduce(%{}, fn chunk, acc ->
-      q =
+    by_primary =
+      ips
+      |> Enum.chunk_every(2_000)
+      |> Enum.reduce(%{}, fn chunk, acc ->
         Device
         |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
         |> Ash.Query.filter(expr(ip in ^chunk))
         |> Ash.Query.select([:uid, :ip, :hostname, :name])
+        |> read_results(actor)
+        |> merge_devices_by_ip(acc)
+      end)
 
-      q
+    case Enum.reject(ips, &Map.has_key?(by_primary, &1)) do
+      [] -> by_primary
+      unresolved -> Map.merge(load_devices_by_alias(unresolved, actor), by_primary)
+    end
+  end
+
+  # Alias tier. Deliberately fails closed: an address claimed by more than one
+  # device is skipped, never tie-broken. `device_uid` scopes an entire device's
+  # flow view, so a wrong binding does not mis-label one row -- it hands one
+  # device another device's whole flow corpus. Leaving it NULL degrades to
+  # endpoint-IP matching, which is narrower but never someone else's traffic.
+  #
+  # `:detected` is excluded, matching the identity subsystem rather than SRQL: a
+  # detected alias can carry a single sighting, and one stray observation must
+  # not capture a flow corpus.
+  defp load_devices_by_alias([], _actor), do: %{}
+
+  defp load_devices_by_alias(ips, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    ips
+    |> Enum.chunk_every(2_000)
+    |> Enum.reduce(%{}, fn chunk, acc ->
+      DeviceAliasState
+      |> Ash.Query.filter(
+        alias_type == :ip and alias_value in ^chunk and state in [:confirmed, :updated]
+      )
+      |> Ash.Query.select([:device_id, :alias_value])
       |> read_results(actor)
-      |> merge_devices_by_ip(acc)
+      |> unambiguous_alias_owners()
+      |> resolve_alias_devices(query_opts, actor)
+      |> Map.merge(acc)
+    end)
+  end
+
+  @doc false
+  # Public so the fail-closed rule is unit-testable without a database. Takes
+  # alias rows and returns only the addresses claimed by exactly one device.
+  @spec unambiguous_alias_owners([map()]) :: %{optional(String.t()) => String.t()}
+  def unambiguous_alias_owners(rows) when is_list(rows) do
+    rows
+    |> Enum.group_by(& &1.alias_value, & &1.device_id)
+    |> Enum.reduce(%{}, fn {alias_value, device_ids}, acc ->
+      case Enum.uniq(device_ids) do
+        [device_id] ->
+          Map.put(acc, alias_value, device_id)
+
+        contenders ->
+          Logger.warning(
+            "NetflowExporterCacheRefreshWorker: sampler address claimed by multiple devices; leaving unattributed",
+            sampler_address: alias_value,
+            device_ids: Enum.sort(contenders)
+          )
+
+          :telemetry.execute(
+            [:serviceradar, :netflow_exporter_cache, :ambiguous_sampler],
+            %{count: 1},
+            %{sampler_address: alias_value, device_count: length(contenders)}
+          )
+
+          acc
+      end
+    end)
+  end
+
+  # Alias rows outlive their device: the FK to ocsf_devices(uid) keeps them after
+  # a soft delete, and the alias table carries no deleted filter. Re-read through
+  # the same include_deleted: false path the primary tier uses so a merged-away
+  # device cannot claim an exporter.
+  defp resolve_alias_devices(owners, _query_opts, _actor) when map_size(owners) == 0, do: %{}
+
+  defp resolve_alias_devices(owners, _query_opts, actor) do
+    uids = owners |> Map.values() |> Enum.uniq()
+
+    devices_by_uid =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
+      |> Ash.Query.filter(expr(uid in ^uids))
+      |> Ash.Query.select([:uid, :ip, :hostname, :name])
+      |> read_results(actor)
+      |> Map.new(fn device -> {Map.get(device, :uid), device} end)
+
+    Enum.reduce(owners, %{}, fn {alias_value, uid}, acc ->
+      case Map.get(devices_by_uid, uid) do
+        nil -> acc
+        device -> Map.put(acc, alias_value, device)
+      end
     end)
   end
 

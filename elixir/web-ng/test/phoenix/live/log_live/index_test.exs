@@ -8,6 +8,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   setup %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :operator})
+
+    user =
+      Ash.update!(user, %{timezone: "America/Chicago"},
+        action: :update_timezone_preference,
+        actor: user
+      )
+
     conn = log_in_user(conn, user)
 
     old = Application.get_env(:serviceradar_web_ng, :srql_module)
@@ -44,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   test "logs default to non-live browsing", %{conn: conn} do
     {:ok, lv, html} =
-      live(conn, ~p"/observability?#{%{tab: "logs", q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
+      live(conn, ~p"/observability/logs")
 
     assert html =~ "Page 1 log"
     assert has_element?(lv, "#logs-live-status", "Off")
@@ -134,6 +141,140 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     # The raw enum name and its 5-char truncation must never reach the badge.
     refute html =~ "SEVERITY_NUMBER_INFO"
     refute html =~ ">SEVER<"
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "log signal rows render their selected canonical instants with unique user-time ids", %{conn: conn} do
+    path = ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc"}}"
+    {:ok, lv, _html} = live_following_redirect(conn, path)
+
+    html = render(lv)
+    document = LazyHTML.from_fragment(html)
+    times = LazyHTML.query(document, "#logs time")
+    ids = LazyHTML.attribute(times, "id")
+
+    assert html =~ ~s(phx-hook="UserTime")
+    assert length(ids) >= 4
+    assert Enum.all?(ids, &(&1 != ""))
+    assert length(ids) == length(Enum.uniq(ids))
+    assert has_element?(lv, ~s(#logs time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"]))
+    assert html =~ "syslog unzoned source"
+    assert html =~ "source-only unzoned log"
+    assert html =~ "OTel info log"
+    assert html =~ "SNMP trap log"
+    assert html =~ "GELF log"
+    assert has_element?(lv, "#log-00000000-0000-0000-0000-000000000014", "2026-08-30T12:45:56")
+    refute has_element?(lv, "#log-00000000-0000-0000-0000-000000000014 time")
+    refute html =~ ~s(datetime="2026-08-30T12:34:56Z")
+    refute html =~ ~s(datetime="2026-08-30T12:45:56Z")
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "trace and metric rows localize labels while metric pivots retain exact UTC bounds", %{conn: conn} do
+    {:ok, traces, _html} = live(conn, ~p"/observability/traces")
+
+    assert has_element?(
+             traces,
+             ~s(#traces time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    {:ok, metrics, _html} = live(conn, ~p"/observability/metrics")
+
+    assert has_element?(
+             metrics,
+             ~s(#metrics time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    [href] =
+      metrics
+      |> element("#metrics-row-0 a[aria-label='View correlated logs']")
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("a")
+      |> LazyHTML.attribute("href")
+
+    uri = URI.parse(href)
+
+    assert uri.path == "/observability/logs"
+
+    assert URI.decode_query(uri.query) == %{
+             "q" =>
+               ~s(in:logs trace_id:"aabbccddeeff00112233445566778899" time:[2026-08-30T17:00:00Z,2026-08-30T19:00:00Z] sort:timestamp:desc)
+           }
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "event and alert rows use the shared user-time contract", %{conn: conn} do
+    {:ok, events, _html} = live(conn, ~p"/observability/events")
+    assert has_element?(events, ~s(#events time[datetime="2026-08-30T18:00:00Z"]))
+
+    {:ok, alerts, _html} = live(conn, ~p"/observability/alerts")
+    assert has_element?(alerts, ~s(#alerts time[datetime="2026-08-30T18:00:00Z"]))
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "identified trace metric and alert time ids remain attached after reordering", %{conn: conn} do
+    on_exit(fn -> :persistent_term.erase({__MODULE__, :identified_signal_row_order}) end)
+
+    for {path, table, expected} <- [
+          {~p"/observability/traces", "traces",
+           %{
+             "2026-08-30T18:00:00Z" => "trace-time-traces-row-s-aabbccddeeff00112233445566778899",
+             "2026-08-30T18:01:00Z" => "trace-time-traces-row-s-11f067aa0ba902b8"
+           }},
+          {~p"/observability/metrics", "metrics",
+           %{
+             "2026-08-30T18:00:00Z" => "metric-time-metrics-row-s-00f067aa0ba902b7",
+             "2026-08-30T18:01:00Z" => "metric-time-metrics-row-s-bbccddeeff00112233445566778899aa"
+           }},
+          {~p"/observability/alerts", "alerts",
+           %{
+             "2026-08-30T18:00:00Z" => "alert-time-alerts-row-s-alert-primary-1",
+             "2026-08-30T18:01:00Z" => "alert-time-alerts-row-s-alert-2"
+           }}
+        ] do
+      :persistent_term.put({__MODULE__, :identified_signal_row_order}, :forward)
+      {:ok, forward, _html} = live(conn, path)
+
+      :persistent_term.put({__MODULE__, :identified_signal_row_order}, :reverse)
+      {:ok, reversed, _html} = live(conn, path)
+
+      assert time_ids_by_datetime(forward, table) == expected
+      assert time_ids_by_datetime(reversed, table) == expected
+    end
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "identical id-less trace metric and alert rows get stable unique rendered time ids", %{conn: conn} do
+    :persistent_term.put({__MODULE__, :duplicate_idless_signal_rows?}, true)
+    on_exit(fn -> :persistent_term.erase({__MODULE__, :duplicate_idless_signal_rows?}) end)
+
+    for {path, table} <- [
+          {~p"/observability/traces", "traces"},
+          {~p"/observability/metrics", "metrics"},
+          {~p"/observability/alerts", "alerts"}
+        ] do
+      {:ok, lv, _html} = live(conn, path)
+
+      ids =
+        lv
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("##{table} time")
+        |> LazyHTML.attribute("id")
+
+      assert length(ids) == 2
+      assert ids == Enum.uniq(ids)
+
+      stable_ids =
+        lv
+        |> render()
+        |> LazyHTML.from_fragment()
+        |> LazyHTML.query("##{table} time")
+        |> LazyHTML.attribute("id")
+
+      assert stable_ids == ids
+    end
   end
 
   test "enabling live mode allows log-ingest refreshes", %{conn: conn} do
@@ -394,6 +535,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     end
   end
 
+  defp live_following_redirect(conn, path) do
+    case live(conn, path) do
+      {:ok, _lv, _html} = result -> result
+      {:error, {:live_redirect, %{to: to}}} -> live(conn, to)
+    end
+  end
+
+  defp time_ids_by_datetime(live_view, table) do
+    times =
+      live_view
+      |> render()
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("##{table} time")
+
+    times
+    |> LazyHTML.attribute("datetime")
+    |> Enum.zip(LazyHTML.attribute(times, "id"))
+    |> Map.new()
+  end
+
   defmodule RecordingSRQLStub do
     @moduledoc false
     @behaviour ServiceRadarWebNG.SRQLBehaviour
@@ -431,6 +592,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           String.starts_with?(query, "in:traces") -> sample_raw_traces()
           String.starts_with?(query, "in:otel_metric_points") -> otlp_points_results(query)
           String.starts_with?(query, "in:otel_metrics") -> sample_metrics()
+          String.starts_with?(query, "in:events") -> sample_events()
+          String.starts_with?(query, "in:alerts") -> sample_alerts()
           true -> sample_logs(cursor)
         end
 
@@ -498,7 +661,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     defp sample_otlp_recent_points do
       [
         %{
-          "timestamp" => "2026-04-18T15:02:00Z",
+          "timestamp" => "2026-08-30T18:00:00Z",
           "metric_name" => "falco.outputs.queue",
           "metric_type" => "sum",
           "unit" => "1",
@@ -510,7 +673,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "value" => 130.0
         },
         %{
-          "timestamp" => "2026-04-18T15:02:00Z",
+          "timestamp" => "2026-08-30T18:00:00Z",
           "metric_name" => "gen",
           "metric_type" => "gauge",
           "unit" => "ms",
@@ -548,9 +711,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     end
 
     defp sample_metrics do
-      [
+      rows = [
         %{
-          "timestamp" => "2026-04-18T15:02:00Z",
+          "timestamp" => "2026-08-30T18:00:00Z",
           "service_name" => "metrics-service",
           "metric_type" => "span",
           "span_name" => "GET /api/devices",
@@ -560,20 +723,33 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "is_slow" => true
         },
         %{
-          "timestamp" => "2026-04-18T15:01:00Z",
+          "timestamp" => "2026-08-30T18:01:00Z",
           "service_name" => "falco",
           "metric_type" => "sum",
           "metric_name" => "falco.outputs.queue",
           "value" => 1234.0
         }
       ]
+
+      identified_rows =
+        List.update_at(rows, 1, &Map.put(&1, "trace_id", "bbccddeeff00112233445566778899aa"))
+
+      rows
+      |> ordered_identified_rows(identified_rows)
+      |> duplicate_idless_rows(%{
+        "timestamp" => "2026-08-30T18:00:00Z",
+        "service_name" => "identical-metric",
+        "metric_type" => "gauge",
+        "metric_name" => "queue.depth",
+        "value" => 1.0
+      })
     end
 
     defp sample_traces do
-      [
+      rows = [
         %{
           "trace_id" => "aabbccddeeff00112233445566778899",
-          "timestamp" => "2026-04-18T15:02:00Z",
+          "timestamp" => "2026-08-30T18:00:00Z",
           "root_service_name" => "web-ng",
           "root_span_name" => "GET /api/devices",
           "duration_ms" => 12.5,
@@ -581,7 +757,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "error_count" => 0
         },
         %{
-          "timestamp" => "2026-04-18T15:01:00Z",
+          "timestamp" => "2026-08-30T18:01:00Z",
           "root_service_name" => "core-elx",
           "root_span_name" => "orphan summary",
           "duration_ms" => 1.0,
@@ -589,6 +765,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "error_count" => 0
         }
       ]
+
+      identified_rows = List.update_at(rows, 1, &Map.put(&1, "span_id", "11f067aa0ba902b8"))
+
+      rows
+      |> ordered_identified_rows(identified_rows)
+      |> duplicate_idless_rows(%{
+        "timestamp" => "2026-08-30T18:00:00Z",
+        "root_service_name" => "identical-trace",
+        "root_span_name" => "id-less",
+        "duration_ms" => 1.0,
+        "span_count" => 1,
+        "error_count" => 0
+      })
     end
 
     defp maybe_sample_trace_summaries do
@@ -629,10 +818,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
       [
         %{
           "id" => "00000000-0000-0000-0000-000000000001",
-          "timestamp" => "2026-04-18T15:02:00Z",
+          "timestamp" => "2026-08-30T12:34:56",
+          "observed_timestamp" => "2026-08-30T18:00:00Z",
           "severity_text" => "INFO",
           "service_name" => "page-one-service",
-          "body" => "Page 1 log"
+          "source" => "syslog",
+          "body" => "Page 1 log — syslog unzoned source"
+        },
+        %{
+          "id" => "00000000-0000-0000-0000-000000000014",
+          "timestamp" => "2026-08-30T12:45:56",
+          "severity_text" => "INFO",
+          "service_name" => "source-only-service",
+          "source" => "syslog",
+          "body" => "source-only unzoned log"
         },
         # OTel-SDK producers write the raw SeverityNumber enum name into
         # severity_text. The badge must normalize it to a label + color.
@@ -641,6 +840,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "timestamp" => "2026-04-18T15:02:01Z",
           "severity_text" => "SEVERITY_NUMBER_INFO",
           "service_name" => "otel-info-service",
+          "source" => "otel",
           "body" => "OTel info log"
         },
         %{
@@ -648,9 +848,79 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "timestamp" => "2026-04-18T15:02:02Z",
           "severity_text" => "SEVERITY_NUMBER_WARN",
           "service_name" => "otel-warn-service",
-          "body" => "OTel warn log"
+          "source" => "snmp_trap",
+          "body" => "SNMP trap log"
+        },
+        %{
+          "id" => "00000000-0000-0000-0000-000000000013",
+          "timestamp" => "2026-04-18T15:02:03Z",
+          "severity_text" => "INFO",
+          "service_name" => "gelf-service",
+          "source" => "gelf",
+          "body" => "GELF log"
         }
       ]
+    end
+
+    defp sample_events do
+      [
+        %{
+          "id" => "event-1",
+          "time" => "2026-08-30T18:00:00Z",
+          "severity" => "High",
+          "source" => "otel",
+          "message" => "OTel event"
+        }
+      ]
+    end
+
+    defp sample_alerts do
+      rows = [
+        %{
+          "id" => "alert-1",
+          "triggered_at" => "2026-08-30T18:00:00Z",
+          "severity" => "critical",
+          "status" => "pending",
+          "title" => "Alert"
+        }
+      ]
+
+      identified_rows =
+        List.update_at(rows, 0, &Map.put(&1, "alert_id", "alert-primary-1")) ++
+          [
+            %{
+              "id" => "alert-2",
+              "triggered_at" => "2026-08-30T18:01:00Z",
+              "severity" => "warning",
+              "status" => "pending",
+              "title" => "Second alert"
+            }
+          ]
+
+      rows
+      |> ordered_identified_rows(identified_rows)
+      |> duplicate_idless_rows(%{
+        "triggered_at" => "2026-08-30T18:00:00Z",
+        "severity" => "critical",
+        "status" => "pending",
+        "title" => "Identical id-less alert"
+      })
+    end
+
+    defp ordered_identified_rows(default_rows, identified_rows) do
+      case :persistent_term.get({IndexTest, :identified_signal_row_order}, nil) do
+        :forward -> identified_rows
+        :reverse -> Enum.reverse(identified_rows)
+        nil -> default_rows
+      end
+    end
+
+    defp duplicate_idless_rows(rows, idless_row) do
+      if :persistent_term.get({IndexTest, :duplicate_idless_signal_rows?}, false) do
+        [idless_row, idless_row]
+      else
+        rows
+      end
     end
 
     defp pagination("cursor-page-2") do

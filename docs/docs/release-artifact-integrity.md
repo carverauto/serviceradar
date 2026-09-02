@@ -12,7 +12,7 @@ artifact. For product version `X.Y.Z`, all of the following must agree:
 - Helm `Chart.yaml` `version` and `appVersion` values `X.Y.Z`
 - OCI Helm chart tag `X.Y.Z`
 - OCI image semantic tags `vX.Y.Z`
-- Forgejo release tag `vX.Y.Z`
+- GitHub release tag `vX.Y.Z`
 
 The release workflow validates this agreement at the tagged commit. It refuses
 to publish from an arbitrary branch head, including during manual dispatch.
@@ -50,7 +50,7 @@ artifacts, but it cannot replace an OCI chart version that already exists.
 ## Recover from an occupied version
 
 Treat a published OCI chart version as an immutable audit record, even if no
-matching Git tag or Forgejo release exists. Deleting a Git tag does not make an
+matching Git tag or GitHub release exists. Deleting a Git tag does not make an
 OCI chart version reusable, and operators must not delete or overwrite the chart
 to force a release through.
 
@@ -67,7 +67,7 @@ or interrupted release.
 
 ## Protect chart publication credentials
 
-The protected Forgejo `release` environment must provide these chart-specific
+The protected GitHub `release` environment must provide these chart-specific
 secrets:
 
 - `HARBOR_CHART_ROBOT_USERNAME`
@@ -75,7 +75,7 @@ secrets:
 
 The associated Harbor robot account must have only the permissions needed to
 pull and push `serviceradar/charts/serviceradar`. Do not grant delete authority.
-Protect the Forgejo environment with release approvals and the repository's
+Protect the GitHub environment with release approvals and the repository's
 release tag policy.
 
 The general `HARBOR_ROBOT_USERNAME` and `HARBOR_ROBOT_SECRET` credentials used
@@ -83,7 +83,7 @@ by image builds and ordinary CI must not have push or delete authority for the
 product chart repository. Developer and validation paths may receive read-only
 access when they need to check whether a chart version exists.
 
-These Harbor and Forgejo access controls are deployment configuration. Verify
+These Harbor and GitHub access controls are deployment configuration. Verify
 them whenever credentials are rotated or a new runner is introduced; the
 workflow's separate secret names prevent accidental reuse but cannot replace
 registry-side authorization.

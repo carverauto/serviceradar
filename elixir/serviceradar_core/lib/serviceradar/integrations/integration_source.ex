@@ -31,6 +31,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.Changes.PublishSyncLog
+  alias ServiceRadar.Integrations.Validations.CompositeExport
 
   @source_fields [
     :name,
@@ -57,6 +58,10 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     table "integration_sources"
     repo ServiceRadar.Repo
     schema "platform"
+
+    references do
+      reference :credential_secret, on_delete: :restrict
+    end
   end
 
   state_machine do
@@ -128,6 +133,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       end
 
       change &validate_agent_availability/2
+
+      validate CompositeExport
     end
 
     update :update do
@@ -153,6 +160,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       end
 
       change &validate_agent_availability/2
+
+      validate CompositeExport
     end
 
     update :enable do

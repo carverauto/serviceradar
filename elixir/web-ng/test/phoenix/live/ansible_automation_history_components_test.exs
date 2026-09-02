@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponentsTest do
   test "renders controller-local scope proof, exact target tuple, ambiguity, diagnostics, and hold" do
     document =
       (&AutomationHistoryComponents.operation_detail/1)
-      |> render_component(bundle: bundle())
+      |> render_component(bundle: bundle(), timezone: "America/Chicago")
       |> LazyHTML.from_fragment()
 
     assert Enum.count(LazyHTML.query(document, "#secure-ansible-operation-detail")) == 1
@@ -45,6 +45,16 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponentsTest do
     refute text =~ "ServiceRadar secured"
     refute text =~ "Legacy"
     refute Enum.any?(LazyHTML.query(document, "a[href='/ansible/runs']"))
+
+    times = LazyHTML.query(document, "time[data-user-time-zone='America/Chicago']")
+    assert Enum.count(times) == 4
+
+    assert LazyHTML.attribute(times, "id") == [
+             "ansible-operation-operation-11111111-created-at",
+             "ansible-operation-operation-11111111-started-at",
+             "ansible-execution-execution-11111111-started-at",
+             "ansible-execution-execution-11111111-scope-verified-at"
+           ]
   end
 
   test "renders cancellation failure and missing scope proof as fail-closed evidence" do
@@ -59,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponentsTest do
 
     document =
       (&AutomationHistoryComponents.operation_detail/1)
-      |> render_component(bundle: canceled_bundle)
+      |> render_component(bundle: canceled_bundle, timezone: "America/Chicago")
       |> LazyHTML.from_fragment()
 
     assert Enum.count(LazyHTML.query(document, "[data-testid=scope-proof-pending]")) == 1

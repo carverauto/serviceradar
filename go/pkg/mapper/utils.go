@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -113,66 +114,12 @@ func (e *DiscoveryEngine) configureClientVersion(client *gosnmp.GoSNMP, credenti
 		client.Version = gosnmp.Version2c
 		client.Community = credentials.Community
 	case SNMPVersion3:
-		client.Version = gosnmp.Version3
-
-		// Set SNMPv3 security parameters
-		usm := &gosnmp.UsmSecurityParameters{
-			UserName: credentials.Username,
-		}
-
-		// Configure authentication and privacy
-		e.configureV3Authentication(usm, credentials)
-		e.configureV3Privacy(usm, credentials)
-
-		client.SecurityParameters = usm
-		client.MsgFlags = gosnmp.AuthPriv
+		return applySNMPv3(client, credentials)
 	default:
 		return fmt.Errorf("%w for version: %s", ErrUnsupportedSNMPVersion, credentials.Version)
 	}
 
 	return nil
-}
-
-// configureV3Authentication sets up the authentication protocol for SNMPv3
-func (*DiscoveryEngine) configureV3Authentication(usm *gosnmp.UsmSecurityParameters, credentials *SNMPCredentials) {
-	switch strings.ToUpper(credentials.AuthProtocol) {
-	case "MD5":
-		usm.AuthenticationProtocol = gosnmp.MD5
-		usm.AuthenticationPassphrase = credentials.AuthPassword
-	case "SHA":
-		usm.AuthenticationProtocol = gosnmp.SHA
-		usm.AuthenticationPassphrase = credentials.AuthPassword
-	case "SHA224":
-		usm.AuthenticationProtocol = gosnmp.SHA224
-		usm.AuthenticationPassphrase = credentials.AuthPassword
-	case "SHA256":
-		usm.AuthenticationProtocol = gosnmp.SHA256
-		usm.AuthenticationPassphrase = credentials.AuthPassword
-	case "SHA384":
-		usm.AuthenticationProtocol = gosnmp.SHA384
-		usm.AuthenticationPassphrase = credentials.AuthPassword
-	case "SHA512":
-		usm.AuthenticationProtocol = gosnmp.SHA512
-		usm.AuthenticationPassphrase = credentials.AuthPassword
-	}
-}
-
-// configureV3Privacy sets up the privacy protocol for SNMPv3
-func (*DiscoveryEngine) configureV3Privacy(usm *gosnmp.UsmSecurityParameters, credentials *SNMPCredentials) {
-	switch strings.ToUpper(credentials.PrivacyProtocol) {
-	case "DES":
-		usm.PrivacyProtocol = gosnmp.DES
-		usm.PrivacyPassphrase = credentials.PrivacyPassword
-	case "AES":
-		usm.PrivacyProtocol = gosnmp.AES
-		usm.PrivacyPassphrase = credentials.PrivacyPassword
-	case "AES192":
-		usm.PrivacyProtocol = gosnmp.AES192
-		usm.PrivacyPassphrase = credentials.PrivacyPassword
-	case "AES256":
-		usm.PrivacyProtocol = gosnmp.AES256
-		usm.PrivacyPassphrase = credentials.PrivacyPassword
-	}
 }
 
 // processSingleIP processes a single IP address
@@ -346,7 +293,7 @@ func (e *DiscoveryEngine) expandCIDR(cidr string, seen map[string]bool) []string
 
 // GenerateDeviceID creates a device identifier from a MAC address.
 func GenerateDeviceID(mac string) string {
-	if mac == "" {
+	if !usableHardwareMAC(mac) {
 		return ""
 	}
 
@@ -365,6 +312,95 @@ func GenerateDeviceIDFromIP(ip string) string {
 // NormalizeMAC normalizes a MAC address for consistent formatting
 func NormalizeMAC(mac string) string {
 	return strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(mac, ":", ""), "-", ""))
+}
+
+// hardwareMACSibling is the IEEE locally-administered twin of mac: the same
+// 48-bit station with bit 1 of the first octet flipped. UniFi (and some other
+// vendors) expose the burned-in NIC MAC and this variant as two addresses of
+// one chassis. Empty / malformed input returns "".
+func hardwareMACSibling(mac string) string {
+	norm := NormalizeMAC(mac)
+	if len(norm) != 12 {
+		return ""
+	}
+
+	first, err := strconv.ParseUint(norm[:2], 16, 8)
+	if err != nil {
+		return ""
+	}
+
+	return fmt.Sprintf("%02x%s", first^0x02, norm[2:])
+}
+
+func hardwareMACSiblings(a, b string) bool {
+	na, nb := NormalizeMAC(a), NormalizeMAC(b)
+	if na == "" || nb == "" || na == nb {
+		return false
+	}
+
+	return hardwareMACSibling(na) == nb
+}
+
+// distinctHardwareMACs is true when both addresses are usable MACs that are
+// neither identical nor an IEEE local/universal sibling pair. Empty is not
+// distinct: an IP-only seed is unknown hardware, not different hardware.
+func distinctHardwareMACs(a, b string) bool {
+	na, nb := NormalizeMAC(a), NormalizeMAC(b)
+	if na == "" || nb == "" || na == nb {
+		return false
+	}
+
+	return !hardwareMACSiblings(na, nb)
+}
+
+func distinctHardwareMACSets(left, right map[string]struct{}) bool {
+	if len(left) == 0 || len(right) == 0 {
+		return false
+	}
+
+	usableLeft := 0
+	usableRight := 0
+
+	for macA := range left {
+		na := NormalizeMAC(macA)
+		if na == "" {
+			continue
+		}
+
+		usableLeft++
+
+		for macB := range right {
+			nb := NormalizeMAC(macB)
+			if nb == "" {
+				continue
+			}
+
+			if na == nb || hardwareMACSiblings(na, nb) {
+				return false
+			}
+		}
+	}
+
+	for macB := range right {
+		if NormalizeMAC(macB) != "" {
+			usableRight++
+		}
+	}
+
+	return usableLeft > 0 && usableRight > 0
+}
+
+// usableHardwareMAC reports whether mac is a real 48-bit burned-in or locally
+// administered address we can mint an identity from. Empty and all-zero values
+// (Linux `lo` ifPhysAddress) are not usable; locally-administered docker MACs
+// still are, because FRR/Alpine chassis IDs are otherwise missing.
+func usableHardwareMAC(mac string) bool {
+	normalized := NormalizeMAC(mac)
+	if len(normalized) != 12 {
+		return false
+	}
+
+	return normalized != "000000000000"
 }
 
 // addAlternateIP stores an alternate IP in the given metadata map under both

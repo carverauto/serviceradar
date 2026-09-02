@@ -35,35 +35,49 @@ When the workspace adopts `Boundary`, the repository SHALL define the boundary c
 - **AND** the project defines a broad root namespace boundary in version-controlled Elixir source
 - **AND** the initial rollout may export the root namespace broadly to keep the baseline green before introducing narrower sub-boundaries
 
-### Requirement: GitHub Actions Enforces the Analyzer Contract
+### Requirement: Pull Requests Enforce Formatting And Credo
 
-GitHub Actions SHALL run the full analyzer contract for first-party Mix projects under `elixir/` on pull requests and pushes that touch the project, its workflow definition, or shared Elixir tooling that affects analyzer outcomes.
+GitHub Actions SHALL run `mix format --check-formatted` and `mix credo --strict` for first-party Mix projects under `elixir/` on pull requests and pushes that touch the project, its workflow definition, or shared Elixir tooling that affects analyzer outcomes.
 
 The repository SHALL represent each first-party Mix project through an explicit entry in a matrix-style Elixir quality workflow or an equivalent reusable workflow definition.
+
+Compile-time warning checks, xref, dependency auditing, Dialyzer, Sobelow, and the committed OpenAPI dump check SHALL NOT be required pull-request gates. Those steps SHALL run on a scheduled BuildBuddy workflow against the default branch at least once per 24 hours.
 
 #### Scenario: Pull request changes web-ng Elixir code
 
 - **WHEN** a pull request changes files under `elixir/web-ng/`
-- **THEN** GitHub Actions runs the managed analyzer contract for `elixir/web-ng`
-- **AND** the pull request fails if any required analyzer step fails
+- **THEN** GitHub Actions runs `mix format --check-formatted` and `mix credo --strict` for `elixir/web-ng`
+- **AND** the pull request fails if formatting or Credo fails
+- **AND** the pull request does not wait on compile-time warning checks, xref, dependency auditing, Dialyzer, or Sobelow
+- **AND** other Mix-project quality jobs still report the required check name but do not run `mix deps.compile`
+
+#### Scenario: Untouched Mix projects do not Mix-compile on a pull request
+
+- **WHEN** a pull request changes files under `elixir/web-ng/` and does not change another Mix project or shared analyzer inputs
+- **THEN** GitHub Actions does not run `mix deps.get` or `mix deps.compile` for `elixir/datasvc`, `elixir/palisade`, `elixir/serviceradar_agent_gateway`, `elixir/serviceradar_core`, `elixir/serviceradar_core_elx`, or `elixir/serviceradar_srql`
 
 #### Scenario: Pull request changes core Elixir code
 
 - **WHEN** a pull request changes files under `elixir/serviceradar_core/`
-- **THEN** GitHub Actions runs the managed analyzer contract for `elixir/serviceradar_core`
-- **AND** the pull request fails if any required analyzer step fails
+- **THEN** GitHub Actions runs `mix format --check-formatted` and `mix credo --strict` for `elixir/serviceradar_core`
+- **AND** the pull request fails if formatting or Credo fails
 
 #### Scenario: Pull request changes another Elixir project
 
 - **WHEN** a pull request changes files under another first-party Mix project in `elixir/`
-- **THEN** GitHub Actions runs the managed analyzer contract for that project or for the CI job grouping that covers it
-- **AND** the pull request fails if any required analyzer step fails
+- **THEN** GitHub Actions runs `mix format --check-formatted` and `mix credo --strict` for that project or for the CI job grouping that covers it
+- **AND** the pull request fails if formatting or Credo fails
 
 #### Scenario: CI enumerates the Elixir workspace explicitly
 
 - **WHEN** maintainers review the repository-owned Elixir quality workflow definition
 - **THEN** they can identify how each first-party Mix project under `elixir/` is mapped into CI
-- **AND** the workflow metadata identifies whether Phoenix-only analyzers apply to that project
+
+#### Scenario: Daily BuildBuddy run covers the rest of the analyzer contract
+
+- **WHEN** the scheduled BuildBuddy Elixir quality action runs against the default branch
+- **THEN** it runs compile-time warning checks, xref, strict Credo, dependency auditing, and Phoenix Sobelow for managed apps
+- **AND** a failure of that scheduled action does not block an unrelated pull request from merging
 
 ### Requirement: Elixir Workspace Projects Run Type Analysis Unless Explicitly Waived
 
@@ -71,9 +85,15 @@ First-party Mix projects under `elixir/` SHALL run Dialyzer as part of the analy
 
 #### Scenario: Type analysis runs for a managed app
 
-- **WHEN** the analyzer contract runs for a first-party Mix project under `elixir/`
+- **WHEN** a developer runs the documented analyzer contract locally without a Dialyzer waiver
 - **THEN** Dialyzer executes for that application
-- **AND** the workflow reuses PLT state or equivalent cached artifacts when available
+- **AND** cached PLT state is reused when available
+
+#### Scenario: Automated CI may waive Dialyzer
+
+- **WHEN** GitHub Actions or the scheduled BuildBuddy Elixir quality action runs the analyzer contract
+- **THEN** Dialyzer MAY be skipped
+- **AND** the waiver is encoded as `--skip-dialyzer` on the documented quality script rather than by omitting Dialyzer from the local contract
 
 #### Scenario: Temporary Dialyzer waiver is tracked explicitly
 
@@ -89,9 +109,10 @@ First-party Mix projects under `elixir/` that expose Phoenix endpoints SHALL run
 #### Scenario: Phoenix security analysis runs for web-ng
 
 - **GIVEN** `elixir/web-ng` is a managed Phoenix application
-- **WHEN** its analyzer contract runs
+- **WHEN** the scheduled BuildBuddy Elixir quality action runs
 - **THEN** Sobelow executes with repository-owned configuration
-- **AND** the analyzer output is treated as part of the required pull request gate
+- **AND** a Sobelow finding fails that scheduled action
+- **AND** Sobelow is not a required pull-request gate
 
 ### Requirement: Workspace Analyzer Exclusions And Waivers Are Explicit And Version Controlled
 

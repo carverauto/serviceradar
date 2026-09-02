@@ -1,6 +1,6 @@
 id: awx
 name: AWX / AAP Bridge
-version: 0.1.11
+version: 0.1.12
 description: >
   Network bridge between ServiceRadar core and an AWX/AAP controller in the
   customer's network. Dispatches per-call REST verbs (ping, list inventories /
@@ -19,9 +19,21 @@ capabilities:
   - log
   - submit_result
   - http_request
+  # Every verb carries its own credential broker grant, so a periodic run_check
+  # has no token and can only report `api_token is required`. action-only:v1
+  # keeps the bridge addressable through AgentCommandBus without a runner.
+  - action-only:v1
 permissions:
   allowed_domains:
     - "*"
+  # Domain wildcards never match literal-IP destinations; these ranges cover
+  # AWX/AAP controllers hosted inside the customer's network. Link-local
+  # (169.254.0.0/16) is excluded: no controller is deliberately addressed there.
+  allowed_networks:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "100.64.0.0/10"
   allowed_ports:
     - 80
     - 443

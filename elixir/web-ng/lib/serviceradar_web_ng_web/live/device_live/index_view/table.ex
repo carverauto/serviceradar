@@ -73,7 +73,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
               </td>
             </tr>
 
-            <%= for row <- Enum.filter(@devices, &is_map/1) do %>
+            <%= for {row, row_idx} <- @devices |> Enum.filter(&is_map/1) |> Enum.with_index() do %>
               <% device_uid = Map.get(row, "uid") || Map.get(row, "id") %>
               <% is_selected =
                 is_binary(device_uid) and MapSet.member?(@selected_devices, device_uid) %>
@@ -180,7 +180,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                   } />
                 </td>
                 <td class="font-mono text-xs">
-                  <.srql_cell col="last_seen" value={Map.get(row, "last_seen")} />
+                  <.srql_cell
+                    id={"device-last-seen-#{row_idx}"}
+                    col="last_seen"
+                    value={Map.get(row, "last_seen")}
+                    timezone={@current_scope.user.timezone}
+                  />
                 </td>
               </tr>
             <% end %>

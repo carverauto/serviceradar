@@ -728,6 +728,103 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert by_mac.neighbor_device_id == "sr:uswagg"
     end
 
+    test "prefers chassis MAC over a conflicting neighbor IP" do
+      # Farm Catalyst FDB can report vJunos' chassis MAC on the same port
+      # whose ARP table still has a dead MikroTik's IP. IP-first resolution
+      # glued those into one neighbor and later into one device.
+      records = [
+        %{
+          local_device_id: "sr:farm01-switch",
+          local_device_ip: "192.168.1.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "192.168.6.167",
+          neighbor_system_name: nil,
+          neighbor_chassis_id: "bc:24:11:26:40:e7",
+          metadata: %{
+            "source" => "snmp-arp-fdb",
+            "confidence_reason" => "cross_subnet_arp_fdb_port_mapping"
+          }
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{
+          "sr:farm01-switch" => "sr:farm01-switch",
+          "sr:vjuniper" => "sr:vjuniper",
+          "sr:mikrotik" => "sr:mikrotik"
+        },
+        ip_to_uid: %{
+          "192.168.1.1" => "sr:farm01-switch",
+          "192.168.6.167" => "sr:mikrotik"
+        },
+        name_to_uid: %{},
+        mac_to_uid: %{"BC24112640E7" => "sr:vjuniper"}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+
+      assert resolved.local_device_id == "sr:farm01-switch"
+      assert resolved.neighbor_device_id == "sr:vjuniper"
+    end
+
+    test "does not fall back to IP when a weak L2 sighting carries an unknown chassis MAC" do
+      records = [
+        %{
+          local_device_id: "sr:farm01-switch",
+          local_device_ip: "192.168.1.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "192.168.6.167",
+          neighbor_system_name: nil,
+          neighbor_chassis_id: "bc:24:11:26:40:e7",
+          metadata: %{
+            "source" => "snmp-arp-fdb",
+            "confidence_reason" => "cross_subnet_arp_fdb_port_mapping"
+          }
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"sr:farm01-switch" => "sr:farm01-switch", "sr:mikrotik" => "sr:mikrotik"},
+        ip_to_uid: %{
+          "192.168.1.1" => "sr:farm01-switch",
+          "192.168.6.167" => "sr:mikrotik"
+        },
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+
+      assert resolved.local_device_id == "sr:farm01-switch"
+      assert resolved.neighbor_device_id == nil
+    end
+
+    test "LLDP still falls back to neighbor IP when the chassis MAC is unknown" do
+      records = [
+        %{
+          local_device_id: "sr:core-1",
+          local_device_ip: "10.99.0.11",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "10.99.0.12",
+          neighbor_system_name: "CORE-2",
+          neighbor_chassis_id: "aa:bb:cc:dd:ee:12",
+          protocol: "LLDP",
+          metadata: %{"source" => "lldp"}
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"sr:core-1" => "sr:core-1", "sr:core-2" => "sr:core-2"},
+        ip_to_uid: %{"10.99.0.11" => "sr:core-1", "10.99.0.12" => "sr:core-2"},
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+
+      assert resolved.neighbor_device_id == "sr:core-2"
+    end
+
     test "preserves records when local endpoint cannot be canonically resolved" do
       records = [
         %{
@@ -1294,6 +1391,97 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
                  "ifOutUcastPkts"
                ]
              }
+    end
+  end
+
+  describe "valid_alias_ip?/1" do
+    test "accepts routable addresses of both families" do
+      # Captured from a production router's ipAddressTable walk.
+      for ip <- [
+            "152.117.116.178",
+            "192.168.1.1",
+            "2001:470:c0b5:1::1",
+            "fd2f:420a:24b1:1:f692:bfff:fe75:c72a"
+          ] do
+        assert MapperResultsIngestor.valid_alias_ip?(ip), "expected #{ip} to be aliasable"
+      end
+    end
+
+    test "rejects loopback and unspecified addresses in both families" do
+      for ip <- ["127.0.0.1", "127.1.2.3", "::1", "::", "0.0.0.0", "", nil] do
+        refute MapperResultsIngestor.valid_alias_ip?(ip), "expected #{inspect(ip)} to be rejected"
+      end
+    end
+
+    test "rejects link-local, which is an interface property and not an identity" do
+      # Every device has these, and a vendor that puts a fixed fe80::1 on each
+      # router would otherwise let DIRE merge all of them into one device.
+      # Reading a router's ipAddressTable returns roughly fifteen of them, so
+      # this is the difference between a handful of aliases and a fleet-wide
+      # over-merge.
+      for ip <- [
+            "fe80::1",
+            "fe80::f692:bfff:fe75:c72a",
+            "febf::1",
+            "169.254.1.1"
+          ] do
+        refute MapperResultsIngestor.valid_alias_ip?(ip), "expected #{ip} to be rejected"
+      end
+    end
+
+    test "rejects values that are not addresses at all" do
+      for value <- ["not-an-ip", "hostname.local", "1.2.3.4.5"] do
+        refute MapperResultsIngestor.valid_alias_ip?(value)
+      end
+    end
+
+    # Documents existing behaviour rather than endorsing it. :inet.parse_address
+    # accepts BSD inet_aton shorthand, so "192.168.1" parses as 192.168.0.1 --
+    # a DIFFERENT address than the string that gets stored as the alias. Such an
+    # alias can never match a flow endpoint, because the stored text is not the
+    # address. Reachable only from an agent reporting a malformed address, and
+    # tightening it risks rejecting non-canonical forms that legitimately work
+    # today, so it is recorded here rather than changed as a side effect of the
+    # IPv6 work. Loopback shorthand IS still caught: "0x7f000001" parses to
+    # 127.0.0.1 and hits the loopback clause.
+    test "inet_aton shorthand is accepted, which is a known wart" do
+      assert MapperResultsIngestor.valid_alias_ip?("192.168.1")
+      refute MapperResultsIngestor.valid_alias_ip?("0x7f000001")
+    end
+  end
+
+  describe "alias_ips_for_role/3" do
+    # This is the mapper producer, not AliasPolicy itself. A test of
+    # valid_alias_ip?/1 does not prove the mapper still consults it when it
+    # decides which addresses become identity aliases. GitHub #4022.
+    test "a router does not emit link-local interface addresses as identity aliases" do
+      assert MapperResultsIngestor.alias_ips_for_role(
+               "router",
+               "192.168.1.1",
+               ["fe80::1", "fe80::f692:bfff:fe75:c72a", "febf::1", "10.0.0.1"]
+             ) == ["192.168.1.1", "10.0.0.1"]
+    end
+
+    test "a non-router whose only address is link-local gets no identity alias" do
+      assert MapperResultsIngestor.alias_ips_for_role("host", "fe80::1", ["192.168.1.1"]) == []
+    end
+
+    test "IPv4 link-local (APIPA) is also excluded" do
+      assert MapperResultsIngestor.alias_ips_for_role(
+               "router",
+               "169.254.1.1",
+               ["192.168.1.1"]
+             ) == ["192.168.1.1"]
+    end
+  end
+
+  describe "find_device_uid_by_alias/3" do
+    test "does not treat leftover link-local :ip rows as merge evidence" do
+      assert {:ok, nil} =
+               MapperResultsIngestor.find_device_uid_by_alias("fe80::1", "default", nil)
+
+      assert {:ok, nil} =
+               MapperResultsIngestor.find_device_uid_by_alias("169.254.1.1", "default", nil)
     end
   end
 end

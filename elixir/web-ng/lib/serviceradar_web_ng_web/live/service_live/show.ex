@@ -75,6 +75,10 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Show do
     {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/services/check")}
   end
 
+  def handle_event("srql_reset", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_reset", params, fallback_path: "/services/check")}
+  end
+
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "services")}
   end

@@ -7,8 +7,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
   alias ServiceRadar.Credentials.CredentialUsePolicy
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.Plugins.Packages
@@ -53,6 +55,298 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert html =~ "VulnCheck · API token"
     refute html =~ "Read the Proxmox setup guide"
     refute html =~ "Axis (VAPIX)"
+  end
+
+  test "lists, focuses, and links reusable credentials independently of credential rules", %{
+    conn: conn,
+    scope: scope
+  } do
+    secret =
+      credential_secret_fixture(scope, %{
+        name: "Core switches #{System.unique_integer([:positive])}",
+        provider: "snmp",
+        credential_kind: :snmp,
+        username: "snmp-operator",
+        public_fingerprint: "sha256:snmp-test",
+        secret_payload: Jason.encode!(%{"username" => "snmp-operator"}),
+        metadata: descriptor_metadata("v3")
+      })
+
+    profile_name = "Core SNMP #{System.unique_integer([:positive])}"
+
+    {:ok, profile} =
+      SNMPProfile
+      |> Ash.Changeset.for_create(:create, %{
+        name: profile_name,
+        version: :v3,
+        credential_secret_id: secret.id
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, _html} =
+      live(conn, ~p"/settings/networks/credentials?credential_id=#{secret.id}")
+
+    row = "#credential-secret-#{secret.id}"
+
+    assert has_element?(lv, "#reusable-credentials")
+    assert has_element?(lv, "#{row}[data-focused='true']", secret.name)
+    assert has_element?(lv, row, "SNMP")
+    assert has_element?(lv, row, "SNMPv3 user")
+    assert has_element?(lv, "#{row} [data-role='credential-usage-counts']", "1 SNMP profile · 0 rules")
+
+    assert has_element?(
+             lv,
+             "#{row} a[href='/settings/snmp/#{profile.id}/edit']",
+             "1 SNMP profile · #{profile_name}"
+           )
+  end
+
+  test "editing credential details preserves encrypted material", %{conn: conn, scope: scope} do
+    marker = "credential-edit-secret-#{System.unique_integer([:positive])}"
+
+    secret =
+      credential_secret_fixture(scope, %{
+        name: "Edit details source",
+        description: "Before edit",
+        provider: "example-network",
+        credential_kind: :api_token,
+        secret_payload: marker,
+        metadata: descriptor_metadata("api_token")
+      })
+
+    assert {:ok, %{value: ^marker}} =
+             SecretBroker.resolve_network_credential_secret(secret.id, actor: system_actor())
+
+    {:ok, lv, initial_html} = live(conn, ~p"/settings/networks/credentials")
+    refute initial_html =~ marker
+
+    lv
+    |> element("button[phx-click='edit_credential'][phx-value-id='#{secret.id}']")
+    |> render_click()
+
+    html =
+      lv
+      |> form("#credential-edit-form",
+        credential_details: %{
+          "id" => to_string(secret.id),
+          "name" => "Edited credential details",
+          "description" => "After edit"
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Credential details saved"
+    refute html =~ marker
+
+    assert {:ok, updated} = NetworkCredentialSecret.get_by_id(secret.id, scope: scope)
+    assert updated.name == "Edited credential details"
+    assert updated.description == "After edit"
+    assert updated.provider == "example-network"
+    assert updated.credential_kind == :api_token
+
+    assert {:ok, %{value: ^marker}} =
+             SecretBroker.resolve_network_credential_secret(secret.id, actor: system_actor())
+  end
+
+  test "rotation is write-only and replaces the encrypted material", %{conn: conn, scope: scope} do
+    suffix = System.unique_integer([:positive])
+    old_marker = "credential-rotation-old-#{suffix}"
+    new_marker = "credential-rotation-new-#{suffix}"
+
+    secret =
+      credential_secret_fixture(scope, %{
+        name: "Rotatable credential #{suffix}",
+        provider: "example-network",
+        credential_kind: :api_token,
+        secret_payload: old_marker,
+        metadata: descriptor_metadata("api_token")
+      })
+
+    {:ok, lv, initial_html} = live(conn, ~p"/settings/networks/credentials")
+    refute initial_html =~ old_marker
+
+    open_html =
+      lv
+      |> element("button[phx-click='rotate_credential'][phx-value-id='#{secret.id}']")
+      |> render_click()
+
+    assert open_html =~ "Rotate #{secret.name}"
+    refute open_html =~ old_marker
+
+    assert has_element?(
+             lv,
+             "#credential-rotate-form input[name='credential_rotation[fields][token]'][value='']"
+           )
+
+    html =
+      lv
+      |> form("#credential-rotate-form",
+        credential_rotation: %{
+          "id" => to_string(secret.id),
+          "fields" => %{"token" => new_marker}
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Credential rotated"
+    refute html =~ old_marker
+    refute html =~ new_marker
+
+    assert {:ok, %{value: ^new_marker}} =
+             SecretBroker.resolve_network_credential_secret(secret.id, actor: system_actor())
+  end
+
+  test "used SNMP credential blocks deletion until the named profile is detached", %{
+    conn: conn,
+    scope: scope
+  } do
+    secret = snmp_secret_fixture(scope)
+    profile = snmp_profile_fixture(scope, secret, "Delete blocker")
+    row = "#credential-secret-#{secret.id}"
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    lv
+    |> element("button[phx-click='delete_credential'][phx-value-id='#{secret.id}']")
+    |> render_click()
+
+    assert has_element?(lv, "#credential-delete-modal", "Can't delete #{secret.name}")
+
+    assert has_element?(
+             lv,
+             "#credential-delete-modal a[href='/settings/snmp/#{profile.id}/edit']",
+             profile.name
+           )
+
+    refute has_element?(
+             lv,
+             "#credential-delete-modal form[phx-submit='confirm_delete_credential']"
+           )
+
+    profile
+    |> Ash.Changeset.for_update(:update, %{credential_secret_id: nil}, scope: scope)
+    |> Ash.update!(scope: scope)
+
+    render_click(lv, "delete_credential", %{"id" => to_string(secret.id)})
+
+    assert has_element?(
+             lv,
+             "#credential-delete-modal form[phx-submit='confirm_delete_credential']"
+           )
+
+    html =
+      lv
+      |> form("#credential-delete-form",
+        credential_delete: %{
+          "id" => to_string(secret.id),
+          "confirmation_id" => to_string(secret.id)
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Credential permanently deleted"
+    refute has_element?(lv, row)
+    assert {:error, _reason} = NetworkCredentialSecret.get_by_id(secret.id, actor: system_actor())
+  end
+
+  test "confirmation-time SNMP attachment wins the delete race", %{conn: conn, scope: scope} do
+    secret = snmp_secret_fixture(scope)
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    lv
+    |> element("button[phx-click='delete_credential'][phx-value-id='#{secret.id}']")
+    |> render_click()
+
+    assert has_element?(lv, "#credential-delete-form")
+
+    profile = snmp_profile_fixture(scope, secret, "Last-moment consumer")
+
+    html =
+      lv
+      |> form("#credential-delete-form",
+        credential_delete: %{
+          "id" => to_string(secret.id),
+          "confirmation_id" => to_string(secret.id)
+        }
+      )
+      |> render_submit()
+
+    assert html =~ "Credential is still in use"
+
+    assert has_element?(
+             lv,
+             "#credential-delete-modal a[href='/settings/snmp/#{profile.id}/edit']",
+             profile.name
+           )
+
+    refute has_element?(
+             lv,
+             "#credential-delete-modal form[phx-submit='confirm_delete_credential']"
+           )
+
+    assert {:ok, %{id: id}} = NetworkCredentialSecret.get_by_id(secret.id, actor: system_actor())
+    assert to_string(id) == to_string(secret.id)
+  end
+
+  test "successful focused-row deletion returns to the base credentials route", %{
+    conn: conn,
+    scope: scope
+  } do
+    secret = api_token_secret_fixture(scope)
+
+    {:ok, lv, _html} =
+      live(
+        conn,
+        "/settings/networks/credentials?credential_id=#{secret.id}#credential-secret-#{secret.id}"
+      )
+
+    assert has_element?(lv, "#credential-secret-#{secret.id}[data-focused='true']")
+
+    lv
+    |> element("button[phx-click='delete_credential'][phx-value-id='#{secret.id}']")
+    |> render_click()
+
+    lv
+    |> form("#credential-delete-form",
+      credential_delete: %{
+        "id" => to_string(secret.id),
+        "confirmation_id" => to_string(secret.id)
+      }
+    )
+    |> render_submit()
+
+    assert_patch(lv, ~p"/settings/networks/credentials")
+    refute has_element?(lv, "#credential-secret-#{secret.id}")
+  end
+
+  test "a stale credential id cannot open a management action", %{conn: conn} do
+    stale_id = Ecto.UUID.generate()
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    html = render_click(lv, "edit_credential", %{"id" => stale_id})
+
+    assert html =~ "Credential not found"
+    refute has_element?(lv, "#credential-edit-modal")
+  end
+
+  test "permission removed after mount rejects a forged credential event", %{
+    conn: conn,
+    scope: scope,
+    user: user
+  } do
+    _backup_admin = AccountsFixtures.user_fixture(%{role: :admin})
+    secret = api_token_secret_fixture(scope)
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/credentials")
+
+    user
+    |> Ash.Changeset.for_update(:update_role, %{role: :viewer}, actor: system_actor())
+    |> Ash.update!()
+
+    render_click(lv, "delete_credential", %{"id" => to_string(secret.id)})
+
+    assert_redirect(lv, ~p"/settings/profile")
+    assert {:ok, %{id: id}} = NetworkCredentialSecret.get_by_id(secret.id, actor: system_actor())
+    assert to_string(id) == to_string(secret.id)
   end
 
   test "viewer is blocked from credential rules settings", %{conn: conn} do
@@ -543,6 +837,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert html =~ "Example Scheduled Inventory"
     assert html =~ "Instance ID"
     assert html =~ "Enable recurring inventory refresh"
+    assert html =~ "Do not assign this plugin from Admin"
     refute html =~ "Target Query"
 
     lv
@@ -877,7 +1172,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
       credential_kind: :api_token,
       public_fingerprint: "sha256:test",
       secret_payload: "sensitive-token",
-      metadata: %{"auth_method" => "api_token"}
+      metadata: descriptor_metadata("api_token")
     })
   end
 
@@ -889,8 +1184,42 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
       username: "operator",
       public_fingerprint: "sha256:test",
       secret_payload: "sensitive-password",
-      metadata: %{"auth_method" => "username_password"}
+      metadata: descriptor_metadata("username_password")
     })
+  end
+
+  defp snmp_secret_fixture(scope) do
+    suffix = System.unique_integer([:positive])
+
+    credential_secret_fixture(scope, %{
+      name: "SNMP credential #{suffix}",
+      provider: "snmp",
+      credential_kind: :snmp,
+      username: "snmp-operator",
+      secret_payload: Jason.encode!(%{"username" => "snmp-operator"}),
+      metadata: descriptor_metadata("v3")
+    })
+  end
+
+  defp snmp_profile_fixture(scope, secret, prefix) do
+    SNMPProfile
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "#{prefix} #{System.unique_integer([:positive])}",
+        version: :v3,
+        credential_secret_id: secret.id
+      },
+      scope: scope
+    )
+    |> Ash.create!(scope: scope)
+  end
+
+  defp descriptor_metadata(auth_method) do
+    %{
+      "auth_method" => auth_method,
+      "credential_descriptor" => "package_manifest.v1"
+    }
   end
 
   defp credential_secret_fixture(scope, attrs) do

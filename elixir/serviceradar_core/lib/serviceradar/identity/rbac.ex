@@ -97,8 +97,11 @@ defmodule ServiceRadar.Identity.RBAC do
 
   @spec has_permission?(User.t() | map(), String.t(), keyword()) :: boolean()
   def has_permission?(user, permission, opts \\ []) do
-    MapSet.member?(permissions_for_user(user, opts), permission)
+    Catalog.holds?(permissions_for_user(user, opts), permission)
   end
+
+  @spec equivalent_keys(String.t()) :: [String.t()]
+  def equivalent_keys(permission), do: Catalog.equivalent_keys(permission)
 
   @doc """
   Broadcasts a cache invalidation for the given user ID.

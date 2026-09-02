@@ -89,7 +89,7 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
   @external_resource @falco_contract_path
   @powerdns_signal_schema_ref %{
     "producer_id" => "powerdns",
-    "producer_version" => "0.1.1",
+    "producer_version" => "0.1.7",
     "schema_id" => "com.carverauto.powerdns.dns_activity",
     "schema_version" => "1.0.0"
   }
@@ -110,11 +110,19 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
       @powerdns_contract_path |> File.read!() |> Jason.decode!(),
     {"powerdns", "0.1.1", "com.carverauto.powerdns.dns_activity", "1.0.0"} =>
       @powerdns_contract_path |> File.read!() |> Jason.decode!(),
+    {"powerdns", "0.1.7", "com.carverauto.powerdns.dns_activity", "1.0.0"} =>
+      @powerdns_contract_path |> File.read!() |> Jason.decode!(),
     {"axis-camera", "0.1.0", "com.carverauto.axis_camera.event_log", "1.0.0"} =>
+      @axis_contract_path |> File.read!() |> Jason.decode!(),
+    {"axis-camera", "0.1.3", "com.carverauto.axis_camera.event_log", "1.0.0"} =>
       @axis_contract_path |> File.read!() |> Jason.decode!(),
     {"unifi-protect-camera", "0.1.0", "com.carverauto.unifi_protect.camera_event", "1.0.0"} =>
       @protect_contract_path |> File.read!() |> Jason.decode!(),
+    {"unifi-protect-camera", "0.1.4", "com.carverauto.unifi_protect.camera_event", "1.0.0"} =>
+      @protect_contract_path |> File.read!() |> Jason.decode!(),
     {"proxmox-inventory", "0.1.1", "com.carverauto.proxmox.resource_event", "1.0.0"} =>
+      @proxmox_contract_path |> File.read!() |> Jason.decode!(),
+    {"proxmox-inventory", "0.1.7", "com.carverauto.proxmox.resource_event", "1.0.0"} =>
       @proxmox_contract_path |> File.read!() |> Jason.decode!(),
     {"trivy", "0.69.1", "com.carverauto.trivy.vulnerability_report", "1.0.0"} =>
       @trivy_contract_path |> File.read!() |> Jason.decode!(),
@@ -201,7 +209,12 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
       |> Map.get("widgets", [])
       |> List.wrap()
       |> Enum.take(@max_widgets)
-      |> Enum.flat_map(&render_widget(record, &1))
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {widget, contract_index} ->
+        record
+        |> render_widget(widget)
+        |> Enum.map(&Map.put(&1, :contract_index, contract_index))
+      end)
 
     if widgets == [], do: :error, else: {:ok, widgets}
   end
@@ -231,8 +244,10 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
     |> Map.get("widgets", [])
     |> List.wrap()
     |> Enum.take(@max_widgets)
-    |> Enum.reduce({[], []}, fn widget, {widgets, diagnostics} ->
+    |> Enum.with_index()
+    |> Enum.reduce({[], []}, fn {widget, contract_index}, {widgets, diagnostics} ->
       {rendered, widget_diagnostics} = render_widget_diagnosed(record, widget)
+      rendered = Enum.map(rendered, &Map.put(&1, :contract_index, contract_index))
       {widgets ++ rendered, diagnostics ++ widget_diagnostics}
     end)
   end
@@ -584,7 +599,7 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
           %{
             type: :table,
             title: clean_label(Map.get(widget, "title")),
-            columns: Enum.map(columns, &Map.take(&1, [:label, :path])),
+            columns: Enum.map(columns, &Map.take(&1, [:label, :path, :format])),
             rows: rendered_rows
           }
         ]
@@ -602,8 +617,8 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
     |> List.wrap()
     |> Enum.take(@max_table_columns)
     |> Enum.flat_map(fn
-      %{"label" => label, "path" => path} when is_binary(path) ->
-        [%{label: clean_label(label), path: path}]
+      %{"label" => label, "path" => path} = column when is_binary(path) ->
+        [%{label: clean_label(label), path: path, format: temporal_format(column)}]
 
       _ ->
         []
@@ -616,6 +631,7 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
         %{
           label: column.label,
           path: column.path,
+          format: column.format,
           value: display_value(path_value(row, column.path)) || "-"
         }
       end)
@@ -644,7 +660,8 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
                 label: clean_label(label),
                 path: path,
                 value: display_value(value),
-                tone: clean_label(Map.get(field, "tone"))
+                tone: clean_label(Map.get(field, "tone")),
+                format: temporal_format(field)
               }
             ]
         end
@@ -697,6 +714,13 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
   defp display_value(value) when is_map(value) or is_list(value), do: Jason.encode!(value)
   defp display_value(nil), do: nil
   defp display_value(value), do: value |> to_string() |> truncate_value()
+
+  defp temporal_format(%{} = field) do
+    case Map.get(field, "format") do
+      format when format in ["timestamp", "unix_nano"] -> format
+      _ -> nil
+    end
+  end
 
   defp truncate_value(value) do
     if String.length(value) > @max_value_length do

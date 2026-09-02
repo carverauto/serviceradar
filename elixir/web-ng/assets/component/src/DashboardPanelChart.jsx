@@ -18,9 +18,12 @@ import {
   YAxis,
 } from "recharts"
 
+import {canonicalUtcInstant, formatUserTime} from "../../js/utils/user_time"
+
 const CHART_COLORS = ["#38bdf8", "#22c55e", "#f59e0b", "#ef4444", "#a78bfa"]
 const GRID_STROKE = "#1e293b"
 const TICK_STROKE = "#94a3b8"
+const DEFAULT_TIME_ZONE = "Etc/UTC"
 const STATUS_COLORS = {
   success: "#22c55e",
   warning: "#f59e0b",
@@ -90,25 +93,66 @@ function formatPercent(value) {
   return `${prefix}${number.toFixed(1)}%`
 }
 
-function formatAxisValue(value) {
-  if (value === null || value === undefined || value === "") return ""
-  const date = new Date(value)
-  if (!Number.isNaN(date.getTime()) && String(value).includes("T")) {
-    return date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})
-  }
-  return String(value)
+function displayTimeZone(timeZone) {
+  return typeof timeZone === "string" && timeZone.trim() !== ""
+    ? timeZone
+    : DEFAULT_TIME_ZONE
 }
 
-function formatDateTimeValue(value) {
-  if (value === null || value === undefined || value === "") return "—"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value)
-  return date.toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
+export function dashboardPanelTimeLabel(
+  value,
+  {timeZone = DEFAULT_TIME_ZONE, style = "tooltip", locale, intl = globalThis.Intl} = {},
+) {
+  return dashboardPanelTimePresentation(value, {timeZone, style, locale, intl}).text
+}
+
+export function dashboardPanelTimePresentation(
+  value,
+  {timeZone = DEFAULT_TIME_ZONE, style = "tooltip", locale, intl = globalThis.Intl} = {},
+) {
+  if (value === null || value === undefined || value === "") {
+    return {
+      canonical: null,
+      text: style === "axis" ? "" : "—",
+      timeZone: displayTimeZone(timeZone),
+      style,
+    }
+  }
+
+  const canonical = canonicalUtcInstant(value)
+  const zone = displayTimeZone(timeZone)
+  if (!canonical) return {canonical: null, text: String(value), timeZone: zone, style}
+
+  const text =
+    formatUserTime(canonical, {
+      timeZone: zone,
+      style,
+      locale,
+      intl,
+    })?.text || canonical
+
+  return {canonical, text, timeZone: zone, style}
+}
+
+function DashboardPanelUserTime({value, timezone, style = "tooltip"}) {
+  const presentation = dashboardPanelTimePresentation(value, {timeZone: timezone, style})
+
+  if (!presentation.canonical) return presentation.text
+
+  const accessibleLabel = `${presentation.text}; display zone ${presentation.timeZone}; canonical UTC ${presentation.canonical}`
+  const title = `${presentation.canonical} UTC; display zone ${presentation.timeZone}`
+
+  return (
+    <time
+      dateTime={presentation.canonical}
+      data-user-time-zone={presentation.timeZone}
+      data-user-time-style={presentation.style}
+      title={title}
+      aria-label={accessibleLabel}
+    >
+      {presentation.text}
+    </time>
+  )
 }
 
 function booleanish(value) {
@@ -117,7 +161,11 @@ function booleanish(value) {
   return null
 }
 
-function formatCategoryValue(value, field) {
+export function dashboardPanelCategoryLabel(
+  value,
+  field,
+  {fieldType: categoryFieldType, timeZone, style = "axis"} = {},
+) {
   const normalizedField = String(field || "").toLowerCase()
   if (["is_available", "available", "availability"].includes(normalizedField)) {
     const availability = booleanish(value)
@@ -125,7 +173,37 @@ function formatCategoryValue(value, field) {
     if (availability === false) return "Unavailable"
   }
 
-  return formatAxisValue(value)
+  const canonical = categoryCanonicalInstant(value, categoryFieldType)
+
+  return canonical
+    ? dashboardPanelTimeLabel(canonical, {timeZone, style})
+    : formatValue(value)
+}
+
+function categoryCanonicalInstant(value, categoryFieldType) {
+  if (String(categoryFieldType || "").toLowerCase() === "datetime") {
+    return canonicalUtcInstant(value)
+  }
+
+  return typeof value === "string" ? canonicalUtcInstant(value) : null
+}
+
+function timeAxisMetadata(values, timeZone) {
+  const canonicalValues = values.map(canonicalUtcInstant).filter(Boolean)
+  if (canonicalValues.length === 0) return {}
+
+  const zone = displayTimeZone(timeZone)
+  const start = canonicalValues[0]
+  const end = canonicalValues[canonicalValues.length - 1]
+  const startLabel = dashboardPanelTimeLabel(start, {timeZone: zone, style: "tooltip"})
+  const endLabel = dashboardPanelTimeLabel(end, {timeZone: zone, style: "tooltip"})
+
+  return {
+    "data-time-axis-start": start,
+    "data-time-axis-end": end,
+    "data-time-axis-zone": zone,
+    "aria-label": `Time axis from ${startLabel} to ${endLabel}; display zone ${zone}; canonical UTC range ${start} to ${end}`,
+  }
 }
 
 function humanizeFieldName(field, fallback = "value") {
@@ -229,7 +307,7 @@ export function capacityForecastRows(rows, fields) {
       if (!forecastedAt || (current === null && projected === null)) return null
 
       return {
-        name: formatDateTimeValue(forecastedAt),
+        name: forecastedAt,
         forecastedAt,
         horizonEndsAt: valueAt(row, fieldMap.horizonEndsAt),
         current,
@@ -251,14 +329,22 @@ function seriesRows(rows, fields, panel) {
   const {valueField, timeField, labelField} = chartFields(panel, fields)
   const visual = String(panel?.visual_type || "line")
   const xField = ["line", "area"].includes(visual) ? timeField || labelField : labelField || timeField
+  const xFieldType = fieldType(fields.find(field => fieldName(field) === xField))
 
   return rows
     .map((row, index) => {
       const value = numericValue(valueAt(row, valueField))
       if (value === null) return null
 
+      const categoryValue = valueAt(row, xField)
+
       return {
-        name: formatCategoryValue(valueAt(row, xField), xField) || `Row ${index + 1}`,
+        name:
+          categoryValue === null || categoryValue === undefined || categoryValue === ""
+            ? `Row ${index + 1}`
+            : categoryValue,
+        categoryField: xField,
+        categoryFieldType: xFieldType,
         value,
       }
     })
@@ -382,19 +468,30 @@ function ResponsiveChart({children}) {
   )
 }
 
-function ChartTooltip({active, payload, label}) {
+function ChartTooltip({active, payload, label, timezone, categoryField, categoryFieldType}) {
   if (!active || !payload?.length) return null
   const item = payload[0]
+  const canonical = categoryCanonicalInstant(label, categoryFieldType)
 
   return (
     <div className="rounded-md border border-slate-700 bg-slate-950/95 px-3 py-2 text-xs shadow-xl shadow-cyan-950/30">
-      <div className="font-medium text-slate-100">{label}</div>
+      <div className="font-medium text-slate-100">
+        {canonical ? (
+          <DashboardPanelUserTime value={canonical} timezone={timezone} />
+        ) : (
+          dashboardPanelCategoryLabel(label, categoryField, {
+            fieldType: categoryFieldType,
+            timeZone: timezone,
+            style: "tooltip",
+          })
+        )}
+      </div>
       <div className="mt-1 font-mono text-slate-300">{formatValue(item.value)}</div>
     </div>
   )
 }
 
-function CapacityForecastTooltip({active, payload, label}) {
+function CapacityForecastTooltip({active, payload, label, timezone}) {
   if (!active || !payload?.length) return null
 
   const data = payload.find(item => item?.payload)?.payload || {}
@@ -403,6 +500,12 @@ function CapacityForecastTooltip({active, payload, label}) {
     <div className="max-w-72 rounded-md border border-slate-700 bg-slate-950/95 px-3 py-2 text-xs shadow-xl shadow-cyan-950/30">
       <div className="font-medium text-slate-100">{data.label || label}</div>
       <div className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 font-mono text-slate-300">
+        {data.forecastedAt ? (
+          <>
+            <span className="text-slate-500">Forecasted</span>
+            <span><DashboardPanelUserTime value={data.forecastedAt} timezone={timezone} /></span>
+          </>
+        ) : null}
         <span className="text-slate-500">Current</span>
         <span>{formatValue(data.current)}</span>
         <span className="text-slate-500">Projected</span>
@@ -416,7 +519,7 @@ function CapacityForecastTooltip({active, payload, label}) {
         {data.exhaustionAt ? (
           <>
             <span className="text-slate-500">ETA</span>
-            <span>{formatDateTimeValue(data.exhaustionAt)}</span>
+            <span><DashboardPanelUserTime value={data.exhaustionAt} timezone={timezone} /></span>
           </>
         ) : null}
       </div>
@@ -424,8 +527,11 @@ function CapacityForecastTooltip({active, payload, label}) {
   )
 }
 
-function AxisChart({visual, rows}) {
+function AxisChart({visual, rows, timezone}) {
   if (rows.length === 0) return <EmptyChart />
+
+  const categoryField = rows[0]?.categoryField || ""
+  const categoryFieldType = rows[0]?.categoryFieldType || "string"
 
   const common = {
     data: rows,
@@ -437,6 +543,13 @@ function AxisChart({visual, rows}) {
       <CartesianGrid stroke={GRID_STROKE} strokeOpacity={0.95} vertical={false} />
       <XAxis
         dataKey="name"
+        tickFormatter={value =>
+          dashboardPanelCategoryLabel(value, categoryField, {
+            fieldType: categoryFieldType,
+            timeZone: timezone,
+            style: "axis",
+          })
+        }
         minTickGap={24}
         tick={{fontSize: 11, fill: TICK_STROKE}}
         tickLine={false}
@@ -448,7 +561,15 @@ function AxisChart({visual, rows}) {
         tickLine={false}
         axisLine={false}
       />
-      <Tooltip content={<ChartTooltip />} />
+      <Tooltip
+        content={
+          <ChartTooltip
+            timezone={timezone}
+            categoryField={categoryField}
+            categoryFieldType={categoryFieldType}
+          />
+        }
+      />
     </>
   )
 
@@ -514,16 +635,20 @@ function forecastStatusTone(status, exhaustionAt) {
   return exhaustionAt ? "text-amber-300" : "text-emerald-300"
 }
 
-function CapacityForecastChart({rows, fields, panel}) {
+function CapacityForecastChart({rows, fields, panel, timezone}) {
   const chartRows = useMemo(() => capacityForecastRows(rows, fields), [rows, fields])
   if (chartRows.length === 0) return <EmptyChart message="No capacity forecast data" />
 
   const latest = latestCapacityForecast(chartRows)
   const threshold = firstForecastThreshold(chartRows)
   const unit = panel?.display_config?.unit || ""
+  const axisMetadata = timeAxisMetadata(chartRows.map(row => row.forecastedAt), timezone)
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden text-slate-400">
+    <div
+      className="flex h-full min-h-0 flex-col gap-3 overflow-hidden text-slate-400"
+      {...axisMetadata}
+    >
       <div className="grid shrink-0 grid-cols-1 gap-2 text-xs sm:grid-cols-3">
         <div className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2">
           <div className="text-slate-500">Current</div>
@@ -541,8 +666,14 @@ function CapacityForecastChart({rows, fields, panel}) {
         </div>
         <div className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2">
           <div className="text-slate-500">Exhaustion ETA</div>
-          <div className={`mt-1 truncate font-mono text-sm ${forecastStatusTone(latest.status, latest.exhaustionAt)}`}>
-            {latest.exhaustionAt ? formatDateTimeValue(latest.exhaustionAt) : "Outside horizon"}
+          <div
+            className={`mt-1 truncate font-mono text-sm ${forecastStatusTone(latest.status, latest.exhaustionAt)}`}
+          >
+            {latest.exhaustionAt ? (
+              <DashboardPanelUserTime value={latest.exhaustionAt} timezone={timezone} />
+            ) : (
+              "Outside horizon"
+            )}
           </div>
         </div>
       </div>
@@ -552,6 +683,9 @@ function CapacityForecastChart({rows, fields, panel}) {
             <CartesianGrid stroke={GRID_STROKE} strokeOpacity={0.95} vertical={false} />
             <XAxis
               dataKey="name"
+              tickFormatter={value =>
+                dashboardPanelTimeLabel(value, {timeZone: timezone, style: "axis"})
+              }
               minTickGap={24}
               tick={{fontSize: 11, fill: TICK_STROKE}}
               tickLine={false}
@@ -563,7 +697,7 @@ function CapacityForecastChart({rows, fields, panel}) {
               tickLine={false}
               axisLine={false}
             />
-            <Tooltip content={<CapacityForecastTooltip />} />
+            <Tooltip content={<CapacityForecastTooltip timezone={timezone} />} />
             <Legend wrapperStyle={{fontSize: "11px", color: TICK_STROKE}} />
             {threshold !== null ? (
               <ReferenceLine
@@ -690,21 +824,28 @@ export function Component({
   rows = [],
   fields = [],
   trend = null,
+  timezone = DEFAULT_TIME_ZONE,
 }) {
   const visual = String(panel.visual_type || "line")
   const chartRows = useMemo(() => seriesRows(rows, fields, panel), [rows, fields, panel])
+  const axisMetadata = timeAxisMetadata(
+    chartRows
+      .filter(row => categoryCanonicalInstant(row.name, row.categoryFieldType))
+      .map(row => row.name),
+    timezone,
+  )
 
   if (visual === "gauge" || visual === "availability") {
     return <GaugeChart rows={rows} fields={fields} panel={panel} trend={trend} />
   }
 
   if (["line", "area"].includes(visual) && isCapacityForecastPanel(panel, fields)) {
-    return <CapacityForecastChart rows={rows} fields={fields} panel={panel} />
+    return <CapacityForecastChart rows={rows} fields={fields} panel={panel} timezone={timezone} />
   }
 
   return (
-    <div className="h-full min-h-0 overflow-hidden text-slate-400">
-      <AxisChart visual={visual} rows={chartRows} />
+    <div className="h-full min-h-0 overflow-hidden text-slate-400" {...axisMetadata}>
+      <AxisChart visual={visual} rows={chartRows} timezone={timezone} />
     </div>
   )
 }

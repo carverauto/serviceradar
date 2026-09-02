@@ -1,6 +1,12 @@
 suite: collector Gateway API routes
 templates:
   - templates/gateway-api.yaml
+# Pinned explicitly so the parentRefs assertion below proves the route carries
+# .Release.Namespace rather than a hardcoded value. helm-unittest's default
+# release namespace is the literal "NAMESPACE", which is indistinguishable from
+# a template bug when the expected value is also a plausible default.
+release:
+  namespace: serviceradar-test
 tests:
   - it: renders managed UDP and TCP listeners and routes for collectors
     set:
@@ -67,7 +73,7 @@ tests:
           path: spec.parentRefs
           content:
             name: serviceradar-edge-gateway
-            namespace: default
+            namespace: serviceradar-test
             sectionName: netflow
         documentSelector:
           path: metadata.name

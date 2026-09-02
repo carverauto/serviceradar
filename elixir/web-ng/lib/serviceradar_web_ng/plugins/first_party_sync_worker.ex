@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadarWebNG.Plugins.Packages
+  alias ServiceRadarWebNG.Plugins.Repositories
 
   require Logger
 
@@ -72,24 +73,112 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   defp run_sync(args) do
     actor = SystemActor.system(:first_party_plugin_sync)
 
-    opts =
-      Keyword.put([actor: actor, repo_url: repo_url(args), limit: release_limit(args)], :release_tag, release_tag(args))
-
-    case Packages.sync_first_party_plugins(opts) do
-      {:ok, summary} ->
-        Logger.info(
-          "First-party Wasm plugin sync completed: discovered=#{summary.discovered} " <>
-            "import_ready=#{summary.import_ready} imported=#{summary.imported} failed=#{length(summary.failed)}"
-        )
-
-        log_import_failures(summary.failed)
-
+    case target_repositories(args, actor) do
+      [] ->
+        Logger.info("Wasm plugin sync found no enabled repositories")
         :ok
 
+      repositories ->
+        # Each repository is synced independently on purpose. One unreachable
+        # private source -- an expired token, a repo that moved -- must not stop
+        # the others from importing, and before repositories were records there
+        # was only one source so there was nothing to isolate.
+        results = Enum.map(repositories, &sync_repository(&1, args, actor))
+
+        if Enum.any?(results, &match?({:error, _}, &1)) do
+          # Reported as an error so Oban retries, but only after every
+          # repository has had its turn.
+          {:error, :partial_plugin_sync_failure}
+        else
+          :ok
+        end
+    end
+  end
+
+  defp sync_repository(repository, args, actor) do
+    case Repositories.import_attrs(repository, actor: actor) do
+      {:ok, import_attrs} ->
+        opts =
+          Keyword.put(
+            [
+              actor: actor,
+              repo_url: import_attrs["repo_url"],
+              index_asset_name: import_attrs["index_asset_name"],
+              github_token: import_attrs["github_token"],
+              trusted_upload_signing_keys: import_attrs["trusted_upload_signing_keys"],
+              limit: release_limit(args)
+            ],
+            :release_tag,
+            release_tag(args)
+          )
+
+        case Packages.sync_first_party_plugins(opts) do
+          {:ok, summary} ->
+            Logger.info(
+              "Wasm plugin sync completed for #{repository.repo_url}: discovered=#{summary.discovered} " <>
+                "import_ready=#{summary.import_ready} imported=#{summary.imported} failed=#{length(summary.failed)}"
+            )
+
+            log_import_failures(summary.failed)
+            record_success(repository, actor)
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("Wasm plugin sync failed for #{repository.repo_url}", reason: inspect(reason))
+            record_failure(repository, reason, actor)
+            {:error, reason}
+        end
+
       {:error, reason} ->
-        Logger.warning("First-party Wasm plugin sync failed", reason: inspect(reason))
+        Logger.warning(
+          "Wasm plugin sync could not resolve credentials for #{repository.repo_url}",
+          reason: inspect(reason)
+        )
+
+        record_failure(repository, reason, actor)
         {:error, reason}
     end
+  end
+
+  # An explicit repo_url (from `enqueue_now/1`) still works: it selects one
+  # repository rather than bypassing the registry, so a manual sync cannot pull
+  # from a source nobody registered.
+  defp target_repositories(args, actor) do
+    case Map.get(args, "repo_url") do
+      url when is_binary(url) and url != "" ->
+        case Repositories.get_by_repo_url(url, actor: actor) do
+          {:ok, repository} ->
+            [repository]
+
+          {:error, _reason} ->
+            Logger.warning("Wasm plugin sync requested an unregistered repository: #{url}")
+            []
+        end
+
+      _ ->
+        Repositories.list_enabled(actor: actor)
+    end
+  end
+
+  defp record_success(repository, actor) do
+    repository
+    |> Ash.Changeset.for_update(:record_sync_success, %{}, actor: actor)
+    |> Ash.update()
+    |> log_stamp_failure(repository)
+  end
+
+  defp record_failure(repository, reason, actor) do
+    repository
+    |> Ash.Changeset.for_update(:record_sync_error, %{last_sync_error: inspect(reason)}, actor: actor)
+    |> Ash.update()
+    |> log_stamp_failure(repository)
+  end
+
+  defp log_stamp_failure({:ok, _record}, _repository), do: :ok
+
+  defp log_stamp_failure({:error, error}, repository) do
+    Logger.warning("Could not stamp sync state on #{repository.repo_url}", reason: inspect(error))
+    :ok
   end
 
   defp schedule_next do
@@ -120,10 +209,6 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
 
   defp auto_sync_enabled? do
     Keyword.get(config(), :auto_sync_enabled, false)
-  end
-
-  defp repo_url(args) do
-    Map.get(args, "repo_url") || Keyword.get(config(), :repo_url)
   end
 
   defp release_tag(args) do

@@ -73,6 +73,20 @@ fn translate_param_arity_matches_sql_placeholders() {
                 direction: QueryDirection::Next,
                 mode: None,
             },
+            QueryRequest {
+                query: "in:devices switch_port_attachment.switch_hostname:niadcs-bldd03-asw001 vlan_uid:561".to_string(),
+                limit: Some(10),
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
+            QueryRequest {
+                query: "in:source_fact_disagreements fact_key:switch_port_attachment status:open sort:last_detected_at:desc".to_string(),
+                limit: Some(25),
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: None,
+            },
         ];
 
     for request in cases {
@@ -1436,4 +1450,199 @@ fn translate_timeseries_unknown_filter_errors_with_and_without_stats() {
         "adding stats: must not turn an error into a silently unfiltered result"
     );
     assert!(without_stats.is_err());
+}
+
+/// The fleet-aggregate shape that `stats:` cannot express, because `stats:` has
+/// no bucketing: a 20-minute window over a 10-minute poll sums two polls and
+/// reports roughly double. Bucketing at the poll cadence and splitting by tag
+/// gives one poll per series per bucket.
+#[test]
+fn translate_timeseries_series_split_by_tag() {
+    let sql = translate_query(
+        "in:timeseries_metrics metric_name:aruba.ssid.client_count time:last_1h bucket:10m agg:sum series:tags.ssid",
+    )
+    .expect("tag series split should translate");
+
+    assert!(
+        sql.contains("tags->>'ssid'"),
+        "the tag must reach the series expression: {sql}"
+    );
+}
+
+#[test]
+fn translate_timeseries_series_rejects_unsafe_tag_key() {
+    assert!(
+        translate_query("in:timeseries_metrics time:last_1h bucket:10m agg:avg series:tags.a'b")
+            .is_err(),
+        "an unsafe series tag key must be rejected"
+    );
+}
+
+/// Filters accepted `tags.<key>` on the raw and stats paths, and `series:` could
+/// split a bucketed aggregate by a tag — but a bucketed query could not be
+/// SCOPED to one. "Clients per site over time" worked while "clients at ORD over
+/// time" did not.
+#[test]
+fn translate_downsample_tag_filter_reaches_the_sql() {
+    let sql = translate_query(
+        "in:timeseries_metrics metric_name:aruba.ssid.client_count tags.site_code:ORD time:last_1h bucket:10m agg:sum series:tags.ssid",
+    )
+    .expect("downsample tag filter should translate");
+
+    assert!(
+        sql.contains("tags->>'site_code'"),
+        "the site predicate must reach the SQL: {sql}"
+    );
+    assert!(
+        sql.contains("tags->>'ssid'"),
+        "the series split must survive alongside it: {sql}"
+    );
+}
+
+#[test]
+fn translate_downsample_tag_filter_rejects_unsafe_keys() {
+    for bad in ["tags.a'b", "tags.a\"b", "tags.", "tags.a b"] {
+        let query = format!(
+            "in:timeseries_metrics {bad}:x time:last_1h bucket:10m agg:sum series:metric_name"
+        );
+        assert!(
+            translate_query(&query).is_err(),
+            "{bad} must be rejected as a downsample filter key"
+        );
+    }
+}
+
+/// An unknown field must still error rather than being dropped — the failure
+/// mode that made the stats path report fleet-wide numbers as though scoped.
+#[test]
+fn translate_downsample_unknown_filter_still_errors() {
+    assert!(
+        translate_query(
+            "in:timeseries_metrics nonsense_field:x time:last_1h bucket:10m agg:sum series:metric_name"
+        )
+        .is_err(),
+        "an inapplicable downsample filter must not be silently dropped"
+    );
+}
+
+/// Before this, `stats:` on the alerts entity was **ignored entirely** — the
+/// generated SQL was byte-identical to a plain row query, so a caller asking
+/// for counts got a page of raw alert rows with a 200 and no indication that
+/// the aggregation had been dropped.
+#[test]
+fn translate_alerts_stats_actually_aggregates() {
+    let sql = translate_query("in:alerts stats:count() as n by severity")
+        .expect("alerts stats should translate");
+
+    assert!(sql.contains("COUNT(*)"), "no aggregate in: {sql}");
+    assert!(sql.contains("GROUP BY src.severity"), "no grouping in: {sql}");
+    assert!(
+        sql.contains("jsonb_build_object('severity'"),
+        "the group value must be projected: {sql}"
+    );
+}
+
+/// The stats SQL wraps the row query rather than rebuilding its WHERE clause,
+/// so a filter cannot be honoured when listing and ignored when counting.
+#[test]
+fn translate_alerts_stats_keeps_the_row_filters() {
+    let sql = translate_query("in:alerts severity:critical stats:count() as n by status")
+        .expect("filtered alerts stats should translate");
+
+    assert!(sql.contains("\"alerts\".\"severity\""), "filter dropped: {sql}");
+    assert!(sql.contains("GROUP BY src.status"));
+}
+
+#[test]
+fn translate_alerts_stats_groups_by_device_identity() {
+    let sql = translate_query("in:alerts stats:count() as n by device_uid")
+        .expect("device grouping should translate");
+
+    assert!(sql.contains("GROUP BY src.device_uid"), "{sql}");
+}
+
+#[test]
+fn translate_alerts_stats_supports_multiple_group_fields() {
+    let sql = translate_query("in:alerts stats:count() as n by severity,status")
+        .expect("multi-field grouping should translate");
+
+    assert!(sql.contains("GROUP BY src.severity, src.status"), "{sql}");
+}
+
+/// Grouping by a free-text column yields one group per alert — a row listing
+/// wearing an aggregate's clothes — so it is rejected rather than answered.
+#[test]
+fn translate_alerts_stats_rejects_ungroupable_fields() {
+    for field in ["title", "description", "metadata", "nonsense"] {
+        let query = format!("in:alerts stats:count() as n by {field}");
+        assert!(
+            translate_query(&query).is_err(),
+            "{field} must not be groupable"
+        );
+    }
+}
+
+/// metric_value is whatever tripped a threshold; its mean across unrelated
+/// rules is a number nobody should act on.
+#[test]
+fn translate_alerts_stats_rejects_non_count_aggregations() {
+    for agg in ["avg(metric_value)", "sum(metric_value)", "max(metric_value)"] {
+        let query = format!("in:alerts stats:{agg} as n by severity");
+        assert!(translate_query(&query).is_err(), "{agg} must be rejected");
+    }
+}
+
+#[test]
+fn translate_alerts_stats_requires_a_group() {
+    assert!(
+        translate_query("in:alerts stats:count() as n").is_err(),
+        "an ungrouped alerts stats request must be rejected, not silently listed"
+    );
+}
+
+/// The alias is interpolated into SQL as a JSON key.
+#[test]
+fn translate_alerts_stats_rejects_unsafe_aliases() {
+    for alias in ["n'; DROP TABLE alerts--", "a b", "a-b", ""] {
+        let query = format!("in:alerts stats:count() as {alias} by severity");
+        assert!(
+            translate_query(&query).is_err(),
+            "alias {alias:?} must be rejected"
+        );
+    }
+}
+
+#[test]
+fn translate_alerts_rows_are_unchanged_without_stats() {
+    let sql = translate_query("in:alerts severity:critical").expect("row query still translates");
+
+    assert!(!sql.contains("COUNT(*)"), "a row query must not aggregate: {sql}");
+    assert!(!sql.contains("jsonb_build_object"), "{sql}");
+}
+
+/// The fleet-total shape for cumulative counters kept per (controller, server)
+/// pair. `agg:rate` averages them, which understates the total by the number of
+/// controllers reporting each server.
+#[test]
+fn translate_rate_sum_end_to_end() {
+    let sql = translate_query(
+        "in:timeseries_metrics metric_name:aruba.radius.requests_total time:last_6h bucket:30m agg:rate_sum series:tags.radius_server",
+    )
+    .expect("rate_sum should translate");
+
+    assert!(sql.contains("SUM(rate_value)"), "{sql}");
+    assert!(sql.contains("tags->>'radius_server'"), "{sql}");
+}
+
+#[test]
+fn translate_rejects_unknown_agg_and_names_rate_sum() {
+    let err = translate_query(
+        "in:timeseries_metrics time:last_6h bucket:30m agg:nonsense series:metric_name",
+    )
+    .expect_err("an unknown agg must be rejected");
+
+    assert!(
+        err.to_string().contains("rate_sum"),
+        "the error should advertise the new agg: {err}"
+    );
 }

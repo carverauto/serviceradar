@@ -50,6 +50,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Inventory.Device
@@ -165,17 +166,24 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       |> Enum.reject(&(&1 == ""))
       |> Enum.uniq()
 
+    partition = lookup_partition(opts)
+
     if Enum.empty?(unique_ips) do
       %{}
     else
       # First lookup confirmed/updated aliases
       alias_results =
-        lookup_aliases_by_ip(unique_ips, Keyword.put(opts, :include_deleted, include_deleted))
+        lookup_aliases_by_ip(
+          unique_ips,
+          opts
+          |> Keyword.put(:include_deleted, include_deleted)
+          |> Keyword.put(:partition, partition)
+        )
 
       remaining_ips = unique_ips -- Map.keys(alias_results)
 
-      {cache_hits, cache_misses} = fetch_cache_hits(remaining_ips, use_cache)
-      db_results = lookup_devices_by_ips(cache_misses, actor, include_deleted)
+      {cache_hits, cache_misses} = fetch_cache_hits(remaining_ips, use_cache, partition)
+      db_results = lookup_devices_by_ips(cache_misses, actor, include_deleted, partition)
 
       cache_db_results(alias_results, use_cache)
       cache_db_results(db_results, use_cache)
@@ -222,13 +230,37 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     )
   end
 
-  defp fetch_cache_hits(unique_ips, true) do
+  # The cache is keyed on IP alone, but the live unique index is
+  # (partition, ip): the same address can exist in a monitoring partition and
+  # in an isolation partition as two DIFFERENT devices. A cached record from
+  # another partition is therefore not an answer to this question -- treat it
+  # as a MISS so the lookup falls through to the partition-scoped DB query.
+  #
+  # Deliberately NOT re-keyed on {partition, ip}. Four invalidation sites
+  # (device_notifier, device_identifier_notifier, device_alias_state_notifier
+  # and sync/state_events) call IdentityCache.delete/1 with a bare IP, so
+  # changing the key format would silently turn every one of them into a
+  # no-op and strand stale entries forever -- a worse bug than this one.
+  defp fetch_cache_hits(unique_ips, true, partition) do
     {hits, misses} = IdentityCache.get_batch(unique_ips)
+
+    {matching, mismatched} =
+      Enum.split_with(hits, fn {_ip, record} -> record_partition?(record, partition) end)
+
+    misses = misses ++ Enum.map(mismatched, fn {ip, _record} -> ip end)
+
     emit_authoritative_fallback_telemetry(length(misses), :cache_miss)
-    {hits, misses}
+    {Map.new(matching), misses}
   end
 
-  defp fetch_cache_hits(unique_ips, false), do: {%{}, unique_ips}
+  defp fetch_cache_hits(unique_ips, false, _partition), do: {%{}, unique_ips}
+
+  defp record_partition?(%{partition: value}, partition) when is_binary(value) and value != "",
+    do: value == partition
+
+  # A record cached without a usable partition predates partitioning; only the
+  # default partition may claim it. Mirrors device_partition/1's fallback.
+  defp record_partition?(_record, partition), do: partition == "default"
 
   defp cache_db_results(db_results, true) do
     Enum.each(db_results, fn {ip, record} ->
@@ -295,33 +327,38 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     use_cache = Keyword.get(opts, :use_cache, false)
     actor = Keyword.get(opts, :actor)
     include_deleted = Keyword.get(opts, :include_deleted, false)
+    partition = lookup_partition(opts)
 
     Enum.reduce_while(
       keys,
       %{found: false, record: nil, matched_key: nil, resolved_via: "miss"},
       fn key, _acc ->
-        case cached_record_for_key(key, use_cache) do
+        case cached_record_for_key(key, use_cache, partition) do
           {:ok, record} ->
             {:halt, %{found: true, record: record, matched_key: key, resolved_via: "cache"}}
 
           :miss ->
-            handle_lookup_miss(key, actor, include_deleted, use_cache)
+            handle_lookup_miss(key, actor, include_deleted, use_cache, partition)
         end
       end
     )
   end
 
-  defp cached_record_for_key(%{kind: :ip, value: value}, true) do
+  defp cached_record_for_key(%{kind: :ip, value: value}, true, partition) do
     case IdentityCache.get(value) do
-      nil -> :miss
-      record -> {:ok, record}
+      nil ->
+        :miss
+
+      record ->
+        # Same cross-partition guard as fetch_cache_hits/3.
+        if record_partition?(record, partition), do: {:ok, record}, else: :miss
     end
   end
 
-  defp cached_record_for_key(_key, _use_cache), do: :miss
+  defp cached_record_for_key(_key, _use_cache, _partition), do: :miss
 
-  defp handle_lookup_miss(key, actor, include_deleted, use_cache) do
-    case lookup_by_key(key, actor, include_deleted) do
+  defp handle_lookup_miss(key, actor, include_deleted, use_cache, partition) do
+    case lookup_by_key(key, actor, include_deleted, partition) do
       {:ok, nil} ->
         {:cont, %{found: false, record: nil, matched_key: nil, resolved_via: "miss"}}
 
@@ -343,44 +380,37 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   defp cache_lookup_result(_key, _record, _use_cache), do: :ok
 
-  defp lookup_by_key(%{kind: :device_id, value: device_id}, actor, include_deleted) do
+  defp lookup_by_key(%{kind: :device_id, value: device_id}, actor, include_deleted, _partition) do
     Device
     |> Ash.Query.for_read(:by_uid, %{uid: device_id, include_deleted: include_deleted})
     |> read_one_with_actor(actor)
   end
 
-  defp lookup_by_key(%{kind: :partition_ip, value: value}, actor, include_deleted) do
+  defp lookup_by_key(%{kind: :partition_ip, value: value}, actor, include_deleted, _partition) do
     {partition, ip} = split_partition_ip(value)
-
-    case lookup_by_key(%{kind: :ip, value: ip}, actor, include_deleted) do
-      {:ok, nil} ->
-        {:ok, nil}
-
-      {:ok, device} ->
-        if partition_matches?(partition, device) do
-          {:ok, device}
-        else
-          {:ok, nil}
-        end
-
-      error ->
-        error
-    end
+    lookup_by_key(%{kind: :ip, value: ip}, actor, include_deleted, partition)
   end
 
-  defp lookup_by_key(%{kind: :ip, value: ip}, actor, include_deleted) do
-    case lookup_alias_device_by_ip(ip, actor, include_deleted: include_deleted) do
+  defp lookup_by_key(%{kind: :ip, value: ip}, actor, include_deleted, partition) do
+    case lookup_alias_device_by_ip(ip, actor,
+           include_deleted: include_deleted,
+           partition: partition
+         ) do
       {:ok, %Device{} = device} ->
         {:ok, device}
 
       _ ->
         Device
-        |> Ash.Query.for_read(:by_ip, %{ip: ip, include_deleted: include_deleted})
+        |> Ash.Query.for_read(:by_ip, %{
+          ip: ip,
+          partition: partition,
+          include_deleted: include_deleted
+        })
         |> read_canonical_device(actor, include_deleted)
     end
   end
 
-  defp lookup_by_key(%{kind: :mac, value: mac}, actor, include_deleted) do
+  defp lookup_by_key(%{kind: :mac, value: mac}, actor, include_deleted, _partition) do
     normalized_mac = normalize_mac(mac)
 
     Device
@@ -388,13 +418,13 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     |> read_canonical_device(actor, include_deleted)
   end
 
-  defp lookup_by_key(%{kind: id_type, value: id_value}, actor, include_deleted)
+  defp lookup_by_key(%{kind: id_type, value: id_value}, actor, include_deleted, partition)
        when id_type in [:armis_id, :netbox_id, :integration_id] do
     DeviceIdentifier
     |> Ash.Query.for_read(:lookup, %{
       identifier_type: Map.fetch!(@identifier_type_map, id_type),
       identifier_value: id_value,
-      partition: "default"
+      partition: partition
     })
     |> read_with_actor(actor)
     |> case do
@@ -414,20 +444,17 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     end
   end
 
-  defp lookup_by_key(_key, _actor, _include_deleted), do: {:ok, nil}
+  defp lookup_by_key(_key, _actor, _include_deleted, _partition), do: {:ok, nil}
 
-  defp partition_matches?(partition, device) do
-    device_partition = partition_from_device_id(device.uid)
-    partition == "" or device_partition == partition
-  end
+  defp lookup_devices_by_ips([], _actor, _include_deleted, _partition), do: %{}
 
-  defp lookup_devices_by_ips([], _actor, _include_deleted), do: %{}
-
-  defp lookup_devices_by_ips(ips, actor, include_deleted) do
-    # Batch query for all IPs
+  defp lookup_devices_by_ips(ips, actor, include_deleted, partition) do
+    # Batch query for all IPs in one partition. The live unique index is
+    # (partition, ip); looking up by IP alone would pick the isolation copy
+    # when a monitoring partition also has the address.
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: include_deleted})
-    |> Ash.Query.filter(ip in ^ips)
+    |> Ash.Query.filter(ip in ^ips and partition == ^partition)
     |> read_page_with_actor(actor)
     |> case do
       {:ok, devices} ->
@@ -443,32 +470,35 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
         missing_ips = ips -- Map.keys(ash_results)
 
-        Map.merge(ash_results, lookup_devices_by_ips_sql(missing_ips, include_deleted, actor), fn
-          _ip, ash_record, _sql_record -> ash_record
-        end)
+        Map.merge(
+          ash_results,
+          lookup_devices_by_ips_sql(missing_ips, include_deleted, actor, partition),
+          fn _ip, ash_record, _sql_record -> ash_record end
+        )
 
       {:error, reason} ->
         Logger.debug("Batch device lookup by IP failed, using SQL fallback: #{inspect(reason)}")
-        lookup_devices_by_ips_sql(ips, include_deleted, actor)
+        lookup_devices_by_ips_sql(ips, include_deleted, actor, partition)
     end
   end
 
-  defp lookup_devices_by_ips_sql([], _include_deleted, _actor), do: %{}
+  defp lookup_devices_by_ips_sql([], _include_deleted, _actor, _partition), do: %{}
 
-  defp lookup_devices_by_ips_sql(ips, include_deleted, actor) do
+  defp lookup_devices_by_ips_sql(ips, include_deleted, actor, partition) do
     if SystemActor.system_actor?(actor) do
-      do_lookup_devices_by_ips_sql(ips, include_deleted)
+      do_lookup_devices_by_ips_sql(ips, include_deleted, partition)
     else
       %{}
     end
   end
 
-  defp do_lookup_devices_by_ips_sql(ips, include_deleted) do
+  defp do_lookup_devices_by_ips_sql(ips, include_deleted, partition) do
     sql = """
-    SELECT uid, ip, hostname, metadata
+    SELECT uid, ip, hostname, metadata, partition
     FROM ocsf_devices
     WHERE ip = ANY($1)
       AND ($2 OR deleted_at IS NULL)
+      AND partition = $3
     ORDER BY
       ip ASC,
       CASE WHEN COALESCE(metadata, '{}'::jsonb) ? '_merged_into' THEN 1 ELSE 0 END ASC,
@@ -479,7 +509,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       uid ASC
     """
 
-    case Repo.query(sql, [ips, include_deleted]) do
+    case Repo.query(sql, [ips, include_deleted, partition]) do
       {:ok, %{columns: columns, rows: rows}} ->
         rows
         |> Enum.map(&row_to_map(columns, &1))
@@ -550,21 +580,33 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   end
 
   defp read_alias_states(ips, partition, actor) do
-    DeviceAliasState
-    |> Ash.Query.filter(
-      alias_type == :ip and alias_value in ^ips and state in [:confirmed, :updated]
-    )
-    |> maybe_filter_alias_partition(partition)
-    |> read_with_actor(actor)
+    case Enum.filter(ips, &AliasPolicy.valid_alias_ip?/1) do
+      [] ->
+        {:ok, []}
+
+      ips ->
+        DeviceAliasState
+        |> Ash.Query.filter(
+          alias_type == :ip and alias_value in ^ips and state in [:confirmed, :updated]
+        )
+        |> maybe_filter_alias_partition(partition)
+        |> read_with_actor(actor)
+    end
   end
 
   defp read_detected_alias_states(ips, partition, actor) do
-    DeviceAliasState
-    |> Ash.Query.filter(alias_type == :ip and alias_value in ^ips and state == :detected)
-    |> maybe_filter_alias_partition(partition)
-    # Prefer aliases with more sightings (closer to confirmation)
-    |> Ash.Query.sort(sighting_count: :desc, first_seen_at: :asc)
-    |> read_with_actor(actor)
+    case Enum.filter(ips, &AliasPolicy.valid_alias_ip?/1) do
+      [] ->
+        {:ok, []}
+
+      ips ->
+        DeviceAliasState
+        |> Ash.Query.filter(alias_type == :ip and alias_value in ^ips and state == :detected)
+        |> maybe_filter_alias_partition(partition)
+        # Prefer aliases with more sightings (closer to confirmation)
+        |> Ash.Query.sort(sighting_count: :desc, first_seen_at: :asc)
+        |> read_with_actor(actor)
+    end
   end
 
   defp build_detected_alias_map(devices, aliases) do
@@ -692,7 +734,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   defp build_record_from_device(nil), do: nil
 
   defp build_record_from_device(device) do
-    partition = partition_from_device_id(device.uid)
+    partition = device_partition(device)
     metadata = device.metadata || %{}
 
     attributes =
@@ -713,7 +755,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   defp build_record_from_row(row) do
     uid = row["uid"]
-    partition = partition_from_device_id(uid)
+    partition = row_partition(row)
     metadata = row["metadata"] || %{}
 
     attributes =
@@ -735,6 +777,27 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp lookup_partition(opts) do
+    case Keyword.get(opts, :partition) do
+      value when is_binary(value) and value != "" -> value
+      _ -> "default"
+    end
+  end
+
+  defp device_partition(%{partition: partition}) when is_binary(partition) and partition != "" do
+    partition
+  end
+
+  defp device_partition(%{uid: uid}), do: partition_from_device_id(uid)
+  defp device_partition(_device), do: "default"
+
+  defp row_partition(row) do
+    case row["partition"] do
+      value when is_binary(value) and value != "" -> value
+      _ -> partition_from_device_id(row["uid"])
+    end
+  end
 
   defp split_partition_ip(value) do
     case String.split(value, ":", parts: 2) do

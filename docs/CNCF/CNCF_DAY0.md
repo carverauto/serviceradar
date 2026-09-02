@@ -39,7 +39,7 @@ ServiceRadar follows a dual-track roadmap:
 | Persona | Organization Examples | Use Case |
 |---------|----------------------|----------|
 | Network Engineers | AT&T, Verizon, T-Mobile | Carrier-grade network monitoring |
-| Platform Operators | Example Airline, American Airlines | Airport/operations network management |
+| Platform Operators | Airline and airport operators | Airport/operations network management |
 | Energy Grid Operators | Duke Energy, Pacific Gas & Electric | SCADA and grid infrastructure monitoring |
 | MSP Engineers | Regional managed service providers | Dedicated deployment customer network management |
 | IoT Platform Teams | Industrial IoT, smart city platforms | Large device fleet monitoring (10k-1M devices) |

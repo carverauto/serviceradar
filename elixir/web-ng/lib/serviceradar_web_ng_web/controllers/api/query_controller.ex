@@ -2,13 +2,14 @@ defmodule ServiceRadarWebNGWeb.Api.QueryController do
   use ServiceRadarWebNGWeb, :controller
 
   def execute(conn, params) do
-    # Get actor from current_scope for Ash policy enforcement
-    actor = get_actor(conn)
-    params_with_actor = Map.put(params, "actor", actor)
-
-    case srql_module().query_request(params_with_actor) do
+    case ServiceRadarWebNG.Api.Access.execute_query(conn.assigns[:current_scope], params) do
       {:ok, response} ->
         json(conn, response)
+
+      {:error, :forbidden} ->
+        conn
+        |> put_status(:forbidden)
+        |> json(%{"error" => "forbidden", "message" => "You do not have permission to query this entity"})
 
       {:error, reason} ->
         conn
@@ -26,17 +27,5 @@ defmodule ServiceRadarWebNGWeb.Api.QueryController do
 
   defp format_error(reason) do
     if String.Chars.impl_for(reason), do: to_string(reason), else: inspect(reason)
-  end
-
-  # Extract actor (user) from connection for Ash policy enforcement
-  defp get_actor(conn) do
-    case conn.assigns do
-      %{current_scope: %{user: user}} when not is_nil(user) -> user
-      _ -> nil
-    end
-  end
-
-  defp srql_module do
-    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
 end

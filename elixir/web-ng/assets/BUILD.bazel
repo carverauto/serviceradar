@@ -17,8 +17,9 @@ on assets/** and the HEEx templates, so an .ex-only change is a cache hit.
 """
 
 load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
-load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_run_binary")
+load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_library", "js_run_binary", "js_test")
 load("@web_ng_npm//elixir/web-ng/assets:@tailwindcss/cli/package_json.bzl", tailwind_bin = "bin")
+load("@web_ng_npm//elixir/web-ng/assets:vitest/package_json.bzl", vitest_bin = "bin")
 load("@web_ng_npm//:defs.bzl", "npm_link_all_packages")
 load("//build:phoenix_digest.bzl", "phoenix_digest")
 
@@ -33,6 +34,272 @@ exports_files([
 # This is what replaces `bun install`, and with it the node_modules symlink into the
 # executor's mutable /cache.
 npm_link_all_packages(name = "node_modules")
+
+# Production JavaScript inputs scanned by the timestamp formatter inventory guard.
+# Keep this broad enough to catch new dashboard and hook modules while excluding
+# test-only, vendored, generated, and static trees.
+filegroup(
+    name = "timestamp_formatter_audit_js_srcs",
+    srcs = glob(
+        [
+            "component/*.js",
+            "component/*.jsx",
+            "component/*.ts",
+            "component/*.tsx",
+            "component/**/*.js",
+            "component/**/*.jsx",
+            "component/**/*.ts",
+            "component/**/*.tsx",
+            "js/**/*.js",
+            "js/**/*.jsx",
+            "js/**/*.ts",
+            "js/**/*.tsx",
+        ],
+        exclude = [
+            "component/**/*.test.js",
+            "component/**/*.test.jsx",
+            "component/**/*.test.ts",
+            "component/**/*.test.tsx",
+            "component/**/*.spec.js",
+            "component/**/*.spec.jsx",
+            "component/**/*.spec.ts",
+            "component/**/*.spec.tsx",
+            "component/test/**",
+            "component/**/test/**",
+            "component/**/__tests__/**",
+            "component/**/node_modules/**",
+            "component/**/generated/**",
+            "component/**/static/**",
+            "component/**/vendor/**",
+            "js/**/*.test.js",
+            "js/**/*.test.jsx",
+            "js/**/*.test.ts",
+            "js/**/*.test.tsx",
+            "js/**/*.spec.js",
+            "js/**/*.spec.jsx",
+            "js/**/*.spec.ts",
+            "js/**/*.spec.tsx",
+            "js/test/**",
+            "js/**/test/**",
+            "js/**/__tests__/**",
+            "js/**/node_modules/**",
+            "js/**/generated/**",
+            "js/**/static/**",
+            "js/**/vendor/**",
+        ],
+        allow_empty = True,
+    ),
+)
+
+filegroup(
+    name = "timestamp_formatter_test_srcs",
+    srcs = glob([
+        "js/hooks/charts/BGPTimeSeriesChart.js",
+        "js/hooks/charts/BGPTimeSeriesChart.test.js",
+        "js/hooks/charts/Netflow*Chart.js",
+        "js/hooks/charts/Netflow*Chart.test.js",
+    ]) + [
+        "component/src/DashboardBuilderCanvas.jsx",
+        "component/src/DashboardPanelChart.jsx",
+        "component/test/DashboardBuilderCanvas.test.jsx",
+        "component/test/DashboardPanelChart.test.jsx",
+        "js/dashboards/endpoint_inventory.js",
+        "js/dashboards/security_findings.js",
+        "js/dashboards/service_availability_noc.js",
+        "js/dashboards/user_time.test.js",
+        "js/hooks/TimezoneSelect.js",
+        "js/hooks/TimezoneSelect.test.js",
+        "js/hooks/UserTime.js",
+        "js/hooks/UserTime.test.js",
+        "js/hooks/charts/ChartRangeSelection.js",
+        "js/hooks/charts/ChartRangeSelection.test.js",
+        "js/hooks/charts/ChartRangeSelectionController.js",
+        "js/hooks/charts/ChartRangeSelectionController.test.js",
+        "js/hooks/charts/FlowRateChart.js",
+        "js/hooks/charts/FlowRateChart.test.js",
+        "js/hooks/charts/NetflowTrafficTooltip.js",
+        "js/hooks/charts/NetflowTrafficTooltip.test.js",
+        "js/hooks/charts/TimeseriesChart.js",
+        "js/hooks/charts/TimeseriesChart.test.js",
+        "js/hooks/charts/TimeseriesCombinedChart.js",
+        "js/hooks/charts/chart_range_selection.js",
+        "js/hooks/charts/chart_range_selection.test.js",
+        "js/hooks/charts/geometry.js",
+        "js/netflow_charts/util.js",
+        "js/netflow_charts/util.test.js",
+        "js/utils/chart_axis_grid.js",
+        "js/utils/chart_hover_geometry.js",
+        "js/utils/dashboard_user_time.js",
+        "js/utils/formatters.js",
+        "js/utils/timezone_options.js",
+        "js/utils/timezone_options.test.js",
+        "js/utils/user_time.js",
+        "js/utils/user_time.test.js",
+    ],
+)
+
+js_test(
+    name = "timestamp_formatter_tests",
+    size = "small",
+    args = [
+        "$(rootpath %s)" % test
+        for test in glob([
+            "component/test/DashboardBuilderCanvas.test.jsx",
+            "component/test/DashboardPanelChart.test.jsx",
+            "js/dashboards/user_time.test.js",
+            "js/hooks/UserTime.test.js",
+            "js/hooks/TimezoneSelect.test.js",
+            "js/hooks/charts/ChartRangeSelection.test.js",
+            "js/hooks/charts/BGPTimeSeriesChart.test.js",
+            "js/hooks/charts/ChartRangeSelectionController.test.js",
+            "js/hooks/charts/FlowRateChart.test.js",
+            "js/hooks/charts/Netflow*Chart.test.js",
+            "js/hooks/charts/NetflowTrafficTooltip.test.js",
+            "js/hooks/charts/TimeseriesChart.test.js",
+            "js/hooks/charts/chart_range_selection.test.js",
+            "js/netflow_charts/util.test.js",
+            "js/utils/timezone_options.test.js",
+            "js/utils/user_time.test.js",
+        ])
+    ],
+    chdir = package_name(),
+    data = glob([
+        "component/test/DashboardBuilderCanvas.test.jsx",
+        "component/test/DashboardPanelChart.test.jsx",
+        "js/dashboards/user_time.test.js",
+        "js/hooks/UserTime.test.js",
+        "js/hooks/TimezoneSelect.test.js",
+        "js/hooks/charts/ChartRangeSelection.test.js",
+        "js/hooks/charts/BGPTimeSeriesChart.test.js",
+        "js/hooks/charts/ChartRangeSelectionController.test.js",
+        "js/hooks/charts/FlowRateChart.test.js",
+        "js/hooks/charts/Netflow*Chart.test.js",
+        "js/hooks/charts/NetflowTrafficTooltip.test.js",
+        "js/hooks/charts/TimeseriesChart.test.js",
+        "js/hooks/charts/chart_range_selection.test.js",
+        "js/netflow_charts/util.test.js",
+        "js/utils/timezone_options.test.js",
+        "js/utils/user_time.test.js",
+    ]) + [
+        ":timestamp_formatter_test_srcs",
+        ":node_modules",
+    ],
+    entry_point = "timestamp_formatter_test_runner.mjs",
+    tags = ["unit_test"],
+)
+
+# The complete God-View JavaScript surface, including production modules,
+# contract suites, and canonical topology fixtures. Keeping this one declared
+# input set prevents a new scene module or fixture from silently falling out of
+# the Bazel unit gate.
+filegroup(
+    name = "god_view_scene_test_srcs",
+    srcs = glob([
+        "js/lib/god_view/**/*.js",
+        "js/lib/deckgl/**/*.js",
+        "js/wasm/god_view_exec_runtime.js",
+    ]) + [
+        "god_view_acceptance_geometry_observer.js",
+        "god_view_acceptance_geometry_observer.test.js",
+        "god_view_production_bundle_contract.test.js",
+        "js/lib/GodViewRenderer.js",
+        "js/utils/dashboard_user_time.js",
+        "js/utils/user_time.js",
+    ],
+)
+
+js_test(
+    name = "god_view_scene_tests",
+    size = "small",
+    args = [
+        "$(rootpath %s)" % test
+        for test in glob([
+            "god_view_*test.js",
+            "js/lib/god_view/*.test.js",
+        ])
+    ],
+    chdir = package_name(),
+    data = glob([
+        "js/lib/god_view/**/*.js",
+        "js/lib/deckgl/**/*.js",
+        "js/wasm/god_view_exec_runtime.js",
+    ]) + [
+        ":bundle_srcs",
+        ":node_modules",
+        "god_view_acceptance_geometry_observer.js",
+        "god_view_acceptance_geometry_observer.test.js",
+        "god_view_production_bundle_contract.test.js",
+        "js/lib/GodViewRenderer.js",
+    ],
+    entry_point = "god_view_scene_test_runner.mjs",
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
+    name = "credential_deep_link_focus_test",
+    args = [
+        "run",
+        "js/hooks/CredentialDeepLinkFocus.test.js",
+    ],
+    chdir = package_name(),
+    data = [
+        ":node_modules",
+        "js/hooks/CredentialDeepLinkFocus.js",
+        "js/hooks/CredentialDeepLinkFocus.test.js",
+    ],
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
+    name = "details_state_test",
+    args = [
+        "run",
+        "js/hooks/DetailsState.test.js",
+    ],
+    chdir = package_name(),
+    data = [
+        ":node_modules",
+        "js/hooks/DetailsState.js",
+        "js/hooks/DetailsState.test.js",
+    ],
+    tags = ["unit_test"],
+)
+
+js_binary(
+    name = "god_view_elk_scene_bundler",
+    data = [":node_modules/esbuild"],
+    entry_point = "god_view_elk_scene_bundle.mjs",
+)
+
+js_run_binary(
+    name = "god_view_elk_scene_bundle",
+    srcs = [
+        ":god_view_scene_test_srcs",
+        ":node_modules",
+        "god_view_elk_scene_harness.js",
+    ],
+    args = [
+        "god_view_elk_scene_harness.js",
+        "god_view_elk_scene.bundle.js",
+    ],
+    chdir = package_name(),
+    outs = ["god_view_elk_scene.bundle.js"],
+    tool = ":god_view_elk_scene_bundler",
+)
+
+js_library(
+    name = "god_view_scene_assertions_lib",
+    srcs = ["js/lib/god_view/acceptance_geometry_assertions.js"],
+)
+
+js_library(
+    name = "god_view_elk_scene_acceptance_test_lib",
+    srcs = ["god_view_elk_scene_acceptance.playwright.js"],
+    deps = [
+        ":god_view_scene_assertions_lib",
+        ":node_modules/@playwright/test",
+    ],
+)
 
 # Everything under assets/, minus installed dependency trees. node_modules is listed in
 # //.bazelignore, so Bazel does not see it; the excludes here are belt-and-braces for a

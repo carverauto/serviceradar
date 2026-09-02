@@ -1,0 +1,32 @@
+suite: flow collector probes
+templates:
+  - flow-collector.yaml
+tests:
+  - it: uses an HTTP readiness probe against /readyz (not /metrics) when metrics are enabled
+    set:
+      flowCollector.enabled: true
+      flowCollector.config.metrics_addr: "0.0.0.0:50046"
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      # /metrics answers 200 as soon as the HTTP server binds, before the
+      # publisher has connected to NATS (run_prometheus_server is spawned
+      # independently of the publisher in main.rs) -- /readyz instead
+      # reflects Publisher::mark_publisher_ready/clear_publisher_ready.
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /readyz
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: 50046
+  - it: falls back to the ready-file probe when metrics are off
+    set:
+      flowCollector.enabled: true
+      flowCollector.config.metrics_addr: null
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - isNotNull:
+          path: spec.template.spec.containers[0].readinessProbe.exec

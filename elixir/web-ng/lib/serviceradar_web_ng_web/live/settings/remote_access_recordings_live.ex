@@ -127,7 +127,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
                   </div>
                   <div class="mt-1 truncate text-sm font-medium">{target_label(recording)}</div>
                   <div class="mt-1 text-xs text-sr-muted">
-                    {format_datetime(recording.started_at || recording.inserted_at)}
+                    <.user_time
+                      id={"settings-remote-access-recording-#{recording.id}-list-started-at"}
+                      value={recording.started_at || recording.inserted_at}
+                      timezone={@current_scope.user.timezone || "Etc/UTC"}
+                      style={:compact}
+                      fallback="-"
+                    />
                   </div>
                 </.link>
               </div>
@@ -141,8 +147,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
                 Select a recording.
               </div>
 
-              <.recording_summary :if={@selected_recording} recording={@selected_recording} />
-              <.event_timeline :if={@selected_recording} events={@events} />
+              <.recording_summary
+                :if={@selected_recording}
+                recording={@selected_recording}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
+              />
+              <.event_timeline
+                :if={@selected_recording}
+                events={@events}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
+              />
             </div>
           </div>
         </section>
@@ -152,6 +166,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
   end
 
   attr(:recording, :any, required: true)
+  attr(:timezone, :string, required: true)
 
   defp recording_summary(assigns) do
     ~H"""
@@ -170,9 +185,24 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
         <.summary_item label="Events" value={@recording.event_count} />
         <.summary_item label="Input bytes" value={@recording.input_bytes} />
         <.summary_item label="Output bytes" value={@recording.output_bytes} />
-        <.summary_item label="Retention" value={format_datetime(@recording.retention_expires_at)} />
-        <.summary_item label="Started" value={format_datetime(@recording.started_at)} />
-        <.summary_item label="Completed" value={format_datetime(@recording.completed_at)} />
+        <.timestamp_summary_item
+          id={"settings-remote-access-recording-#{@recording.id}-retention-expires-at"}
+          label="Retention"
+          value={@recording.retention_expires_at}
+          timezone={@timezone}
+        />
+        <.timestamp_summary_item
+          id={"settings-remote-access-recording-#{@recording.id}-started-at"}
+          label="Started"
+          value={@recording.started_at}
+          timezone={@timezone}
+        />
+        <.timestamp_summary_item
+          id={"settings-remote-access-recording-#{@recording.id}-completed-at"}
+          label="Completed"
+          value={@recording.completed_at}
+          timezone={@timezone}
+        />
         <.summary_item label="Failure" value={@recording.failure_reason || "-"} />
       </dl>
 
@@ -211,7 +241,30 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
     """
   end
 
+  attr(:id, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:value, :any, required: true)
+  attr(:timezone, :string, required: true)
+
+  defp timestamp_summary_item(assigns) do
+    ~H"""
+    <div class="rounded-md border border-sr-line bg-sr-subtle/40 p-3">
+      <dt class="text-xs font-semibold uppercase text-sr-muted">{@label}</dt>
+      <dd class="mt-1 break-words text-sm font-medium">
+        <.user_time
+          id={@id}
+          value={@value}
+          timezone={@timezone}
+          style={:compact}
+          fallback="-"
+        />
+      </dd>
+    </div>
+    """
+  end
+
   attr(:events, :list, required: true)
+  attr(:timezone, :string, required: true)
 
   defp event_timeline(assigns) do
     ~H"""
@@ -229,7 +282,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
             {label(event.stream)}
           </.ui_badge>
           <span class="text-sm font-medium">{event.event_type}</span>
-          <span class="text-xs text-sr-muted">{format_datetime(event.occurred_at)}</span>
+          <span class="text-xs text-sr-muted">
+            <.user_time
+              id={"settings-remote-access-recording-event-#{event.id}-occurred-at"}
+              value={event.occurred_at}
+              timezone={@timezone}
+              style={:compact}
+              fallback="-"
+            />
+          </span>
           <.ui_badge :if={event.payload_redacted} size="sm" variant="warning">
             {redaction_label(event.redaction_reason)}
           </.ui_badge>
@@ -589,10 +650,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLive do
 
   defp redaction_label(nil), do: "Redacted"
   defp redaction_label(reason), do: reason |> to_string() |> String.replace("_", " ")
-
-  defp format_datetime(nil), do: "-"
-  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-  defp format_datetime(value), do: inspect(value)
 
   defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
   defp format_error(%Ash.Error.Forbidden{} = error), do: Exception.message(error)

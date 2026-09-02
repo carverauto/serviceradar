@@ -6,7 +6,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
   Tests use TestSupport for schema isolation.
   """
 
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page

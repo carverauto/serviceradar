@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplate do
           zoom_mode={@zoom_mode}
           causal_filters={@causal_filters}
           topology_layers={@topology_layers}
+          timezone={@current_scope.user.timezone || "Etc/UTC"}
         />
 
         <.stream_contract
@@ -40,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplate do
           last_decode_ms={@last_decode_ms}
           last_render_ms={@last_render_ms}
           last_bitmap_metadata={@last_bitmap_metadata}
+          timezone={@current_scope.user.timezone || "Etc/UTC"}
         />
 
         <.pipeline_telemetry pipeline_stats={@pipeline_stats} />

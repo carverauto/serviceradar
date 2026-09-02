@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandsPubSub
   alias ServiceRadar.SweepJobs.SweepPubSub
+  alias ServiceRadarWebNGWeb.Live.Settings.NetworksLive.AgentPicker
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Events
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos
@@ -30,6 +31,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     can_manage_networks = can_manage_networks?(scope)
 
     if can_manage_networks do
+      sweep_groups = load_sweep_groups(scope)
+
+      sweep_group_summary_agents =
+        if connected?(socket) and socket.assigns.live_action == :index do
+          load_sweep_group_summary_agents(scope, sweep_groups)
+        else
+          %{}
+        end
+
       if connected?(socket) do
         SweepPubSub.subscribe()
         AgentCommandsPubSub.subscribe()
@@ -41,7 +51,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:page_title, "Network Sweeps")
         |> assign(:current_path, "/settings/networks")
         |> assign(:active_tab, :groups)
-        |> assign(:sweep_groups, load_sweep_groups(scope))
+        |> assign(:sweep_groups, sweep_groups)
+        |> assign(:sweep_group_summary_agents, sweep_group_summary_agents)
         |> assign(:sweep_profiles, load_sweep_profiles(scope))
         |> assign(:running_executions, load_running_executions(scope))
         |> assign(:recent_executions, load_recent_executions(scope))
@@ -58,7 +69,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:last_target_query, nil)
         |> assign(:show_mapper_form, nil)
         |> assign(:mapper_jobs, load_mapper_jobs(scope))
-        |> assign(:agents, load_agents(scope))
+        |> assign(:mapper_agents, [])
+        |> assign(:agent_picker, AgentPicker.new([]))
+        |> assign(:agent_picker_open, false)
+        |> assign(:agent_picker_selected_rows, [])
+        |> assign(:agent_picker_summary_agent, nil)
         |> assign(:can_manage_networks, can_manage_networks)
         |> assign(:mapper_job, nil)
         |> assign(:mapper_form, nil)

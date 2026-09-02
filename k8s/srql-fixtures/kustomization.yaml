@@ -8,3 +8,4 @@ resources:
   - cnpg-cluster.yaml
   - services.yaml
   - ca-bundle.yaml
+  - scratch-reaper.yaml

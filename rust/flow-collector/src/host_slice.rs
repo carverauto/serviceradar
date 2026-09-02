@@ -309,6 +309,7 @@ mod tests {
             stream_max_age_secs: 3600,
             stream_replicas: 1,
             rehome_state_path: None,
+            template_store: None,
             ready_state_path: None,
             partition: "default".to_string(),
             channel_size: 100,

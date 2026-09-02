@@ -164,10 +164,13 @@ pub struct DeviceRow {
     pub discovery_sources: Option<Vec<String>>,
     pub is_available: Option<bool>,
     pub is_active: Option<bool>,
+    pub tags: Option<DbJson>,
     pub metadata: Option<DbJson>,
     pub deleted_at: Option<DateTime<Utc>>,
     pub deleted_by: Option<String>,
     pub deleted_reason: Option<String>,
+    pub partition: String,
+    pub switch_port_attachment: Option<DbJson>,
 }
 
 impl DeviceRow {
@@ -225,12 +228,17 @@ impl DeviceRow {
             "discovery_sources": self.discovery_sources.unwrap_or_default(),
             "is_available": self.is_available.unwrap_or(false),
             "is_active": self.is_active.unwrap_or(true),
+            "tags": self
+                .tags
+                .map_or(serde_json::json!({}), serde_json::Value::from),
             "metadata": self
                 .metadata
                 .map_or(serde_json::json!({}), serde_json::Value::from),
             "deleted_at": self.deleted_at,
             "deleted_by": self.deleted_by,
             "deleted_reason": self.deleted_reason,
+            "partition": self.partition,
+            "switch_port_attachment": self.switch_port_attachment.map(serde_json::Value::from),
         })
     }
 }
@@ -330,6 +338,44 @@ impl GatewayRow {
             "agent_count": self.agent_count.unwrap_or(0),
             "checker_count": self.checker_count.unwrap_or(0),
             "updated_at": self.updated_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::source_fact_disagreements, check_for_backend(diesel::pg::Pg))]
+pub struct SourceFactDisagreementRow {
+    pub id: Uuid,
+    pub device_uid: String,
+    pub fact_key: String,
+    pub status: String,
+    pub compare_signature: String,
+    pub values: DbJson,
+    pub configuration_conflict: bool,
+    pub first_detected_at: DateTime<Utc>,
+    pub last_detected_at: DateTime<Utc>,
+    pub cleared_at: Option<DateTime<Utc>>,
+    pub dismissed_at: Option<DateTime<Utc>>,
+    pub metadata: DbJson,
+    pub inserted_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl SourceFactDisagreementRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id.to_string(),
+            "device_uid": self.device_uid,
+            "fact_key": self.fact_key,
+            "status": self.status,
+            "compare_signature": self.compare_signature,
+            "values": serde_json::Value::from(self.values),
+            "configuration_conflict": self.configuration_conflict,
+            "first_detected_at": self.first_detected_at,
+            "last_detected_at": self.last_detected_at,
+            "cleared_at": self.cleared_at,
+            "dismissed_at": self.dismissed_at,
+            "metadata": serde_json::Value::from(self.metadata),
         })
     }
 }

@@ -112,23 +112,15 @@ func (e *DiscoveryEngine) runDiscoveryJob(ctx context.Context, job *DiscoveryJob
 			}
 
 			if recursiveSNMPTargetsEnabled(job) {
-				recursiveTargets := e.collectRecursiveSNMPTargets(job, allPotentialSNMPTargets)
-				if len(recursiveTargets) > 0 {
-					for target := range recursiveTargets {
-						allPotentialSNMPTargets[target] = true
+				ok, failedMode := e.pollRecursiveSNMPTargets(job, allPotentialSNMPTargets, initialSeeds)
+				if !ok {
+					failureMessage := "recursive topology polling canceled or failed"
+					if failedMode == snmpPollingModeEnrichment {
+						failureMessage = "recursive enrichment polling canceled or failed"
 					}
-
-					for _, mode := range recursivePollingModes(job.Params.Type) {
-						if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds, mode) {
-							failureMessage := "recursive topology polling canceled or failed"
-							if mode == snmpPollingModeEnrichment {
-								failureMessage = "recursive enrichment polling canceled or failed"
-							}
-							recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, failureMessage)
-							e.finalizeJobStatus(job)
-							return
-						}
-					}
+					recordStageTransition(job, DiscoveryStageTopology, DiscoveryStageStatusFailed, failureMessage)
+					e.finalizeJobStatus(job)
+					return
 				}
 			}
 
@@ -180,6 +172,50 @@ func shouldRunSNMPDiscovery(job *DiscoveryJob) bool {
 	default:
 		return true
 	}
+}
+
+const maxRecursiveSNMPRounds = 8
+
+// pollRecursiveSNMPTargets SNMP-walks neighbors learned from LLDP/CDP (and
+// eligible L2 evidence) until a round adds no new IPv4 management addresses.
+// One round is not enough for a mesh: EDGE-1 yields CORE-1/EDGE-2, and CORE-2
+// only appears after those boxes are walked.
+func (e *DiscoveryEngine) pollRecursiveSNMPTargets(
+	job *DiscoveryJob, knownTargets map[string]bool, initialSeeds []string,
+) (bool, snmpPollingMode) {
+	for round := 1; round <= maxRecursiveSNMPRounds; round++ {
+		recursiveTargets := e.collectRecursiveSNMPTargets(job, knownTargets)
+		if len(recursiveTargets) == 0 {
+			return true, ""
+		}
+
+		if e.logger != nil {
+			e.logger.Info().
+				Str("job_id", job.ID).
+				Int("round", round).
+				Int("targets", len(recursiveTargets)).
+				Msg("Recursive SNMP expansion")
+		}
+
+		for target := range recursiveTargets {
+			knownTargets[target] = true
+		}
+
+		for _, mode := range recursivePollingModes(job.Params.Type) {
+			if !e.setupAndExecuteSNMPPolling(job, recursiveTargets, initialSeeds, mode) {
+				return false, mode
+			}
+		}
+	}
+
+	if e.logger != nil {
+		e.logger.Warn().
+			Str("job_id", job.ID).
+			Int("max_rounds", maxRecursiveSNMPRounds).
+			Msg("Recursive SNMP expansion hit round cap")
+	}
+
+	return true, ""
 }
 
 func recursiveSNMPTargetsEnabled(job *DiscoveryJob) bool {

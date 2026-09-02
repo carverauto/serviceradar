@@ -2,15 +2,17 @@ import AllMetadataCard from "./AllMetadataCard"
 import BulkEditTagsToggle from "./BulkEditTagsToggle"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
 import CommandPalette from "./CommandPalette"
+import CredentialDeepLinkFocus from "./CredentialDeepLinkFocus"
 import DialogTopLayer from "./DialogTopLayer"
 import ToastTopLayer from "./ToastTopLayer"
+import TimezoneSelect from "./TimezoneSelect"
 import DashboardBuilderCanvas from "./DashboardBuilderCanvas"
 import DashboardPanelChart from "./DashboardPanelChart"
 import DashboardMapViewSelect from "./DashboardMapViewSelect"
 import DashboardWasmHost from "./DashboardWasmHost"
 import DetailsState from "./DetailsState"
 import JdmEditorHook from "./JdmEditorHook"
-import LocalTime from "./LocalTime"
+import UserTime from "./UserTime"
 import MapboxFlowMap from "./MapboxFlowMap"
 import MapboxLocationPicker from "./MapboxLocationPicker"
 import OperationsTrafficMap from "./OperationsTrafficMap"
@@ -43,21 +45,24 @@ import FlowSparkline from "./charts/FlowSparkline"
 import FlowRateChart from "./charts/FlowRateChart"
 import FlowDonut from "./charts/FlowDonut"
 import BandwidthGauge from "./charts/BandwidthGauge"
+import ChartRangeSelection from "./charts/ChartRangeSelection"
 
 export default {
   AllMetadataCard,
   BulkEditTagsToggle,
   CameraRelayStatusStream,
   CommandPalette,
+  CredentialDeepLinkFocus,
   DialogTopLayer,
   ToastTopLayer,
+  TimezoneSelect,
   DashboardBuilderCanvas,
   DashboardPanelChart,
   DashboardMapViewSelect,
   DashboardWasmHost,
   DetailsState,
   JdmEditorHook,
-  LocalTime,
+  UserTime,
   MapboxFlowMap,
   MapboxLocationPicker,
   OperationsTrafficMap,
@@ -90,4 +95,5 @@ export default {
   FlowRateChart,
   FlowDonut,
   BandwidthGauge,
+  ChartRangeSelection,
 }

@@ -128,23 +128,24 @@ func getRiskLevelName(levelID int) string {
 // OCSFDevice represents a device aligned with OCSF v1.7.0 Device object schema
 type OCSFDevice struct {
 	// OCSF Core Identity
-	UID      string `json:"uid" db:"uid"`                // Canonical device ID from DIRE (sr: prefixed UUID)
-	TypeID   int    `json:"type_id" db:"type_id"`        // OCSF device type enum
-	Type     string `json:"type,omitempty" db:"type"`    // Human-readable device type name
-	Name     string `json:"name,omitempty" db:"name"`    // Administrator-assigned device name
+	UID      string `json:"uid" db:"uid"`             // Canonical device ID from DIRE (sr: prefixed UUID)
+	TypeID   int    `json:"type_id" db:"type_id"`     // OCSF device type enum
+	Type     string `json:"type,omitempty" db:"type"` // Human-readable device type name
+	Name     string `json:"name,omitempty" db:"name"` // Administrator-assigned device name
 	Hostname string `json:"hostname,omitempty" db:"hostname"`
 	IP       string `json:"ip,omitempty" db:"ip"`
 	MAC      string `json:"mac,omitempty" db:"mac"`
 
 	// OCSF Extended Identity
-	UIDAlt     string `json:"uid_alt,omitempty" db:"uid_alt"`         // Alternate unique identifier
-	VendorName string `json:"vendor_name,omitempty" db:"vendor_name"` // Device manufacturer
-	Model      string `json:"model,omitempty" db:"model"`             // Device model
-	Domain     string `json:"domain,omitempty" db:"domain"`           // Network domain
-	Zone       string `json:"zone,omitempty" db:"zone"`               // Network zone
-	SubnetUID  string `json:"subnet_uid,omitempty" db:"subnet_uid"`   // Subnet identifier
-	VlanUID    string `json:"vlan_uid,omitempty" db:"vlan_uid"`       // VLAN identifier
-	Region     string `json:"region,omitempty" db:"region"`           // Geographic region
+	UIDAlt               string         `json:"uid_alt,omitempty" db:"uid_alt"`         // Alternate unique identifier
+	VendorName           string         `json:"vendor_name,omitempty" db:"vendor_name"` // Device manufacturer
+	Model                string         `json:"model,omitempty" db:"model"`             // Device model
+	Domain               string         `json:"domain,omitempty" db:"domain"`           // Network domain
+	Zone                 string         `json:"zone,omitempty" db:"zone"`               // Network zone
+	SubnetUID            string         `json:"subnet_uid,omitempty" db:"subnet_uid"`   // Subnet identifier
+	VlanUID              string         `json:"vlan_uid,omitempty" db:"vlan_uid"`
+	SwitchPortAttachment map[string]any `json:"switch_port_attachment,omitempty" db:"switch_port_attachment"`
+	Region               string         `json:"region,omitempty" db:"region"`
 
 	// OCSF Temporal
 	FirstSeenTime *time.Time `json:"first_seen_time,omitempty" db:"first_seen_time"`
@@ -161,16 +162,16 @@ type OCSFDevice struct {
 	IsTrusted   *bool  `json:"is_trusted,omitempty" db:"is_trusted"`
 
 	// OCSF Nested Objects (stored as JSONB in DB)
-	OS                *OCSFDeviceOS           `json:"os,omitempty" db:"os"`
-	HWInfo            *OCSFDeviceHWInfo       `json:"hw_info,omitempty" db:"hw_info"`
-	NetworkInterfaces []OCSFNetworkInterface  `json:"network_interfaces,omitempty" db:"network_interfaces"`
-	Owner             *OCSFUser               `json:"owner,omitempty" db:"owner"`
-	Org               *OCSFOrganization       `json:"org,omitempty" db:"org"`
-	Groups            []OCSFGroup             `json:"groups,omitempty" db:"groups"`
-	AgentList         []OCSFAgent             `json:"agent_list,omitempty" db:"agent_list"`
+	OS                *OCSFDeviceOS          `json:"os,omitempty" db:"os"`
+	HWInfo            *OCSFDeviceHWInfo      `json:"hw_info,omitempty" db:"hw_info"`
+	NetworkInterfaces []OCSFNetworkInterface `json:"network_interfaces,omitempty" db:"network_interfaces"`
+	Owner             *OCSFUser              `json:"owner,omitempty" db:"owner"`
+	Org               *OCSFOrganization      `json:"org,omitempty" db:"org"`
+	Groups            []OCSFGroup            `json:"groups,omitempty" db:"groups"`
+	AgentList         []OCSFAgent            `json:"agent_list,omitempty" db:"agent_list"`
 
 	// ServiceRadar-specific fields
-	GatewayID         string            `json:"gateway_id,omitempty" db:"gateway_id"`
+	GatewayID        string            `json:"gateway_id,omitempty" db:"gateway_id"`
 	AgentID          string            `json:"agent_id,omitempty" db:"agent_id"`
 	DiscoverySources []string          `json:"discovery_sources,omitempty" db:"discovery_sources"`
 	IsAvailable      *bool             `json:"is_available,omitempty" db:"is_available"`
@@ -194,19 +195,19 @@ type OCSFDeviceOS struct {
 
 // OCSFDeviceHWInfo represents hardware information
 type OCSFDeviceHWInfo struct {
-	CPUArchitecture  string  `json:"cpu_architecture,omitempty"`   // CPU architecture (x86_64, arm64)
-	CPUBits          *int    `json:"cpu_bits,omitempty"`           // CPU bits (32 or 64)
-	CPUCores         *int    `json:"cpu_cores,omitempty"`          // Number of CPU cores
-	CPUCount         *int    `json:"cpu_count,omitempty"`          // Number of physical CPUs
-	CPUSpeedMhz      *int    `json:"cpu_speed_mhz,omitempty"`      // CPU speed in MHz
-	CPUType          string  `json:"cpu_type,omitempty"`           // CPU model name
-	RAMSize          *int64  `json:"ram_size,omitempty"`           // Total RAM in bytes
-	SerialNumber     string  `json:"serial_number,omitempty"`      // Device serial number
-	Chassis          string  `json:"chassis,omitempty"`            // Chassis type
-	BIOSManufacturer string  `json:"bios_manufacturer,omitempty"`  // BIOS manufacturer
-	BIOSVer          string  `json:"bios_ver,omitempty"`           // BIOS version
-	BIOSDate         string  `json:"bios_date,omitempty"`          // BIOS release date
-	UUID             string  `json:"uuid,omitempty"`               // Hardware UUID
+	CPUArchitecture  string `json:"cpu_architecture,omitempty"`  // CPU architecture (x86_64, arm64)
+	CPUBits          *int   `json:"cpu_bits,omitempty"`          // CPU bits (32 or 64)
+	CPUCores         *int   `json:"cpu_cores,omitempty"`         // Number of CPU cores
+	CPUCount         *int   `json:"cpu_count,omitempty"`         // Number of physical CPUs
+	CPUSpeedMhz      *int   `json:"cpu_speed_mhz,omitempty"`     // CPU speed in MHz
+	CPUType          string `json:"cpu_type,omitempty"`          // CPU model name
+	RAMSize          *int64 `json:"ram_size,omitempty"`          // Total RAM in bytes
+	SerialNumber     string `json:"serial_number,omitempty"`     // Device serial number
+	Chassis          string `json:"chassis,omitempty"`           // Chassis type
+	BIOSManufacturer string `json:"bios_manufacturer,omitempty"` // BIOS manufacturer
+	BIOSVer          string `json:"bios_ver,omitempty"`          // BIOS version
+	BIOSDate         string `json:"bios_date,omitempty"`         // BIOS release date
+	UUID             string `json:"uuid,omitempty"`              // Hardware UUID
 }
 
 // OCSFNetworkInterface represents a network interface
@@ -214,10 +215,10 @@ type OCSFNetworkInterface struct {
 	MAC      string `json:"mac,omitempty"`
 	IP       string `json:"ip,omitempty"`
 	Hostname string `json:"hostname,omitempty"`
-	Name     string `json:"name,omitempty"`     // Interface name (eth0, ens192)
-	UID      string `json:"uid,omitempty"`      // Interface unique identifier
-	Type     string `json:"type,omitempty"`     // Interface type name
-	TypeID   *int   `json:"type_id,omitempty"`  // OCSF interface type enum
+	Name     string `json:"name,omitempty"`    // Interface name (eth0, ens192)
+	UID      string `json:"uid,omitempty"`     // Interface unique identifier
+	Type     string `json:"type,omitempty"`    // Interface type name
+	TypeID   *int   `json:"type_id,omitempty"` // OCSF interface type enum
 }
 
 // OCSFUser represents a user or owner
@@ -283,7 +284,7 @@ func (d *OCSFDevice) ToLegacyDevice() *Device {
 	device := &Device{
 		DeviceID:         d.UID,
 		AgentID:          d.AgentID,
-		GatewayID:         d.GatewayID,
+		GatewayID:        d.GatewayID,
 		DiscoverySources: d.DiscoverySources,
 		IP:               d.IP,
 		MAC:              d.MAC,
@@ -342,18 +343,18 @@ func NewOCSFDeviceFromUpdate(update *DeviceUpdate) *OCSFDevice {
 	}
 
 	device := &OCSFDevice{
-		UID:          update.DeviceID,
-		TypeID:       OCSFDeviceTypeUnknown,
-		Type:         "Unknown",
-		IP:           update.IP,
-		CreatedTime:  now,
-		ModifiedTime: now,
-		FirstSeenTime: &now,
-		LastSeenTime:  &now,
-		GatewayID:     update.GatewayID,
-		AgentID:      update.AgentID,
+		UID:              update.DeviceID,
+		TypeID:           OCSFDeviceTypeUnknown,
+		Type:             "Unknown",
+		IP:               update.IP,
+		CreatedTime:      now,
+		ModifiedTime:     now,
+		FirstSeenTime:    &now,
+		LastSeenTime:     &now,
+		GatewayID:        update.GatewayID,
+		AgentID:          update.AgentID,
 		DiscoverySources: []string{string(update.Source)},
-		IsAvailable:  &update.IsAvailable,
+		IsAvailable:      &update.IsAvailable,
 	}
 
 	if update.Hostname != nil {

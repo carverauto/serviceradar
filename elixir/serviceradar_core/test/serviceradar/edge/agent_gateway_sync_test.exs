@@ -600,12 +600,30 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       source_ip = "192.168.70.#{rem(unique_id, 200) + 10}"
       partition = "default"
 
+      assignment_actor = %{
+        id: Ash.UUID.generate(),
+        email: "assignment-#{unique_id}@example.test",
+        role: :operator
+      }
+
+      assert {:ok, _old_agent} =
+               Agent
+               |> Ash.Changeset.for_create(:register, %{uid: old_agent_id},
+                 actor: assignment_actor
+               )
+               |> Ash.create()
+
       :ok =
         AgentGatewaySync.upsert_agent(old_agent_id, %{
           host: source_ip,
           capabilities: ["mapper", "sweep"],
           metadata: %{"partition_id" => partition}
         })
+
+      assert {:ok, %Agent{uid: ^old_agent_id}} =
+               Agent
+               |> Ash.Query.for_read(:by_uid, %{uid: old_agent_id})
+               |> Ash.read_one(actor: assignment_actor)
 
       {:ok, mapper_job} =
         MapperJob
@@ -617,20 +635,58 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
           discovery_type: :full,
           options: %{}
         })
-        |> Ash.create(actor: actor)
+        |> Ash.create(actor: assignment_actor)
 
-      {:ok, sweep_group} =
-        SweepGroup
-        |> Ash.Changeset.for_create(:create, %{
-          name: "stale-agent-sweep-#{unique_id}",
-          partition: partition,
-          agent_id: old_agent_id,
-          target_query: "in:devices",
-          static_targets: [source_ip],
-          ports: [],
-          sweep_modes: ["icmp"]
+      early_other_agent_id = "agent-a-other-#{unique_id}"
+      late_other_agent_id = "agent-z-other-#{unique_id}"
+
+      :ok =
+        AgentGatewaySync.upsert_agent(early_other_agent_id, %{
+          host: "192.168.71.#{rem(unique_id, 200) + 10}",
+          capabilities: ["sweep"],
+          metadata: %{"partition_id" => partition}
         })
-        |> Ash.create(actor: actor)
+
+      :ok =
+        AgentGatewaySync.upsert_agent(late_other_agent_id, %{
+          host: "192.168.72.#{rem(unique_id, 200) + 10}",
+          capabilities: ["sweep"],
+          metadata: %{"partition_id" => partition}
+        })
+
+      {:ok, first_member_group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "stale-agent-first-#{unique_id}",
+            partition: partition,
+            agent_ids: [old_agent_id, late_other_agent_id],
+            target_query: "in:devices",
+            static_targets: [source_ip],
+            ports: [],
+            sweep_modes: ["icmp"]
+          },
+          actor: assignment_actor
+        )
+        |> Ash.create(actor: assignment_actor)
+
+      {:ok, non_first_member_group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "stale-agent-non-first-#{unique_id}",
+            partition: partition,
+            agent_ids: [early_other_agent_id, old_agent_id],
+            target_query: "in:devices",
+            static_targets: [source_ip],
+            ports: [],
+            sweep_modes: ["icmp"]
+          },
+          actor: assignment_actor
+        )
+        |> Ash.create(actor: assignment_actor)
 
       :ok =
         AgentGatewaySync.upsert_agent(replacement_agent_id, %{
@@ -638,6 +694,23 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
           capabilities: ["mapper", "sweep"],
           metadata: %{"partition_id" => partition}
         })
+
+      {:ok, replacement_present_group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "stale-agent-replacement-present-#{unique_id}",
+            partition: partition,
+            agent_ids: [old_agent_id, replacement_agent_id, late_other_agent_id],
+            target_query: "in:devices",
+            static_targets: [source_ip],
+            ports: [],
+            sweep_modes: ["icmp"]
+          },
+          actor: assignment_actor
+        )
+        |> Ash.create(actor: assignment_actor)
 
       assert {:ok, _device_uid} =
                AgentGatewaySync.ensure_device_for_agent(replacement_agent_id, %{
@@ -649,11 +722,31 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
       {:ok, old_agent} = Agent.get_by_uid(old_agent_id, actor: actor)
       {:ok, updated_mapper_job} = Ash.get(MapperJob, mapper_job.id, actor: actor)
-      {:ok, updated_sweep_group} = Ash.get(SweepGroup, sweep_group.id, actor: actor)
+      {:ok, updated_first_member_group} = Ash.get(SweepGroup, first_member_group.id, actor: actor)
+
+      {:ok, updated_non_first_member_group} =
+        Ash.get(SweepGroup, non_first_member_group.id, actor: actor)
+
+      {:ok, updated_replacement_present_group} =
+        Ash.get(SweepGroup, replacement_present_group.id, actor: actor)
 
       assert old_agent.status == :unavailable
       assert updated_mapper_job.agent_id == replacement_agent_id
-      assert updated_sweep_group.agent_id == replacement_agent_id
+      assert updated_first_member_group.agent_ids == [replacement_agent_id, late_other_agent_id]
+
+      assert updated_non_first_member_group.agent_ids == [
+               early_other_agent_id,
+               replacement_agent_id
+             ]
+
+      assert updated_replacement_present_group.agent_ids == [
+               replacement_agent_id,
+               late_other_agent_id
+             ]
+
+      assert updated_first_member_group.agent_id == replacement_agent_id
+      assert updated_non_first_member_group.agent_id == early_other_agent_id
+      assert updated_replacement_present_group.agent_id == replacement_agent_id
     end
   end
 

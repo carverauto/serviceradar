@@ -66,7 +66,7 @@ on:
       - 'elixir/serviceradar_agent_gateway/mix.exs'
       - 'elixir/serviceradar_agent_gateway/mix.lock'
       # Bazel registration and the test helper: a change to either can leave the shard running
-      # nothing while the Mix step below still passes.
+      # nothing, and the shard IS the gate now that the per-file Mix steps are gone.
       - 'elixir/serviceradar_agent_gateway/BUILD.bazel'
       - 'elixir/serviceradar_agent_gateway/test/test_helper.exs'
       - 'elixir/serviceradar_core/BUILD.bazel'
@@ -109,7 +109,7 @@ on:
       - 'elixir/serviceradar_agent_gateway/mix.exs'
       - 'elixir/serviceradar_agent_gateway/mix.lock'
       # Bazel registration and the test helper: a change to either can leave the shard running
-      # nothing while the Mix step below still passes.
+      # nothing, and the shard IS the gate now that the per-file Mix steps are gone.
       - 'elixir/serviceradar_agent_gateway/BUILD.bazel'
       - 'elixir/serviceradar_agent_gateway/test/test_helper.exs'
       - 'elixir/serviceradar_core/BUILD.bazel'
@@ -202,238 +202,49 @@ jobs:
         run: make verify-proto-go
       - name: Elixir binding regeneration drift guard
         run: make verify-proto-elixir
-      - name: Edge ABI golden parity (Go)
-        run: go test ./proto/edge/v1/... ./go/pkg/edge/edgerecord/... ./go/pkg/edge/execstate/... ./go/pkg/edge/projection/...
-      - name: Edge route map (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/stream_route_test.exs
-      - name: Fetch agent-gateway Elixir deps
-        working-directory: elixir/serviceradar_agent_gateway
-        run: mix deps.get
-      - name: Edge publisher header wiring bound to the ABI vectors (Elixir)
-        working-directory: elixir/serviceradar_agent_gateway
-        run: mix test --no-start test/serviceradar_agent_gateway/jet_stream_publisher_test.exs
-      - name: Edge ABI golden parity (Elixir cross-language)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/proto/edge_v1_golden_test.exs
-      # PRs in this series target `usp-01-proposal`, not `staging`. Elixir Quality now covers that
-      # branch too, but it runs format/credo rather than tests -- so the wire-parity proof still
-      # belongs here, in the workflow that has no base-branch filter at all.
-      - name: Edge wire-hygiene parity (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/wire_validate_test.exs
-      - name: Edge enum parity (Elixir semantic validation)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/semantic_validate_test.exs
-      # The Elixir RELATIONAL validator. Its whole purpose is Go parity, so like the
-      # wire/semantic suites above it belongs here: Elixir Quality covers this branch now but
-      # does not run tests at all, and this workflow has no base-branch filter.
-      - name: Edge recovery relational parity (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/recovery_validate_test.exs
-      # The compiled-assignment CARRIER validator, for the same reason: it exists to match Go
-      # on a frozen contract, and a parity suite that no required job runs proves nothing about
-      # what CI accepts. It was written and reported green locally while this job kept running
-      # 142 tests -- the suite was invisible to the gate it was supposed to be gated by.
-      - name: Edge compiled-assignment carrier parity (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/compiled_assignment_validate_test.exs
-      # The SHARED compression corpus: Go's bytes, Elixir's verdict. The two runtimes do not
-      # share a shape -- Go delegates the window and dictionary rules to its decoder while
-      # Elixir enforces them in a preflight -- so agreeing on hand-built bytes is the only
-      # thing that shows the two routes reach one answer.
-      - name: Edge compression shared corpus (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/compression_corpus_test.exs
-      # The COMPRESSION-ADMISSION peer (task 1.5-f). Gated because it is the Elixir half of
-      # a frozen ABI rule: a payload one runtime admits and the other refuses is a wire
-      # divergence, and this suite is where that surfaces.
-      - name: Edge compression admission (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/compression_test.exs
-      # The RECORD-STAGE half of the same rule. The two suites above stop at the frame
-      # validator, which sees a payload and a declared size; the BINDING of encoded_size to
-      # the payload length and the ratio applied to declared sizes live in record
-      # validation, so a divergence there is invisible to both of them.
-      - name: Edge record-admission shared corpus (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/record_admit_corpus_test.exs
-      # The ASN observation corpus (task 1.5-e). Gated for the same reason as the others: it
-      # is the Elixir half of a frozen ABI rule. It pins the DECODED NUMBER rather than a
-      # rejection, because the rule refuses nothing -- and it pins, at the SemanticValidate
-      # stage only, that nothing starts filtering on allocation status. Full-ingress filtering
-      # is downstream (unify-sweep-results-proto 5.1/5.4) and is not covered here.
-      - name: Edge ASN observation corpus (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/asn_corpus_test.exs
-      # The ns->us canonicalization corpus (task 1.5-c). One hand-written table holds both
-      # runtimes to the same containing-bucket mathematics. Gated because the table is the only
-      # thing that can catch a helper being wrong: a manifest generated from the implementation
-      # cannot, and that is precisely the failure that was live in Go until this slice.
-      - name: Edge ns->us canonicalization corpus (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/canonical_micros_corpus_test.exs
-      # The unknown-field / unknown-enum compatibility corpus (task 1.5-a). Gated because it is
-      # the only place the two runtimes meet on the SAME BYTES for these rules: the structural
-      # cases were previously proven by bytes hand-built inside the Elixir suite, which cannot
-      # show that Go reaches the same verdict on them. It also pins the two shapes where the
-      # runtimes reject at DIFFERENT layers, and the retained enum VALUE and FORM -- a decoder
-      # that clamped an unknown enum would still be rejected by the closed sets, so no verdict
-      # assertion anywhere else can see it.
-      - name: Edge unknown-field/enum compatibility corpus (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/wire_compat_corpus_test.exs
-      # The VERSION corpus (tasks 1.5-b, 1.6-a, 1.6-b): one exhaustive Appendix A object
-      # inventory, and for every member the artifact a peer on the NEXT grammar version would
-      # emit. Gated because the inventory guard is what makes "exhaustive" checkable -- a
-      # generator that lost an object regenerates a self-consistent manifest, and only the
-      # hand-written inventory notices. It also asserts the EXACT set of members with no Elixir
-      # consumer -- mtr_completion (task 1.6-c) and the three recovery scope transcripts
-      # (task 1.6-d) -- so those gaps stay visible instead of becoming exemptions.
-      - name: Edge version corpus (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/version_corpus_test.exs
-      # The OPTIONAL-PRESENCE corpus (task 1.5-d): absent versus present-zero for every explicitly
-      # optional scalar. Gated because a DECODE-SIDE coercion is invisible to every digest -- the
-      # bytes and the digests over them stay valid while the decoded meaning is gone -- and
-      # because the meaning is per field: fifteen are measurements, three are required authority
-      # and window statements their consumers refuse when absent. The inventory is
-      # descriptor-derived on both sides, so a new optional field fails this suite until covered.
-      - name: Edge optional-presence corpus (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/presence_corpus_test.exs
-      # The FRAMING-FAMILY corpus (task 1.5-g). Gated because protobuf bytes are not
-      # intrinsically type-tagged: the typed sweep and MTR ingresses decode the payload as a
-      # contract message, so a record declaring SNAPSHOT_PAGE_V1 while carrying a sweep body
-      # would be admitted and AUTHENTICATED with contradictory metadata. The corpus also records
-      # the GENERIC validator's deliberate permissiveness, so making it strict cannot pass as a
-      # fix.
-      - name: Edge framing-family corpus (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/family_corpus_test.exs
-      # PRECEDENCE and TRAVERSAL COST, not verdicts. Both runtimes returned the right answer
-      # before the count ceilings moved ahead of the recursive walk, so an N/N+1 pair passes
-      # either way; only these assertions fail when the ordering is reverted or when the
-      # bounded count regresses to `length/1`. Gated separately because a suite that proves
-      # WHEN a rule runs is worthless if nothing runs it.
-      - name: Edge bounds precedence, bounded traversal and wire shape (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/bounds_precedence_test.exs
-      # The IPv6-ZONE prohibition and the guard bound it puts out of reach. Gated because the
-      # rule is normative, and because the split matters: this runtime's VALIDATOR-level zone
-      # row is a regression pin (its spelling check already refuses a zoned address), while the
-      # SEAM rows pin the frozen ceiling, which no whole-validator row can reach.
-      - name: Edge plan range-string corpus (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/range_string_corpus_test.exs
-      # THE SHARED STRUCTURAL-COUNT CORPUS: three bound-vector pairs across four typed
-      # carriers and eight sites. Gated because a plain N+1 verdict does not prove the RAW
-      # sites -- remove a raw count gate and the decoded gate behind it returns the same
-      # bounds error. In THIS runtime both raw sites are separated by CALL TRACING, so the
-      # module runs async: false; trace patterns are node-global.
-      - name: Edge structural-count corpus (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/count_corpus_test.exs
-      # THE SEMANTIC-ENVELOPE TRANSCRIPT: seven keyed sets over the grammar that every record
-      # digest is computed from. Gated because this is the ONLY place the two implementations
-      # must produce IDENTICAL BYTES for the same committed input WITHIN THIS GRAMMAR -- elsewhere
-      # they are merely internally consistent, which is how a grammar drifts apart runtime by
-      # runtime while every suite stays green.
-      - name: Edge semantic-envelope transcript (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/semantic_envelope_corpus_test.exs
-      # THE STATIC GUARD IS A DEFENSE-IN-DEPTH REGRESSION CHECK on the shape the committed cross
-      # product assumes -- not a proof, and not a completeness argument -- so it has to run
-      # HERE and not only under Bazel: this workflow explicitly does NOT migrate the Bazel graph,
-      # so a step that exists only there is a step this host never runs. Without it a framer could
-      # branch on a payload value, the vectors would still match, and the gate would be green.
-      - name: Edge framing branches only on declared axes (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/semantic_branch_guard_test.exs
-      # THE PROJECTED-COST RELATION: this runtime does not COMPARE these fields -- it digests
-      # them -- so the vectors are Go's and this gate asserts the SHAPE OF THE GAP instead:
-      # every conjunct Go-only, every one owned by 1.5-n, and the inclusivity half of each
-      # at_most relation preserved so a peer built later cannot inherit `>=`.
-      - name: Edge projected-cost relation (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/projected_cost_corpus_test.exs
-      # THE TRANSPORT-PROVENANCE GUARD: one bound, one testable site, and the obligation is the
-      # STAGE rather than the refusal -- an oversize header and a malformed one are both
-      # refused, so only a witness pair malformed IDENTICALLY and differing in length shows
-      # which check ran first. Gated because a reordering that parses before bounding returns
-      # the same verdict.
-      - name: Edge transport-provenance guard (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/provenance_corpus_test.exs
-      # THE SHARED LOWER-BOUND CORPUS: eight sites, zero refused AND one accepted at each,
-      # because a zero refusal alone does not pin a minimum of 1. Gated because its
-      # `*_removal` columns are MEASURED claims about what each local arm is worth -- an arm
-      # that becomes shadowed still passes every verdict row, so only the inventory notices.
-      - name: Edge lower-bound corpus (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/lower_bound_corpus_test.exs
-      # THE SHARED SCALAR / CARRIER CORPUS: FIVE bounds, eight sites. Control count is per site
-      # -- FOUR for a two-sided gate (a frozen minimum of 1 needs BOTH a zero refusal and a
-      # length-1 acceptance, or the minimum is free to move up), at/over plus a stage witness
-      # for the one-sided raw header, six for the kind-conditional abort reason. Gated because
-      # the principal sites share one helper: removing a single carrier's CALL to it is
-      # invisible to a helper-level row and fails exactly one row here.
-      - name: Edge scalar corpus (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/scalar_corpus_test.exs
-      # The STAGE, observed by call tracing rather than by verdict: everything the preflight
-      # refuses is also refused downstream here, so only a trace can show the parser was not
-      # entered. Runs async: false -- trace patterns are node-global.
-      - name: Edge plan range-string stage (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/range_string_stage_test.exs
-      # The ELIXIR-SIDE drift gate for the claims oneof, pinned against GENERATED metadata.
-      # Go pins the same oneof exactly (TestFrozenSchemaInventories, assignment_test.go),
-      # so a proto-side variant addition already fails there; this is the peer that keeps
-      # the Elixir predicate from drifting away from it. Gated because every Elixir gate
-      # asking "is this a claim body?" shares the predicate it guards.
-      - name: Edge capability claim variants (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/capability_claims_test.exs
-      # The sweep BODY ingress stage (task 1.2-c). Gated because its ceiling is the
-      # EXTRACTED-BODY work bound, not the record's physical 512 KiB: a compressed payload
-      # may legitimately expand past that, and a wrong bound here permanently rejects valid
-      # records rather than failing loudly.
-      - name: Edge sweep body decode (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/sweep_batch_decode_test.exs
-      # The benchmark FIXTURE verifier (task 1.17-c). Timing-free, and gated because the
-      # benchmark evidence fails open without it: a fixture that degrades into an early
-      # rejection gets CHEAPER, so it reads as a speedup rather than a broken measurement.
-      # The benchmark itself is NOT gated -- shared-runner milliseconds are too noisy.
-      - name: Edge benchmark fixture verifier (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/sweep_bench_fixture_test.exs
-      # The sweep BODY VALIDATOR (task 1.2-c). Gated because it is the Elixir peer of
-      # ValidateSweepObservationBatch, and a peer no required job runs proves nothing about
-      # what CI accepts. It also carries the per-WIDTH bounds Go gets from its generated
-      # struct: those states are unrepresentable in Go and reachable in Elixir.
-      - name: Edge sweep body validator (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/sweep_body_validate_test.exs
-      # The sweep CORRELATION peer: the Elixir half of the matrix. Gated because the
-      # (label, gate) PAIR is only proven if BOTH runtimes assert it, and a peer no
-      # required job runs proves nothing about what CI accepts.
-      - name: Edge sweep correlation peer (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/sweep_correlate_test.exs
-      # The sweep CORRELATION MATRIX inventory. Gated because an inventory is the only thing
-      # that shows the mapping is TOTAL, INJECTIVE, and free of the two unreachable kinds --
-      # vectors sample, so a vector-only gate cannot establish absence. It also pins the
-      # fifteen portable labels, which is what makes cross-runtime reason parity checkable.
-      - name: Edge sweep correlation matrix inventory (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/sweep_matrix_test.exs
-      # The HOST execution-grant validator, gated for the same reason as the carrier: a parity
-      # suite no required job runs proves nothing about what CI accepts.
-      - name: Edge execution-grant parity (Elixir)
-        working-directory: elixir/serviceradar_core
-        run: mix test --no-start test/serviceradar/edge/execution_grant_validate_test.exs
+      # TESTS MOVED TO BAZEL.
+      #
+      # 33 sequential `mix test --no-start` steps and one `go test` used to live here.
+      #
+      # MEASURED, end to end: 36m29s pre-migration, 9m28s-12m26s after. The removed sequential
+      # block alone accounted for about 22m08s.
+      #
+      # Three wrong numbers were published before this one, in both directions. "20m44s -> 2m22s"
+      # compared an old run against six Bazel targets in isolation rather than this job, and
+      # over-claimed. "12m26s -> 9m28s, about 24%" then treated 12m26s as the pre-migration
+      # baseline when it was already a post-migration observation, and under-claimed by roughly
+      # 24 minutes. The honest figure is the first line.
+      #
+      # SPEED IS THE SMALLER WIN. The larger ones are that these suites now run under Bazel at all
+      # on this branch (cached, parallel, on the workflow fleet), and that a target discovers a new
+      # test file while a hand-maintained list of step names does not.
+      #
+      # Every file the removed steps named is ALREADY a Bazel target:
+      #   31 files -> //elixir/serviceradar_core:unit_tests_serviceradar_edge
+      #    1 file  -> //elixir/serviceradar_core:unit_tests_serviceradar_other
+      #    gateway -> //elixir/serviceradar_agent_gateway:unit_tests_serviceradar_agent_gateway
+      #    Go      -> //proto/edge/v1:edgev1_golden_test and
+      #               //go/pkg/edge/{edgerecord,execstate,projection}:*_test
+      #
+      # The gateway target was omitted from the first version of this inventory even though the
+      # publisher suite was one of the removed steps -- an inventory that misses a target is the
+      # same defect as a list that misses a file.
+      #
+      # They were duplicated here for one reason: BazelCI's `pull_request` trigger was filtered to
+      # `staging`, so NOTHING Bazel ran on PRs into the usp-01-proposal integration branch. That
+      # filter is now `[staging, usp-01-proposal]` in //buildbuddy.yaml, so the real targets run --
+      # cached, parallel, on the workflow fleet -- and cover MORE than the hand-maintained list
+      # did, because a target picks up a new test file automatically while a list does not.
+      #
+      # WHAT STAYS HERE, and why: buf lint and the two codegen drift guards above need the pinned
+      # protoc/Rust toolchain this job installs, and the enum-transform fixture below is a plain
+      # script with no Bazel target. Giving it one is worthwhile follow-up; deleting the step
+      # without one would silently drop the check.
+      #
+      # DISCOVERY: `go test ./...` FOUND test files; a go_test target LISTS them, so dropping the
+      # go step traded a complete run for a silently incomplete one. //build:go_test_inventory_test
+      # closes that: it fails when a *_test.go exists that its package's go_test does not name.
+
       # Fixture test for the post-generation transform itself: proves it is idempotent and
       # fails closed on inventory / generator-version / partial-patch drift.
       - name: Edge enum transform fail-closed fixture

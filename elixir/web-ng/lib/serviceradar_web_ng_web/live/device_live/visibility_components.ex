@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.DeviceLive.IntegrationLogos, only: [wordmark: 1]
   import ServiceRadarWebNGWeb.DeviceLive.ProcessTablePagination, only: [search_bar: 1, paginator: 1]
 
   alias ServiceRadarWebNG.RBAC
@@ -37,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   # ---------------------------------------------------------------------------
 
   attr(:device_row, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def metadata_summary_section(assigns) do
     groups = metadata_summary_groups(assigns.device_row)
@@ -65,8 +67,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
             class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/20 p-3"
           >
             <div class="mb-2 flex items-center gap-2">
-              <.icon name={group.icon} class="size-4 text-sr-muted" />
-              <span class="text-xs font-semibold text-sr-muted">
+              <.wordmark :if={group.logo} name={group.logo} class="h-4 w-auto" />
+              <.icon :if={is_nil(group.logo)} name={group.icon} class="size-4 text-sr-muted" />
+              <span :if={is_nil(group.logo)} class="text-xs font-semibold text-sr-muted">
                 {group.title}
               </span>
             </div>
@@ -79,6 +82,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
                 mono={item.mono}
                 href={Map.get(item, :href)}
                 external_href={Map.get(item, :external_href)}
+                timezone={@timezone}
+                time_id={
+                  "device-metadata-#{visibility_device_key(@device_row)}-#{time_key(group.title)}-#{time_key(item.label)}"
+                }
               />
             </div>
           </div>
@@ -89,10 +96,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   end
 
   attr(:label, :string, required: true)
-  attr(:value, :string, required: true)
+  attr(:value, :any, required: true)
   attr(:mono, :boolean, default: false)
   attr(:href, :string, default: nil)
   attr(:external_href, :string, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
+  attr(:time_id, :string, default: nil)
 
   def metadata_kv(assigns) do
     ~H"""
@@ -105,7 +114,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
           "min-w-0 text-right text-sm font-medium text-sr-brand hover:underline break-words",
           @mono && "font-mono text-xs"
         ]}
-        title={@value}
+        title={format_metadata_value(@value)}
       >
         {@value}
       </.link>
@@ -118,25 +127,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
           "min-w-0 text-right text-sm font-medium text-sr-brand hover:underline break-words",
           @mono && "font-mono text-xs"
         ]}
-        title={@value}
+        title={format_metadata_value(@value)}
       >
         {@value}
       </a>
       <span
-        :if={is_nil(@href) and is_nil(@external_href)}
+        :if={
+          is_nil(@href) and is_nil(@external_href) and
+            not match?(%DateTime{}, @value) and not match?(%NaiveDateTime{}, @value)
+        }
         class={[
           "min-w-0 text-right text-sm font-medium text-sr-ink break-words",
           @mono && "font-mono text-xs"
         ]}
-        title={@value}
+        title={format_metadata_value(@value)}
       >
-        {@value}
+        {format_metadata_value(@value)}
       </span>
+      <.user_time
+        :if={
+          is_nil(@href) and is_nil(@external_href) and
+            (match?(%DateTime{}, @value) or match?(%NaiveDateTime{}, @value))
+        }
+        id={@time_id || "device-metadata-#{time_key(@label)}"}
+        value={@value}
+        timezone={@timezone}
+        style={:compact}
+        class="min-w-0 text-right text-sm font-medium text-sr-ink break-words font-mono text-xs"
+      />
     </div>
     """
   end
 
   attr(:device_row, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def network_visibility_section(assigns) do
     fingerprints = passive_fingerprint_rows(assigns.device_row)
@@ -181,6 +205,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
               label={item.label}
               value={item.value}
               mono={item.mono}
+              timezone={@timezone}
+              time_id={
+                "device-visibility-#{visibility_device_key(@device_row)}-#{time_key(fingerprint.protocol)}-#{time_key(item.label)}"
+              }
             />
           </div>
         </div>
@@ -200,6 +228,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
               label={item.label}
               value={item.value}
               mono={item.mono}
+              timezone={@timezone}
+              time_id={
+                "device-visibility-#{visibility_device_key(@device_row)}-dpi-#{time_key(dpi.protocol)}-#{time_key(item.label)}"
+              }
             />
           </div>
         </div>
@@ -209,6 +241,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   end
 
   attr(:device_row, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def active_fingerprint_tab_content(assigns) do
     summary = active_fingerprint_summary(assigns.device_row)
@@ -239,6 +272,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
             label={item.label}
             value={item.value}
             mono={item.mono}
+            timezone={@timezone}
+            time_id={
+              "device-active-fingerprint-#{visibility_device_key(@device_row)}-summary-#{time_key(item.label)}"
+            }
           />
         </div>
       </div>
@@ -279,7 +316,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
                 <td>{row.version}</td>
                 <td>{row.os}</td>
                 <td class="text-xs">{row.source}</td>
-                <td class="text-xs font-mono">{row.observed_at}</td>
+                <td class="text-xs font-mono">
+                  <.user_time
+                    id={"device-active-fingerprint-#{visibility_device_key(@device_row)}-#{time_key(row.protocol)}-observed-at"}
+                    value={row.observed_at}
+                    timezone={@timezone}
+                    style={:compact}
+                  />
+                </td>
               </tr>
             </tbody>
           </table>
@@ -292,6 +336,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   attr(:device_row, :map, required: true)
   attr(:search, :string, default: "")
   attr(:page, :integer, default: 1)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def process_listeners_tab_content(assigns) do
     snapshot = process_listener_snapshot(assigns.device_row)
@@ -326,9 +371,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
             <span :if={metadata_present?(@snapshot.fingerprint)} class="font-mono">
               {@snapshot.fingerprint}
             </span>
-            <span :if={metadata_present?(@snapshot.observed_at)} class="font-mono">
-              {@snapshot.observed_at}
-            </span>
+            <.user_time
+              :if={metadata_present?(@snapshot.observed_at)}
+              id={"device-process-listeners-#{visibility_device_key(@device_row)}-observed-at"}
+              value={@snapshot.observed_at}
+              timezone={@timezone}
+              style={:compact}
+              class="font-mono"
+            />
           </div>
         </div>
 
@@ -517,8 +567,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
     )
   end
 
-  defp metadata_group(title, icon, items) do
-    %{title: title, icon: icon, items: Enum.reject(items, &is_nil/1)}
+  defp metadata_group(title, icon, items, opts \\ []) do
+    %{
+      title: title,
+      icon: icon,
+      logo: Keyword.get(opts, :logo),
+      items: Enum.reject(items, &is_nil/1)
+    }
   end
 
   defp metadata_vendor_group(title, icon, metadata, items, source_keys) do
@@ -531,19 +586,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   defp proxmox_metadata_group(metadata) when is_map(metadata) do
     if proxmox_metadata_evidence?(metadata) do
-      metadata_group("Proxmox", "hero-cube-transparent", [
-        metadata_item("Candidate", metadata_lookup(metadata, "proxmox_candidate")),
-        metadata_item("Evidence", metadata_lookup(metadata, "proxmox_candidate_evidence")),
-        metadata_item("Service", metadata_lookup(metadata, "proxmox_candidate_service")),
-        metadata_item("Port", metadata_lookup(metadata, "proxmox_candidate_port")),
-        metadata_item("Title", metadata_lookup(metadata, "proxmox_candidate_title"))
-      ])
+      metadata_group(
+        "Proxmox",
+        "hero-cube-transparent",
+        [
+          metadata_item("Candidate", metadata_lookup(metadata, "proxmox_candidate")),
+          metadata_item("Evidence", metadata_lookup(metadata, "proxmox_candidate_evidence")),
+          metadata_item("Service", metadata_lookup(metadata, "proxmox_candidate_service")),
+          metadata_item("Port", metadata_lookup(metadata, "proxmox_candidate_port")),
+          metadata_item("Title", metadata_lookup(metadata, "proxmox_candidate_title"))
+        ],
+        logo: :proxmox
+      )
     else
-      metadata_group("Proxmox", "hero-cube-transparent", [])
+      metadata_group("Proxmox", "hero-cube-transparent", [], logo: :proxmox)
     end
   end
 
-  defp proxmox_metadata_group(_metadata), do: metadata_group("Proxmox", "hero-cube-transparent", [])
+  defp proxmox_metadata_group(_metadata), do: metadata_group("Proxmox", "hero-cube-transparent", [], logo: :proxmox)
 
   defp proxmox_metadata_evidence?(metadata) when is_map(metadata) do
     truthy?(metadata_lookup(metadata, "proxmox_candidate")) or
@@ -566,101 +626,111 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   defp armis_metadata_group(metadata, sources) when is_map(metadata) do
     if integration_provenance?(metadata, sources, "armis", ["armis_device_id", "armis_id"]) do
-      metadata_group("Armis", "hero-shield-check", [
-        metadata_item(
-          "Device ID",
-          metadata_first_value(metadata, ["armis_device_id", "armis_id"]),
-          mono: true,
-          external_href: metadata_lookup(metadata, "armis_device_url")
-        ),
-        metadata_item(
-          "Type",
-          metadata_first_value(metadata, ["armis_type", "device_type", "type"])
-        ),
-        metadata_item(
-          "Category",
-          metadata_first_value(metadata, ["armis_category", "category"])
-        ),
-        metadata_item(
-          "Boundaries",
-          metadata_first_value(metadata, ["armis_boundary_names", "boundary_names"])
-        ),
-        metadata_item("Risk level", metadata_lookup(metadata, "armis_risk_level")),
-        metadata_item(
-          "Risk score",
-          metadata_first_value(metadata, ["armis_risk_score", "risk_score"])
-        ),
-        metadata_item(
-          "Tags",
-          metadata_first_value(metadata, ["armis_tags", "source_tags", "tags"])
-        ),
-        metadata_item(
-          "Visibility",
-          metadata_first_value(metadata, ["armis_visibility", "visibility"])
-        ),
-        metadata_item(
-          "Purdue level",
-          metadata_first_value(metadata, ["armis_purdue_level", "purdue_level"])
-        ),
-        metadata_item(
-          "Serial numbers",
-          metadata_first_value(metadata, [
-            "armis_serial_numbers",
-            "serial_numbers",
-            "serial_number"
-          ])
-        )
-      ])
+      metadata_group(
+        "Armis",
+        "hero-shield-check",
+        [
+          metadata_item(
+            "Device ID",
+            metadata_first_value(metadata, ["armis_device_id", "armis_id"]),
+            mono: true,
+            external_href: metadata_lookup(metadata, "armis_device_url")
+          ),
+          metadata_item(
+            "Type",
+            metadata_first_value(metadata, ["armis_type", "device_type", "type"])
+          ),
+          metadata_item(
+            "Category",
+            metadata_first_value(metadata, ["armis_category", "category"])
+          ),
+          metadata_item(
+            "Boundaries",
+            metadata_first_value(metadata, ["armis_boundary_names", "boundary_names"])
+          ),
+          metadata_item("Risk level", metadata_lookup(metadata, "armis_risk_level")),
+          metadata_item(
+            "Risk score",
+            metadata_first_value(metadata, ["armis_risk_score", "risk_score"])
+          ),
+          metadata_item(
+            "Tags",
+            metadata_first_value(metadata, ["armis_tags", "source_tags", "tags"])
+          ),
+          metadata_item(
+            "Visibility",
+            metadata_first_value(metadata, ["armis_visibility", "visibility"])
+          ),
+          metadata_item(
+            "Purdue level",
+            metadata_first_value(metadata, ["armis_purdue_level", "purdue_level"])
+          ),
+          metadata_item(
+            "Serial numbers",
+            metadata_first_value(metadata, [
+              "armis_serial_numbers",
+              "serial_numbers",
+              "serial_number"
+            ])
+          )
+        ],
+        logo: :armis
+      )
     else
-      metadata_group("Armis", "hero-shield-check", [])
+      metadata_group("Armis", "hero-shield-check", [], logo: :armis)
     end
   end
 
-  defp armis_metadata_group(_metadata, _sources), do: metadata_group("Armis", "hero-shield-check", [])
+  defp armis_metadata_group(_metadata, _sources), do: metadata_group("Armis", "hero-shield-check", [], logo: :armis)
 
   defp netbox_metadata_group(metadata, sources) when is_map(metadata) do
     netbox_keys = ["netbox_device_id", "netbox_id", "netbox_role", "netbox_device_type", "netbox_tags"]
 
     if integration_provenance?(metadata, sources, "netbox", netbox_keys) do
-      metadata_group("NetBox", "hero-server-stack", [
-        metadata_item(
-          "Device ID",
-          metadata_first_value(metadata, ["netbox_device_id", "netbox_id"]),
-          mono: true
-        ),
-        metadata_item(
-          "Site",
-          summarize_json_metadata(metadata_first_value(metadata, ["site", "site_name", "site_slug"]))
-        ),
-        metadata_item(
-          "Tenant",
-          summarize_json_metadata(metadata_first_value(metadata, ["tenant", "tenant_name", "account"]))
-        ),
-        metadata_item(
-          "Role",
-          metadata_first_value(metadata, ["netbox_role", "device_role", "role", "device_role_name"])
-        ),
-        metadata_item("Status", metadata_first_value(metadata, ["status", "device_status"])),
-        metadata_item(
-          "Platform",
-          metadata_first_value(metadata, ["platform", "platform_name"])
-        ),
-        metadata_item(
-          "Rack",
-          summarize_json_metadata(metadata_first_value(metadata, ["rack", "rack_name"]))
-        ),
-        metadata_item(
-          "Location",
-          summarize_json_metadata(metadata_first_value(metadata, ["location", "location_name"]))
-        ),
-        metadata_item("Tags", metadata_first_value(metadata, ["netbox_tags", "tags"]))
-      ])
+      metadata_group(
+        "NetBox",
+        "hero-server-stack",
+        [
+          metadata_item(
+            "Device ID",
+            metadata_first_value(metadata, ["netbox_device_id", "netbox_id"]),
+            mono: true
+          ),
+          metadata_item(
+            "Site",
+            summarize_json_metadata(metadata_first_value(metadata, ["site", "site_name", "site_slug"]))
+          ),
+          metadata_item(
+            "Tenant",
+            summarize_json_metadata(metadata_first_value(metadata, ["tenant", "tenant_name", "account"]))
+          ),
+          metadata_item(
+            "Role",
+            metadata_first_value(metadata, ["netbox_role", "device_role", "role", "device_role_name"])
+          ),
+          metadata_item("Status", metadata_first_value(metadata, ["status", "device_status"])),
+          metadata_item(
+            "Platform",
+            metadata_first_value(metadata, ["platform", "platform_name"])
+          ),
+          metadata_item(
+            "Rack",
+            summarize_json_metadata(metadata_first_value(metadata, ["rack", "rack_name"]))
+          ),
+          metadata_item(
+            "Location",
+            summarize_json_metadata(metadata_first_value(metadata, ["location", "location_name"]))
+          ),
+          metadata_item("Tags", metadata_first_value(metadata, ["netbox_tags", "tags"]))
+        ],
+        logo: :netbox
+      )
     else
-      metadata_group("NetBox", "hero-server-stack", [])
+      metadata_group("NetBox", "hero-server-stack", [], logo: :netbox)
     end
   end
 
-  defp netbox_metadata_group(_metadata, _sources), do: metadata_group("NetBox", "hero-server-stack", [])
+  defp netbox_metadata_group(_metadata, _sources), do: metadata_group("NetBox", "hero-server-stack", [], logo: :netbox)
 
   # Neutral home for generic device descriptors that any discovery source may
   # populate. These are NOT integration provenance, so they never imply Armis /
@@ -777,7 +847,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
     if metadata_present?(value) do
       %{
         label: label,
-        value: format_metadata_value(value),
+        value:
+          if(match?(%DateTime{}, value) or match?(%NaiveDateTime{}, value),
+            do: value,
+            else: format_metadata_value(value)
+          ),
         mono: Keyword.get(opts, :mono, false),
         href: Keyword.get(opts, :href),
         external_href: Keyword.get(opts, :external_href)
@@ -871,8 +945,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
         version: format_metadata_value(version),
         os: active_os_label(os_family, vendor),
         source: format_metadata_value(active_row_source(metadata, payload, protocol)),
-        observed_at:
-          format_metadata_value(metadata_timestamp(active_observed_at(metadata, payload, protocol)) || observed_at)
+        observed_at: metadata_timestamp(active_observed_at(metadata, payload, protocol)) || observed_at
       }
     end
   end
@@ -1185,13 +1258,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   defp process_listener_protocol(_value), do: nil
 
   defp process_listener_observed_at(payload, metadata) do
-    metadata_lookup(payload, "observed_at") ||
-      metadata_lookup(metadata, "local_processes.observed_at") ||
-      process_listener_unix_nano_timestamp(
-        metadata_lookup(payload, "observed_at_unix_nano") ||
-          metadata_lookup(payload, "observedAtUnixNano") ||
-          metadata_lookup(metadata, "local_processes.observed_at_unix_nano")
-      )
+    value =
+      metadata_lookup(payload, "observed_at") ||
+        metadata_lookup(metadata, "local_processes.observed_at") ||
+        process_listener_unix_nano_timestamp(
+          metadata_lookup(payload, "observed_at_unix_nano") ||
+            metadata_lookup(payload, "observedAtUnixNano") ||
+            metadata_lookup(metadata, "local_processes.observed_at_unix_nano")
+        )
+
+    metadata_timestamp(value)
   end
 
   defp process_listener_unix_nano_timestamp(nil), do: nil
@@ -1208,7 +1284,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   defp process_listener_unix_nano_timestamp(value) when is_integer(value) do
     case DateTime.from_unix(value, :nanosecond) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      {:ok, dt} -> dt
       _ -> nil
     end
   end
@@ -1277,9 +1353,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   defp metadata_timestamp(nil), do: nil
 
   defp metadata_timestamp(value) do
-    case format_timestamp(value) do
-      "—" -> value
-      formatted -> formatted
+    case parse_datetime(value) do
+      {:ok, %DateTime{} = datetime} -> datetime
+      _ -> value
     end
   end
 
@@ -1418,15 +1494,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   defp summarize_metadata_value(value), do: value
 
-  defp format_timestamp(nil), do: "—"
-
-  defp format_timestamp(value) do
-    case parse_datetime(value) do
-      {:ok, %DateTime{} = dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> "—"
-    end
-  end
-
   defp parse_datetime(%DateTime{} = dt), do: {:ok, dt}
 
   defp parse_datetime(%NaiveDateTime{} = ndt) do
@@ -1434,8 +1501,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   end
 
   defp parse_datetime(value) when is_binary(value) do
-    DateTime.from_iso8601(value)
+    with {:error, _} <- DateTime.from_iso8601(value),
+         {:ok, naive} <- NaiveDateTime.from_iso8601(value) do
+      {:ok, DateTime.from_naive!(naive, "Etc/UTC")}
+    else
+      {:ok, datetime, _offset} -> {:ok, datetime}
+      {:error, _} -> {:error, :invalid_datetime}
+    end
   end
 
   defp parse_datetime(_), do: {:error, :invalid_datetime}
+
+  defp visibility_device_key(row) do
+    time_key(Map.get(row, "uid") || Map.get(row, "device_uid") || Map.get(row, "id") || "device")
+  end
+
+  defp time_key(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
+  end
 end

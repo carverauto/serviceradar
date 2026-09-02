@@ -1,6 +1,6 @@
 id: proxmox-inventory
 name: Proxmox Inventory
-version: 0.1.6
+version: 0.1.7
 description: Enriches Proxmox PVE hosts and guests using the Proxmox VE REST API
 entrypoint: run_check
 runtime: wasi-preview1
@@ -29,7 +29,7 @@ signal_schemas:
     payload_schema: schemas/ocsf_event_log_activity.schema.json
     display_contract: display/resource_event.display.json
     display_contract_id: com.carverauto.proxmox.resource_event.display
-    display_contract_version: 1.0.0
+    display_contract_version: 1.1.0
     ocsf_schema_version: 1.5.0
     class_uid: 1008
     type_uid: 100801

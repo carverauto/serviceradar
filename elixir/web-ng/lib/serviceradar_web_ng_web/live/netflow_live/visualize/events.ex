@@ -55,6 +55,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Events do
      )}
   end
 
+  def handle_event("srql_reset", params, socket) do
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_reset", params,
+       fallback_path: "/observability/flows",
+       extra_params: srql_submit_extra_params(socket),
+       default_query: "in:flows time:#{@default_time} sort:time:desc"
+     )}
+  end
+
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply,
      SRQLPage.handle_event(socket, "srql_builder_toggle", %{},

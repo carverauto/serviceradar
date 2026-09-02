@@ -6,7 +6,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.CameraMultiview
   alias ServiceRadarWebNGWeb.DashboardLive.Data
+  alias ServiceRadarWebNGWeb.DashboardLive.EventRange
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Page
+  alias ServiceRadarWebNGWeb.ObservabilityPaths
 
   require Logger
 
@@ -127,6 +129,17 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   def render(assigns), do: Page.render(assigns)
 
   @impl true
+  def handle_event("select_events_range", params, socket) do
+    case EventRange.selection(socket.assigns.security_trend, params) do
+      {:ok, {start_time, end_time}} ->
+        target = ObservabilityPaths.events_range_path(start_time, end_time)
+        {:noreply, push_navigate(socket, to: target)}
+
+      :error ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("select_map_view", %{"map_view" => "dashboard:" <> route_slug}, socket) do
     if dashboard_package_route?(socket.assigns.dashboard_package_instances, route_slug) do
       {:noreply, push_navigate(socket, to: ~p"/dashboards/#{route_slug}")}

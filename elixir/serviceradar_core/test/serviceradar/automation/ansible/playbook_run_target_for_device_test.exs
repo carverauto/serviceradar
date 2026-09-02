@@ -23,7 +23,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRunTargetForDeviceTest do
       mix test --include integration \\
         test/serviceradar/automation/ansible/playbook_run_target_for_device_test.exs
   """
-  use ServiceRadar.DataCase, async: false
+  use ServiceRadar.DataCase, async: true
 
   alias Ash.Seed
   alias ServiceRadar.Actors.SystemActor
@@ -38,6 +38,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRunTargetForDeviceTest do
   alias ServiceRadar.Automation.Ansible.PlaybookTask
   alias ServiceRadar.Automation.Ansible.PlaybookTaskResult
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @moduletag :integration
 
@@ -140,7 +141,7 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRunTargetForDeviceTest do
       name: "for-device-test-#{tag}",
       base_url: "https://awx.test.invalid",
       agent_id: "agent-for-device-test",
-      credential_secret_id: Ash.UUID.generate()
+      credential_secret_id: CredentialIntegrationFixtures.secret_id!()
     })
   end
 

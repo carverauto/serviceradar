@@ -5,11 +5,10 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
     if (expanded === true) this.ensureEndpointsLayerForClusterExpand()
     if (!this.state.channel) return
     this.state.pendingClusterFocus =
-      expanded === true
+      expanded === true && !this.state.userCameraLocked
         ? {clusterId: normalized, expanded: true}
         : null
-    this.state.userCameraLocked = false
-    this.state.hasAutoFit = false
+    if (!this.state.userCameraLocked) this.state.hasAutoFit = false
     this.state.channel.push("cluster:set_expanded", {
       cluster_id: normalized,
       expanded: expanded === true,

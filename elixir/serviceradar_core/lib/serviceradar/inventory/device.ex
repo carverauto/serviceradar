@@ -53,6 +53,7 @@ defmodule ServiceRadar.Inventory.Device do
     :name,
     :hostname,
     :ip,
+    :partition,
     :mac,
     :uid_alt,
     :vendor_name,
@@ -205,12 +206,20 @@ defmodule ServiceRadar.Inventory.Device do
     read :by_ip do
       argument :ip, :string, allow_nil?: false
 
+      argument :partition, :string do
+        allow_nil? true
+      end
+
       argument :include_deleted, :boolean do
         allow_nil? true
         default false
       end
 
-      filter expr(ip == ^arg(:ip) and (is_nil(deleted_at) or ^arg(:include_deleted)))
+      filter expr(
+               ip == ^arg(:ip) and (is_nil(deleted_at) or ^arg(:include_deleted)) and
+                 (is_nil(^arg(:partition)) or ^arg(:partition) == "" or
+                    partition == ^arg(:partition))
+             )
     end
 
     read :by_mac do
@@ -309,6 +318,25 @@ defmodule ServiceRadar.Inventory.Device do
 
     update :set_availability_source do
       accept @availability_source_fields
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :merge_metadata do
+      description """
+      Merge a patch into metadata in the database, leaving every key the patch does
+      not name untouched.
+
+      Use this instead of reading metadata, Map.put-ing into it and writing the
+      whole map back: that loses whatever another writer committed in between,
+      silently. See ServiceRadar.Inventory.Changes.MergeDeviceMetadata.
+      """
+
+      accept []
+      require_atomic? true
+
+      argument :metadata_patch, :map, allow_nil?: false
+
+      change ServiceRadar.Inventory.Changes.MergeDeviceMetadata
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
@@ -501,6 +529,13 @@ defmodule ServiceRadar.Inventory.Device do
       description "Primary IP address"
     end
 
+    attribute :partition, :string do
+      allow_nil? false
+      default "default"
+      public? true
+      description "Network partition. The same IP may exist in more than one partition."
+    end
+
     attribute :mac, :string do
       public? true
       description "Primary MAC address"
@@ -540,6 +575,11 @@ defmodule ServiceRadar.Inventory.Device do
     attribute :vlan_uid, :string do
       public? true
       description "VLAN identifier"
+    end
+
+    attribute :switch_port_attachment, :map do
+      public? true
+      description "Canonical access-switch attachment promoted from source facts"
     end
 
     attribute :region, :string do
@@ -723,7 +763,7 @@ defmodule ServiceRadar.Inventory.Device do
     attribute :availability_source_agent_id, :string do
       public? true
 
-      description "Agent whose sweep results drive canonical device availability; nil keeps legacy fallback behavior"
+      description "Agent whose sweep results drive canonical device availability. Required for All-agents sweep groups; nil lets an assigned group's scanner write the bit."
     end
 
     attribute :availability_source_profile_id, :uuid do
@@ -765,6 +805,11 @@ defmodule ServiceRadar.Inventory.Device do
       destination_attribute :device_uid
       public? true
       description "Latest availability reported by each agent for this device"
+    end
+
+    has_many :snmp_facts, ServiceRadar.Inventory.DeviceSNMPFact do
+      source_attribute :uid
+      destination_attribute :device_uid
     end
 
     has_many :risk_contributions, ServiceRadar.Inventory.DeviceRiskContribution do

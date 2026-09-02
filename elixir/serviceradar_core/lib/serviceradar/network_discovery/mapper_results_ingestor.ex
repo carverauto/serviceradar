@@ -10,9 +10,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias Ash.Error.Unknown
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AliasEvents
+  alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.InterfaceMacs
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.InterfaceClassifier
@@ -24,6 +26,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   require Ash.Query
   require Logger
+
+  # Minimum score for a role to be asserted at all; below this the device is
+  # "unknown". Deliberately a compile-time constant rather than config: this is a
+  # heuristic with fleet-wide reach, and a value that can be turned during an
+  # incident would reclassify every device with no review. Note `host` cannot
+  # reach it (its terms total 45) -- see the issue on the role heuristic; that is
+  # currently harmless because no branch distinguishes "host" from "unknown".
+  @role_score_threshold 50
 
   @unifi_interface_metadata_keys ~w(
     unifi_api_urls
@@ -42,6 +52,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     with {:ok, updates} <- decode_payload(message),
          records = build_interface_records(updates),
          resolved_records = resolve_device_ids(records, actor),
+         :ok <- register_interface_macs(resolved_records, actor),
          :ok <- process_mapper_alias_updates(resolved_records, actor) do
       classified_records = InterfaceClassifier.classify_interfaces(resolved_records, actor)
 
@@ -80,6 +91,39 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         Logger.warning("Mapper interface ingestion failed: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  # Record the MACs each device reports on its OWN interfaces, as :interface_mac
+  # identifiers. Corroboration only -- :interface_mac is absent from
+  # Ids.identifier_priority/0, so it never resolves an update or identifies a
+  # device. It exists so AliasGuard can tell "another address of this chassis"
+  # from "different hardware"; see Identity.InterfaceMacs.
+  #
+  # Reuses primary_identity_interface?/1, so loopback, virtual, bridge, tunnel
+  # and VRRP interfaces are excluded here exactly as they are for identity seeding.
+  # InterfaceMacs additionally refuses locally-administered addresses and skips
+  # values already registered, so a poll that discovers nothing new writes
+  # nothing.
+  #
+  # Never fails ingestion: interface evidence is the point of this path, and
+  # corroboration that could not be recorded is worth less than the interfaces
+  # themselves.
+  defp register_interface_macs(records, actor) do
+    records
+    |> Enum.filter(&primary_identity_interface?/1)
+    |> Enum.group_by(& &1.device_id)
+    |> Enum.each(fn {device_id, grouped} ->
+      macs = Enum.map(grouped, & &1.if_phys_address)
+      partition = grouped |> List.first() |> Map.get(:partition)
+
+      InterfaceMacs.register(device_id, macs, partition, actor)
+    end)
+
+    :ok
+  rescue
+    error ->
+      Logger.warning("Interface MAC registration failed: #{inspect(error)}")
+      :ok
   end
 
   @spec ingest_topology(binary() | nil, map()) :: :ok | {:error, term()}
@@ -466,6 +510,29 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   def endpoint_identity_candidate?(_record), do: false
 
+  # Weak L2 pairings (cross-subnet ARP+FDB, observed joins across devices) may
+  # put one host's chassis MAC next to another host's IP. That is topology
+  # evidence, not identity: never register the MAC onto the IP's device.
+  @weak_l2_identity_reasons ~w(cross_subnet_arp_fdb_port_mapping cross_device_arp_fdb_join)
+
+  @doc false
+  def endpoint_ip_mac_bind_allowed?(metadata) when is_map(metadata) do
+    not weak_l2_neighbor_identity?(metadata)
+  end
+
+  def endpoint_ip_mac_bind_allowed?(_), do: true
+
+  @doc false
+  def weak_l2_neighbor_identity?(metadata) when is_map(metadata) do
+    reason =
+      metadata_value(metadata, "topology_last_seen_confidence_reason") ||
+        metadata_value(metadata, "confidence_reason")
+
+    reason in @weak_l2_identity_reasons
+  end
+
+  def weak_l2_neighbor_identity?(_), do: false
+
   @doc false
   def endpoint_identity_confidence_tier(evidence_class) do
     case normalize_topology_evidence_class(evidence_class) do
@@ -544,7 +611,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           {:ok, uid}
 
         is_binary(existing_uid = find_live_device_uid_by_ip(candidate_ip, partition, actor)) and
-            bindable_endpoint_ip_device?(existing_uid, mac, actor) ->
+          bindable_endpoint_ip_device?(existing_uid, mac, actor) and
+            endpoint_ip_mac_bind_allowed?(metadata) ->
           # The sighting's IP already belongs to a live device with no
           # conflicting MAC identity (e.g. an IP-only hypervisor record). DIRE
           # never consults the IP when a strong MAC is present, so bind here
@@ -554,6 +622,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           # or registered identifier), shared-IP evidence (DHCP churn, NAT/VIP
           # reuse) must never merge them, so the guard falls through to the
           # deterministic MAC-seeded mint below.
+          #
+          # Cross-subnet / observed-join FDB is excluded: that evidence can
+          # pair one chassis MAC with another host's IP, which is how a dead
+          # MikroTik CHR absorbed a live vJunos identity.
           register_mapper_mac_identifiers(existing_uid, [mac], candidate_ip, partition, actor)
           {:ok, existing_uid}
 
@@ -928,7 +1000,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     candidate_ips =
       candidate_ips_for_role(role.role, stable_interface_ips, mismatched_device_ips, alias_ips)
 
-    metadata = build_alias_metadata(alias_ips, latest_ts, role, candidate_ips)
+    # Addresses on this device's own interfaces that did NOT become identity
+    # aliases. For a router alias_ips already covers them, so this is empty;
+    # for every other role it is the set that used to be silently dropped (and
+    # before that, minted as phantom devices -- see candidate_ips_for_role/4).
+    interface_ips =
+      stable_interface_ips
+      |> Enum.reject(&(&1 in alias_ips))
+      |> cap_interface_ips(device_id)
+
+    warn_on_large_identity_alias_set(device_id, alias_ips)
+
+    metadata =
+      build_alias_metadata(alias_ips, latest_ts, role, candidate_ips, interface_ips)
 
     %{
       device_id: device_id,
@@ -973,32 +1057,133 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.uniq()
   end
 
-  defp alias_ips_for_role("router", current_ip, stable_interface_ips) do
+  # Upper bound on how many `:interface_ip` rows one device may accumulate.
+  #
+  # Nothing else bounds this: there is no cap in the writer, no constraint in the
+  # schema, no limit on the read action, and the UI renders the rows in an
+  # un-streamed table. A device reporting one address per interface would produce
+  # a row per interface -- the largest switch on farm01 enumerates 239.
+  #
+  # 64 is chosen to sit above real L3 topologies (a core router with per-VLAN
+  # SVIs lands in the dozens) and below pathological ones. These are
+  # observational records, not identity, so dropping the tail costs visibility
+  # rather than correctness -- which is exactly why the cap goes here and not on
+  # `:ip`.
+  @max_interface_ip_aliases 64
+
+  # Above this many IDENTITY aliases on one device, something is probably wrong --
+  # a merge has over-collapsed, or a shared address is being treated as identity.
+  # Deliberately a warning and not a cap: dropping an identity alias would change
+  # which device an address resolves to, which is a correctness change, whereas
+  # too many is a signal worth surfacing rather than silently trimming.
+  @large_identity_alias_warning 32
+
+  @doc """
+  Caps and stably orders the interface addresses recorded for one device.
+
+  Public as a testable seam, like `role_for_metrics/1` and
+  `candidate_ips_for_role/4`: the stability property (same input set always
+  yields the same retained subset) is the part worth pinning, and it is invisible
+  from the outside.
+  """
+  def cap_interface_ips(ips, device_id) do
+    # Sorted before truncating so the retained set is STABLE across runs. An
+    # arbitrary subset would differ run to run, and the aliases would churn --
+    # created, gone stale, recreated -- which is worse than a smaller stable set.
+    sorted = Enum.sort(ips)
+
+    if length(sorted) > @max_interface_ip_aliases do
+      Logger.warning(
+        "Capping interface_ip aliases for #{device_id}: " <>
+          "#{length(sorted)} addresses observed, keeping #{@max_interface_ip_aliases}"
+      )
+
+      Enum.take(sorted, @max_interface_ip_aliases)
+    else
+      sorted
+    end
+  end
+
+  defp warn_on_large_identity_alias_set(device_id, alias_ips) do
+    count = length(alias_ips)
+
+    if count > @large_identity_alias_warning do
+      Logger.warning(
+        "Device #{device_id} has #{count} identity ip aliases, which is unusually many -- " <>
+          "check for an over-merge or a shared address being treated as identity"
+      )
+    end
+
+    :ok
+  end
+
+  @doc """
+  Which addresses become identity (`:ip`) aliases for a mapper-discovered device.
+
+  Public as a testable seam: this is the mapper producer of alias evidence.
+  GitHub #4022 requires this path to be proven independently of `AliasPolicy`
+  and of `AliasEvents.process_and_persist/2`. A test of `valid_alias_ip?/1`
+  alone does not prove the mapper still consults it here.
+  """
+  def alias_ips_for_role(role, current_ip, stable_interface_ips),
+    do: do_alias_ips_for_role(role, current_ip, stable_interface_ips)
+
+  defp do_alias_ips_for_role("router", current_ip, stable_interface_ips) do
     [current_ip | stable_interface_ips]
     |> Enum.filter(&valid_alias_ip?/1)
     |> Enum.uniq()
   end
 
-  defp alias_ips_for_role(_role, current_ip, _stable_interface_ips) do
+  defp do_alias_ips_for_role(_role, current_ip, _stable_interface_ips) do
     if valid_alias_ip?(current_ip), do: [current_ip], else: []
   end
 
-  defp candidate_ips_for_role(
+  @doc """
+  Which addresses seen alongside a device should be seeded as separate devices.
+
+  Public as a testable seam: the distinction between a device's own interface
+  addresses and genuinely different neighbours is the whole correctness question
+  here, and getting it wrong mints duplicate device records.
+  """
+  def candidate_ips_for_role(role, stable_interface_ips, mismatched_device_ips, alias_ips),
+    do: do_candidate_ips_for_role(role, stable_interface_ips, mismatched_device_ips, alias_ips)
+
+  defp do_candidate_ips_for_role(
          "router",
          _stable_interface_ips,
          _mismatched_device_ips,
          _alias_ips
        ), do: []
 
-  defp candidate_ips_for_role(_role, stable_interface_ips, mismatched_device_ips, alias_ips) do
-    (stable_interface_ips ++ mismatched_device_ips)
+  # `stable_interface_ips` are addresses on THIS device's own interfaces
+  # (grouped_stable_interface_ips/2 filters to records whose device_ip is the
+  # device being processed). They are never candidates for a SEPARATE device,
+  # whatever the role: a device cannot be its own neighbour.
+  #
+  # They used to be included here, and the router clause above was the only thing
+  # preventing the consequence. For any other role the device's own addresses
+  # fell through to create_candidate_devices/4, and because non-routers receive
+  # no interface-derived aliases there was no alias to suppress them either --
+  # so ensure_candidate_device/4 found no device and no alias at that address and
+  # minted a phantom.
+  #
+  # Observed on farm01: switch `switchcff8f2` (sr:f3f0e473, 192.168.2.55) reports
+  # its out-of-band management address 192.168.1.143 on an `oob` interface, and
+  # that address became sr:eab6cd98 -- a second device record with no hostname
+  # and no MAC, tagged identity_source=mapper_client_ip_candidate_seed. One
+  # physical switch, two records.
+  #
+  # `mismatched_device_ips` stay: those are other device_ips seen in the same
+  # group, i.e. genuinely different devices, which is what this seeding is for.
+  defp do_candidate_ips_for_role(_role, _stable_interface_ips, mismatched_device_ips, alias_ips) do
+    mismatched_device_ips
     |> Enum.reject(&(&1 in alias_ips))
     |> Enum.uniq()
   end
 
-  defp build_alias_metadata([], _timestamp, _role, _candidate_ips), do: %{}
+  defp build_alias_metadata([], _timestamp, _role, _candidate_ips, _interface_ips), do: %{}
 
-  defp build_alias_metadata(alias_ips, timestamp, role, candidate_ips) do
+  defp build_alias_metadata(alias_ips, timestamp, role, candidate_ips, interface_ips) do
     ts_string =
       timestamp
       |> DateTime.truncate(:second)
@@ -1007,6 +1192,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     alias_ips
     |> Enum.reduce(%{}, fn ip, acc ->
       Map.put(acc, "ip_alias:#{ip}", ts_string)
+    end)
+    # A DIFFERENT key prefix, producing a DIFFERENT alias_type. These addresses
+    # are recorded so they are attributable to the device rather than orphaned,
+    # but `:interface_ip` is not consulted by any identity reader, so they cannot
+    # merge devices. Interface tables carry addresses that several devices
+    # legitimately share -- VRRP/HSRP virtual IPs, EVPN anycast gateways, cluster
+    # VIPs, Junos internals like 10.0.0.4 -- and merge_audit already holds 212
+    # alias-driven merges, so routing these to `ip_alias:` would be feeding a
+    # mechanism with a demonstrated failure mode.
+    |> then(fn acc ->
+      Enum.reduce(interface_ips, acc, fn ip, inner ->
+        Map.put(inner, "interface_ip_alias:#{ip}", ts_string)
+      end)
     end)
     |> Map.put("_alias_last_seen_at", ts_string)
     |> Map.put("_alias_last_seen_ip", List.first(alias_ips))
@@ -1029,12 +1227,25 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp infer_device_role(grouped, current_ip) do
-    metrics = device_role_metrics(grouped, current_ip)
+    grouped
+    |> device_role_metrics(current_ip)
+    |> role_for_metrics()
+  end
 
+  @doc """
+  Scores the role candidates for an already-computed metrics map.
+
+  Public as a testable seam: `infer_device_role/2` needs a set of interface
+  records to derive metrics from, which makes the scoring rules themselves
+  awkward to pin down. The rules are a cliff-edged heuristic where the
+  interesting behaviour lives at exact boundaries, so they are worth asserting
+  directly rather than through fixtures.
+  """
+  def role_for_metrics(metrics) do
     {best_role, best_score} =
       Enum.max_by(role_candidates(metrics), fn {_role, score} -> score end)
 
-    if best_score < 50 do
+    if best_score < @role_score_threshold do
       %{role: "unknown", confidence: best_score, source: "mapper_role_heuristic_v1"}
     else
       %{role: best_role, confidence: best_score, source: "mapper_role_heuristic_v1"}
@@ -1111,16 +1322,55 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp switch_l2_role_score(metrics) do
     0
-    |> add_score(metrics.stable_l3_alias_count == 0, 35)
+    # Requires L2 EVIDENCE, not merely the absence of L3. Without the
+    # physical_like_count guard this term plus device_ip_count == 1 reached 55 on
+    # its own, so any single-homed device with no aliases scored switch_l2 with
+    # nothing switch-like about it: demo classified a 2-interface MikroTik --
+    # whose own SNMP type is "Router" -- as switch_l2@55.
+    |> add_score(metrics.stable_l3_alias_count == 0 and metrics.physical_like_count >= 8, 35)
+    # A switch with strong L2 evidence keeps its role when it picks up one or
+    # two L3 aliases -- an out-of-band management address, or a global IPv6 now
+    # that ipAddressTable is walked. Without this the 35 above is all-or-nothing:
+    # a single alias dropped a switch from 75 to 40, below the threshold, and the
+    # best alternative (host, 45) is also below it, so the device landed on
+    # "unknown" until the count reached 3 and router took over. The dead zone was
+    # two counts wide.
+    #
+    # Deliberately +25, not +35: at +35 the term clears the threshold without
+    # `device_ip_count == 1`, which would also promote devices seen under several
+    # device_ips -- exactly the split-record shape, where the right fix is
+    # identity merging rather than a role that hides it. 65 also reads honestly
+    # as less confident than the 75 a zero-alias switch earns.
+    #
+    # The two alias terms are disjoint only by their literal bounds (== 0 versus
+    # 1..2). Widening either without narrowing the other makes both fire and
+    # scores a zero-alias switch BELOW today's 75. Keep them disjoint.
+    |> add_score(
+      metrics.stable_l3_alias_count in 1..2 and metrics.physical_like_count >= 8 and
+        metrics.wireless_like_count == 0,
+      25
+    )
     |> add_score(metrics.device_ip_count == 1, 20)
     |> add_score(metrics.physical_like_count >= 8, 20)
   end
 
+  # Reachable as of this change. The terms previously totalled 20+15+10 = 45
+  # against a threshold of 50, so no input could produce the role and a genuine
+  # single-homed host scored "unknown" -- or worse, switch_l2, once that term is
+  # understood (see above). Being NOT port-dense is positive evidence for a host,
+  # so it is scored rather than merely not penalised.
+  #
+  # Modelled over the realistic parameter space before changing: 100 of 1215
+  # cells move, as 30 unknown -> host, 20 switch_l2 -> host, and 50 confidence
+  # adjustments within "unknown". NO device loses a role to unknown, real
+  # switches are untouched, and the alias 1..2 case from the switch dead-zone fix
+  # is preserved.
   defp host_role_score(metrics) do
     0
-    |> add_score(metrics.stable_l3_alias_count <= 1, 20)
-    |> add_score(metrics.device_ip_count == 1, 15)
+    |> add_score(metrics.stable_l3_alias_count <= 1, 25)
+    |> add_score(metrics.device_ip_count == 1, 20)
     |> add_score(metrics.bridge_like_count == 0, 10)
+    |> add_score(metrics.physical_like_count < 8, 10)
   end
 
   defp add_score(score, true, add), do: score + add
@@ -1137,11 +1387,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           "device_role_source" => role.source
         }
 
-        merged = Map.merge(metadata, role_metadata)
-
-        if merged != metadata do
+        # The comparison still uses the freshly read map -- it is only deciding
+        # whether there is anything to write. The WRITE sends the role keys alone
+        # and merges them in the database, so a concurrent writer's keys are not
+        # carried back from this read.
+        if Map.merge(metadata, role_metadata) != metadata do
           device
-          |> Ash.Changeset.for_update(:update, %{metadata: merged})
+          |> Ash.Changeset.for_update(:merge_metadata, %{metadata_patch: role_metadata})
           |> Ash.update(actor: actor)
         end
 
@@ -1165,7 +1417,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end)
   end
 
+  @doc """
+  Whether an address may be seeded as a candidate device.
+
+  Public as a testable seam. The rule is the same one aliases use: an address
+  every device has (loopback, link-local, unspecified) identifies nothing, so a
+  device record at that address describes nothing.
+  """
+  def candidate_device_address?(ip), do: AliasPolicy.valid_alias_ip?(ip)
+
   defp ensure_candidate_device(ip, partition, source_device_id, actor) do
+    if candidate_device_address?(ip) do
+      do_ensure_candidate_device(ip, partition, source_device_id, actor)
+    else
+      # Never mint a device for an address that cannot identify one. AliasPolicy
+      # rejects loopback, unspecified, and link-local (fe80::/10, 169.254/16) --
+      # every device has those, so a device record "at" one of them describes
+      # nothing.
+      #
+      # Observed: 169.254.0.1, an APIPA address reported on switchcff8f2's own
+      # interface, became device sr:b53d5a38 with no hostname and no MAC. Worse,
+      # it was self-sustaining -- once the record existed, sweep picked it up as
+      # a target (the record carries sweep_consecutive_failures) and revived it
+      # through the undelete path, clearing the deleted_reason. Deleting it by
+      # hand was not enough while something kept re-creating it.
+      Logger.debug("Skipping candidate device for unroutable address #{ip}")
+      :ok
+    end
+  end
+
+  defp do_ensure_candidate_device(ip, partition, source_device_id, actor) do
     existing = lookup_device_uids_by_ip([ip])
 
     if Map.has_key?(existing, ip) do
@@ -1221,19 +1502,14 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp valid_alias_ip?(nil), do: false
-  defp valid_alias_ip?(""), do: false
-  defp valid_alias_ip?("0.0.0.0"), do: false
-  defp valid_alias_ip?("::"), do: false
-  defp valid_alias_ip?("::1"), do: false
+  @doc """
+  Whether an address may be recorded as a device alias.
 
-  defp valid_alias_ip?(ip) when is_binary(ip) do
-    case :inet.parse_address(to_charlist(ip)) do
-      {:ok, {127, _, _, _}} -> false
-      {:ok, _} -> true
-      _ -> false
-    end
-  end
+  Delegates to `ServiceRadar.Identity.AliasPolicy`, which is shared with the
+  AliasEvents producer so both enforce one rule. Kept public because tests and
+  callers in this module reference it directly.
+  """
+  defdelegate valid_alias_ip?(value), to: AliasPolicy
 
   # Resolve device_ids from device_ip addresses by looking up existing devices.
   # The agent sends device_id as "partition:ip" but Device.uid is "sr:<uuid>".
@@ -1466,7 +1742,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       :ok
   end
 
-  defp find_device_uid_by_alias(device_ip, partition, actor) do
+  @doc false
+  def find_device_uid_by_alias(device_ip, partition, actor) do
+    if AliasPolicy.valid_alias_ip?(device_ip) do
+      do_find_device_uid_by_alias(device_ip, partition, actor)
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp do_find_device_uid_by_alias(device_ip, partition, actor) do
     case DeviceAliasState.lookup_by_value(:ip, device_ip, actor: actor) do
       {:ok, aliases} ->
         aliases
@@ -1531,10 +1816,15 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     {state_rank, sighting_count, last_seen_unix}
   end
 
-  defp maybe_reactivate_alias(%DeviceAliasState{state: :stale} = alias_state, actor) do
-    alias_state
-    |> Ash.Changeset.for_update(:reactivate, %{})
-    |> Ash.update(actor: actor)
+  defp maybe_reactivate_alias(
+         %DeviceAliasState{state: :stale, alias_value: value} = alias_state,
+         actor
+       ) do
+    if AliasPolicy.valid_alias_ip?(value) do
+      alias_state
+      |> Ash.Changeset.for_update(:reactivate, %{})
+      |> Ash.update(actor: actor)
+    end
 
     :ok
   rescue
@@ -1619,9 +1909,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   # Deterministically ordered MAC evidence for a polled device: physical and
-  # aggregate interfaces only (loopback/virtual/bridge/tunnel interfaces are
-  # not identity evidence). The sorted-first entry is the primary identity
-  # seed, matching the historical deterministic-uid derivation.
+  # aggregate interfaces only (loopback/virtual/bridge/tunnel and VRRP
+  # interfaces are not identity evidence). The sorted-first entry is the primary
+  # identity seed, matching the historical deterministic-uid derivation.
   defp derive_identity_macs(device_ip, records) do
     records
     |> Enum.filter(&(&1.device_ip == device_ip))
@@ -1633,14 +1923,28 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp primary_identity_interface?(record) do
-    case String.downcase(to_string(record.interface_kind || "")) do
-      "loopback" -> false
-      "virtual" -> false
-      "bridge" -> false
-      "tunnel" -> false
-      _ -> true
-    end
+    not vrrp_interface?(record) and
+      case String.downcase(to_string(record.interface_kind || "")) do
+        "loopback" -> false
+        "virtual" -> false
+        "bridge" -> false
+        "tunnel" -> false
+        _ -> true
+      end
   end
+
+  defp vrrp_interface?(record) do
+    Enum.any?([record.if_name, record.if_descr], &vrrp_interface_label?/1)
+  end
+
+  defp vrrp_interface_label?(label) when is_binary(label) do
+    label
+    |> String.trim()
+    |> String.downcase()
+    |> String.starts_with?("vrrp")
+  end
+
+  defp vrrp_interface_label?(_label), do: false
 
   defp normalize_mac(nil), do: nil
   defp normalize_mac(mac), do: IdentityReconciler.normalize_mac(mac)
@@ -2306,7 +2610,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           record.neighbor_mgmt_addr,
           record.neighbor_system_name,
           record.neighbor_chassis_id,
-          device_index
+          device_index,
+          record
         )
 
       resolved_local_uid =
@@ -2329,20 +2634,50 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp resolve_topology_uid(candidate_uid, candidate_ip, candidate_name, candidate_chassis, index) do
+  defp resolve_topology_uid(
+         candidate_uid,
+         candidate_ip,
+         candidate_name,
+         candidate_chassis,
+         index,
+         record \\ nil
+       ) do
     uid = normalize_string(candidate_uid)
+    chassis = normalize_mac(candidate_chassis)
+    mac_uid = resolve_topology_uid_match(index.mac_to_uid, chassis)
+    ip_uid = resolve_topology_uid_match(index.ip_to_uid, normalize_string(candidate_ip))
 
     Enum.find(
       [
         resolve_topology_uid_match(index.uid_to_uid, uid),
         canonical_topology_uid_or_nil(uid),
-        resolve_topology_uid_match(index.ip_to_uid, normalize_string(candidate_ip)),
-        resolve_topology_uid_match(index.mac_to_uid, normalize_mac(candidate_chassis)),
+        neighbor_mac_or_ip_uid(chassis, mac_uid, ip_uid, record),
         resolve_topology_name_match(candidate_name, index)
       ],
       &is_binary/1
     )
   end
+
+  # Chassis MAC is L2 identity. When it names a different device than the
+  # neighbor IP, the IP is hearsay (stale ARP, cross-subnet FDB) and must not
+  # win. When the MAC is unknown, weak L2 evidence also must not fall back to
+  # IP — that fallback is what drew a farm switch to a dead MikroTik.
+  defp neighbor_mac_or_ip_uid(chassis, mac_uid, ip_uid, record) do
+    cond do
+      is_binary(mac_uid) ->
+        mac_uid
+
+      is_binary(chassis) and weak_l2_neighbor_identity?(topology_record_metadata(record)) ->
+        nil
+
+      true ->
+        ip_uid
+    end
+  end
+
+  defp topology_record_metadata(%{metadata: metadata}) when is_map(metadata), do: metadata
+  defp topology_record_metadata(%{"metadata" => metadata}) when is_map(metadata), do: metadata
+  defp topology_record_metadata(_), do: %{}
 
   defp resolve_topology_uid_match(_index_map, nil), do: nil
 
@@ -3579,10 +3914,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     filtered = Enum.reject(records, &missing_interface_identity?/1)
     log_filtered_interfaces(records, filtered)
 
-    deduped =
-      filtered
-      |> Enum.uniq_by(&interface_identity_key/1)
-      |> dedupe_by_interface()
+    deduped = dedupe_by_interface(filtered)
 
     log_deduped_interfaces(filtered, deduped)
 
@@ -3593,7 +3925,43 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
        stop_on_error?: false,
        upsert?: true,
        upsert_identity: :unique_interface,
-       upsert_fields: []
+       # Enumerated, and deliberately NOT shared with the sync writer.
+       #
+       # An empty list becomes `DO UPDATE SET <key> = EXCLUDED.<key>` and
+       # freezes every column at its first-observed value. A writer must list
+       # ONLY the fields it actually sets. `inventory/sync/` does not set
+       # if_index, if_speed, speed_bps, if_admin_status, if_oper_status,
+       # if_type, mtu, duplex or available_metrics; if it shared this list it
+       # would write NULL over the mapper's operational data on every sync run.
+       #
+       # :created_at is excluded on purpose -- first observation, not latest.
+       upsert_fields: [
+         :timestamp,
+         :agent_id,
+         :gateway_id,
+         :partition,
+         :device_ip,
+         :if_index,
+         :if_name,
+         :if_descr,
+         :if_alias,
+         :if_speed,
+         :speed_bps,
+         :if_phys_address,
+         :ip_addresses,
+         :if_admin_status,
+         :if_oper_status,
+         :if_type,
+         :if_type_name,
+         :interface_kind,
+         :classifications,
+         :classification_meta,
+         :classification_source,
+         :mtu,
+         :duplex,
+         :metadata,
+         :available_metrics
+       ]
      ]}
   end
 
@@ -3846,8 +4214,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp bulk_error_message(error), do: inspect(error)
 
   defp missing_interface_identity?(record) do
-    key = interface_identity_key(record)
-    elem(key, 0) == nil or elem(key, 1) == nil or elem(key, 2) == nil
+    is_nil(get_record_value(record, :device_id, "device_id")) or
+      is_nil(get_record_value(record, :interface_uid, "interface_uid"))
   end
 
   defp log_filtered_interfaces(records, filtered) do
@@ -3887,16 +4255,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp timescaledb_pkey_violation?(_), do: false
-
-  defp interface_identity_key(record) when is_map(record) do
-    {
-      get_record_value(record, :timestamp, "timestamp"),
-      get_record_value(record, :device_id, "device_id"),
-      get_record_value(record, :interface_uid, "interface_uid")
-    }
-  end
-
-  defp interface_identity_key(_record), do: {nil, nil, nil}
 
   defp get_record_value(record, atom_key, string_key) when is_map(record) do
     Map.get(record, atom_key) || Map.get(record, string_key)

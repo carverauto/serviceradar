@@ -32,9 +32,75 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
       })
 
     assert html =~ "stroke-dasharray=\"3 4\""
-    assert html =~ "12:00 AM"
+    assert html =~ ~s(data-timezone="Etc/UTC")
+    assert html =~ ~s(data-time-axis-iso="2025-01-01T00:00:00Z")
     assert html =~ "<text x=\"62\""
     refute html =~ "<text x=\"4\""
+  end
+
+  test "carries explicit panel timezone and canonical instants to chart labels" do
+    html =
+      render_component(Timeseries, %{
+        id: "ts-timezone",
+        title: "Traffic",
+        panel_assigns: %{
+          chart_mode: :single,
+          rate_mode: :none,
+          timezone: "America/Chicago"
+        },
+        series_points: [
+          {"ifInOctets",
+           [
+             {~U[2026-08-30 18:00:00Z], 1.0},
+             {~U[2026-08-30 18:05:00Z], 2.0}
+           ]}
+        ]
+      })
+
+    document = LazyHTML.from_fragment(html)
+
+    assert LazyHTML.attribute(LazyHTML.query(document, "#panel-ts-timezone"), "data-timezone") == [
+             "America/Chicago"
+           ]
+
+    assert LazyHTML.attribute(LazyHTML.query(document, "[data-time-axis-iso]"), "data-time-axis-iso") ==
+             ["2026-08-30T18:00:00Z", "2026-08-30T18:05:00Z"]
+
+    assert LazyHTML.attribute(LazyHTML.query(document, "time"), "data-user-time-zone") ==
+             ["America/Chicago", "America/Chicago", "America/Chicago", "America/Chicago"]
+  end
+
+  test "series endpoint time IDs remain attached to series identity after reordering" do
+    render_ids = fn series_points ->
+      Timeseries
+      |> render_component(%{
+        id: "ts-stable-series-time-ids",
+        title: "Traffic",
+        panel_assigns: %{chart_mode: :single, rate_mode: :none},
+        series_points: series_points
+      })
+      |> LazyHTML.from_fragment()
+      |> LazyHTML.query("time[id^='timeseries-ts-stable-series-time-ids-series-']")
+      |> LazyHTML.attribute("id")
+      |> Enum.sort()
+    end
+
+    points = [
+      {~U[2026-08-30 18:00:00Z], 1.0},
+      {~U[2026-08-30 18:05:00Z], 2.0}
+    ]
+
+    series = [{"cpu.user", points}, {"cpu-user", points}]
+
+    assert render_ids.(series) == render_ids.(Enum.reverse(series))
+    assert series |> render_ids.() |> Enum.uniq() |> length() == 4
+
+    assert render_ids.(series) == [
+             "timeseries-ts-stable-series-time-ids-series-e-Y3B1LnVzZXI-first-time",
+             "timeseries-ts-stable-series-time-ids-series-e-Y3B1LnVzZXI-last-time",
+             "timeseries-ts-stable-series-time-ids-series-s-cpu-user-first-time",
+             "timeseries-ts-stable-series-time-ids-series-s-cpu-user-last-time"
+           ]
   end
 
   test "renders timestamp annotations as SVG markers" do
@@ -196,10 +262,10 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesComponentTest do
     assert html =~ "x1=\"420.0\""
     assert html =~ "cpu1"
     refute html =~ "cpu0"
-    assert html =~ "12:09 AM"
-    assert html =~ "12:11 AM"
-    refute html =~ "12:00 AM"
-    refute html =~ "12:20 AM"
+    assert html =~ ~s(data-time-axis-iso="2025-01-01T00:09:00Z")
+    assert html =~ ~s(data-time-axis-iso="2025-01-01T00:11:00Z")
+    refute html =~ ~s(data-time-axis-iso="2025-01-01T00:00:00Z")
+    refute html =~ ~s(data-time-axis-iso="2025-01-01T00:20:00Z")
   end
 
   test "clamps out-of-window finding focus markers to the chart edge" do

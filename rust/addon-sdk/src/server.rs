@@ -242,6 +242,7 @@ impl AddonService for AddonGrpc {
             status: health.status.to_proto() as i32,
             version: health.version,
             degradation_reason: health.degradation_reason,
+            details: health.details.into_iter().collect(),
         }))
     }
 

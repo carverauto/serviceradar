@@ -51,8 +51,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
     MATCH (a:Interface)-[r:CONNECTS_TO]->(:Interface)
     WHERE a.device_id IN [#{escaped_ids}]
       AND r.ingestor = 'mapper_topology_v1'
-      AND r.last_observed_at IS NOT NULL
-      AND r.last_observed_at < '#{Graph.escape(stale_cutoff)}'
+      AND (
+        coalesce(r.last_observed_at, r.observed_at) IS NULL
+        OR coalesce(r.last_observed_at, r.observed_at) < '#{Graph.escape(stale_cutoff)}'
+      )
     DELETE r
     """
 
@@ -121,7 +123,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning do
     Application.get_env(
       :serviceradar_core,
       :mapper_topology_prune_stale_projected_links_enabled,
-      false
-    ) == true
+      true
+    ) != false
   end
 end

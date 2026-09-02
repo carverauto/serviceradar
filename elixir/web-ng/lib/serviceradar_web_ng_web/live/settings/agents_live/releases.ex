@@ -743,7 +743,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                                   </div>
                                 </td>
                                 <td class="font-mono text-xs">
-                                  {format_datetime(release.published_at)}
+                                  <.user_time
+                                    id={
+                                      "settings-agent-repository-release-#{dom_id_fragment(release.tag)}-published-at"
+                                    }
+                                    value={release.published_at}
+                                    timezone={@current_scope.user.timezone || "Etc/UTC"}
+                                    style={:compact}
+                                    fallback="—"
+                                  />
                                 </td>
                                 <td class="text-xs">
                                   <div class="flex flex-wrap gap-1">
@@ -1110,7 +1118,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                           </div>
                         </td>
                         <td class="font-mono text-xs">
-                          {format_datetime(release.published_at || release.inserted_at)}
+                          <.user_time
+                            id={"settings-agent-release-#{release.id}-published-at"}
+                            value={release.published_at || release.inserted_at}
+                            timezone={@current_scope.user.timezone || "Etc/UTC"}
+                            style={:compact}
+                            fallback="—"
+                          />
                         </td>
                         <td class="text-xs">
                           <div class="flex flex-col gap-2">
@@ -1194,9 +1208,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                           </div>
                         </td>
                         <td class="font-mono text-xs">
-                          {format_datetime(
-                            rollout.last_dispatch_at || rollout.updated_at || rollout.inserted_at
-                          )}
+                          <.user_time
+                            id={"settings-agent-rollout-#{rollout.id}-last-dispatch-at"}
+                            value={
+                              rollout.last_dispatch_at || rollout.updated_at || rollout.inserted_at
+                            }
+                            timezone={@current_scope.user.timezone || "Etc/UTC"}
+                            style={:compact}
+                            fallback="—"
+                          />
                         </td>
                         <td>
                           <div class="flex flex-wrap gap-2">
@@ -1267,6 +1287,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
             summary={selected_summary}
             display_status={rollout_display_status(selected_rollout, selected_summary)}
             targets={Map.get(@rollout_targets, selected_rollout.id, [])}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
         <% end %>
       </Shell.settings_chrome>
@@ -1379,6 +1400,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   attr(:summary, :map, required: true)
   attr(:display_status, :atom, required: true)
   attr(:targets, :list, required: true)
+  attr(:timezone, :string, required: true)
 
   defp rollout_details_modal(assigns) do
     ~H"""
@@ -1474,7 +1496,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                         </div>
                       </td>
                       <td><.target_status_badge status={target.status} /></td>
-                      <td class="text-xs text-sr-muted">{target_progress_summary(target)}</td>
+                      <td class="text-xs text-sr-muted">
+                        <span :if={target_progress_text(target) not in [nil, ""]}>
+                          {target_progress_text(target)} ·
+                        </span>
+                        <.user_time
+                          id={"settings-agent-rollout-target-#{target.id}-updated-at"}
+                          value={target.updated_at || target.inserted_at}
+                          timezone={@timezone}
+                          style={:compact}
+                          fallback="—"
+                        />
+                      </td>
                       <td class="max-w-sm text-xs">
                         <div :if={platform_mismatch_error?(target.last_error)} class="mb-1">
                           <.ui_badge variant="error" size="xs">Unsupported Platform</.ui_badge>
@@ -2113,11 +2146,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   defp rollout_progress_badge_meta(:rolled_back, count), do: {"#{count} rolled back", "error"}
   defp rollout_progress_badge_meta(:canceled, count), do: {"#{count} canceled", "ghost"}
 
-  defp target_progress_summary(target) do
+  defp target_progress_text(target) do
     [
       target.progress_percent && "#{target.progress_percent}%",
-      present_text(target.last_status_message),
-      format_datetime(target.updated_at || target.inserted_at)
+      present_text(target.last_status_message)
     ]
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join(" · ")
@@ -2127,10 +2159,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   defp rollout_version(%{release: %{version: version}}) when is_binary(version), do: version
   defp rollout_version(_rollout), do: "—"
-
-  defp format_datetime(nil), do: "—"
-  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-  defp format_datetime(other), do: to_string(other)
 
   defp format_error(%{errors: errors}) when is_list(errors), do: Enum.map_join(errors, "; ", &format_error/1)
 

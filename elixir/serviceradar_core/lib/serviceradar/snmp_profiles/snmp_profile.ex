@@ -97,6 +97,10 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     custom_indexes do
       index [:agent_ids], using: "gin", name: "snmp_profiles_agent_ids_idx"
     end
+
+    references do
+      reference :credential_secret, on_delete: :restrict
+    end
   end
 
   actions do
@@ -290,6 +294,15 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
       description "Agent UIDs that run this profile ([] = legacy all-agents target_query/is_default behavior)"
     end
 
+    # Provenance, so an operator can tell a plugin-proposed profile from their
+    # own. Nullable: every profile authored before this existed keeps a NULL,
+    # and a profile outlives the package that proposed it.
+    attribute :plugin_package_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Plugin package that proposed this profile, when any"
+    end
+
     # SNMP credentials (profile-scoped, encrypted at rest)
     CredentialDsl.credential_attributes()
 
@@ -297,6 +310,14 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
   end
 
   relationships do
+    belongs_to :credential_secret, ServiceRadar.Credentials.NetworkCredentialSecret do
+      allow_nil? true
+      public? true
+      define_attribute? false
+      source_attribute :credential_secret_id
+      destination_attribute :id
+    end
+
     has_many :targets, ServiceRadar.SNMPProfiles.SNMPTarget do
       destination_attribute :snmp_profile_id
     end

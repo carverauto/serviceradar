@@ -246,6 +246,31 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     refute JetstreamConsumer.subject_overlap_error?(:timeout)
   end
 
+  test "flows.raw subjects bind to the dedicated flows stream even when fallback is off" do
+    assert JetstreamConsumer.choose_requested_or_first_stream(
+             "SFLOW_RAW",
+             "flows.raw.sflow",
+             ["flows", "events"],
+             false
+           ) == {:ok, "flows"}
+
+    assert JetstreamConsumer.choose_requested_or_first_stream(
+             "flows",
+             "flows.raw.netflow",
+             ["flows"],
+             false
+           ) == {:ok, "flows"}
+  end
+
+  test "flow cutover does not bind live consumers onto events" do
+    assert JetstreamConsumer.choose_requested_or_first_stream(
+             "flows",
+             "flows.raw.sflow",
+             ["events"],
+             false
+           ) == {:ok, "flows"}
+  end
+
   test "overlap fallback re-resolves onto the stream owning the subject" do
     assert JetstreamConsumer.overlap_fallback_stream({:ok, ["events"]}, "analytics_predictions") ==
              {:ok, "events"}

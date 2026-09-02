@@ -21,6 +21,10 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfileTest do
     end
 
     test "is an Ash resource" do
+      # function_exported?/3 is false for an unloaded module even when the
+      # function exists. ExUnit shuffles, so this cannot rely on the previous
+      # "module is loaded" test having run first.
+      Code.ensure_loaded!(SNMPProfile)
       assert function_exported?(SNMPProfile, :spark_dsl_config, 0)
     end
   end

@@ -23,10 +23,13 @@ import (
 )
 
 const (
-	syncServiceType      = "sync"
-	syncServiceName      = "sync"
-	syncMetaKey          = "sync_meta"
-	syncRuntimeStatePath = "/var/lib/serviceradar/cache/sync-runtime-runs.json"
+	syncServiceType            = "sync"
+	syncServiceName            = "sync"
+	syncMetaKey                = "sync_meta"
+	syncControlKey             = "_sync_control"
+	syncCollectionFinal        = "collection_final"
+	syncRuntimeStatePath       = "/var/lib/serviceradar/cache/sync-runtime-runs.json"
+	syncPopulationExampleLimit = 100
 )
 
 var (
@@ -339,6 +342,7 @@ func (r *SyncRuntime) runSourceOnce(
 		Emit: func(updates []map[string]any) error {
 			return emitter.emit(ctx, updates)
 		},
+		ReportPopulation: emitter.reportPopulation,
 	})
 	if err != nil {
 		// Flush any buffered page so already-fetched devices still reach the
@@ -407,6 +411,15 @@ type syncRunEmitter struct {
 	pending    []map[string]interface{}
 	sent       int
 	chunkIndex int
+	population *syncsources.PopulationStats
+}
+
+func (e *syncRunEmitter) reportPopulation(stats syncsources.PopulationStats) {
+	copyStats := stats
+	copyStats.DuplicateSourceIDExamples = boundedPopulationExamples(stats.DuplicateSourceIDExamples)
+	copyStats.InvalidRowExamples = boundedPopulationExamples(stats.InvalidRowExamples)
+	copyStats.ConflictingDuplicateIDs = append([]string(nil), stats.ConflictingDuplicateIDs...)
+	e.population = &copyStats
 }
 
 func (e *syncRunEmitter) emit(ctx context.Context, updates []map[string]interface{}) error {
@@ -432,6 +445,27 @@ func (e *syncRunEmitter) emit(ctx context.Context, updates []map[string]interfac
 
 func (e *syncRunEmitter) flush(ctx context.Context, runFinal bool) error {
 	if len(e.pending) == 0 {
+		if runFinal && e.population != nil {
+			control := map[string]interface{}{
+				syncControlKey: syncCollectionFinal,
+				"timestamp":    time.Now().UTC().Truncate(time.Second).Format(time.RFC3339),
+			}
+
+			sentChunks, err := e.runtime.sendSyncUpdates(
+				ctx,
+				e.runner,
+				[]map[string]interface{}{control},
+				e.runID,
+				e.sent,
+				e.chunkIndex,
+				true,
+				e.population,
+			)
+			if err != nil {
+				return err
+			}
+			e.chunkIndex += sentChunks
+		}
 		return nil
 	}
 
@@ -446,6 +480,7 @@ func (e *syncRunEmitter) flush(ctx context.Context, runFinal bool) error {
 		e.sent+len(pending),
 		e.chunkIndex,
 		runFinal,
+		e.population,
 	)
 	if err != nil {
 		return err
@@ -465,6 +500,7 @@ func (r *SyncRuntime) sendSyncUpdates(
 	runTotalDevices int,
 	baseChunkIndex int,
 	runFinalPage bool,
+	population *syncsources.PopulationStats,
 ) (int, error) {
 	chunks, err := buildSyncResultsChunks(
 		updates,
@@ -473,6 +509,7 @@ func (r *SyncRuntime) sendSyncUpdates(
 		runTotalDevices,
 		baseChunkIndex,
 		runFinalPage,
+		population,
 	)
 	if err != nil {
 		return 0, err
@@ -581,6 +618,7 @@ type syncChunkMeta struct {
 	totalDevices   int
 	baseChunkIndex int
 	runFinalPage   bool
+	population     *syncsources.PopulationStats
 }
 
 func buildSyncResultsChunks(
@@ -590,12 +628,19 @@ func buildSyncResultsChunks(
 	runTotalDevices int,
 	baseChunkIndex int,
 	runFinalPage bool,
+	population ...*syncsources.PopulationStats,
 ) ([]*proto.ResultsChunk, error) {
 	if len(updates) == 0 {
 		return nil, nil
 	}
-	if runTotalDevices < len(updates) {
-		runTotalDevices = len(updates)
+	deviceUpdateCount := 0
+	for _, update := range updates {
+		if update != nil && update[syncControlKey] != syncCollectionFinal {
+			deviceUpdateCount++
+		}
+	}
+	if runTotalDevices < deviceUpdateCount {
+		runTotalDevices = deviceUpdateCount
 	}
 
 	meta := syncChunkMeta{
@@ -604,6 +649,7 @@ func buildSyncResultsChunks(
 		totalDevices:   runTotalDevices,
 		baseChunkIndex: baseChunkIndex,
 		runFinalPage:   runFinalPage,
+		population:     firstPopulation(population),
 	}
 
 	maxChunkSize, maxHosts := sweepResultsChunkLimits()
@@ -710,7 +756,7 @@ func syncMetaTotalChunks(meta syncChunkMeta, pageTotalChunks int) int {
 }
 
 func buildSyncMeta(meta syncChunkMeta, chunkIndex int, totalChunks int, isFinal bool) map[string]interface{} {
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"sync_service_id": meta.syncServiceID,
 		"sync_run_id":     meta.runID,
 		"chunk_index":     chunkIndex,
@@ -718,4 +764,37 @@ func buildSyncMeta(meta syncChunkMeta, chunkIndex int, totalChunks int, isFinal 
 		"total_devices":   meta.totalDevices,
 		"is_final":        isFinal,
 	}
+
+	if isFinal && meta.population != nil {
+		result["population"] = map[string]interface{}{
+			"raw_rows":                       meta.population.RawRows,
+			"excluded_rows":                  meta.population.ExcludedRows,
+			"invalid_rows":                   meta.population.InvalidRows,
+			"valid_occurrences":              meta.population.ValidOccurrences,
+			"distinct_source_ids":            meta.population.DistinctSourceIDs,
+			"duplicate_occurrences":          meta.population.DuplicateOccurrences,
+			"duplicate_source_id_examples":   boundedPopulationExamples(meta.population.DuplicateSourceIDExamples),
+			"invalid_row_examples":           boundedPopulationExamples(meta.population.InvalidRowExamples),
+			"conflicting_duplicate_ids":      len(meta.population.ConflictingDuplicateIDs),
+			"conflicting_duplicate_examples": boundedPopulationExamples(meta.population.ConflictingDuplicateIDs),
+		}
+	}
+
+	return result
+}
+
+func boundedPopulationExamples(values []string) []string {
+	if len(values) > syncPopulationExampleLimit {
+		values = values[:syncPopulationExampleLimit]
+	}
+
+	return append([]string(nil), values...)
+}
+
+func firstPopulation(values []*syncsources.PopulationStats) *syncsources.PopulationStats {
+	if len(values) == 0 {
+		return nil
+	}
+
+	return values[0]
 }

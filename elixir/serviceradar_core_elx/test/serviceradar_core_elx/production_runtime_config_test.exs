@@ -7,7 +7,9 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
+  alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.Observability.CapacityForecasting.Worker
 
   @prod_config Path.expand("../../config/prod.exs", __DIR__)
@@ -287,6 +289,63 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
              FileCallbackResponsePolicyProvider
 
     assert core_config[FileCallbackResponsePolicyProvider] == [path: policy_path]
+  end
+
+  # Module-scoped blocks are the drift this file was written to catch, but the
+  # original guard only covered the Oban crontab. These four are defined in
+  # elixir/serviceradar_core/config/runtime.exs; a release evaluates ONLY its own
+  # runtime.exs, so each has to be mirrored in this tree or its env vars are
+  # silently inert in production -- Application.get_env/3 falls through to the
+  # compiled default and nothing logs. Confirmed 2026-08-27 by RPC against the
+  # deployed demo node, where the TopologyGraph block read back nil.
+  #
+  # Blocks deliberately absent because nothing in this release reaches them:
+  # RemoteAccessSSHCACommandSigner, ServiceRadar.Edge.RemoteAccessSSHCertificates
+  # and RootSpanRatioWorker.
+  @mirrored_core_config_blocks [
+    AgentCommandCleanupWorker,
+    TopologyGraph,
+    ServiceRadar.Observability.ThreatIntelRawPayloadStore,
+    ServiceRadar.WorkloadIdentity
+  ]
+
+  @topology_graph TopologyGraph
+
+  test "prod config mirrors every serviceradar_core module block the release reads" do
+    config = read_prod_config()[:serviceradar_core]
+
+    for module <- @mirrored_core_config_blocks do
+      assert Keyword.keyword?(config[module]),
+             "config :serviceradar_core, #{inspect(module)} is missing from this release's " <>
+               "runtime.exs, so its env vars are inert in production"
+    end
+  end
+
+  test "canonical prune guard override is reachable from the environment" do
+    refute read_prod_config()[:serviceradar_core][@topology_graph][:canonical_prune_guard_override]
+
+    with_env("SERVICERADAR_TOPOLOGY_CANONICAL_PRUNE_GUARD_OVERRIDE", "true")
+
+    assert read_prod_config()[:serviceradar_core][@topology_graph][:canonical_prune_guard_override]
+  end
+
+  test "canonical prune max fraction is reachable from the environment" do
+    topology = read_prod_config()[:serviceradar_core][@topology_graph]
+    assert topology[:canonical_prune_max_fraction] == 0.5
+
+    with_env("SERVICERADAR_TOPOLOGY_CANONICAL_PRUNE_MAX_PERCENT", "80")
+
+    assert read_prod_config()[:serviceradar_core][@topology_graph][:canonical_prune_max_fraction] ==
+             0.8
+  end
+
+  test "agent command retention is reachable from the environment" do
+    block = AgentCommandCleanupWorker
+    assert read_prod_config()[:serviceradar_core][block][:retention_days] == 2
+
+    with_env("AGENT_COMMAND_RETENTION_DAYS", "9")
+
+    assert read_prod_config()[:serviceradar_core][block][:retention_days] == 9
   end
 
   defp read_prod_event_writer_streams do

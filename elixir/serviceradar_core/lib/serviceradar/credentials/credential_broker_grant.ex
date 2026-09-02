@@ -15,6 +15,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
 
   alias ServiceRadar.Credentials.Changes.WriteBrokerGrantLifecycleEvent
   alias ServiceRadar.Credentials.RequestBodyPolicy
+  alias ServiceRadar.Credentials.Validations.GrantPrunableForSecretDeletion
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
@@ -51,6 +52,10 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     table "credential_broker_grants"
     repo ServiceRadar.Repo
     schema "platform"
+
+    references do
+      reference :secret, on_delete: :restrict
+    end
   end
 
   state_machine do
@@ -70,7 +75,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
   paper_trail do
     primary_key_type :uuid_v7
     table_name "credential_broker_grant_versions"
-    mixin {ServiceRadar.Credentials.PaperTrailMixin, :mixin, []}
+    mixin {ServiceRadar.Credentials.PaperTrailMixin, :cascade_versions, []}
     change_tracking_mode :changes_only
     store_action_name? true
     store_action_inputs? true
@@ -144,6 +149,12 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       change set_attribute(:revocation_reason, arg(:reason))
       change {WriteBrokerGrantLifecycleEvent, action: :revoke}
     end
+
+    destroy :prune_for_secret_deletion do
+      public? false
+      argument :cutoff, :utc_datetime, allow_nil?: false
+      validate GrantPrunableForSecretDeletion
+    end
   end
 
   policies do
@@ -152,7 +163,15 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     system_bypass()
     read_with_permission(@credential_manage_check)
 
-    policy action([:issue, :activate, :consume, :deny, :expire, :revoke]) do
+    policy action([
+             :issue,
+             :activate,
+             :consume,
+             :deny,
+             :expire,
+             :revoke,
+             :prune_for_secret_deletion
+           ]) do
       authorize_if actor_attribute_equals(:role, :system)
     end
   end
@@ -354,8 +373,9 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
   @doc "Build issue attrs from the common caller shape and calculate expiry."
   def issue_attrs(attrs, now \\ DateTime.utc_now()) when is_map(attrs) do
     ttl_seconds = int_value(attrs, :ttl_seconds, 300)
-    secret_id = value(attrs, :secret_id)
-    secret_ref = value(attrs, :secret_ref) || secret_ref_for(secret_id)
+    supplied_secret_id = value(attrs, :secret_id)
+    secret_ref = value(attrs, :secret_ref) || secret_ref_for(supplied_secret_id)
+    secret_id = supplied_secret_id || network_credential_secret_id_from_ref(secret_ref)
     default_expires_at = now |> DateTime.add(ttl_seconds, :second) |> truncate_datetime()
 
     @fields
@@ -367,6 +387,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     end)
     |> Map.put(:ttl_seconds, ttl_seconds)
     |> Map.put(:secret_ref, secret_ref)
+    |> maybe_put_secret_id(secret_id)
     |> Map.update(:expires_at, default_expires_at, &truncate_datetime/1)
   end
 
@@ -482,6 +503,21 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
 
   defp secret_ref_for(nil), do: nil
   defp secret_ref_for(secret_id), do: SecretRefs.network_credential_ref(to_string(secret_id))
+
+  defp network_credential_secret_id_from_ref(ref) when is_binary(ref) do
+    with {:ok, secret_id} <- SecretRefs.network_credential_secret_ref_id(ref),
+         {:ok, secret_id} <- Ecto.UUID.cast(secret_id) do
+      secret_id
+    else
+      :error -> nil
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp network_credential_secret_id_from_ref(_ref), do: nil
+
+  defp maybe_put_secret_id(attrs, nil), do: attrs
+  defp maybe_put_secret_id(attrs, secret_id), do: Map.put(attrs, :secret_id, secret_id)
 
   def utc_now, do: DateTime.truncate(DateTime.utc_now(), :second)
 

@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   def index(conn, params) do
     case parse_index_params(params) do
       {:ok, opts} ->
-        devices = list_devices(conn, opts)
+        devices = ServiceRadarWebNG.Api.Access.list_devices(get_scope(conn), opts)
 
         json(conn, %{
           "data" => Enum.map(devices, &device_to_map/1),
@@ -37,26 +37,18 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   end
 
   def show(conn, %{"uid" => uid}) do
-    case parse_uid(uid) do
-      {:ok, parsed_uid} ->
-        scope = get_scope(conn)
+    scope = get_scope(conn)
 
-        case Device.get_by_uid(parsed_uid, false, scope: scope) do
-          {:ok, device} ->
-            json(conn, %{"data" => device_to_map(device, scope)})
+    case ServiceRadarWebNG.Api.Access.get_device(scope, uid) do
+      {:ok, device} ->
+        json(conn, %{"data" => device_to_map(device, scope)})
 
-          {:error, %Ash.Error.Query.NotFound{}} ->
-            conn
-            |> put_status(:not_found)
-            |> json(%{"error" => "device not found"})
+      {:error, :not_found} ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{"error" => "device not found"})
 
-          {:error, _} ->
-            conn
-            |> put_status(:not_found)
-            |> json(%{"error" => "device not found"})
-        end
-
-      {:error, reason} ->
+      {:error, {:invalid, reason}} ->
         conn
         |> put_status(:bad_request)
         |> json(%{"error" => reason})
@@ -216,6 +208,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
       "zone" => device.zone,
       "subnet_uid" => device.subnet_uid,
       "vlan_uid" => device.vlan_uid,
+      "switch_port_attachment" => device.switch_port_attachment,
       "region" => device.region,
       # OCSF Temporal
       "first_seen_time" => normalize_value(device.first_seen_time),
@@ -238,22 +231,6 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
       "groups" => device.groups,
       "agent_list" => device.agent_list
     }
-  end
-
-  defp list_devices(conn, opts) do
-    scope = get_scope(conn)
-
-    Device
-    |> Ash.Query.sort(last_seen_time: :desc)
-    |> maybe_filter_search(opts.search)
-    |> maybe_filter_status(opts.status)
-    |> maybe_filter_gateway_id(opts.gateway_id)
-    |> maybe_filter_device_type(opts.device_type)
-    # See list_devices_for_export: the Device :read action requires keyset
-    # pagination, so use the page option for exact offset paging and unwrap
-    # .results so index/2's Enum.map + build_pagination receive a list.
-    |> Ash.read!(scope: scope, page: [limit: opts.limit, offset: opts.offset])
-    |> Map.fetch!(:results)
   end
 
   @doc """
@@ -452,54 +429,11 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
 
   defp parse_status(_), do: {:error, "invalid status"}
 
-  defp parse_uid(value) when is_binary(value) do
-    value = String.trim(value)
-
-    cond do
-      value == "" ->
-        {:error, "invalid uid"}
-
-      String.length(value) > 200 ->
-        {:error, "invalid uid"}
-
-      Regex.match?(~r/^[A-Za-z0-9][A-Za-z0-9:._-]*$/, value) ->
-        {:ok, value}
-
-      true ->
-        {:error, "invalid uid"}
+  defp parse_uid(value) do
+    case ServiceRadarWebNG.Api.Access.parse_uid(value) do
+      {:ok, parsed} -> {:ok, parsed}
+      {:error, {:invalid, reason}} -> {:error, reason}
     end
-  end
-
-  defp parse_uid(_), do: {:error, "invalid uid"}
-
-  defp maybe_filter_search(query, nil), do: query
-
-  defp maybe_filter_search(query, search) when is_binary(search) do
-    like = "%#{escape_like(search)}%"
-    # Use Ash fragment for ILIKE since it's PostgreSQL-specific
-    Ash.Query.filter(
-      query,
-      fragment("? ILIKE ? OR ? ILIKE ? OR ? ILIKE ?", hostname, ^like, ip, ^like, uid, ^like)
-    )
-  end
-
-  defp maybe_filter_status(query, nil), do: query
-  defp maybe_filter_status(query, :online), do: Ash.Query.filter(query, is_available == true)
-  defp maybe_filter_status(query, :offline), do: Ash.Query.filter(query, is_available == false)
-
-  defp maybe_filter_gateway_id(query, nil), do: query
-
-  defp maybe_filter_gateway_id(query, gateway_id), do: Ash.Query.filter(query, gateway_id == ^gateway_id)
-
-  defp maybe_filter_device_type(query, nil), do: query
-
-  defp maybe_filter_device_type(query, device_type), do: Ash.Query.filter(query, type == ^device_type)
-
-  defp escape_like(value) do
-    value
-    |> String.replace("\\", "\\\\")
-    |> String.replace("%", "\\%")
-    |> String.replace("_", "\\_")
   end
 
   defp build_pagination(devices, %{limit: limit, offset: offset}) do
@@ -529,6 +463,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
         "zone" => device.zone,
         "subnet_uid" => device.subnet_uid,
         "vlan_uid" => device.vlan_uid,
+        "switch_port_attachment" => device.switch_port_attachment,
         "region" => device.region,
         "first_seen_time" => normalize_value(device.first_seen_time),
         "last_seen_time" => normalize_value(device.last_seen_time),

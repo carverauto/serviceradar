@@ -101,6 +101,58 @@ describe("DashboardWasmHost browser-module API", () => {
     })
   })
 
+  test("pages a frame through the live stream without rewriting the query URL", () => {
+    const push = vi.fn()
+    const hook = hookContext({_frameChannel: {push}})
+    const api = hook.browserModuleApi(
+      baseHost({
+        package: {
+          name: "Test Dashboard",
+          capabilities: ["srql.execute"],
+          renderer: {
+            kind: "browser_module",
+            interface_version: "dashboard-browser-module-v1",
+            trust: "trusted",
+          },
+          frames: [{id: "results", query: "in:composite_results limit:200", status: "ok", results: []}],
+        },
+      }),
+    )
+
+    api.srql.page("results", "next-token")
+
+    expect(push).toHaveBeenCalledWith("frames:page", {frame_id: "results", cursor: "next-token"})
+    expect(hook.pushEvent).not.toHaveBeenCalled()
+    expect(window.history.replaceState).not.toHaveBeenCalled()
+  })
+
+  test("rejects a frame page without srql.execute, a cursor, or a live stream", () => {
+    const hook = hookContext()
+    const denied = hook.browserModuleApi(baseHost())
+
+    expect(() => denied.srql.page("results", "next-token")).toThrow(
+      "dashboard capability is not approved: srql.execute",
+    )
+
+    const allowed = hook.browserModuleApi(
+      baseHost({
+        package: {
+          name: "Test Dashboard",
+          capabilities: ["srql.execute"],
+          renderer: {
+            kind: "browser_module",
+            interface_version: "dashboard-browser-module-v1",
+            trust: "trusted",
+          },
+          frames: [{id: "results", query: "in:composite_results limit:200", status: "ok", results: []}],
+        },
+      }),
+    )
+
+    expect(() => allowed.srql.page("results", "")).toThrow("dashboard frame page requires frame id and cursor")
+    expect(() => allowed.srql.page("results", "next-token")).toThrow("dashboard frame stream is not connected")
+  })
+
   test("builds SRQL query strings with escaped values for renderer-owned filters", () => {
     const hook = hookContext()
     const api = hook.browserModuleApi(baseHost())
