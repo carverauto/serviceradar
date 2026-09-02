@@ -98,6 +98,23 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
                Loader.content_hash(changed_coordinate_record())
     end
 
+    test "canonicalizes duplicate coordinate winners independently of input order" do
+      assert Loader.content_hash(duplicate_coordinate_record()) ==
+               Loader.content_hash(reversed_duplicate_coordinate_record())
+
+      [forward_winner] = Loader.dedupe_coordinate_rows(duplicate_coordinate_rows())
+      [reverse_winner] = Loader.dedupe_coordinate_rows(Enum.reverse(duplicate_coordinate_rows()))
+
+      assert forward_winner == reverse_winner
+      assert forward_winner.cpe_product == "zeta"
+      assert forward_winner.metadata == %{"match_criteria_id" => "alternate-coordinate"}
+    end
+
+    test "hashes persisted-equivalent timestamp precision identically" do
+      assert Loader.content_hash(timestamp_precision_record("2026-01-15T12:34:56.123Z")) ==
+               Loader.content_hash(timestamp_precision_record("2026-01-15T12:34:56.123000Z"))
+    end
+
     test "skips only a KEV record whose stored content hash matches" do
       record = kev_record()
 
@@ -150,6 +167,38 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
       assert Loader.comparable_count("cisa-kev", state) == 1
       assert Loader.comparable_count("vulncheck-kev", state) == 1
       assert Loader.comparable_count("nist-nvd2", state) == 1
+    end
+
+    test "load_stream uses legacy modified state when comparison state is omitted" do
+      result =
+        Loader.load_stream([record("CVE-2026-0002", "2026-01-15T12:34:56.123")],
+          provider: "test-provider",
+          feed_key: "nist-nvd2",
+          generation: 1,
+          existing_modified: %{"CVE-2026-0002" => ~U[2026-01-15 12:34:56.123Z]}
+        )
+
+      assert result.advisories_upserted == 0
+      assert result.advisories_skipped == 1
+    end
+
+    test "load_stream prefers explicit comparison state over legacy modified state" do
+      result =
+        Loader.load_stream([record("CVE-2026-0003", "2026-01-15T12:34:56.123")],
+          provider: "test-provider",
+          feed_key: "nist-nvd2",
+          generation: 1,
+          existing_modified: %{"CVE-2026-0003" => ~U[2026-02-01 00:00:00Z]},
+          existing_comparison_state: %{
+            "CVE-2026-0003" => %{
+              modified_at: ~U[2026-01-15 12:34:56.123Z],
+              content_hash: nil
+            }
+          }
+        )
+
+      assert result.advisories_upserted == 0
+      assert result.advisories_skipped == 1
     end
   end
 
@@ -267,6 +316,56 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
 
   defp changed_coordinate_record do
     put_in(kev_record(), [:coordinates, Access.at(0), :cpe_version], "1.0.1")
+  end
+
+  defp duplicate_coordinate_record do
+    put_in(kev_record(), [:coordinates], duplicate_coordinates())
+  end
+
+  defp reversed_duplicate_coordinate_record do
+    put_in(kev_record(), [:coordinates], Enum.reverse(duplicate_coordinates()))
+  end
+
+  defp duplicate_coordinates do
+    [
+      %{
+        coordinate_type: "cpe",
+        value: "cpe:2.3:a:example:widget:1.0:*:*:*:*:*:*:*",
+        cpe_part: "a",
+        cpe_vendor: "example",
+        cpe_product: "zeta",
+        cpe_version: "1.0",
+        version_start: "1.0",
+        version_start_inclusive: true,
+        version_end: "1.4",
+        version_end_inclusive: false,
+        metadata: %{"match_criteria_id" => "alternate-coordinate"}
+      },
+      %{
+        coordinate_type: "cpe",
+        value: "cpe:2.3:a:example:widget:1.0:*:*:*:*:*:*:*",
+        cpe_part: "a",
+        cpe_vendor: "example",
+        cpe_product: "alpha",
+        cpe_version: "1.0",
+        version_start: "1.0",
+        version_start_inclusive: true,
+        version_end: "1.4",
+        version_end_inclusive: false,
+        metadata: %{"match_criteria_id" => "canonical-coordinate"}
+      }
+    ]
+  end
+
+  defp duplicate_coordinate_rows do
+    Enum.map(
+      duplicate_coordinates(),
+      &Map.put(&1, :advisory_ref, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    )
+  end
+
+  defp timestamp_precision_record(published_at) do
+    put_in(kev_record(), [:advisory, :published_at], published_at)
   end
 
   defp coord(advisory_ref, value, version_start, version_end, match_id) do

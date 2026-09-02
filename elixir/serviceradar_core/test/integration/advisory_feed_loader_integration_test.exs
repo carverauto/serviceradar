@@ -103,6 +103,17 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     )
   end
 
+  defp stored_coordinates(feed_key) do
+    Repo.all(
+      from(c in "advisory_coordinates",
+        where: c.provider == ^@provider and c.feed_key == ^feed_key,
+        select: {c.cpe_product, c.metadata},
+        order_by: c.cpe_product
+      ),
+      prefix: @schema
+    )
+  end
+
   test "a second identical run skips every advisory and writes nothing", %{feed_key: feed_key} do
     {first, _gen} = load(feed_key, all_records())
 
@@ -199,6 +210,24 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     assert after_backfill.advisories_skipped == 1
   end
 
+  test "KEV duplicate coordinates persist one canonical winner regardless of input order" do
+    feed_key = "cisa-kev"
+
+    {first, _gen} = load(feed_key, [duplicate_coordinate_kev_record()])
+    assert first.advisories_upserted == 1
+    assert first.coordinates_upserted == 1
+
+    assert [{"zeta", %{"match_criteria_id" => "alternate-coordinate"}}] ==
+             stored_coordinates(feed_key)
+
+    {second, _gen} = load(feed_key, [duplicate_coordinate_kev_record(reverse?: true)])
+    assert second.advisories_upserted == 0
+    assert second.advisories_skipped == 1
+
+    assert [{"zeta", %{"match_criteria_id" => "alternate-coordinate"}}] ==
+             stored_coordinates(feed_key)
+  end
+
   # The destructive failure mode this guards: skipped rows keep an older
   # generation while staying live. Demoting them would hide the corpus from the
   # matcher, and reap_old_generations/3 cascade-deletes demoted rows and their
@@ -276,6 +305,49 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
           metadata: %{"match_criteria_id" => "kev-coordinate"}
         }
       ]
+    }
+  end
+
+  defp duplicate_coordinate_kev_record(opts \\ []) do
+    coordinates = [
+      %{
+        coordinate_type: "cpe",
+        value: "cpe:2.3:a:example:kev:1.0:*:*:*:*:*:*:*",
+        cpe_part: "a",
+        cpe_vendor: "example",
+        cpe_product: "zeta",
+        cpe_version: "1.0",
+        metadata: %{"match_criteria_id" => "alternate-coordinate"}
+      },
+      %{
+        coordinate_type: "cpe",
+        value: "cpe:2.3:a:example:kev:1.0:*:*:*:*:*:*:*",
+        cpe_part: "a",
+        cpe_vendor: "example",
+        cpe_product: "alpha",
+        cpe_version: "1.0",
+        metadata: %{"match_criteria_id" => "canonical-coordinate"}
+      }
+    ]
+
+    coordinates =
+      if Keyword.get(opts, :reverse?, false), do: Enum.reverse(coordinates), else: coordinates
+
+    %{
+      advisory: %{
+        source_object_id: "CVE-2026-KEV-DUPLICATE",
+        advisory_id: "CVE-2026-KEV-DUPLICATE",
+        cve_id: "CVE-2026-KEV-DUPLICATE",
+        title: "KEV duplicate coordinate advisory",
+        description: "KEV description",
+        severity: "critical",
+        modified_at: nil,
+        kev: true,
+        exploit_available: true,
+        raw: %{"cveID" => "CVE-2026-KEV-DUPLICATE"},
+        metadata: %{"catalogVersion" => "2026.09.01"}
+      },
+      coordinates: coordinates
     }
   end
 end

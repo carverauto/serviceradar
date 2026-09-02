@@ -120,7 +120,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   entirely — see the "Skipping unchanged advisories" note above.
 
   Options: `:provider`, `:feed_key` (required), `:generation`, `:chunk_size`,
-  `:now`, `:existing_comparison_state`.
+  `:now`, `:existing_comparison_state`, `:existing_modified`.
+
+  `:existing_comparison_state` takes precedence. `:existing_modified` remains
+  supported for timestamp-only callers and is wrapped as comparison state.
   """
   @spec load_stream(Enumerable.t(), keyword()) :: load_result()
   def load_stream(records, opts) do
@@ -133,10 +136,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     chunk_size = Keyword.get(opts, :chunk_size, @default_chunk_size)
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
-    existing_state =
-      Keyword.get_lazy(opts, :existing_comparison_state, fn ->
-        existing_comparison_state(provider, feed_key)
-      end)
+    existing_state = existing_state_from_opts(opts, provider, feed_key)
 
     comparison = comparison_for_feed(feed_key)
 
@@ -503,18 +503,22 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   # matchCriteriaId values, so the parser's Enum.uniq/1 is not enough.
   @doc false
   def dedupe_coordinate_rows(rows) do
-    rows
-    |> Enum.reduce(%{}, fn row, acc -> Map.put(acc, coordinate_conflict_key(row), row) end)
-    |> Map.values()
+    canonicalize_coordinate_winners(rows, &coordinate_conflict_key/1)
   end
 
   defp coordinate_conflict_key(row) do
     {
       Map.fetch!(row, :advisory_ref),
-      Map.fetch!(row, :coordinate_type),
-      Map.fetch!(row, :value),
-      Map.get(row, :version_start),
-      Map.get(row, :version_end)
+      coordinate_identity(row)
+    }
+  end
+
+  defp coordinate_identity(coordinate) do
+    {
+      fetch(coordinate, :coordinate_type),
+      fetch(coordinate, :value),
+      fetch(coordinate, :version_start),
+      fetch(coordinate, :version_end)
     }
   end
 
@@ -573,8 +577,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
       severity: fetch(advisory, :severity),
       cvss_score: fetch(advisory, :cvss_score),
       cvss_vector: fetch(advisory, :cvss_vector),
-      published_at: parse_datetime(fetch(advisory, :published_at)),
-      modified_at: parse_datetime(fetch(advisory, :modified_at)),
+      published_at: persisted_datetime(fetch(advisory, :published_at)),
+      modified_at: persisted_datetime(fetch(advisory, :modified_at)),
       kev: fetch(advisory, :kev) || false,
       exploit_available: fetch(advisory, :exploit_available) || false,
       affected_coordinates: [],
@@ -611,7 +615,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   end
 
   defp normalized_advisory_value(advisory, field) when field in [:published_at, :modified_at],
-    do: parse_datetime(fetch(advisory, field))
+    do: persisted_datetime(fetch(advisory, field))
 
   defp normalized_advisory_value(advisory, field) when field in [:kev, :exploit_available],
     do: fetch(advisory, field) || false
@@ -628,9 +632,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
 
   defp normalized_coordinate_tuples(coordinates) do
     coordinates
+    |> canonicalize_coordinate_winners(&coordinate_identity/1)
     |> Enum.map(&normalized_coordinate_tuple/1)
-    |> Enum.reduce(%{}, fn tuple, acc -> Map.put(acc, coordinate_tuple_identity(tuple), tuple) end)
-    |> Map.values()
   end
 
   defp normalized_coordinate_tuple(coordinate) do
@@ -642,8 +645,28 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   defp normalized_coordinate_value(coordinate, :metadata), do: fetch(coordinate, :metadata) || %{}
   defp normalized_coordinate_value(coordinate, field), do: fetch(coordinate, field)
 
-  defp coordinate_tuple_identity(tuple) do
-    {elem(tuple, 0), elem(tuple, 1), elem(tuple, 6), elem(tuple, 8)}
+  # A collision keeps the smallest deterministic persisted payload so hash calculation and
+  # inserted coordinate rows select the same winner regardless of source ordering.
+  defp canonicalize_coordinate_winners(coordinates, identity_fun) do
+    coordinates
+    |> Enum.reduce(%{}, fn coordinate, acc ->
+      Map.update(acc, identity_fun.(coordinate), coordinate, fn current ->
+        canonical_coordinate_winner(current, coordinate)
+      end)
+    end)
+    |> Map.values()
+  end
+
+  defp canonical_coordinate_winner(left, right) do
+    if canonical_coordinate_binary(left) <= canonical_coordinate_binary(right),
+      do: left,
+      else: right
+  end
+
+  defp canonical_coordinate_binary(coordinate) do
+    coordinate
+    |> normalized_coordinate_tuple()
+    |> :erlang.term_to_binary([:deterministic])
   end
 
   defp coordinate_row(coordinate, advisory_ref, provider, feed_key, generation, now) do
@@ -687,6 +710,37 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   defp parse_datetime(%NaiveDateTime{} = naive), do: DateTime.from_naive!(naive, "Etc/UTC")
 
   defp parse_datetime(_), do: nil
+
+  defp persisted_datetime(value) do
+    case parse_datetime(value) do
+      %DateTime{microsecond: {microsecond, _precision}} = datetime ->
+        %{datetime | microsecond: {microsecond, 6}}
+
+      nil ->
+        nil
+    end
+  end
+
+  defp existing_state_from_opts(opts, provider, feed_key) do
+    cond do
+      Keyword.has_key?(opts, :existing_comparison_state) ->
+        Keyword.fetch!(opts, :existing_comparison_state)
+
+      Keyword.has_key?(opts, :existing_modified) ->
+        opts
+        |> Keyword.fetch!(:existing_modified)
+        |> legacy_comparison_state()
+
+      true ->
+        existing_comparison_state(provider, feed_key)
+    end
+  end
+
+  defp legacy_comparison_state(existing_modified) do
+    Map.new(existing_modified, fn {source_object_id, modified_at} ->
+      {source_object_id, %{modified_at: modified_at, content_hash: nil}}
+    end)
+  end
 
   defp parse_naive(value) do
     case NaiveDateTime.from_iso8601(value) do
