@@ -35,4 +35,10 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
     refute html =~ "Ash."
     refute html =~ "%{"
   end
+
+  defp register_and_log_in_admin_user(%{conn: conn}) do
+    user = AccountsFixtures.user_fixture(%{role: :admin})
+
+    %{conn: log_in_user(conn, user), user: user}
+  end
 end
