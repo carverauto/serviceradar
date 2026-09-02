@@ -111,6 +111,28 @@ in:otel_metrics is_slow:true time:last_1h sort:timestamp:desc
 in:traces status_code:2 time:last_1h sort:timestamp:desc
 ```
 
+## Advisories, CPEs, and vulnerability matches
+
+Catalog and matcher tables, not OCSF occurrence rows.
+
+```
+in:cves cve:CVE-2024-1234
+in:advisories kev:true cvss_score:>=9.0 sort:cvss_score:desc
+in:advisory_coordinates cve:CVE-2024-1234 coordinate_type:cpe
+in:advisory_cpes cpe_vendor:nginx cpe_product:nginx
+in:cve_matches kev:true sort:cvss_score:desc
+in:cve_matches cve:CVE-2024-1234
+in:devices kev:true
+in:endpoint_packages cve:CVE-2024-1234 current:true
+```
+
+`in:cves` is the NVD/KEV catalog. `in:cve_matches` is which of *our* devices
+the matcher marked affected. `in:security_findings cve:` is the OCSF event
+stream (occurrences), not the catalog. Installed software CPEs stay on
+`in:endpoint_packages cpe:` / `rollup_stats:current_cpe_counts`. Do not use
+`in:cpes`. Version-range evaluation is not done in SRQL; query matches for
+exposure, coordinates for catalog evidence.
+
 ## Placeholders
 
 Replace `<device-uid>`, `<trace-id>`, `<name>` with real values from a previous

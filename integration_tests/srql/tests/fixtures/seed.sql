@@ -2,6 +2,7 @@
 -- endpoint_inventory_packages references endpoint_packages, so they must be
 -- truncated in the same statement; ocsf_devices is referenced by
 -- device_agent_availability and the virtualization_* tables, so CASCADE.
+TRUNCATE endpoint_vulnerability_matches, advisory_coordinates, vulnerability_advisories;
 TRUNCATE endpoint_inventory_packages, endpoint_packages;
 TRUNCATE endpoint_inventory_scans;
 TRUNCATE endpoint_inventory_current_package_counts;
@@ -398,6 +399,187 @@ SELECT '33333333-3333-4333-8333-333333333333'::uuid,
     '{"scan":"historical"}'::jsonb,
     base.now_ts - INTERVAL '2 days',
     base.now_ts - INTERVAL '2 days'
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO vulnerability_advisories (
+    id,
+    provider,
+    feed_key,
+    source_object_id,
+    advisory_id,
+    cve_id,
+    title,
+    description,
+    severity,
+    cvss_score,
+    cvss_vector,
+    published_at,
+    modified_at,
+    kev,
+    exploit_available,
+    affected_coordinates,
+    "references",
+    metadata,
+    raw,
+    generation,
+    current
+)
+SELECT
+    'bbbbbbbb-1111-4111-8111-111111111111'::uuid,
+    'vulncheck',
+    'nist-nvd2',
+    'CVE-2026-0001',
+    'CVE-2026-0001',
+    'CVE-2026-0001',
+    'nginx HTTP/2 memory corruption',
+    'A memory corruption issue in nginx 1.24.',
+    'critical',
+    9.8,
+    'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H',
+    base.now_ts - INTERVAL '10 days',
+    base.now_ts - INTERVAL '2 days',
+    TRUE,
+    TRUE,
+    ARRAY[]::jsonb[],
+    ARRAY['https://nvd.nist.gov/vuln/detail/CVE-2026-0001'],
+    '{"due_date":"2026-02-01","epss_score":0.84,"ransomware_use":"unknown"}'::jsonb,
+    '{"nvd":"omitted-from-srql"}'::jsonb,
+    1,
+    TRUE
+FROM base
+UNION ALL
+SELECT
+    'bbbbbbbb-2222-4222-8222-222222222222'::uuid,
+    'vulncheck',
+    'nist-nvd2',
+    'CVE-2026-0001-stale',
+    'CVE-2026-0001',
+    'CVE-2026-0001',
+    'stale generation',
+    'Should be hidden by current:true default.',
+    'critical',
+    9.8,
+    NULL,
+    base.now_ts - INTERVAL '40 days',
+    base.now_ts - INTERVAL '40 days',
+    FALSE,
+    FALSE,
+    ARRAY[]::jsonb[],
+    ARRAY[]::text[],
+    '{}'::jsonb,
+    '{"stale":true}'::jsonb,
+    0,
+    FALSE
+FROM base;
+
+INSERT INTO advisory_coordinates (
+    id,
+    advisory_ref,
+    provider,
+    feed_key,
+    generation,
+    coordinate_type,
+    value,
+    cpe_part,
+    cpe_vendor,
+    cpe_product,
+    cpe_version,
+    version_start,
+    version_start_inclusive,
+    version_end,
+    version_end_inclusive
+)
+VALUES
+    (
+        'cccccccc-1111-4111-8111-111111111111'::uuid,
+        'bbbbbbbb-1111-4111-8111-111111111111'::uuid,
+        'vulncheck',
+        'nist-nvd2',
+        1,
+        'cpe',
+        'cpe:2.3:a:nginx:nginx:*:*:*:*:*:*:*:*',
+        'a',
+        'nginx',
+        'nginx',
+        '*',
+        '1.24.0',
+        TRUE,
+        '1.25.0',
+        FALSE
+    ),
+    (
+        'cccccccc-2222-4222-8222-222222222222'::uuid,
+        'bbbbbbbb-1111-4111-8111-111111111111'::uuid,
+        'vulncheck',
+        'nist-nvd2',
+        1,
+        'cpe',
+        'cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*',
+        'a',
+        'nginx',
+        'nginx',
+        '1.24.0',
+        NULL,
+        NULL,
+        NULL,
+        NULL
+    );
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO endpoint_vulnerability_matches (
+    id,
+    device_uid,
+    agent_id,
+    inventory_package_ref,
+    endpoint_package_ref,
+    advisory_ref,
+    provider,
+    feed_key,
+    advisory_id,
+    cve_id,
+    coordinate_type,
+    coordinate_value,
+    version_evidence,
+    confidence,
+    status,
+    severity,
+    cvss_score,
+    kev,
+    exploit_available,
+    evidence,
+    first_seen_at,
+    last_seen_at,
+    metadata
+)
+SELECT
+    'dddddddd-1111-4111-8111-111111111111'::uuid,
+    'device-alpha',
+    'agent-1',
+    '11111111-1111-4111-8111-111111111111'::uuid,
+    'aaaaaaaa-1111-4111-8111-111111111111'::uuid,
+    'bbbbbbbb-1111-4111-8111-111111111111'::uuid,
+    'vulncheck',
+    'nist-nvd2',
+    'CVE-2026-0001',
+    'CVE-2026-0001',
+    'cpe',
+    'cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*',
+    '{"installed":"1.24.0-2ubuntu7"}'::jsonb,
+    'high',
+    'active',
+    'critical',
+    9.8,
+    TRUE,
+    TRUE,
+    '{"matcher":"cpe"}'::jsonb,
+    base.now_ts - INTERVAL '1 day',
+    base.now_ts - INTERVAL '20 minutes',
+    '{"due_date":"2026-02-01","epss_score":0.84,"ransomware_use":"unknown"}'::jsonb
 FROM base;
 
 WITH base AS (

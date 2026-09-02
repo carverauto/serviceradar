@@ -304,6 +304,8 @@ The available aggregation functions are `count`, `sum`, `avg`, `min`, and `max`.
 - **[SRQL Cookbook](./srql-cookbook.md)** — copy-paste recipes for everyday tasks:
   finding devices, inspecting events and logs, NetFlow analysis, BGP routing, and
   building queries that feed alert rules.
+- **[Threat Investigation](./threat-investigation.md)** — CVE, CPE, KEV, and
+  matcher queries for fleet exposure.
 
 Common mistakes to avoid as you start out:
 

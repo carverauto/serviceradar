@@ -172,6 +172,53 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            query: "in:cves cve:CVE-2026-0001",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["cve_id"], "CVE-2026-0001");
+                assert_eq!(result["kev"], true);
+                assert_eq!(result["cvss_score"], 9.8);
+                assert!(result.get("raw").is_none());
+                assert!(result.get("affected_coordinates").is_none());
+            })),
+        },
+        TestCase {
+            query: "in:advisory_coordinates cve:CVE-2026-0001 coordinate_type:cpe",
+            expected_count: 2,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["cve_id"], "CVE-2026-0001");
+                assert_eq!(body["results"][0]["cpe_vendor"], "nginx");
+                assert_eq!(body["results"][0]["cpe_product"], "nginx");
+            })),
+        },
+        TestCase {
+            query: "in:cve_matches cve:CVE-2026-0001",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["device_uid"], "device-alpha");
+                assert_eq!(result["package_name"], "nginx");
+                assert_eq!(result["kev"], true);
+                assert_eq!(result["epss_score"], 0.84);
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_packages cve:CVE-2026-0001 current:true",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["name"], "nginx");
+                assert_eq!(body["results"][0]["device_uid"], "device-alpha");
+            })),
+        },
+        TestCase {
+            query: "in:devices kev:true",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["uid"], "device-alpha");
+            })),
+        },
+        TestCase {
             query: r#"in:packages cpe:"cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*" current:true"#,
             expected_count: 1,
             validator: Some(Box::new(|body| {

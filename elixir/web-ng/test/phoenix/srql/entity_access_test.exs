@@ -42,6 +42,22 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     assert EntityAccess.permission_for_entity("flow") ==
              EntityAccess.permission_for_entity("flows")
 
+    assert EntityAccess.permission_for_entity("cves") ==
+             EntityAccess.permission_for_entity("vulnerability_advisories")
+
+    assert EntityAccess.permission_for_entity("advisories") ==
+             EntityAccess.permission_for_entity("vulnerability_advisories")
+
+    assert EntityAccess.permission_for_entity("advisory_cpes") ==
+             EntityAccess.permission_for_entity("advisory_coordinates")
+
+    assert EntityAccess.permission_for_entity("cve_matches") ==
+             EntityAccess.permission_for_entity("endpoint_vulnerability_matches")
+
+    assert {:ok, "devices.view"} = EntityAccess.permission_for_entity("cves")
+    assert {:ok, "devices.view"} = EntityAccess.permission_for_entity("advisory_cpes")
+    assert {:ok, "devices.view"} = EntityAccess.permission_for_entity("cve_matches")
+
     assert {:ok, "observability.logs.view"} = EntityAccess.permission_for_entity("logs")
     assert {:ok, "services.view"} = EntityAccess.permission_for_entity("services")
     assert :passthrough = EntityAccess.permission_for_entity("dashboards")

@@ -123,3 +123,112 @@ pub(super) fn endpoint_package_catalog() -> VizMeta {
         }],
     }
 }
+
+pub(super) fn vulnerability_advisories() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("cve_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("advisory_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("title", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("severity", ColumnType::Text, None),
+            col("cvss_score", ColumnType::Float, Some(ColumnSemantic::Value)),
+            col("cvss_vector", ColumnType::Text, None),
+            col("kev", ColumnType::Bool, None),
+            col("exploit_available", ColumnType::Bool, None),
+            col("provider", ColumnType::Text, None),
+            col("feed_key", ColumnType::Text, None),
+            col("current", ColumnType::Bool, None),
+            col(
+                "published_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col(
+                "modified_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("description", ColumnType::Text, None),
+            col("references", ColumnType::TextArray, None),
+            col("metadata", ColumnType::Jsonb, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn advisory_coordinates() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("advisory_ref", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("cve_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("coordinate_type", ColumnType::Text, None),
+            col("value", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("cpe_part", ColumnType::Text, None),
+            col("cpe_vendor", ColumnType::Text, None),
+            col("cpe_product", ColumnType::Text, None),
+            col("cpe_version", ColumnType::Text, None),
+            col("version_start", ColumnType::Text, None),
+            col("version_end", ColumnType::Text, None),
+            col("title", ColumnType::Text, None),
+            col("severity", ColumnType::Text, None),
+            col("cvss_score", ColumnType::Float, Some(ColumnSemantic::Value)),
+            col("kev", ColumnType::Bool, None),
+            col("current", ColumnType::Bool, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn endpoint_vulnerability_matches() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("device_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("cve_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col(
+                "package_name",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col("package_version", ColumnType::Text, None),
+            col("purl_canonical", ColumnType::Text, None),
+            col("coordinate_value", ColumnType::Text, None),
+            col("severity", ColumnType::Text, None),
+            col("cvss_score", ColumnType::Float, Some(ColumnSemantic::Value)),
+            col("kev", ColumnType::Bool, None),
+            col("exploit_available", ColumnType::Bool, None),
+            col("epss_score", ColumnType::Float, None),
+            col("due_date", ColumnType::Text, None),
+            col("status", ColumnType::Text, None),
+            col("confidence", ColumnType::Text, None),
+            col(
+                "last_seen_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col(
+                "first_seen_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
