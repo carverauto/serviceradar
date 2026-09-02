@@ -24,8 +24,8 @@ Two host facts make raising the clamp the wrong fix:
    have `api.srql.update` (replace the query, remount-adjacent) and no page
    call.
 
-The Example Armis composite dashboard (`com.example.armis.composite`) is the
-customer that hit this; the hole is in the host, not in that package.
+The customer Armis composite dashboard (`com.example.armis.composite`) is the
+package that hit this; the hole is in the host, not in that package.
 
 ## What Changes
 
@@ -65,7 +65,7 @@ customer that hit this; the hole is in the host, not in that package.
 - Infinite-scroll accumulation of every device row in the renderer.
 - Changing northbound Armis export, evaluation, or the composite check
   authoring UI.
-- Rewriting the Example Armis dashboard package in this repo. Consumption is a
+- Rewriting the customer Armis dashboard package in this repo. Consumption is a
   follow-up in `serviceradar-armis-dashboards` once this host contract ships.
 
 ## Impact

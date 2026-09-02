@@ -90,7 +90,7 @@ func TestGetConfigUsesStreamedConfig(t *testing.T) {
 func TestReassembleConfigChunksAcceptsLargeDeviceTargetConfig(t *testing.T) {
 	t.Parallel()
 
-	deviceTargetJSON := `{"network":"10.46.0.10/32","query_label":"prod","source":"srql","metadata":{"sweep_group_id":"group-1","target_query":"devices where site = 'ual'","device_uid":"dev-1","hostname":"edge-1","discovery_sources":"srql"}}`
+	deviceTargetJSON := `{"network":"10.46.0.10/32","query_label":"prod","source":"srql","metadata":{"sweep_group_id":"group-1","target_query":"devices where site = 'demo'","device_uid":"dev-1","hostname":"edge-1","discovery_sources":"srql"}}`
 	configJSON := `{"sweep":{"groups":[{"name":"srql-production","interval":"5m","device_targets":[` +
 		strings.TrimSuffix(strings.Repeat(deviceTargetJSON+",", 25000), ",") +
 		`]}}]}}`

@@ -2,7 +2,7 @@
 
 ## Why
 
-The Example Armis integration currently reports a successful northbound run with
+The customer Armis integration currently reports a successful northbound run with
 14,431 updates out of a displayed population of 17,772 and 3,341 skips. Of the
 skips, 3,295 are canonical devices carrying multiple typed Armis IDs and 46 are
 metadata/identifier disagreements. The same source displays 22,308 devices for

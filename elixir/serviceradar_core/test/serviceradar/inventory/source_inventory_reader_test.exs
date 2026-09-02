@@ -7,34 +7,34 @@ defmodule ServiceRadar.Inventory.SourceInventoryReaderTest do
     assert {:ok, opts} =
              SourceInventoryReader.parse_params(%{
                "source" => "Example-Inventory",
-               "instance" => "example-prod",
+               "instance" => "acme-prod",
                "presence" => "present",
                "partition" => "default",
                "limit" => "250"
              })
 
     assert opts.source == "example-inventory"
-    assert opts.instance == "example-prod"
+    assert opts.instance == "acme-prod"
     assert opts.limit == 250
 
     assert {:error, {:invalid_query, :unknown_query_parameter}} =
              SourceInventoryReader.parse_params(%{
                "source" => "example-inventory",
-               "instance" => "example-prod",
+               "instance" => "acme-prod",
                "sql" => "SELECT * FROM platform.ocsf_devices"
              })
 
     assert {:error, {:invalid_query, :invalid_limit}} =
              SourceInventoryReader.parse_params(%{
                "source" => "example-inventory",
-               "instance" => "example-prod",
+               "instance" => "acme-prod",
                "limit" => "501"
              })
 
     assert {:error, {:invalid_query, :invalid_identifier}} =
              SourceInventoryReader.parse_params(%{
                "source" => "example-inventory",
-               "instance" => "example-prod' OR 1=1 --"
+               "instance" => "acme-prod' OR 1=1 --"
              })
   end
 
@@ -46,7 +46,7 @@ defmodule ServiceRadar.Inventory.SourceInventoryReaderTest do
       %{
         "v" => 1,
         "source" => "example-inventory",
-        "instance" => "example-prod",
+        "instance" => "acme-prod",
         "partition" => "default",
         "presence" => "present",
         "collection" => "20260713T120000.000000000Z-abcdef123456",

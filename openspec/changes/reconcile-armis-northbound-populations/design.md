@@ -6,7 +6,7 @@ ingestion. `ArmisNorthboundRunner` loads safe typed-ID candidates, collapses by
 Armis ID, and adds the number of withholding conflict *rows* to its denominator.
 The run is not linked to the Armis collection that produced either population.
 
-The 2026-09-01 Example investigation makes the distortion concrete:
+The 2026-09-01 customer investigation makes the distortion concrete:
 
 - the Integration Source displayed 22,308 inbound devices;
 - northbound considered 17,772, accepted 14,431, and skipped 3,341;
@@ -47,7 +47,7 @@ instead of creating a second inbound inventory system.
   response; `accepted` means the Armis bulk endpoint accepted the operation.
 - Replace the general DIRE identity model or the existing Armis mega-device
   disposition proposal.
-- Mutate Example production data as part of proposal authoring.
+- Mutate production data as part of proposal authoring.
 
 ## Decisions
 
@@ -227,7 +227,7 @@ accounting-unavailable populations remain.
 5. Add the reconciliation funnel and run-detail reason views.
 6. Run the hermetic Armis/DIRE scenarios for repeated rows, alias candidates,
    merge fences, stopped batches, and exact equations.
-7. In UAL, capture a fresh snapshot and run remediation dry-run. Review all
+7. In production, capture a fresh snapshot and run remediation dry-run. Review all
    multiple-current-ID and alias candidates before approving any mutation.
 8. Apply approved repairs in bounded batches, re-query ownership immediately,
    wait for a post-rollout inbound collection, run northbound, and require the
@@ -235,7 +235,7 @@ accounting-unavailable populations remain.
 
 ## Open Questions
 
-- Does the Example Armis API actually return the same normalized ID more than once
+- Does the customer Armis API actually return the same normalized ID more than once
   across configured queries/pages, and do any repeats disagree on
   identity-critical fields?
 - Does Armis expose an authoritative alias/duplicate relationship for distinct

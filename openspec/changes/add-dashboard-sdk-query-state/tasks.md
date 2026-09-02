@@ -16,7 +16,7 @@
 - [x] 3.1 Add `useIndexedRows(rows, { indexBy, searchText })` that builds inverted indexes when the input row reference changes.
 - [x] 3.2 Implement `applyFilters` via Set intersection rather than linear scans; provide a haystack-based substring matcher for the search field.
 - [x] 3.3 Add `useFilterState({ schema, debounceMs })` exposing chip/toggle/search/viewport filter state with stable callbacks.
-- [x] 3.4 Document the composition pattern between `useFilterState`, `useIndexedRows`, and `useDashboardQueryState` so a single state shape can drive local filtering and the SRQL roundtrip. (README "A composed example" — ~80 lines showing `filters.state` driving local filter via `useIndexedRows.applyFilters` and `filters.debouncedState` driving SRQL roundtrip via `useDashboardQueryState.apply`. Mirrors the UAL `useUalState` composition.)
+- [x] 3.4 Document the composition pattern between `useFilterState`, `useIndexedRows`, and `useDashboardQueryState` so a single state shape can drive local filtering and the SRQL roundtrip. (README "A composed example" — ~80 lines showing `filters.state` driving local filter via `useIndexedRows.applyFilters` and `filters.debouncedState` driving SRQL roundtrip via `useDashboardQueryState.apply`. Mirrors the customer `useDashboardState` composition.)
 - [x] 3.5 Add TypeScript declarations and README examples for the indexed-rows surface. (`src/filtering.d.ts` ships `IndexedRows`/`IndexedRowsOptions`/`IndexSelector` types; React-side types in `src/react.d.ts`. README "Indexed local filtering" walks through `indexBy` selectors, Set intersection, and the `searchText` haystack pattern.)
 
 ## 4. SDK Map Runtime Primitives
@@ -28,11 +28,11 @@
 - [x] 4.6 Expose the underlying `map` and `overlay` instances as escape hatches.
 - [x] 4.7 Add TypeScript declarations and README examples for the map runtime surface. (`src/map.d.ts` ships `DeckMapHandle`/`UseDeckMapOptions`/`DeckLayerSpec` types and `scatter`/`text`/`icon`/`line` helpers. README "Map runtime — `useDeckMap`, `useDeckLayers`" walks through stable `accessors`/`visualProps`/`data` refs as the memoization contract, factory helpers, and theme transitions without GPU rebuild.)
 
-## 5. Example Integration
-- [x] 5.1 Refactor Example SRQL/filter plumbing to use the SDK query state helper. (Surgical: `srqlQuery.js` now uses `fingerprintQueryState`. Full migration to `useDashboardQueryState` deferred — requires React-driven shell rewrite.)
-- [x] 5.2 Replace hand-rolled `normalizeSites`/`normalizeDevices` and frame ingest in `frameData.js` with `useFrameRows({ shape })` against typed shapes for `wifi_sites`, `wifi_aps`, `wifi_controllers`, and history frames. (Shapes shipped in `src/map/shapes.js`; React-shell consumption via `useUalFrames`. Deletion of the imperative `frameData.js` happens in `update-wifi-dashboard-react-shell` Section 8 cutover.)
-- [x] 5.3 Replace `filterCounts.js` linear filtering with `useIndexedRows` over region, AP family, WLC model, AOS version, RADIUS cluster indexes plus a device search haystack. (Filter pass now uses `createIndexedRows`; device haystack remains in Example since search has cross-entity device semantics.)
-- [x] 5.4 Replace `createUalMapController.js` Mapbox + deck.gl bootstrap and `deckLayers.js` raw layer construction with `useDeckMap` and `useDeckLayers`, including theme-token recoloring without GPU rebuild. (`MapStage` consumes both hooks behind the React shell flag; full deletion of imperative bootstrap in `update-wifi-dashboard-react-shell` Section 8.)
+## 5. Customer integration
+- [x] 5.1 Refactor customer SRQL/filter plumbing to use the SDK query state helper. (Surgical: `srqlQuery.js` now uses `fingerprintQueryState`. Full migration to `useDashboardQueryState` deferred — requires React-driven shell rewrite.)
+- [x] 5.2 Replace hand-rolled `normalizeSites`/`normalizeDevices` and frame ingest in `frameData.js` with `useFrameRows({ shape })` against typed shapes for `wifi_sites`, `wifi_aps`, `wifi_controllers`, and history frames. (Shapes shipped in `src/map/shapes.js`; React-shell consumption via `useDashboardFrames`. Deletion of the imperative `frameData.js` happens in `update-wifi-dashboard-react-shell` Section 8 cutover.)
+- [x] 5.3 Replace `filterCounts.js` linear filtering with `useIndexedRows` over region, AP family, WLC model, AOS version, RADIUS cluster indexes plus a device search haystack. (Filter pass now uses `createIndexedRows`; device haystack remains in the dashboard package since search has cross-entity device semantics.)
+- [x] 5.4 Replace `createMapController.js` Mapbox + deck.gl bootstrap and `deckLayers.js` raw layer construction with `useDeckMap` and `useDeckLayers`, including theme-token recoloring without GPU rebuild. (`MapStage` consumes both hooks behind the React shell flag; full deletion of imperative bootstrap in `update-wifi-dashboard-react-shell` Section 8.)
 - [x] 5.5 Keep local map interactions responsive and avoid full map remounts during filter/query changes. (rAF-coalesced `renderAll` + layer cache by inputs.)
 - [x] 5.6 Preserve renderer portability for users developing dashboards outside direct ServiceRadar source access.
 
@@ -40,13 +40,13 @@
 - [x] 6.1 Add dashboard SDK unit tests for dedupe, debounce, reset, frame overrides, and query state hook behavior. (`tests/query-state.test.mjs` 11 tests + React hook smoke test in `react-hooks.test.mjs`.)
 - [x] 6.2 Add dashboard SDK unit tests for frame digest stability, Arrow decode lazy-load, shape projection caching, and JSON fallback. (`tests/frames.test.mjs` + `tests/arrow.test.mjs` + frame ergonomics scenarios in `react-hooks.test.mjs`.)
 - [x] 6.3 Add dashboard SDK unit tests for indexed-rows construction, Set-intersection filter dispatch, and haystack substring matching. (`tests/filtering.test.mjs` 8 tests.)
-- [x] 6.4 Add dashboard SDK unit tests for `useDeckMap` library validation, viewport throttling, theme swap layer preservation, and `useDeckLayers` instance reuse. (`tests/map.test.mjs` 4 tests covering the deterministic memoization paths; lifecycle/throttle behavior verified by integration with UAL.)
-- [x] 6.5 Add or update Example unit tests for zoom-out reset, cluster/site drill behavior, frame ingest stability, indexed-filter parity with the reference, and layer memoization. (Existing 11 Example unit tests still pass against the indexed-filter implementation.)
-- [ ] 6.6 Run Example harness parity and Docker/local web-ng browser parity checks; capture per-keystroke filter latency and compare against the reference HTML.
+- [x] 6.4 Add dashboard SDK unit tests for `useDeckMap` library validation, viewport throttling, theme swap layer preservation, and `useDeckLayers` instance reuse. (`tests/map.test.mjs` 4 tests covering the deterministic memoization paths; lifecycle/throttle behavior verified by integration with the reference dashboard.)
+- [x] 6.5 Add or update customer unit tests for zoom-out reset, cluster/site drill behavior, frame ingest stability, indexed-filter parity with the reference, and layer memoization. (Existing 11 customer unit tests still pass against the indexed-filter implementation.)
+- [ ] 6.6 Run customer harness parity and Docker/local web-ng browser parity checks; capture per-keystroke filter latency and compare against the reference HTML.
 - [ ] 6.7 Capture Playwright screenshots for the topbar SRQL and map interaction regressions.
 
 ## 7. SDK-Owned Renderer Tooling
 - [x] 7.1 Add an SDK CLI entry point for `serviceradar-dashboard build`, `manifest`, `dev`, and `import`.
 - [x] 7.2 Move renderer manifest generation and digest stamping into SDK-owned commands.
 - [x] 7.3 Move the browser harness launcher into SDK-owned tooling so customer dashboards can run it through the installed package.
-- [ ] 7.4 Replace Example-local renderer scripts with SDK CLI commands while preserving the same package output.
+- [ ] 7.4 Replace customer-local renderer scripts with SDK CLI commands while preserving the same package output.

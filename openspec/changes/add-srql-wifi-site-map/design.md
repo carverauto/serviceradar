@@ -100,7 +100,7 @@ The customer-owned WiFi-map plugin should emit a typed JSON batch inside the plu
 - `fleet_history`.
 - `source_files` or controller sources.
 
-The agent and gateway can continue forwarding the result as `plugin-result`; core-elx should keep the generic plugin-result ingestor focused on the common status/metrics envelope and stable platform contracts such as `serviceradar.device_discovery.v1`. Customer-specific payloads should not require a permanent handler in the ServiceRadar product. The Example collector should emit device discovery/enrichment records for AP/WLC inventory and only use WiFi-map batch ingestion as a local development bridge until customer-owned package ingestion contracts can be declared by package metadata. If current payload limits are too small, add chunking or object-store handoff before implementation.
+The agent and gateway can continue forwarding the result as `plugin-result`; core-elx should keep the generic plugin-result ingestor focused on the common status/metrics envelope and stable platform contracts such as `serviceradar.device_discovery.v1`. Customer-specific payloads should not require a permanent handler in the ServiceRadar product. The customer collector should emit device discovery/enrichment records for AP/WLC inventory and only use WiFi-map batch ingestion as a local development bridge until customer-owned package ingestion contracts can be declared by package metadata. If current payload limits are too small, add chunking or object-store handoff before implementation.
 
 The current seed snapshot is small enough for a single plugin-result message: the checked CSV seed files are about 862 KB raw and 179 KB gzipped. Even after JSON expansion, the expected batch is comfortably below the agent-gateway plugin-result limit of 15 MB. The initial CSV seed mode can therefore emit one structured batch per collection. Chunking or object-store handoff should remain a follow-up if live collector payloads grow beyond the gateway limit or if plugin runtime memory pressure becomes visible.
 
@@ -201,9 +201,9 @@ The POC behavior to preserve in the customer dashboard package includes:
 - Data freshness and fleet migration trend indicators based on ingested batch metadata/history.
 - Dashboard card to full-screen package transition while preserving query/view context where possible.
 
-### D7: Example-specific dashboard behavior ships as a dashboard package
+### D7: customer-specific dashboard behavior ships as a dashboard package
 
-The ServiceRadar product should not hardcode a Example Airline WiFi workflow into
+The ServiceRadar product should not hardcode a customer WiFi workflow into
 the main dashboard. The product-owned surface should be generic:
 
 - SRQL-backed data access.
@@ -212,11 +212,11 @@ the main dashboard. The product-owned surface should be generic:
 - Browser-side sandboxing and data-frame delivery.
 - Product-native shell, theme, navigation, and settings.
 
-The United map can then ship as a customer dashboard package from a customer-owned
+The WiFi map can then ship as a customer dashboard package from a customer-owned
 repository. That package can provide the exact custom behavior the customer needs:
 region and cluster filters, site popups, AP/WLC detail layouts, migration views,
 and customer-specific labels. Other customers can install different packages
-without inheriting Example-specific UI.
+without inheriting customer-specific UI.
 
 ### D8: Dashboard packages use JSON manifests plus signed browser renderers
 
@@ -301,7 +301,7 @@ encoder is expanded.
 
 Long term, the built-in topology view and netflow map should move behind this
 same dashboard-package boundary. Core/web-ng should remain the stable host and
-data plane; topology, netflow, United's network map, and future specialized
+data plane; topology, netflow, a customer network map, and future specialized
 views should be replaceable renderer packages that can be updated without
 changing core product code.
 

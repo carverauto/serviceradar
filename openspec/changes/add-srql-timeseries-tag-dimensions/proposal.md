@@ -2,7 +2,7 @@
 
 ## Why
 
-Two problems, found while porting United's Aruba monitoring dashboards off
+Two problems, found while porting a customer's Aruba monitoring dashboards off
 Grafana onto ServiceRadar. One is a live correctness bug that affects queries
 people run today; the other is the feature gap that blocks the port.
 

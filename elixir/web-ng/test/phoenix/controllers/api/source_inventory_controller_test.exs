@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNGWeb.Api.SourceInventoryControllerTest do
     response =
       conn
       |> delete_req_header("authorization")
-      |> get(~p"/api/v1/source-inventory?source=example-inventory&instance=example-prod")
+      |> get(~p"/api/v1/source-inventory?source=example-inventory&instance=acme-prod")
       |> json_response(401)
 
     assert response["error"] == "unauthorized"
@@ -46,7 +46,7 @@ defmodule ServiceRadarWebNGWeb.Api.SourceInventoryControllerTest do
     response =
       conn
       |> assign(:current_scope, forbidden_scope)
-      |> ServiceRadarWebNGWeb.Api.SourceInventoryController.index(%{"instance" => "example-prod"})
+      |> ServiceRadarWebNGWeb.Api.SourceInventoryController.index(%{"instance" => "acme-prod"})
       |> json_response(403)
 
     assert response["error"] == "forbidden"
@@ -58,13 +58,13 @@ defmodule ServiceRadarWebNGWeb.Api.SourceInventoryControllerTest do
 
     response =
       conn
-      |> get(~p"/api/v1/source-inventory?source=example-inventory&instance=example-prod&limit=100")
+      |> get(~p"/api/v1/source-inventory?source=example-inventory&instance=acme-prod&limit=100")
       |> json_response(200)
 
     assert_received {:source_inventory_params,
                      %{
                        "source" => "example-inventory",
-                       "instance" => "example-prod",
+                       "instance" => "acme-prod",
                        "limit" => "100"
                      }}
 
@@ -78,7 +78,7 @@ defmodule ServiceRadarWebNGWeb.Api.SourceInventoryControllerTest do
 
     changed =
       conn
-      |> get(~p"/api/v1/source-inventory?source=example-inventory&instance=example-prod")
+      |> get(~p"/api/v1/source-inventory?source=example-inventory&instance=acme-prod")
       |> json_response(409)
 
     assert changed["error"] == "source_collection_changed"
@@ -88,7 +88,7 @@ defmodule ServiceRadarWebNGWeb.Api.SourceInventoryControllerTest do
     invalid =
       build_conn()
       |> log_in_api_user(ServiceRadarWebNG.AccountsFixtures.user_fixture(%{role: :viewer}))
-      |> get(~p"/api/v1/source-inventory?source=example-inventory&instance=example-prod&sql=select")
+      |> get(~p"/api/v1/source-inventory?source=example-inventory&instance=acme-prod&sql=select")
       |> json_response(400)
 
     assert invalid == %{
@@ -102,7 +102,7 @@ defmodule ServiceRadarWebNGWeb.Api.SourceInventoryControllerTest do
 
     response =
       conn
-      |> get(~p"/api/v1/source-inventory?source=example-inventory&instance=example-prod")
+      |> get(~p"/api/v1/source-inventory?source=example-inventory&instance=acme-prod")
       |> json_response(500)
 
     assert response == %{
@@ -118,7 +118,7 @@ defmodule ServiceRadarWebNGWeb.Api.SourceInventoryControllerTest do
       "api_version" => "v1",
       "schema_version" => "serviceradar.source_inventory.v1",
       "source" => "example-inventory",
-      "source_instance" => "example-prod",
+      "source_instance" => "acme-prod",
       "partition" => "default",
       "collection" => %{
         "id" => "collection-1",

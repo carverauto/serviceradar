@@ -79,8 +79,8 @@ The SDK should own the repeatable dashboard package workflow instead of requirin
 
 Customer packages should keep ownership of domain-specific React code, styles, frame declarations, settings schema, sample frames, and package identity. They should not own generic renderer output naming, digest stamping, harness URL construction, or ServiceRadar import plumbing. The package descriptor can live in `dashboard.config.js` or `package.json` metadata, but the command behavior should remain SDK-owned and consistent across customer packages.
 
-## Example Intended Usage
-Example should use the SDK helpers for:
+## Intended customer usage
+A customer dashboard should use the SDK helpers for:
 - sidebar filter changes
 - site/cluster drill state
 - reset filters
@@ -91,7 +91,7 @@ Example should use the SDK helpers for:
 - deck.gl layer instantiation and accessor memoization for site cluster, site label, and drill-detail layers
 - renderer package build, manifest generation, harness launch, and local import commands
 
-Example-specific code should focus on map rendering decisions (icon design, popup layout, visual tokens), site-domain interactions, and the dashboard's own visual chrome; it should not own general SRQL host synchronization mechanics, generic frame normalization, generic filter index construction, or generic deck.gl/Mapbox bootstrap.
+Customer-specific code should focus on map rendering decisions (icon design, popup layout, visual tokens), site-domain interactions, and the dashboard's own visual chrome; it should not own general SRQL host synchronization mechanics, generic frame normalization, generic filter index construction, or generic deck.gl/Mapbox bootstrap.
 
 ## Risks / Trade-offs
 - **Bundle size from Arrow.** Lazy-loading the Apache Arrow decoder mitigates baseline cost; dashboards that never enable Arrow stay on the JSON path. A small bundle-budget regression is expected for dashboards that do enable it; the size is bounded and amortized across all map-style dashboards rather than each one shipping its own copy.

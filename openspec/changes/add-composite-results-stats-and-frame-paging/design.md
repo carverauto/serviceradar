@@ -27,7 +27,7 @@ reads it, so the NIF emits a bounded SELECT of plain rows. That is the
 bug `add-composite-service-checks` left open: "countable by status" with no
 syntax and no GROUP BY.
 
-The Example Armis dashboard (`serviceradar-armis-dashboards`) currently declares
+The customer Armis dashboard (`serviceradar-armis-dashboards`) currently declares
 two frames, both `limit:2000`, and rolls up in the browser. On a 28k-device
 check the counts are a sample. Raising the clamp ships tens of megabytes of
 `inputs` jsonb over the dashboard channel every 15s (`refresh_interval_ms`
@@ -250,7 +250,7 @@ Stats queries do not mint a `next_cursor` unless the group count hits
 2. Land FrameRunner cursor + LiveView event + JS host. Feature-detect in
    the SDK (`typeof api.srql.page === "function"`).
 3. Publish SDK minor.
-4. Customer packages (Example Armis dashboard) switch frames in their own
+4. Customer packages (Armis dashboard) switch frames in their own
    repo. Until they do, they keep seeing the ceiling banner on hosts that
    still clamp at 2_000.
 

@@ -2,7 +2,7 @@
 
 ## 1. Contract and live baseline
 
-- [ ] 1.1 Capture a fresh Example Armis collection and report raw rows, valid ID
+- [ ] 1.1 Capture a fresh customer Armis collection and report raw rows, valid ID
   occurrences, distinct normalized Armis IDs, repeated occurrences, conflicting
   repeated payloads, configured-query overlap, and invalid rows. Do not infer
   these values from active canonical inventory.
@@ -10,7 +10,7 @@
   hostname, or IP as source-alias candidates; determine whether Armis supplies
   an authoritative alias/duplicate relation. Keep shared-IP-only matches out of
   any approval set.
-- [x] 1.3 Record the pre-change Example reconciliation baseline for source
+- [x] 1.3 Record the pre-change customer reconciliation baseline for source
   `0f001c87-ebbb-42c1-93a0-95b9ed61bb3c`, including the 3,295 multi-ID rows,
   46 metadata disagreements, source-ID freshness distribution, and merge audit
   linkage.
@@ -75,7 +75,7 @@
   for every source-alias candidate without independent evidence.
 - [x] 5.3 Re-read every changed identifier/device immediately and expose an
   explicit failure result for ownership or count drift.
-- [ ] 5.4 After the protected writer is deployed, execute an approved Example batch,
+- [ ] 5.4 After the protected writer is deployed, execute an approved customer batch,
   wait for a new inbound collection, and verify both the collection membership
   and the next northbound per-ID ledger. Do not treat job success or stale
   aggregate counts as verification.
