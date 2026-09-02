@@ -752,8 +752,8 @@
   validation and prefix advancement). This task MAY NOT be checked until BOTH
   hold, each covered by a scenario under `ingestion-routing`'s "Backpressure and
   fairness are bounded at every hop":
-  (i) RESTART OVERLAP -- STILL OPEN. A lane restart MUST NOT reopen capacity an
-  in-flight request still occupies, so old and replacement requests together
+  (i) RESTART OVERLAP -- STILL OPEN. A lane restart MUST NOT reopen capacity that
+  an in-flight request still occupies, so old and replacement requests together
   cannot exceed the grant. Eventual supervisor restart of a sibling does not
   satisfy this: restarts are ordered but not instantaneous, and a request may
   complete inside that interval. A replacement `PublisherPool` still starts with
