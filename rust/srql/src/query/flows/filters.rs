@@ -437,6 +437,10 @@ pub(super) fn apply_filter<'a>(
         "near" | "src_near" | "dst_near" => {
             query = apply_near_filter(query, filter)?;
         }
+        "threat_matched" | "threat_source" | "threat_indicator" | "threat_observed_ip"
+        | "threat_severity" => {
+            query = apply_threat_filter(query, filter)?;
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for flows: '{other}'"
@@ -445,6 +449,135 @@ pub(super) fn apply_filter<'a>(
     }
 
     Ok(query)
+}
+
+fn apply_threat_filter<'a>(query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQuery<'a>> {
+    let live = "c.matched AND c.expires_at > NOW()";
+    let endpoint = "(c.ip = src_endpoint_ip OR c.ip = dst_endpoint_ip)";
+    match filter.field.as_str() {
+        "threat_matched" => {
+            if !matches!(filter.op, FilterOp::Eq) {
+                return Err(ServiceError::InvalidRequest(
+                    "threat_matched only supports equality".into(),
+                ));
+            }
+            let wanted = match filter.value.as_scalar()?.to_ascii_lowercase().as_str() {
+                "true" | "t" | "yes" | "1" => true,
+                "false" | "f" | "no" | "0" => false,
+                other => {
+                    return Err(ServiceError::InvalidRequest(format!(
+                        "threat_matched requires true or false, got '{other}'"
+                    )));
+                }
+            };
+            let exists = format!(
+                "EXISTS (SELECT 1 FROM platform.ip_threat_intel_cache c WHERE {live} AND {endpoint})"
+            );
+            if wanted {
+                Ok(query.filter(sql::<Bool>(&exists)))
+            } else {
+                Ok(query.filter(sql::<Bool>(&format!("NOT {exists}"))))
+            }
+        }
+        "threat_source" => {
+            if !matches!(filter.op, FilterOp::Eq | FilterOp::In) {
+                return Err(ServiceError::InvalidRequest(
+                    "threat_source only supports equality and membership".into(),
+                ));
+            }
+            let values = match &filter.value {
+                FilterValue::Scalar(value) => vec![value.clone()],
+                FilterValue::List(values) => values.clone(),
+            };
+            if values.is_empty() {
+                return Ok(query);
+            }
+            Ok(query.filter(
+                sql::<Bool>(&format!(
+                    "EXISTS (SELECT 1 FROM platform.ip_threat_intel_cache c \
+                     WHERE {live} AND {endpoint} AND c.sources && "
+                ))
+                .bind::<diesel::sql_types::Array<Text>, _>(values)
+                .sql(")"),
+            ))
+        }
+        "threat_observed_ip" => {
+            if !matches!(filter.op, FilterOp::Eq) {
+                return Err(ServiceError::InvalidRequest(
+                    "threat_observed_ip only supports equality".into(),
+                ));
+            }
+            let ip = filter.value.as_scalar()?.to_string();
+            ip.parse::<std::net::IpAddr>().map_err(|_| {
+                ServiceError::InvalidRequest("threat_observed_ip must be an IP address".into())
+            })?;
+            Ok(query.filter(
+                sql::<Bool>(&format!(
+                    "EXISTS (SELECT 1 FROM platform.ip_threat_intel_cache c \
+                     WHERE {live} AND {endpoint} AND c.ip = "
+                ))
+                .bind::<Text, _>(ip)
+                .sql(")"),
+            ))
+        }
+        "threat_indicator" => {
+            if !matches!(filter.op, FilterOp::Eq) {
+                return Err(ServiceError::InvalidRequest(
+                    "threat_indicator only supports equality".into(),
+                ));
+            }
+            let raw = filter.value.as_scalar()?;
+            let (cast, value) = if raw.contains('/') {
+                ("cidr", normalize_cidr_literal(raw)?)
+            } else {
+                let ip: std::net::IpAddr = raw.parse().map_err(|_| {
+                    ServiceError::InvalidRequest("threat_indicator must be an IP or CIDR".into())
+                })?;
+                ("inet", ip.to_string())
+            };
+            let op = if cast == "cidr" {
+                "i.indicator = "
+            } else {
+                "i.indicator >>= "
+            };
+            Ok(query.filter(
+                sql::<Bool>(&format!(
+                    "EXISTS (SELECT 1 FROM platform.ip_threat_intel_cache c \
+                     JOIN platform.threat_intel_indicators i ON c.ip::inet <<= i.indicator \
+                     WHERE {live} AND {endpoint} AND {op}"
+                ))
+                .bind::<Text, _>(value)
+                .sql(&format!("::{cast})")),
+            ))
+        }
+        "threat_severity" => {
+            let operator = match filter.op {
+                FilterOp::Eq => "=",
+                FilterOp::NotEq => "<>",
+                FilterOp::Gt => ">",
+                FilterOp::Gte => ">=",
+                FilterOp::Lt => "<",
+                FilterOp::Lte => "<=",
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "threat_severity requires a scalar comparison".into(),
+                    ));
+                }
+            };
+            let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
+                ServiceError::InvalidRequest("threat_severity must be an integer".into())
+            })?;
+            Ok(query.filter(
+                sql::<Bool>(&format!(
+                    "EXISTS (SELECT 1 FROM platform.ip_threat_intel_cache c \
+                     WHERE {live} AND {endpoint} AND c.max_severity {operator} "
+                ))
+                .bind::<diesel::sql_types::Int4, _>(value)
+                .sql(")"),
+            ))
+        }
+        _ => unreachable!("threat filter field already matched"),
+    }
 }
 
 /// `port:` matches either flow endpoint port, mirroring `ip:`.

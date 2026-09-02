@@ -21,6 +21,11 @@ defmodule ServiceRadar.Observability.ThreatIntelIndicator do
   actions do
     defaults [:read, :destroy]
 
+    read :containing_ip do
+      argument :ip, :string, allow_nil?: false
+      filter expr(fragment("? >>= ?::inet", indicator, ^arg(:ip)))
+    end
+
     create :upsert do
       accept [
         :indicator,

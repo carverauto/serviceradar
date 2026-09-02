@@ -1,7 +1,7 @@
 //! Viz metadata builders for network entities: interfaces, flows, and BMP
 //! routing events.
 
-use super::{ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
+use super::{col, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion};
 
 pub(super) fn interfaces() -> VizMeta {
     VizMeta {
@@ -37,6 +37,37 @@ pub(super) fn interfaces() -> VizMeta {
                 ColumnType::Timestamptz,
                 Some(ColumnSemantic::Time),
             ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn threat_intel_matches() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("match_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("match_kind", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("observed_ip", ColumnType::Text, None),
+            col("indicator_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("indicator", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("indicator_type", ColumnType::Text, None),
+            col("source", ColumnType::Text, None),
+            col("label", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("severity", ColumnType::Int, None),
+            col("confidence", ColumnType::Int, None),
+            col(
+                "evaluated_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("cache_expires_at", ColumnType::Timestamptz, None),
+            col("indicator_match_count", ColumnType::Int, None),
+            col("stale", ColumnType::Bool, None),
         ],
         suggestions: vec![VizSuggestion {
             kind: VizKind::Table,

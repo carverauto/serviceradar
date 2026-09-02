@@ -70,6 +70,7 @@ pub enum Entity {
     EndpointInventoryScans,
     PublicEndpoints,
     SourceFactDisagreements,
+    ThreatIntelMatches,
 }
 
 #[derive(Debug, Clone, Serialize)]

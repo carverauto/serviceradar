@@ -114,6 +114,9 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
             Ok(Entity::TraceSummaries)
         }
         "otel_traces" | "traces" | "trace_spans" => Ok(Entity::Traces),
+        "threat_intel_matches" | "threat_intel_match" | "ioc_matches" | "ioc_match" => {
+            Ok(Entity::ThreatIntelMatches)
+        }
         "flows" | "flow" | "network_activity" => Ok(Entity::Flows),
         "attributed_flows" | "attributed_flow" | "flow_attributions" | "flow_attribution" => {
             Ok(Entity::AttributedFlows)
