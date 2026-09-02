@@ -255,7 +255,7 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
 
       assert %{^key => {50, _deadline, attempt}} = :sys.get_state(p).window.outstanding
 
-      assert attempt === {:pending, token},
+      assert attempt === {:pending, token, self()},
              "the pool activated the attempt at admission: #{inspect(attempt)}"
 
       # While provisional it is inert, so nothing can take the slot from the caller that is about
@@ -270,11 +270,49 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
 
       assert eventually(fn ->
                match?(
-                 {_bytes, _deadline, {:active, ^token2}},
+                 {_bytes, _deadline, {:active, ^token2, _owner}},
                  :sys.get_state(p).window.outstanding[key2]
                )
              end),
              "the confirmed handoff never activated"
+    end
+  end
+
+  describe "the pool takes the owner from the CALL, not from the caller's word" do
+    setup do
+      with_call_timeout(5_000)
+      :ok
+    end
+
+    test "holding the reservation is not enough -- one process cannot end another's attempt" do
+      # The owner is `from`, so there is no parameter for a caller to lie in. This is what stops
+      # a sweep, a supervisor, or any other holder of the tuple from freeing a live request.
+      p = pool(1, 100)
+      parent = self()
+
+      owner =
+        spawn_link(fn ->
+          {:ok, res} = PublisherPool.admit(p, k(1), 50, 60_000)
+          send(parent, {:reservation, res})
+
+          receive do
+            :settle ->
+              send(parent, {:settled, PublisherPool.settle(p, res, :primary_publication)})
+          end
+        end)
+
+      assert_receive {:reservation, res}, 5_000
+
+      assert {:error, :not_outstanding} = PublisherPool.settle(p, res, :primary_publication)
+      assert {:error, :not_outstanding} = PublisherPool.attempt_failed(p, res)
+
+      assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p),
+             "a non-owner released a frame that was still in flight"
+
+      # NOT VACUOUS: the same settlement from the owner works.
+      send(owner, :settle)
+      assert_receive {:settled, :ok}, 5_000
+      assert %{outstanding_frames: 0, outstanding_bytes: 0} = PublisherPool.capacity(p)
     end
   end
 end
