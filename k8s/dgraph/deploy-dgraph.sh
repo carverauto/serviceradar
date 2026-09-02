@@ -100,6 +100,18 @@ deploy() {
     -f "$values" \
     --wait --timeout 15m
 
+  # CI publishes ca.crt for live client fetches. The ClusterIP Service is the Envoy
+  # backend; the LAN HTTPRoute is what clients dial over HTTPS.
+  if [[ -f "${here}/${env}/ca-bundle.yaml" ]]; then
+    kubectl apply -f "${here}/${env}/ca-bundle.yaml"
+  fi
+  if [[ -f "${here}/${env}/httproute-ca.yaml" ]]; then
+    kubectl apply -f "${here}/${env}/httproute-ca.yaml"
+  fi
+  if [[ -f "${here}/${env}/httproute-redirect.yaml" ]]; then
+    kubectl apply -f "${here}/${env}/httproute-redirect.yaml"
+  fi
+
   echo
   echo "deployed. ACL IS ENABLED: clients authenticate as groot, whose initial password is"
   echo "Dgraph's default until it is changed. check with:"

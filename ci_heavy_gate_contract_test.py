@@ -1099,7 +1099,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         required_pool_slots: int,
     ) -> None:
         for required in (
-            'SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"',
+            'SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"',
             "export BAZEL_PROFILE=ci",
             "export SERVICERADAR_ENV=ci",
             "--strategy=TestRunner=local",
@@ -1390,7 +1390,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         for required in (
             'OCI_REGISTRY: "registry.carverauto.dev"',
             'OCI_AUTH_REQUIRED: "1"',
-            'SRQL_FIXTURE_CA_URL: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"',
+            'SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"',
             "self_hosted: true",
             'pool: "workflows"',
             "container_image: \"docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3\"",

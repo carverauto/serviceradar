@@ -175,6 +175,13 @@ config:
     task_allowed_private_ips:
       - 10.42.0.0/16 # pod CIDR: what a ClusterIP is rewritten to
       - 10.43.0.0/16 # service CIDR: ClusterIPs, including CoreDNS
+      # LAN shared-gateway VIP. CI fetches fixture CA bundles at
+      # https://srql-fixture-ca.carverauto.dev/ca.crt and
+      # https://dgraph-ci-ca.carverauto.dev/ca.crt, which resolve to this address.
+      # Calico BGP keeps the dest IP as the VIP (no kube-proxy DNAT to 10.42), so
+      # without this allow the HTTPS fetch is Connection refused and looks like a
+      # dead publisher. /32 on purpose: do not widen to 192.168.0.0/16.
+      - 192.168.6.87/32
 
     enable_oci: true
     default_isolation_type: oci

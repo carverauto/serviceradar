@@ -8,4 +8,6 @@ resources:
   - cnpg-cluster.yaml
   - services.yaml
   - ca-bundle.yaml
+  - httproute-ca.yaml
+  - httproute-redirect.yaml
   - scratch-reaper.yaml

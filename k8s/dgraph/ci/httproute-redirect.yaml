@@ -1,0 +1,27 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: dgraph-ci-ca-http-redirect
+  namespace: dgraph-ci
+  labels:
+    app: dgraph
+    app.kubernetes.io/component: fixture-ca-bundle
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: lan-shared-gateway
+      namespace: lan-edge
+      sectionName: http-carverauto
+  hostnames:
+    - dgraph-ci-ca.carverauto.dev
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

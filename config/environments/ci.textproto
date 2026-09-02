@@ -53,10 +53,13 @@ database {
   # in-cluster service overrides `host` and keeps a name the certificate actually carries.
   tls_server_name: "srql-fixture-rw.srql-fixtures.svc.cluster.local"
 
-  # The cert-manager issuer behind the fixture, published by //k8s/srql-fixtures/ca-bundle.yaml.
-  # Named rather than copied because the issuer rotates: a stored PEM is correct until it is
-  # not, which is what a BuildBuddy SRQL_TEST_DATABASE_CA_CERT secret did.
-  ca_bundle_url: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+  # The cert-manager issuer behind the fixture, published by //k8s/srql-fixtures/ca-bundle.yaml
+  # and exposed on lan-shared-gateway. Named rather than copied because the issuer rotates: a
+  # stored PEM is correct until it is not, which is what a BuildBuddy SRQL_TEST_DATABASE_CA_CERT
+  # secret did. HTTPS, terminated by the LAN wildcard Let's Encrypt cert, so scratch images
+  # verify the fetch with the public roots they already carry. The custom CA is the document
+  # being served, not the certificate that terminates this hop.
+  ca_bundle_url: "https://srql-fixture-ca.carverauto.dev/ca.crt"
 
   search_path: "platform, ag_catalog"
   pool_size: 10
@@ -89,7 +92,8 @@ dgraph {
 
   # Fetched live rather than copied into a CI secret, the same arrangement the database
   # fixture uses. cert-manager rotates `dgraph-ci-ca`, and a copy is correct until it is not.
-  # Published by //k8s/dgraph/ci/ca-bundle.yaml; HTTP-only necessarily, since this is what a
-  # client needs before it can verify anything.
-  ca_bundle_url: "http://dgraph-ca-incluster.dgraph-ci.svc.cluster.local/ca.crt"
+  # Published by //k8s/dgraph/ci/ca-bundle.yaml and exposed on lan-shared-gateway. HTTPS,
+  # terminated by the LAN wildcard Let's Encrypt cert: the custom CA is the document being
+  # served, not the certificate that terminates this hop.
+  ca_bundle_url: "https://dgraph-ci-ca.carverauto.dev/ca.crt"
 }
