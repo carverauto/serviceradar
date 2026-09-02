@@ -132,6 +132,31 @@ pub async fn ensure_template(owner: &str) -> Result<TemplateState> {
 /// Empty means the template is current and the Elixir migrator has nothing to do, which is
 /// what lets the workflow skip starting the BEAM at all.
 pub async fn pending_versions(migrations_dir: &Path) -> Result<Vec<i64>> {
+    Ok(migration_drift(migrations_dir).await?.pending)
+}
+
+/// How the template's applied migrations differ from this checkout's, in BOTH directions.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MigrationDrift {
+    /// On disk here, not applied to the template. The ordinary "you need to migrate" case.
+    pub pending: Vec<i64>,
+    /// Applied to the template, ABSENT from this checkout. See [`migration_drift`].
+    pub extra_applied: Vec<i64>,
+}
+
+/// Compares the migrations on disk against the template's `schema_migrations`, both ways.
+///
+/// The second direction is the one that used to go unasked. `sr_core_template` is SHARED across
+/// branches and only ever ratchets FORWARD: whichever branch runs the lifecycle first leaves its
+/// schema behind for every branch that clones it afterwards. A branch that is BEHIND therefore
+/// runs its own code against a FUTURE schema, and nothing noticed, because the only question
+/// asked was "is anything PENDING?" -- and a behind-branch's migrations are a strict SUBSET of
+/// what is applied, so the answer is no.
+///
+/// Twice now that has surfaced as a scatter of constraint and undefined-column errors naming no
+/// migration at all: once when `discovered_interfaces` was rekeyed, and again when
+/// `network_credential_secret_versions` was reshaped. Each cost a full bisect to identify.
+pub async fn migration_drift(migrations_dir: &Path) -> Result<MigrationDrift> {
     let on_disk = versions_on_disk(migrations_dir)?;
 
     if on_disk.is_empty() {
@@ -144,7 +169,44 @@ pub async fn pending_versions(migrations_dir: &Path) -> Result<Vec<i64>> {
 
     let applied = applied_versions().await?;
 
-    Ok(on_disk.difference(&applied).copied().collect())
+    Ok(drift_between(&on_disk, &applied))
+}
+
+/// Refuses when the template is AHEAD of this checkout, naming every extra migration.
+///
+/// Separate from [`migration_drift`] so the REFUSAL is testable, not just the comparison: the
+/// message is the entire value of this guard. What it replaces is a scatter of constraint and
+/// undefined-column errors that name no migration, which has twice cost a full bisect.
+pub fn ensure_not_ahead(template: &str, drift: &MigrationDrift) -> Result<()> {
+    if drift.extra_applied.is_empty() {
+        return Ok(());
+    }
+
+    let versions = drift
+        .extra_applied
+        .iter()
+        .map(i64::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    bail!(
+        "template {template} is AHEAD of this checkout: {} migration(s) are applied that this \
+         branch does not contain.\n\nExtra applied versions: {versions}\n\n\
+         The template is shared and only ratchets forward, so a branch behind another clones a \
+         FUTURE schema. `mix ecto.migrate` cannot see this: it reports PENDING migrations, and \
+         this branch has none.\n\n\
+         Merge or rebase onto the branch that added those migrations. Re-provisioning will NOT \
+         help -- a fresh clone of the same template reproduces it exactly.",
+        drift.extra_applied.len()
+    )
+}
+
+/// The pure comparison, so both directions are testable without a database.
+fn drift_between(on_disk: &BTreeSet<i64>, applied: &BTreeSet<i64>) -> MigrationDrift {
+    MigrationDrift {
+        pending: on_disk.difference(applied).copied().collect(),
+        extra_applied: applied.difference(on_disk).copied().collect(),
+    }
 }
 
 /// Versions recorded in the template's `schema_migrations`.
@@ -416,6 +478,88 @@ pub fn migrations_dir() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn versions(v: &[i64]) -> BTreeSet<i64> {
+        v.iter().copied().collect()
+    }
+
+    #[test]
+    fn drift_reports_pending_when_the_checkout_is_ahead() {
+        let drift = drift_between(&versions(&[1, 2, 3]), &versions(&[1, 2]));
+
+        assert_eq!(drift.pending, vec![3]);
+        assert!(drift.extra_applied.is_empty());
+    }
+
+    #[test]
+    fn drift_reports_extra_applied_when_the_template_is_ahead() {
+        // THE CASE THAT USED TO GO UNASKED. A behind-branch's migrations are a strict subset of
+        // what is applied, so "is anything pending?" answers no while the schema is a future one.
+        let drift = drift_between(&versions(&[1, 2]), &versions(&[1, 2, 3]));
+
+        assert!(drift.pending.is_empty());
+        assert_eq!(drift.extra_applied, vec![3]);
+    }
+
+    #[test]
+    fn drift_reports_both_directions_at_once() {
+        let drift = drift_between(&versions(&[1, 2, 4]), &versions(&[1, 3]));
+
+        assert_eq!(drift.pending, vec![2, 4]);
+        assert_eq!(drift.extra_applied, vec![3]);
+    }
+
+    #[test]
+    fn ensure_not_ahead_refuses_and_names_every_extra_migration() {
+        let drift = drift_between(&versions(&[1]), &versions(&[1, 20_260_830_220_000, 99]));
+
+        let error = ensure_not_ahead("sr_core_template", &drift)
+            .expect_err("a template ahead of the checkout must be refused");
+        let message = error.to_string();
+
+        // Naming them is the whole point: it is what replaces the bisect.
+        assert!(message.contains("20260830220000"), "message: {message}");
+        assert!(message.contains("99"), "message: {message}");
+        assert!(message.contains("2 migration(s)"), "message: {message}");
+        assert!(
+            message.contains("AHEAD of this checkout"),
+            "message: {message}"
+        );
+    }
+
+    #[test]
+    fn ensure_not_ahead_permits_a_checkout_that_is_merely_ahead() {
+        // PENDING is the ordinary "you need to migrate" case, which the lifecycle's migrate step
+        // exists to fix. Refusing it here would turn every first run into a hard stop.
+        let drift = drift_between(&versions(&[1, 2, 3]), &versions(&[1]));
+
+        assert!(!drift.pending.is_empty());
+        assert!(ensure_not_ahead("sr_core_template", &drift).is_ok());
+    }
+
+    #[test]
+    fn an_exactly_matching_template_has_no_drift_either_way() {
+        let drift = drift_between(&versions(&[1, 2, 3]), &versions(&[1, 2, 3]));
+
+        assert!(drift.pending.is_empty());
+        assert!(drift.extra_applied.is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_empty_migrations_directory_is_refused_before_any_connection() {
+        // NOT VACUOUS as a database test: the empty-directory check runs before the template is
+        // contacted, so this fails for the stated reason rather than for want of a fixture.
+        let dir = scratch("empty_drift");
+
+        let error = migration_drift(&dir)
+            .await
+            .expect_err("an empty migrations directory must be refused");
+
+        assert!(
+            error.to_string().contains("no migrations found under"),
+            "unexpected error: {error}"
+        );
+    }
 
     fn write(dir: &Path, name: &str) {
         fs::write(dir.join(name), "").expect("failed to write fixture migration");
