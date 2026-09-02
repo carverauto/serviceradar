@@ -20,6 +20,7 @@ RELEASE = "1" * 40
 BASE = "2" * 40
 INTRODUCTION = "3" * 40
 FEATURE = "4" * 40
+MERGE = "5" * 40
 PREFIX = "https://carverauto.buildbuddy.io/invocation/"
 VALID_URL = PREFIX + "abc123"
 
@@ -29,6 +30,8 @@ class FakeGit:
         self.resolutions = {RELEASE: RELEASE, "origin/staging": BASE}
         self.shallow = False
         self.ancestry = {(RELEASE, BASE): True}
+        self.trees = {RELEASE: "a" * 40, BASE: "b" * 40, MERGE: "a" * 40}
+        self.first_parent = [BASE]
         self.files = {
             (BASE, "build/ci/large_ingestion_gate_contract.v1"): b"large-ingestion-gate-contract-v1\n",
             (RELEASE, "build/ci/large_ingestion_gate_contract.v1"): b"large-ingestion-gate-contract-v1\n",
@@ -59,6 +62,19 @@ class FakeGit:
         if isinstance(value, Exception):
             raise value
         return value
+
+    def tree_sha(self, commit):
+        value = self.trees.get(commit)
+        if isinstance(value, Exception):
+            raise value
+        if value is None:
+            raise gate.PolicyError("unresolved tree")
+        return value
+
+    def first_parent_history(self, base_ref, limit=256):
+        if isinstance(self.first_parent, Exception):
+            raise self.first_parent
+        return list(self.first_parent)[:limit]
 
     def read_tree_file(self, commit, path):
         value = self.files.get((commit, path))
@@ -91,9 +107,11 @@ class Factory:
     def __init__(self, source):
         self.source = source
         self.calls = 0
+        self.commits = []
 
-    def __call__(self):
+    def __call__(self, commit):
         self.calls += 1
+        self.commits.append(commit)
         return self.source
 
 
@@ -457,8 +475,8 @@ class PollingTest(unittest.TestCase):
         ])
         result = gate.wait_for_gate(
             FakeGit(),
-            lambda: gate.GhStatusClient(
-                "carverauto/serviceradar", RELEASE, "test-token", runner, {"PATH": "/bin"}
+            lambda sha: gate.GhStatusClient(
+                "carverauto/serviceradar", sha, "test-token", runner, {"PATH": "/bin"}
             ),
             FakeClock(),
             RELEASE,
@@ -540,6 +558,60 @@ class PollingTest(unittest.TestCase):
         )
         self.assertEqual(gate.HISTORICAL_NOT_APPLICABLE, result.message)
         self.assertEqual(0, factory.calls)
+
+    def merge_git(self):
+        fake = FakeGit()
+        fake.resolutions["origin/staging"] = MERGE
+        fake.ancestry[(RELEASE, MERGE)] = True
+        fake.first_parent = [MERGE, BASE]
+        fake.trees[MERGE] = fake.trees[RELEASE]
+        fake.files[(MERGE, gate.MARKER_PATH)] = fake.files[(BASE, gate.MARKER_PATH)]
+        return fake
+
+    def test_same_tree_merge_success_qualifies_while_tag_sha_is_still_pending(self):
+        fake = self.merge_git()
+        self.assertEqual((RELEASE, MERGE), gate.qualification_commits(fake, RELEASE, "origin/staging"))
+        sources = {
+            RELEASE: CountingStatusSource([[status(state="pending")]] * 3),
+            MERGE: CountingStatusSource([[], [status()]]),
+        }
+        factory = type("F", (), {"calls": []})()
+
+        def make_source(sha):
+            factory.calls.append(sha)
+            return sources[sha]
+
+        result = gate.wait_for_gate(
+            fake, make_source, FakeClock(), RELEASE, "origin/staging", 1800, 15, PREFIX
+        )
+        self.assertEqual("QUALIFIED", result.message)
+        self.assertEqual(VALID_URL, result.target_url)
+        self.assertEqual([RELEASE, MERGE], factory.calls)
+
+    def test_tag_sha_failure_does_not_fail_while_merge_sha_is_pending(self):
+        fake = self.merge_git()
+        sources = {
+            RELEASE: CountingStatusSource([[status(state="failure")]] * 3),
+            MERGE: CountingStatusSource([[status(state="pending")], [status()]]),
+        }
+
+        def make_source(sha):
+            return sources[sha]
+
+        result = gate.wait_for_gate(
+            fake, make_source, FakeClock(), RELEASE, "origin/staging", 1800, 15, PREFIX
+        )
+        self.assertEqual("QUALIFIED", result.message)
+
+    def test_later_different_tree_descendant_is_ignored(self):
+        fake = self.merge_git()
+        tip = "6" * 40
+        fake.resolutions["origin/staging"] = tip
+        fake.ancestry[(RELEASE, tip)] = True
+        fake.trees[tip] = "c" * 40
+        fake.first_parent = [tip, MERGE, BASE]
+        fake.files[(tip, gate.MARKER_PATH)] = fake.files[(BASE, gate.MARKER_PATH)]
+        self.assertEqual((RELEASE, MERGE), gate.qualification_commits(fake, RELEASE, "origin/staging"))
 
 
 class GhStatusClientTest(unittest.TestCase):
@@ -720,6 +792,23 @@ class GitRepositoryTest(unittest.TestCase):
         repository = gate.GitRepository(Path("/tmp/workspace"), failed_runner)
         with self.assertRaises(gate.PolicyError):
             repository.read_tree_file(RELEASE, gate.MARKER_PATH)
+
+    def test_tree_sha_and_first_parent_history_argv(self):
+        tree = "a" * 40
+        runner = QueueRunner([
+            completed(stdout=(tree + "\n").encode()),
+            completed(stdout=(MERGE + "\n" + BASE + "\n").encode()),
+        ])
+        repository = gate.GitRepository(Path("/tmp/workspace"), runner)
+        self.assertEqual(tree, repository.tree_sha(RELEASE))
+        self.assertEqual([MERGE, BASE], repository.first_parent_history("origin/staging"))
+        self.assertEqual(
+            [
+                ["git", "-C", "/tmp/workspace", "rev-parse", "--verify", RELEASE + "^{tree}"],
+                ["git", "-C", "/tmp/workspace", "rev-list", "--first-parent", "--max-count=256", "origin/staging"],
+            ],
+            [argv for argv, _ in runner.calls],
+        )
 
 
 class CliTest(unittest.TestCase):

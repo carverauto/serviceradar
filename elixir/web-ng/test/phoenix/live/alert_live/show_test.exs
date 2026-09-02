@@ -249,6 +249,76 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
   end
 
   describe "notification history" do
+    @tag :web_ng_shared_fixture_db
+    test "renders trigger, lifecycle, and notification instants in the authenticated timezone", %{conn: conn} do
+      user =
+        then(operator_user_fixture(), fn user ->
+          Ash.update!(user, %{timezone: "America/Chicago"},
+            action: :update_timezone_preference,
+            actor: user
+          )
+        end)
+
+      alert = alert_fixture()
+      next_attempt_at = ~U[2026-08-30 18:30:00.000000Z]
+      delivery = retry_delivery(alert, next_attempt_at)
+
+      {:ok, lv, _html} = live(log_in_user(conn, user), ~p"/alerts/#{alert.id}")
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-triggered-time[datetime="2026-08-09T12:00:00Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-delivery-#{delivery.id}-recorded-time[datetime="2026-08-30T18:00:00.000000Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-delivery-#{delivery.id}-next-attempt-time[datetime="2026-08-30T18:30:00.000000Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-incident-first-seen-time[datetime="2026-08-30T17:00:00Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-incident-last-seen-time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-context-event-time[datetime="2026-08-30T18:15:00Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(#alert-stream time[datetime="2026-08-09T12:00:00Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      render_submit(lv, "alert_snooze", %{"duration" => "1h"})
+      snoozed = reload(alert)
+      snooze_iso = DateTime.to_iso8601(snoozed.snooze_until)
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-snooze-until-time[datetime="#{snooze_iso}"][data-user-time-zone="America/Chicago"])
+             )
+
+      render_click(lv, "alert_acknowledge", %{})
+      acknowledged = reload(alert)
+      acknowledged_iso = DateTime.to_iso8601(acknowledged.acknowledged_at)
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-acknowledged-time[datetime="#{acknowledged_iso}"][data-user-time-zone="America/Chicago"])
+             )
+    end
+
     test "renders suppressed deliveries with their reason", %{conn: conn} do
       user = operator_user_fixture()
       alert = alert_fixture()
@@ -372,6 +442,21 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
     |> Ash.create!()
   end
 
+  defp retry_delivery(alert, next_attempt_at) do
+    NotificationDelivery
+    |> Ash.Changeset.for_create(
+      :record_dispatch,
+      %{
+        alert_id: alert.id,
+        alert_snapshot: %{"title" => alert.title, "severity" => "warning"},
+        next_attempt_at: next_attempt_at,
+        queued_at: ~U[2026-08-30 18:00:00.000000Z]
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+  end
+
   defmodule AlertShowSRQLStub do
     @moduledoc false
     @behaviour ServiceRadarWebNG.SRQLBehaviour
@@ -400,6 +485,14 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
         "severity" => "warning",
         "status" => "pending",
         "source_type" => "device",
+        "event_time" => "2026-08-30T18:15:00Z",
+        "metadata" => %{
+          "incident_rule_id" => "rule-1",
+          "incident_diagnostics" => %{
+            "first_seen_at" => "2026-08-30T17:00:00Z",
+            "last_seen_at" => "2026-08-30T18:00:00Z"
+          }
+        },
         "triggered_at" => "2026-08-09T12:00:00Z"
       }
     end

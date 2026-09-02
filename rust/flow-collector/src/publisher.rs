@@ -336,6 +336,26 @@ impl Publisher {
         }
     }
 
+    /// Connect, ensure the owned stream (including any pending cutover), then
+    /// return. Used by the Helm bootstrap Job so collector pods never have to
+    /// own the durable cutover markers.
+    ///
+    /// This deliberately reuses `connect_with_retry`, which performs the same
+    /// rehome/ownership recovery `run()` does. A second implementation of that
+    /// state machine would have to be kept in behavioural parity by hand.
+    pub async fn bootstrap_stream(config: Arc<Config>) -> Result<()> {
+        // The Job has no listeners, so nothing will ever send on this channel.
+        let (_tx, rx) = mpsc::channel(1);
+        let mut publisher =
+            Publisher::new(config, rx, Arc::new(HostSliceMetricsRegistry::new(vec![])));
+        let (_client, _admin_js, _publish_js, window) = publisher.connect_with_retry().await?;
+        info!(
+            "Bootstrap complete: stream '{}' ensured (dup_window={:?})",
+            publisher.config.stream_name, window
+        );
+        Ok(())
+    }
+
     /// Publish `batch` (if any) then one chunk of `retry_q`, updating readiness
     /// and retry schedule from pass stats.
     #[allow(clippy::too_many_arguments)]
@@ -1783,7 +1803,11 @@ fn load_ownership_inventory(path: &Path) -> Result<Option<OwnershipInventory>> {
     Ok(Some(inv))
 }
 
-fn ready_marker_path(config: &Config) -> PathBuf {
+/// `pub(crate)`: also read by `main.rs` to hand the same path to
+/// `run_prometheus_server`'s `/readyz` handler, so the HTTP readiness probe
+/// checks exactly the file `mark_publisher_ready`/`clear_publisher_ready`
+/// write below -- one source of truth for "where is the ready marker".
+pub(crate) fn ready_marker_path(config: &Config) -> PathBuf {
     // Explicit env wins so operators/probes share one override knob.
     if let Ok(path) = std::env::var("FLOW_COLLECTOR_READY_PATH") {
         return PathBuf::from(path);

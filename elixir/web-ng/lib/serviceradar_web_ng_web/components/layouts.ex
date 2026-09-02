@@ -47,6 +47,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   slot(:inner_block, required: true)
 
+  slot(:topbar_actions,
+    doc: "Optional page actions rendered in the shell topbar, before alerts and profile"
+  )
+
   def app(assigns) do
     assigns = assign_new(assigns, :srql, fn -> %{} end)
     assigns = assign_new(assigns, :hide_breadcrumb, fn -> false end)
@@ -128,6 +132,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
               <div class="flex shrink-0 items-center gap-2">
                 <%!-- Theme toggle hidden; app defaults to dark. Re-enable with <.theme_toggle /> --%>
+                {render_slot(@topbar_actions)}
 
                 <%= if not @signed_in? do %>
                   <.ui_button href={~p"/users/log-in"} variant="primary" size="sm">Log in</.ui_button>
@@ -153,6 +158,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               supported={Map.get(@srql, :builder_supported, true)}
               sync={Map.get(@srql, :builder_sync, true)}
               builder={Map.get(@srql, :builder, %{})}
+              mode_notice={Map.get(@srql, :builder_mode_notice)}
             />
           </div>
         </div>
@@ -410,6 +416,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
           <div class="sr-ops-topbar-actions">
             <%!-- Theme toggle hidden; app defaults to dark. Re-enable with <.theme_toggle /> --%>
+            {render_slot(@topbar_actions)}
             <.link
               navigate={~p"/observability/alerts"}
               class="sr-ops-topbar-icon"
@@ -418,14 +425,18 @@ defmodule ServiceRadarWebNGWeb.Layouts do
             >
               <.icon name="hero-bell-alert" class="size-5" />
             </.link>
-            <details id="ops-profile-menu" class="group relative">
+            <details id="ops-profile-menu" phx-hook="DetailsState" class="group relative">
               <summary
                 id="ops-profile-menu-toggle"
                 class="sr-ops-avatar cursor-pointer list-none outline-none focus-visible:ring-2 focus-visible:ring-sr-focus [&::-webkit-details-marker]:hidden"
                 aria-label="Open profile menu"
                 title={profile_title(@current_scope)}
               >
-                <.icon name="hero-user-circle" class="size-6" />
+                <%!-- Nested SVG must not receive the click: a summary child that
+                     handles pointer events toggles <details> twice (open then close). --%>
+                <span class="pointer-events-none inline-flex items-center">
+                  <.icon name="hero-user-circle" class="size-6" />
+                </span>
               </summary>
               <ul class="sr-ops-profile-menu" role="menu">
                 <li role="none">
@@ -477,6 +488,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
             supported={Map.get(@srql, :builder_supported, true)}
             sync={Map.get(@srql, :builder_sync, true)}
             builder={Map.get(@srql, :builder, %{})}
+            mode_notice={Map.get(@srql, :builder_mode_notice)}
           />
         </div>
 

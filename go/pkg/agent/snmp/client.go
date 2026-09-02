@@ -70,20 +70,8 @@ func newSNMPClient(target *Target) (SNMPClient, error) {
 	case Version2c:
 		client.Version = gosnmp.Version2c
 	case Version3:
-		client.Version = gosnmp.Version3
-		client.SecurityModel = gosnmp.UserSecurityModel
-		if target.V3Auth != nil {
-			client.MsgFlags = securityLevelToMsgFlags(target.V3Auth.SecurityLevel)
-			client.SecurityParameters = &gosnmp.UsmSecurityParameters{
-				UserName:                 target.V3Auth.Username,
-				AuthenticationProtocol:   authProtocolToGoSNMP(target.V3Auth.AuthProtocol),
-				AuthenticationPassphrase: target.V3Auth.AuthPassword,
-				PrivacyProtocol:          privProtocolToGoSNMP(target.V3Auth.PrivProtocol),
-				PrivacyPassphrase:        target.V3Auth.PrivPassword,
-			}
-		} else {
-			// SNMPv3 requires V3Auth to be set
-			return nil, fmt.Errorf("%w: SNMPv3 requires V3Auth configuration", ErrInvalidTargetConfig)
+		if err := applySNMPv3(client, target); err != nil {
+			return nil, err
 		}
 	default:
 		return nil, fmt.Errorf("%w: %v", ErrUnsupportedSNMPVersion, target.Version)
@@ -560,52 +548,115 @@ func validateTarget(target *Target) error {
 	return nil
 }
 
-// securityLevelToMsgFlags converts SecurityLevel to gosnmp.SnmpV3MsgFlags.
-func securityLevelToMsgFlags(sl SecurityLevel) gosnmp.SnmpV3MsgFlags {
-	switch sl {
-	case SecurityLevelNoAuthNoPriv:
-		return gosnmp.NoAuthNoPriv
-	case SecurityLevelAuthNoPriv:
-		return gosnmp.AuthNoPriv
-	case SecurityLevelAuthPriv:
-		return gosnmp.AuthPriv
+func applySNMPv3(client *gosnmp.GoSNMP, target *Target) error {
+	if target.V3Auth == nil {
+		return fmt.Errorf("%w: SNMPv3 requires V3Auth configuration", ErrInvalidTargetConfig)
+	}
+
+	flags, err := securityLevelToMsgFlags(target.V3Auth.SecurityLevel)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidTargetConfig, err)
+	}
+
+	usm := &gosnmp.UsmSecurityParameters{
+		UserName: target.V3Auth.Username,
+	}
+
+	if flags == gosnmp.AuthNoPriv || flags == gosnmp.AuthPriv {
+		authProto, err := authProtocolToGoSNMP(target.V3Auth.AuthProtocol)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidTargetConfig, err)
+		}
+
+		if strings.TrimSpace(target.V3Auth.AuthPassword) == "" {
+			return fmt.Errorf("%w: %w", ErrInvalidTargetConfig, ErrIncompleteSNMPv3Auth)
+		}
+
+		usm.AuthenticationProtocol = authProto
+		usm.AuthenticationPassphrase = target.V3Auth.AuthPassword
+	}
+
+	if flags == gosnmp.AuthPriv {
+		privProto, err := privProtocolToGoSNMP(target.V3Auth.PrivProtocol)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrInvalidTargetConfig, err)
+		}
+
+		if strings.TrimSpace(target.V3Auth.PrivPassword) == "" {
+			return fmt.Errorf("%w: %w", ErrInvalidTargetConfig, ErrIncompleteSNMPv3Auth)
+		}
+
+		usm.PrivacyProtocol = privProto
+		usm.PrivacyPassphrase = target.V3Auth.PrivPassword
+	}
+
+	client.Version = gosnmp.Version3
+	client.SecurityModel = gosnmp.UserSecurityModel
+	client.MsgFlags = flags
+	client.SecurityParameters = usm
+
+	return nil
+}
+
+func securityLevelToMsgFlags(sl SecurityLevel) (gosnmp.SnmpV3MsgFlags, error) {
+	switch SecurityLevel(compactProtocol(string(sl))) {
+	case "", SecurityLevelNoAuthNoPriv, "noauthnopriv":
+		return gosnmp.NoAuthNoPriv, nil
+	case SecurityLevelAuthNoPriv, "authnopriv":
+		return gosnmp.AuthNoPriv, nil
+	case SecurityLevelAuthPriv, "authpriv":
+		return gosnmp.AuthPriv, nil
 	default:
-		return gosnmp.NoAuthNoPriv
+		return 0, fmt.Errorf("%w: %s", ErrUnknownSNMPSecurityLevel, sl)
 	}
 }
 
-// authProtocolToGoSNMP converts AuthProtocol to gosnmp.SnmpV3AuthProtocol.
-func authProtocolToGoSNMP(ap AuthProtocol) gosnmp.SnmpV3AuthProtocol {
-	switch ap {
-	case AuthProtocolMD5:
-		return gosnmp.MD5
-	case AuthProtocolSHA:
-		return gosnmp.SHA
-	case AuthProtocolSHA224:
-		return gosnmp.SHA224
-	case AuthProtocolSHA256:
-		return gosnmp.SHA256
-	case AuthProtocolSHA384:
-		return gosnmp.SHA384
-	case AuthProtocolSHA512:
-		return gosnmp.SHA512
+func authProtocolToGoSNMP(ap AuthProtocol) (gosnmp.SnmpV3AuthProtocol, error) {
+	switch compactProtocol(string(ap)) {
+	case "md5":
+		return gosnmp.MD5, nil
+	case "sha", "sha1":
+		return gosnmp.SHA, nil
+	case "sha224":
+		return gosnmp.SHA224, nil
+	case "sha256":
+		return gosnmp.SHA256, nil
+	case "sha384":
+		return gosnmp.SHA384, nil
+	case "sha512":
+		return gosnmp.SHA512, nil
+	case "":
+		return 0, fmt.Errorf("%w: auth protocol is required", ErrUnknownSNMPAuthProtocol)
 	default:
-		return gosnmp.NoAuth
+		return 0, fmt.Errorf("%w: %s", ErrUnknownSNMPAuthProtocol, ap)
 	}
 }
 
-// privProtocolToGoSNMP converts PrivProtocol to gosnmp.SnmpV3PrivProtocol.
-func privProtocolToGoSNMP(pp PrivProtocol) gosnmp.SnmpV3PrivProtocol {
-	switch pp {
-	case PrivProtocolDES:
-		return gosnmp.DES
-	case PrivProtocolAES:
-		return gosnmp.AES
-	case PrivProtocolAES192:
-		return gosnmp.AES192
-	case PrivProtocolAES256:
-		return gosnmp.AES256
+func privProtocolToGoSNMP(pp PrivProtocol) (gosnmp.SnmpV3PrivProtocol, error) {
+	switch compactProtocol(string(pp)) {
+	case "des":
+		return gosnmp.DES, nil
+	case "aes", "aes128":
+		return gosnmp.AES, nil
+	case "aes192":
+		return gosnmp.AES192, nil
+	case "aes256":
+		return gosnmp.AES256, nil
+	case "aes192c":
+		return gosnmp.AES192C, nil
+	case "aes256c":
+		return gosnmp.AES256C, nil
+	case "":
+		return 0, fmt.Errorf("%w: privacy protocol is required", ErrUnknownSNMPPrivProtocol)
 	default:
-		return gosnmp.NoPriv
+		return 0, fmt.Errorf("%w: %s", ErrUnknownSNMPPrivProtocol, pp)
 	}
+}
+
+func compactProtocol(value string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	trimmed = strings.ReplaceAll(trimmed, "-", "")
+	trimmed = strings.ReplaceAll(trimmed, "_", "")
+
+	return trimmed
 }

@@ -15,7 +15,7 @@ The God-View default topology canvas SHALL render a bounded, infrastructure-firs
 - **AND** the surface SHALL instead expose them through diagnostics or attachment-detail workflows
 
 ### Requirement: God-View geometry has a single frontend authority
-The God-View frontend SHALL be the only authority for visible topology geometry, and the system SHALL NOT combine backend-authored layout with additional frontend backbone or endpoint projection passes.
+The God-View frontend SHALL be the only authority for visible topology geometry. Each bounded atlas level SHALL select exactly one frontend layout pipeline, and the system SHALL NOT combine backend-authored layout with competing frontend node-placement passes inside the same accepted scene.
 
 #### Scenario: Backbone geometry is computed once in the frontend
 - **GIVEN** a God-View snapshot includes bounded backbone topology and the metadata required for layout
@@ -23,11 +23,11 @@ The God-View frontend SHALL be the only authority for visible topology geometry,
 - **THEN** it SHALL compute backbone geometry through the configured frontend layout path
 - **AND** the system SHALL NOT apply any backend-authored backbone coordinates to that same visible graph
 
-#### Scenario: Expanded neighborhoods do not trigger a second projection pass
+#### Scenario: Expanded neighborhoods enter one bounded focus layout
 - **GIVEN** an operator expands an endpoint summary or attachment neighborhood
 - **WHEN** the expanded detail view is rendered
-- **THEN** the frontend SHALL lay out that bounded visible set through the same single geometry authority used for the visible topology
-- **AND** it SHALL NOT run an additional projection or post-layout expansion algorithm on top of the primary layout result
+- **THEN** the frontend SHALL enter a bounded focus level and select exactly one layout pipeline for that visible set
+- **AND** it SHALL NOT move those nodes through an additional competing node-placement pass after the selected layout completes
 
 ### Requirement: God-View bootstraps from HTTP snapshot before streaming
 The God-View surface SHALL support reliable first paint by loading the latest HTTP snapshot before or while joining streaming updates.
@@ -52,6 +52,12 @@ The God-View renderer SHALL enforce zoom-tier label budgets, suppress edge label
 - **WHEN** the operator is at a low or mid zoom tier
 - **THEN** the renderer SHALL limit node labels to the configured priority budget
 - **AND** it SHALL suppress edge labels unless the view is sufficiently focused
+
+#### Scenario: Rendered glyphs remain self-identifying
+- **GIVEN** an atlas level has admitted a node or aggregate glyph into its bounded visible set
+- **WHEN** the renderer applies that level's label budget
+- **THEN** the glyph SHALL retain a non-colliding identity label without requiring hover
+- **AND** the renderer SHALL reduce, aggregate, or page the visible set rather than leave anonymous admitted glyphs
 
 #### Scenario: Endpoint expansion exceeds visible budget
 - **GIVEN** an anchor has more endpoint members than the configured visible neighborhood budget

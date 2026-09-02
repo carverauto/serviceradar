@@ -1,37 +1,19 @@
 {{- if and .Values.spire.enabled .Values.spire.postgres.enabled }}
 {{- $ns := default .Release.Namespace .Values.spire.namespace }}
 {{- $pg := .Values.spire.postgres }}
-{{- $existingSpire := (lookup "v1" "Secret" $ns ($pg.secretName | default "spire-db-credentials")) }}
-{{- $existingSuper := (lookup "v1" "Secret" $ns "cnpg-superuser") }}
+{{- $spireSecretName := $pg.secretName | default "spire-db-credentials" }}
 {{- $spireUser := default "spire" $pg.username }}
-{{- $spirePass := default "" $pg.password }}
-{{- if and $existingSpire $existingSpire.data.password }}
-  {{- $spirePass = (b64dec $existingSpire.data.password) }}
-{{- end }}
-{{- if eq $spirePass "" }}
-  {{- $spirePass = randAlphaNum 32 }}
-{{- end }}
-{{- $superPass := default "" $pg.password }}
-{{- if and $existingSuper $existingSuper.data.password }}
-  {{- $superPass = (b64dec $existingSuper.data.password) }}
-{{- end }}
-{{- if eq $superPass "" }}
-  {{- $superPass = randAlphaNum 32 }}
-{{- end }}
+{{- $spirePass := include "serviceradar.reuseSecretPassword" (dict "namespace" $ns "name" $spireSecretName "fromValues" (default "" $pg.password)) }}
 {{- $cnpg := default (dict) .Values.cnpg }}
+{{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret }}
+{{- $superPass := include "serviceradar.reuseSecretPassword" (dict "namespace" $ns "name" $superSecretName "fromValues" (default "" $cnpg.superuserPassword)) }}
 {{- $clientCASecret := default "" $cnpg.clientCASecret }}
 {{- if and (not $clientCASecret) $cnpg.requireClientCert }}
   {{- $clientCASecret = "serviceradar-cnpg-client-ca" }}
 {{- end }}
-{{- $existingAppCreds := (lookup "v1" "Secret" $ns "serviceradar-db-credentials") }}
+{{- $appSecretName := default "serviceradar-db-credentials" $cnpg.credentialsSecret }}
 {{- $appUser := default "serviceradar" $cnpg.username }}
-{{- $appPass := default "" $cnpg.password }}
-{{- if and $existingAppCreds $existingAppCreds.data.password }}
-  {{- $appPass = (b64dec $existingAppCreds.data.password) }}
-{{- end }}
-{{- if eq $appPass "" }}
-  {{- $appPass = randAlphaNum 32 }}
-{{- end }}
+{{- $appPass := include "serviceradar.reuseSecretPassword" (dict "namespace" $ns "name" $appSecretName "fromValues" (default "" $cnpg.password)) }}
 {{- $defaultExtensionsSQL := list
       "CREATE EXTENSION IF NOT EXISTS timescaledb;"
       "CREATE EXTENSION IF NOT EXISTS age;"
@@ -77,42 +59,51 @@
 {{- $walCap := default $walBudget.maxSlotWalKeepSize $pg.maxSlotWalKeepSize }}
 {{- $maxWal := default $walBudget.maxWalSize $pg.maxWalSize }}
 {{- $minWal := default $walBudget.minWalSize $pg.minWalSize }}
+{{- if $spirePass }}
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ $pg.secretName }}
+  name: {{ $spireSecretName }}
   namespace: {{ $ns }}
   annotations:
     "helm.sh/resource-policy": "keep"
+    "argocd.argoproj.io/sync-options": "Prune=false"
 type: Opaque
 stringData:
-  username: {{ $spireUser }}
+  username: {{ $spireUser | quote }}
   password: {{ $spirePass | quote }}
+{{- end }}
+{{- if $superPass }}
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: cnpg-superuser
+  name: {{ $superSecretName }}
   namespace: {{ $ns }}
   annotations:
     "helm.sh/resource-policy": "keep"
+    "argocd.argoproj.io/sync-options": "Prune=false"
 type: Opaque
 stringData:
   password: {{ $superPass | quote }}
   username: postgres
+{{- end }}
+{{- if $appPass }}
 ---
 apiVersion: v1
 kind: Secret
 metadata:
-  name: serviceradar-db-credentials
+  name: {{ $appSecretName }}
   namespace: {{ $ns }}
   annotations:
     "helm.sh/resource-policy": "keep"
+    "argocd.argoproj.io/sync-options": "Prune=false"
 type: Opaque
 stringData:
   username: {{ $appUser | quote }}
   password: {{ $appPass | quote }}
+{{- end }}
 ---
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -146,7 +137,7 @@ spec:
       database: {{ default "spire" $pg.database }}
       owner: {{ default "spire" $pg.username }}
       secret:
-        name: {{ $pg.secretName }}
+        name: {{ $spireSecretName }}
       {{- if $extensionsSQL }}
       postInitApplicationSQL:
         {{- range $stmt := $extensionsSQL }}
@@ -193,7 +184,7 @@ spec:
         ensure: present
         login: true
         passwordSecret:
-          name: {{ $pg.secretName }}
+          name: {{ $spireSecretName }}
       - name: serviceradar
         ensure: present
         login: true

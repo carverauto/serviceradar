@@ -40,7 +40,8 @@ SSH, banner, DHCP, DNS, ICMP, NTP, SIP, SMB, or HTTP evidence.
    signatures with `rust/netprobe/src/p0f_matcher.rs`,
    `rust/netprobe/src/muonfp.rs`, and the Satori TCP matcher.
 3. DPI dissectors produce JA4 base, HASSH, Recog, and Satori observations when
-   protocol payloads are available under the active visibility profile.
+   protocol payloads are available under the active
+   [visibility profile](./visibility-profiles.md).
 4. `rust/netprobe/src/os_matcher.rs` fuses agreeing observations into a
    `LicenseCleanFingerprint` event. Disagreements are preserved as metadata so
    operators can curate new signatures instead of hiding uncertainty.
@@ -125,5 +126,5 @@ from a replaceable corpus directory and must not embed them with
   `RECOG_CORPUS_REVISION`, `SATORI_CORPUS_REVISION`, and
   `SERVICERADAR_RECOG_ADDITIONS_REVISION` in
   `rust/netprobe/src/fingerprint.rs` synchronized with corpus and spec changes.
-- Use AshPaperTrail-backed visibility profile audit logs for operator changes
-  that enable invasive capture surfaces.
+- Use AshPaperTrail-backed [visibility profile](./visibility-profiles.md)
+  audit logs for operator changes that enable invasive capture surfaces.

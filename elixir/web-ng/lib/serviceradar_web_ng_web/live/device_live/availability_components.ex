@@ -7,7 +7,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
     only: [
       format_ports_compact: 1,
       format_response_time: 1,
-      format_sweep_time: 1,
       get_sweep_agent_id: 1,
       truncate_agent_id: 1
     ]
@@ -103,6 +102,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
   attr(:rows, :list, required: true)
   attr(:device_row, :map, default: %{})
   attr(:sweep_results, :map, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def agent_availability_section(assigns) do
     primary_agent_id = device_availability_source_agent_id(assigns.device_row)
@@ -145,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
               class={ui_field_class(size: "xs", class: "w-48")}
             >
               <option value="" selected={!present?(@primary_agent_id)}>Fallback</option>
-              <%= for row <- @display_rows do %>
+              <%= for {row, index} <- Enum.with_index(@display_rows) do %>
                 <option value={row.agent_id} selected={row.agent_id == @primary_agent_id}>
                   {availability_agent_label(row)}
                 </option>
@@ -182,7 +182,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
               </tr>
             </thead>
             <tbody>
-              <%= for row <- @display_rows do %>
+              <%= for {row, index} <- Enum.with_index(@display_rows) do %>
                 <tr class="hover:bg-sr-subtle/40">
                   <td>
                     <div class="flex items-center gap-2">
@@ -216,7 +216,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
                       {if row.is_available, do: "Available", else: "Unavailable"}
                     </span>
                   </td>
-                  <td class="font-mono text-xs">{format_sweep_time(row.checked_at)}</td>
+                  <td class="font-mono text-xs">
+                    <.user_time
+                      id={"device-agent-availability-#{availability_time_key(row, index)}-checked-at"}
+                      value={row.checked_at}
+                      timezone={@timezone}
+                      style={:compact}
+                    />
+                  </td>
                   <td class="font-mono text-xs">{format_response_time(row.response_time_ms)}</td>
                   <td class="font-mono text-xs">{format_ports_compact(row.open_ports || [])}</td>
                   <td class="text-xs text-sr-muted">
@@ -230,6 +237,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
       </div>
     </div>
     """
+  end
+
+  defp availability_time_key(row, index) do
+    [Map.get(row, :agent_id) || Map.get(row, "agent_id"), Map.get(row, :id) || Map.get(row, "id")]
+    |> Enum.find_value(&availability_id_fragment/1)
+    |> Kernel.||(Integer.to_string(index))
+  end
+
+  defp availability_id_fragment(value) when value in [nil, ""], do: nil
+
+  defp availability_id_fragment(value) do
+    case value |> to_string() |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-") |> String.trim("-") do
+      "" -> nil
+      fragment -> fragment
+    end
   end
 
   defp device_availability_source_agent_id(device_row) when is_map(device_row) do

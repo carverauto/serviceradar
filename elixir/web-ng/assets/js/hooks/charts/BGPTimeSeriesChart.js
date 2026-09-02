@@ -1,6 +1,14 @@
 import * as d3 from "d3"
 
-import {ensureTooltip, escapeHtml, renderYGrid, styleChartAxis} from "../../netflow_charts/util"
+import {
+  ensureTooltip,
+  escapeHtml,
+  netflowAxisTimeFormatter,
+  netflowDisplayTimeZone,
+  netflowTooltipTimeHtml,
+  renderYGrid,
+  styleChartAxis,
+} from "../../netflow_charts/util"
 
 export function numberOrNull(value) {
   if (value === null || value === undefined || value === "") return null
@@ -38,6 +46,25 @@ export function bgpTooltipRows(row, series) {
     .filter((item) => Number.isFinite(item.value))
 }
 
+export function bgpChartRows(data) {
+  return (Array.isArray(data) ? data : []).map((row) => ({...row, t: new Date(row.time)}))
+}
+
+export function bgpTimeScale(rows, width) {
+  return d3
+    .scaleUtc()
+    .domain(d3.extent(rows, (row) => row.t))
+    .range([0, width])
+}
+
+export function bgpAxisTimeFormatter(timeZone) {
+  return netflowAxisTimeFormatter(timeZone)
+}
+
+export function bgpTooltipTimeHtml(value, timeZone) {
+  return netflowTooltipTimeHtml(value, timeZone)
+}
+
 export default {
   mounted() {
     this.renderChart()
@@ -53,6 +80,7 @@ export default {
   renderChart() {
     const series = JSON.parse(this.el.dataset.series || "[]")
     const data = JSON.parse(this.el.dataset.data || "[]")
+    const timeZone = netflowDisplayTimeZone(this.el.dataset.timezone)
 
     if (!series.length || !data.length) return
 
@@ -76,9 +104,9 @@ export default {
       .append("g")
       .attr("transform", `translate(${margin.left},${margin.top})`)
 
-    const times = data.map((d) => new Date(d.time))
-    const rows = data.map((d, i) => ({...d, t: times[i]}))
-    const x = d3.scaleTime().domain(d3.extent(times)).range([0, width])
+    const rows = bgpChartRows(data)
+    const times = rows.map((row) => row.t)
+    const x = bgpTimeScale(rows, width)
 
     const allValues = finiteSeriesValues(data, series)
     const y = d3
@@ -94,7 +122,7 @@ export default {
     svg
       .append("g")
       .attr("transform", `translate(0,${height})`)
-      .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
+      .call(d3.axisBottom(x).ticks(5).tickFormat(bgpAxisTimeFormatter(timeZone)).tickSizeOuter(0))
       .call(styleChartAxis)
 
     svg.append("g").call(d3.axisLeft(y).ticks(4).tickSizeOuter(0)).call(styleChartAxis)
@@ -161,7 +189,7 @@ export default {
     const showHover = (event) => {
       const rect = this.el.getBoundingClientRect()
       const localX = Math.max(0, Math.min(width, event.clientX - rect.left - margin.left))
-      const row = nearestBGPDatum(data, x.invert(localX))
+      const row = nearestBGPDatum(rows, x.invert(localX))
 
       if (!row) {
         hideHover()
@@ -197,8 +225,9 @@ export default {
         )
         .join("")
 
-      tooltip.innerHTML = `${lines}<div class="mt-1 text-[10px] text-base-content/60 font-mono">${escapeHtml(
+      tooltip.innerHTML = `${lines}<div class="mt-1 text-[10px] text-base-content/60 font-mono">${bgpTooltipTimeHtml(
         row.time,
+        timeZone,
       )}</div>`
       tooltip.classList.remove("hidden")
 

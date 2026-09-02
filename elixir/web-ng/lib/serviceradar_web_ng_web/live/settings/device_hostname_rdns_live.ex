@@ -165,6 +165,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
               size="sm"
               phx-click="run_now"
               disabled={@running? or is_nil(@settings)}
+              title="Run the selected cohort now, ignoring the minimum lookup interval"
             >
               <.icon name="hero-arrow-path" class={["size-4", @running? && "animate-spin"]} />
               {if @running?, do: "Running…", else: "Run now"}
@@ -236,7 +237,16 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
                   </li>
                 </ul>
               </div>
-              <.input field={@form[:batch_size]} type="number" label="Batch size" min="1" />
+              <.input
+                field={@form[:batch_size]}
+                type="number"
+                label="Devices per batch"
+                min="1"
+              />
+              <p class="text-xs text-sr-muted">
+                Bounds each device load and processing batch. Every eligible device in the SRQL
+                cohort is processed during the run.
+              </p>
               <.input
                 field={@form[:timeout_ms]}
                 type="number"
@@ -246,7 +256,7 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
               <.input
                 field={@form[:retry_after_minutes]}
                 type="number"
-                label="Retry failed lookups after (minutes)"
+                label="Minimum lookup interval (minutes)"
                 min="5"
               />
               <.input
@@ -268,11 +278,27 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
                 </div>
                 <div>
                   <dt class="text-xs uppercase tracking-wide">Last success</dt>
-                  <dd class="text-sr-ink">{format_dt(@settings && @settings.last_success_at)}</dd>
+                  <dd class="text-sr-ink">
+                    <.user_time
+                      id="settings-device-hostname-rdns-last-success-at"
+                      value={@settings && @settings.last_success_at}
+                      timezone={@current_scope.user.timezone || "Etc/UTC"}
+                      style={:compact}
+                      fallback="—"
+                    />
+                  </dd>
                 </div>
                 <div>
                   <dt class="text-xs uppercase tracking-wide">Next run</dt>
-                  <dd class="text-sr-ink">{format_dt(@settings && @settings.next_run_at)}</dd>
+                  <dd class="text-sr-ink">
+                    <.user_time
+                      id="settings-device-hostname-rdns-next-run-at"
+                      value={@settings && @settings.next_run_at}
+                      timezone={@current_scope.user.timezone || "Etc/UTC"}
+                      style={:compact}
+                      fallback="—"
+                    />
+                  </dd>
                 </div>
                 <div>
                   <dt class="text-xs uppercase tracking-wide">SRQL rows / eligible</dt>
@@ -301,8 +327,8 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
                 </div>
               </dl>
               <p class="text-xs text-sr-muted">
-                Default schedule is hourly (`0 * * * *`). A full batch automatically
-                schedules another pass one minute later until the backlog is drained.
+                Default schedule is hourly (`0 * * * *`). Each run drains the entire eligible
+                cohort in bounded batches.
               </p>
             </aside>
           </.form>
@@ -426,10 +452,6 @@ defmodule ServiceRadarWebNGWeb.Settings.DeviceHostnameRdnsLive do
   end
 
   defp parse_int(_value, default), do: default
-
-  defp format_dt(nil), do: "—"
-  defp format_dt(%DateTime{} = datetime), do: Calendar.strftime(datetime, "%Y-%m-%d %H:%M UTC")
-  defp format_dt(_), do: "—"
 
   defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
   defp format_error(reason) when is_binary(reason), do: reason

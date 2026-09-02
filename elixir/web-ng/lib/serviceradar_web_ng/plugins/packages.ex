@@ -6,15 +6,18 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Automation.Northbound.PluginActionSync
   alias ServiceRadar.DataService.Client, as: DataServiceClient
   alias ServiceRadar.Observability.ServiceStateRegistry
+  alias ServiceRadar.Plugins.AlertRuleCatalog
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.PackageAssignmentLifecycle
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginArtifactMirror
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.ProducerScheduleCatalog
+  alias ServiceRadar.Plugins.SNMPRequirementCatalog
   alias ServiceRadarWebNG.Observability.ContractRegistry
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.GitHubImporter
+  alias ServiceRadarWebNG.Plugins.Repositories
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
 
@@ -110,6 +113,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Ash.Changeset.for_update(:approve, attrs)
       |> update_resource_with_opts(ash_opts)
       |> sync_northbound_actions(:approved)
+      |> sync_alert_rules(:approved)
+      |> sync_snmp_requirements(:approved)
       |> refresh_contract_index()
     end
   end
@@ -129,6 +134,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Ash.Changeset.for_update(:deny, attrs)
       |> update_resource_with_opts(ash_opts)
       |> sync_northbound_actions(:disabled)
+      |> sync_alert_rules(:disabled)
+      |> sync_snmp_requirements(:disabled)
     end
   end
 
@@ -156,6 +163,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         other ->
           other
       end
+      |> sync_alert_rules(:disabled)
+      |> sync_snmp_requirements(:disabled)
       |> refresh_contract_index()
     end
   end
@@ -199,6 +208,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Ash.Changeset.for_update(:restage, %{})
       |> update_resource_with_opts(ash_opts)
       |> sync_northbound_actions(:disabled)
+      |> sync_alert_rules(:disabled)
+      |> sync_snmp_requirements(:disabled)
     end
   end
 
@@ -253,7 +264,17 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     limit = Keyword.get(opts, :limit, 10)
     release_tag = Keyword.get(opts, :release_tag)
 
-    discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
+    # Trust material for this repository -- its access token and its signing key
+    # -- rides along with every discovery and import call, so the importer never
+    # has to look a repository up and its tests stay database-free.
+    source_attrs =
+      %{}
+      |> maybe_put(:repo_url, repo_url)
+      |> maybe_put(:index_asset_name, Keyword.get(opts, :index_asset_name))
+      |> maybe_put(:github_token, Keyword.get(opts, :github_token))
+      |> maybe_put(:trusted_upload_signing_keys, Keyword.get(opts, :trusted_upload_signing_keys))
+
+    discovery_attrs = source_attrs
 
     with {:ok, plugins} <- discover_first_party_plugins(discovery_attrs, limit, release_tag) do
       existing = existing_import_keys(opts)
@@ -274,13 +295,14 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
       results =
         Enum.map(to_import, fn plugin ->
-          import_attrs = %{
-            source_type: :first_party,
-            repo_url: plugin.repo_url,
-            release_tag: plugin.release_tag,
-            plugin_id: plugin.plugin_id,
-            version: plugin.version
-          }
+          import_attrs =
+            Map.merge(source_attrs, %{
+              source_type: :first_party,
+              repo_url: plugin.repo_url,
+              release_tag: plugin.release_tag,
+              plugin_id: plugin.plugin_id,
+              version: plugin.version
+            })
 
           {plugin, create(import_attrs, opts)}
         end)
@@ -433,6 +455,18 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
           manifest_struct.producer_schedules ||
           []
 
+      alert_rules =
+        Map.get(attrs, :alert_rules) ||
+          Map.get(attrs, "alert_rules") ||
+          manifest_struct.alert_rules ||
+          []
+
+      snmp_requirements =
+        Map.get(attrs, :snmp_requirements) ||
+          Map.get(attrs, "snmp_requirements") ||
+          manifest_struct.snmp_requirements ||
+          []
+
       display_contracts =
         Map.get(attrs, :display_contracts) ||
           Map.get(attrs, "display_contracts") ||
@@ -451,6 +485,8 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         |> Map.put(:display_contracts, display_contracts)
         |> Map.put_new(:signal_schemas, signal_schemas)
         |> Map.put_new(:producer_schedules, producer_schedules)
+        |> Map.put_new(:alert_rules, alert_rules)
+        |> Map.put_new(:snmp_requirements, snmp_requirements)
 
       PluginPackage
       |> Ash.Changeset.for_create(:create, attrs)
@@ -519,7 +555,18 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   defp create_first_party_package(import, attrs, ash_opts) do
     attrs =
       attrs
-      |> Map.drop([:repo_url, "repo_url", :release_tag, "release_tag"])
+      |> Map.drop([
+        :repo_url,
+        "repo_url",
+        :release_tag,
+        "release_tag",
+        :index_asset_name,
+        "index_asset_name",
+        :github_token,
+        "github_token",
+        :trusted_upload_signing_keys,
+        "trusted_upload_signing_keys"
+      ])
       |> Map.put(:manifest, import.manifest)
       |> Map.put_new(:config_schema, import.config_schema || %{})
       |> Map.put_new(:display_contract, import.display_contract || %{})
@@ -771,6 +818,52 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
   defp sync_northbound_actions(other, _mode), do: other
 
+  # Runs on the SAME transitions as the northbound action sync, and for the same
+  # reason: a staged package's manifest has not been read by anyone, so nothing
+  # it declares may reach the database until a human approves it.
+  #
+  # Rules are disabled rather than deleted on deny/revoke/restage. An operator
+  # may have tuned thresholds on them, and re-approving should not silently lose
+  # that work -- nor should a revoked plugin's rules keep firing.
+  defp sync_alert_rules({:ok, %PluginPackage{} = package}, :approved) do
+    case AlertRuleCatalog.sync_package(package) do
+      :ok -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp sync_alert_rules({:ok, %PluginPackage{} = package}, :disabled) do
+    case AlertRuleCatalog.disable_package_rules(package, []) do
+      :ok -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp sync_alert_rules(other, _mode), do: other
+
+  # Same transitions, same reason, and a stronger case than alert rules: an
+  # approved SNMP requirement ultimately produces outbound UDP/161 traffic from
+  # an agent to real inventory devices bearing real credentials.
+  #
+  # Profiles are disabled rather than deleted on deny/revoke/restage, for the
+  # same reason rules are -- an operator may have bound a credential and
+  # narrowed the target query, and re-approving must not lose that.
+  defp sync_snmp_requirements({:ok, %PluginPackage{} = package}, :approved) do
+    case SNMPRequirementCatalog.sync_package(package) do
+      :ok -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp sync_snmp_requirements({:ok, %PluginPackage{} = package}, :disabled) do
+    case SNMPRequirementCatalog.disable_package_snmp(package, []) do
+      :ok -> {:ok, package}
+      {:error, error} -> {:error, error}
+    end
+  end
+
+  defp sync_snmp_requirements(other, _mode), do: other
+
   defp disable_assignments_for_package(%PluginPackage{} = package, ash_opts) do
     PackageAssignmentLifecycle.disable_for_package(package, actor_opts(ash_opts))
   end
@@ -838,11 +931,38 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
     case package.source_type do
       :github -> enforce_github_policy(package, policy)
-      :first_party -> enforce_upload_policy(package, policy)
+      # A first-party package names the catalog it came from, so it is verified
+      # against that repository's key rather than a global map. An uploaded
+      # package has no catalog -- the CLI and the admin upload form both land
+      # here -- so it keeps the configured policy.
+      :first_party -> enforce_upload_policy(package, repository_policy(package, policy))
       :upload -> enforce_upload_policy(package, policy)
       _ -> :ok
     end
   end
+
+  # Falls back to the configured policy when the package's source is not a known
+  # repository. That keeps packages imported before repositories became records
+  # verifiable, and it is not a hole: an unknown source cannot widen trust, it
+  # can only fall back to the same global map that governed every package
+  # before this change.
+  defp repository_policy(%PluginPackage{source_repo_url: repo_url}, policy) when is_binary(repo_url) do
+    case Repositories.get_by_repo_url(repo_url) do
+      {:ok, repository} ->
+        case Repositories.trusted_keys(repository) do
+          keys when map_size(keys) > 0 ->
+            %{policy | trusted_upload_signing_keys: UploadSignature.normalize_trusted_keys(keys)}
+
+          _ ->
+            policy
+        end
+
+      {:error, _reason} ->
+        policy
+    end
+  end
+
+  defp repository_policy(_package, policy), do: policy
 
   defp enforce_github_policy(package, policy) do
     signer =

@@ -13,6 +13,7 @@ defmodule ServiceRadar.Plugins do
   resources do
     resource ServiceRadar.Plugins.Plugin
     resource ServiceRadar.Plugins.PluginPackage
+    resource ServiceRadar.Plugins.PluginRepository
     resource ServiceRadar.Plugins.PluginAssignment
     resource ServiceRadar.Plugins.PluginAssignmentRecoveryAudit
     resource ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryRequest

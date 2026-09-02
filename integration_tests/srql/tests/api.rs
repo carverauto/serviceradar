@@ -10,6 +10,7 @@ use srql::query::{QueryDirection, QueryRequest};
 #[serial]
 async fn srql_api_queries() {
     with_srql_harness(|harness| async move {
+        check_mtr_traces_query_contract(&harness).await;
         check_devices_inventory_query_matches_fixture(&harness).await;
         check_invalid_field_returns_400(&harness).await;
         check_missing_api_key_returns_401(&harness).await;
@@ -24,6 +25,260 @@ async fn srql_api_queries() {
         check_logs_severity_topn_paginates_by_effective_timestamp(&harness).await;
     })
     .await;
+}
+
+async fn query_ok(harness: &SrqlTestHarness, query: &str) -> serde_json::Value {
+    let response = harness
+        .query(QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+        })
+        .await;
+    let (status, body) = read_json(response).await;
+    assert_eq!(
+        status,
+        http::StatusCode::OK,
+        "unexpected error for query '{query}': {body}"
+    );
+    body
+}
+
+async fn check_mtr_traces_query_contract(harness: &SrqlTestHarness) {
+    // Exact public reproduction from #4206: a catalog-advertised entity must execute,
+    // not merely parse or translate.
+    let issue_body = query_ok(harness, "in:mtr_traces time:last_1h sort:time:desc limit:1").await;
+    assert_eq!(
+        issue_body["results"][0]["id"],
+        "00000000-0000-4000-8000-000000000010"
+    );
+
+    // Exercise every catalog-advertised filter together, including the boolean, while
+    // proving the otherwise-identical row outside the requested time window is excluded.
+    let filtered_body = query_ok(
+        harness,
+        r#"in:mtr_traces target:"edge.example" target_ip:"203.0.113.10" agent_id:"agent-mtr-a" protocol:icmp check_name:"edge-check" device_id:"device-mtr-a" target_reached:false error:"destination timeout" time:last_1h sort:time:desc limit:1"#,
+    )
+    .await;
+    let filtered_rows = filtered_body["results"]
+        .as_array()
+        .unwrap_or_else(|| panic!("results must be an array: {filtered_body}"));
+    assert_eq!(filtered_rows.len(), 1, "{filtered_body}");
+    let row = filtered_rows[0]
+        .as_object()
+        .unwrap_or_else(|| panic!("MTR result must be an object: {filtered_body}"));
+    let expected_columns = [
+        "id",
+        "time",
+        "agent_id",
+        "gateway_id",
+        "check_id",
+        "check_name",
+        "device_id",
+        "target",
+        "target_ip",
+        "target_reached",
+        "total_hops",
+        "protocol",
+        "ip_version",
+        "packet_size",
+        "partition",
+        "error",
+        "created_at",
+    ];
+    assert_eq!(
+        row.len(),
+        expected_columns.len(),
+        "MTR rows must serialize the authoritative table shape: {filtered_body}"
+    );
+    for column in expected_columns {
+        assert!(
+            row.contains_key(column),
+            "MTR result is missing '{column}': {filtered_body}"
+        );
+    }
+    assert_eq!(row["id"], "00000000-0000-4000-8000-000000000020");
+    assert!(row["time"].is_string(), "{filtered_body}");
+    assert_eq!(row["agent_id"], "agent-mtr-a");
+    assert_eq!(row["gateway_id"], "gateway-mtr-a");
+    assert_eq!(row["check_id"], "check-mtr-a");
+    assert_eq!(row["check_name"], "edge-check");
+    assert_eq!(row["device_id"], "device-mtr-a");
+    assert_eq!(row["target"], "edge.example");
+    assert_eq!(row["target_ip"], "203.0.113.10");
+    assert_eq!(row["target_reached"], false);
+    assert_eq!(row["total_hops"], 12);
+    assert_eq!(row["protocol"], "icmp");
+    assert_eq!(row["ip_version"], 4);
+    assert_eq!(row["packet_size"], 64);
+    assert_eq!(row["partition"], "partition-mtr-a");
+    assert_eq!(row["error"], "destination timeout");
+    assert!(row["created_at"].is_string(), "{filtered_body}");
+
+    // Each advertised filter must independently narrow the fixture. A combined-only
+    // assertion could still pass if one predicate were accidentally omitted.
+    let filter_cases: [(&str, &[&str]); 8] = [
+        (
+            "target:%edge.example%",
+            &["00000000-0000-4000-8000-000000000020"],
+        ),
+        (
+            "target_ip:%113.10%",
+            &["00000000-0000-4000-8000-000000000020"],
+        ),
+        (
+            "agent_id:%mtr-a%",
+            &["00000000-0000-4000-8000-000000000020"],
+        ),
+        (
+            "protocol:icmp",
+            &[
+                "00000000-0000-4000-8000-000000000010",
+                "00000000-0000-4000-8000-000000000020",
+            ],
+        ),
+        (
+            "check_name:%edge%",
+            &["00000000-0000-4000-8000-000000000020"],
+        ),
+        (
+            "device_id:%mtr-a%",
+            &["00000000-0000-4000-8000-000000000020"],
+        ),
+        (
+            "target_reached:false",
+            &["00000000-0000-4000-8000-000000000020"],
+        ),
+        ("error:%timeout%", &["00000000-0000-4000-8000-000000000020"]),
+    ];
+
+    for (filter, expected_ids) in filter_cases {
+        let body = query_ok(
+            harness,
+            &format!("in:mtr_traces {filter} time:last_1h sort:time:desc limit:20"),
+        )
+        .await;
+        let ids: Vec<_> = body["results"]
+            .as_array()
+            .unwrap_or_else(|| panic!("results must be an array for {filter}: {body}"))
+            .iter()
+            .map(|result| {
+                result["id"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("MTR row must include an id: {body}"))
+            })
+            .collect();
+        assert_eq!(
+            ids, expected_ids,
+            "filter {filter} was not enforced: {body}"
+        );
+    }
+
+    // Absolute time windows are half-open: include the row exactly at the lower bound,
+    // include the interior row, and exclude the row exactly at the upper bound.
+    let bounded_body = query_ok(
+        harness,
+        r#"in:mtr_traces target:"absolute.example" time:[2026-06-01T00:00:00Z,2026-06-01T01:00:00Z] sort:time:asc limit:10"#,
+    )
+    .await;
+    let bounded_ids: Vec<_> = bounded_body["results"]
+        .as_array()
+        .unwrap_or_else(|| panic!("results must be an array: {bounded_body}"))
+        .iter()
+        .map(|result| result["id"].as_str().expect("MTR row must include an id"))
+        .collect();
+    assert_eq!(
+        bounded_ids,
+        [
+            "00000000-0000-4000-8000-000000000100",
+            "00000000-0000-4000-8000-000000000101",
+        ],
+        "upper-bound row must be excluded: {bounded_body}"
+    );
+
+    // The primary-key UUID breaks timestamp ties across real cursor pages, keeping
+    // pagination stable without skipping or repeating equal-time rows.
+    let tied_query = r#"in:mtr_traces target:"tie.example" time:last_1h sort:time:desc limit:1"#;
+    let expected_tied_ids = [
+        "00000000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000001",
+    ];
+    let mut cursor = None;
+    let mut tied_rows = Vec::new();
+
+    for expected_id in expected_tied_ids {
+        let response = harness
+            .query(QueryRequest {
+                query: tied_query.to_string(),
+                limit: None,
+                cursor,
+                direction: QueryDirection::Next,
+                mode: None,
+            })
+            .await;
+        let (status, body) = read_json(response).await;
+        assert_eq!(status, http::StatusCode::OK, "{body}");
+        let rows = body["results"]
+            .as_array()
+            .unwrap_or_else(|| panic!("results must be an array: {body}"));
+        assert_eq!(
+            rows.len(),
+            1,
+            "each cursor page must contain one row: {body}"
+        );
+        assert_eq!(rows[0]["id"], expected_id, "timestamp tie order: {body}");
+        tied_rows.push(rows[0].clone());
+        cursor = body["pagination"]["next_cursor"]
+            .as_str()
+            .map(str::to_string);
+        assert!(
+            cursor.is_some(),
+            "a full page must provide a cursor: {body}"
+        );
+    }
+
+    let exhausted_response = harness
+        .query(QueryRequest {
+            query: tied_query.to_string(),
+            limit: None,
+            cursor,
+            direction: QueryDirection::Next,
+            mode: None,
+        })
+        .await;
+    let (exhausted_status, exhausted_body) = read_json(exhausted_response).await;
+    assert_eq!(exhausted_status, http::StatusCode::OK, "{exhausted_body}");
+    assert_eq!(exhausted_body["results"], serde_json::json!([]));
+    assert!(exhausted_body["pagination"]["next_cursor"].is_null());
+
+    let mut seen_tied_ids: Vec<_> = tied_rows
+        .iter()
+        .map(|row| row["id"].as_str().expect("MTR row must include an id"))
+        .collect();
+    seen_tied_ids.sort_unstable();
+    seen_tied_ids.dedup();
+    assert_eq!(seen_tied_ids.len(), expected_tied_ids.len());
+
+    let null_row = tied_rows
+        .iter()
+        .find(|result| result["id"] == "00000000-0000-4000-8000-000000000001")
+        .expect("fixture must return its nullable row");
+    for column in [
+        "gateway_id",
+        "check_id",
+        "check_name",
+        "device_id",
+        "packet_size",
+        "partition",
+        "error",
+    ] {
+        assert!(
+            null_row[column].is_null(),
+            "optional '{column}' must serialize as null: {null_row}"
+        );
+    }
 }
 
 async fn check_logs_severity_topn_paginates_by_effective_timestamp(harness: &SrqlTestHarness) {

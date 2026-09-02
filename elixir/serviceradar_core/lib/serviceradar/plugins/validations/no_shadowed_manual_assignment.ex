@@ -5,10 +5,12 @@ defmodule ServiceRadar.Plugins.Validations.NoShadowedManualAssignment do
 
   use Ash.Resource.Validation
 
+  alias Ash.Error.Query.NotFound
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.PluginAssignment
 
   require Ash.Query
+  require Logger
 
   @impl true
   def atomic(_changeset, _opts, _context), do: :ok
@@ -51,7 +53,19 @@ defmodule ServiceRadar.Plugins.Validations.NoShadowedManualAssignment do
         {:ok, nil} ->
           :ok
 
-        {:error, _reason} ->
+        {:error, %NotFound{}} ->
+          :ok
+
+        {:error, %Ash.Error.Invalid{errors: errors}} ->
+          if Enum.any?(errors, &match?(%NotFound{}, &1)) do
+            :ok
+          else
+            log_lookup_failure(errors)
+            {:error, field: :plugin_package_id, message: "plugin assignment lookup failed"}
+          end
+
+        {:error, reason} ->
+          log_lookup_failure(reason)
           {:error, field: :plugin_package_id, message: "plugin assignment lookup failed"}
       end
     end
@@ -60,4 +74,16 @@ defmodule ServiceRadar.Plugins.Validations.NoShadowedManualAssignment do
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""
   defp blank?(nil), do: true
   defp blank?(_value), do: false
+
+  defp log_lookup_failure(%struct{}),
+    do:
+      Logger.warning("NoShadowedManualAssignment: plugin assignment lookup failed",
+        error: inspect(struct)
+      )
+
+  defp log_lookup_failure(reason) do
+    Logger.warning("NoShadowedManualAssignment: plugin assignment lookup failed",
+      error: inspect(reason)
+    )
+  end
 end

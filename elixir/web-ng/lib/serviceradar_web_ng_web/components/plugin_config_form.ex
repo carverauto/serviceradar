@@ -260,7 +260,7 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
             value={value_for(@params, @name)}
             minlength={Map.get(@prop, "minLength")}
             maxlength={Map.get(@prop, "maxLength")}
-            pattern={Map.get(@prop, "pattern")}
+            pattern={html_pattern(Map.get(@prop, "pattern"))}
             class={ui_field_class(class: "w-full")}
           />
       <% end %>
@@ -407,6 +407,30 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   defp text_input_type(%{"format" => "uri"}), do: "url"
   defp text_input_type(%{"format" => "email"}), do: "email"
   defp text_input_type(_), do: "text"
+
+  # JSON Schema `pattern` is unanchored unless it includes ^/$. HTML `pattern`
+  # is always a full-string match (`^(?:...)$`). Copying `^https://` verbatim
+  # therefore rejects every real URL: the browser requires the entire value to
+  # be exactly "https://". Convert prefix/suffix/unanchored patterns so they
+  # mean the same thing in the browser as they do in the schema.
+  defp html_pattern(pattern) when is_binary(pattern) and pattern != "" do
+    starts? = String.starts_with?(pattern, "^")
+    ends? = String.ends_with?(pattern, "$")
+
+    inner =
+      pattern
+      |> then(&if(starts?, do: String.replace_prefix(&1, "^", ""), else: &1))
+      |> then(&if(ends?, do: String.replace_suffix(&1, "$", ""), else: &1))
+
+    cond do
+      starts? and ends? -> inner
+      starts? -> inner <> ".*"
+      ends? -> ".*" <> inner
+      true -> ".*" <> inner <> ".*"
+    end
+  end
+
+  defp html_pattern(_pattern), do: nil
 
   defp value_for(params, name) do
     value = Map.get(params, name)

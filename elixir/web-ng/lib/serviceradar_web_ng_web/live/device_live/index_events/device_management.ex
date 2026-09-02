@@ -4,14 +4,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
 
   alias Ash.Error.Forbidden
   alias Ash.Error.Invalid
+  alias ServiceRadar.Infrastructure.Partition
+  alias ServiceRadarWebNG.Devices.ManualDeviceCreator
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport
 
+  require Ash.Query
   require Logger
 
   def handle_event("open_add_device_modal", _params, socket) do
     if RBAC.can?(socket.assigns.current_scope, "devices.create") do
-      {:noreply, assign(socket, :show_add_device_modal, true)}
+      {:noreply,
+       socket
+       |> assign_partition_picker()
+       |> assign(:show_add_device_modal, true)}
     else
       {:noreply, put_flash(socket, :error, "You are not authorized to add devices")}
     end
@@ -28,11 +34,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
     if RBAC.can?(socket.assigns.current_scope, "devices.import") do
       {:noreply,
        socket
+       |> assign_partition_picker()
        |> assign(:show_import_modal, true)
        |> assign(:csv_preview, nil)
        |> assign(:csv_errors, [])
        |> assign(:csv_warnings, [])
-       |> assign(:import_status, nil)}
+       |> assign(:import_status, nil)
+       |> assign(:import_partition_error, nil)}
     else
       {:noreply, put_flash(socket, :error, "You are not authorized to import devices")}
     end
@@ -50,6 +58,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
 
   def handle_event("validate_csv", _params, socket) do
     {:noreply, socket}
+  end
+
+  def handle_event("set_import_partition", %{"partition" => partition}, socket) do
+    case ManualDeviceCreator.parse_partition(partition) do
+      {:ok, ""} ->
+        {:noreply, assign(socket, import_partition: "default", import_partition_error: nil)}
+
+      {:ok, slug} ->
+        {:noreply, assign(socket, import_partition: slug, import_partition_error: nil)}
+
+      {:error, _slug} ->
+        {:noreply, assign(socket, :import_partition_error, "Use a lowercase slug such as default or rids")}
+    end
   end
 
   def handle_event("preview_csv", _params, socket) do
@@ -104,7 +125,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
 
       {:error, {:hostname_resolution_failed, hostname, reason}} ->
         Logger.warning("Device create failed: unable to resolve hostname #{inspect(hostname)}: #{inspect(reason)}")
+
         {:noreply, put_flash(socket, :error, "Unable to resolve hostname '#{hostname}' to an IP address.")}
+
+      {:error, {:invalid_partition, slug}} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Invalid partition '#{slug}'. Use a lowercase slug such as default or rids."
+         )}
 
       {:error, :missing_device_address} ->
         {:noreply, put_flash(socket, :error, "Provide a hostname that resolves or an IP address.")}
@@ -166,6 +196,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
       devices when is_list(devices) and devices != [] ->
         scope = socket.assigns.current_scope
 
+        devices =
+          IndexCsvImport.apply_import_partition(devices, socket.assigns.import_partition)
+
         case IndexCsvImport.import_devices(scope, devices) do
           {:ok, {created, updated}} ->
             {:noreply,
@@ -192,5 +225,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
       _ ->
         {:noreply, assign(socket, :csv_errors, ["No valid devices in CSV"])}
     end
+  end
+
+  defp assign_partition_picker(socket) do
+    assign(socket, :import_partition_options, partition_options(socket.assigns.current_scope))
+  end
+
+  defp partition_options(scope) do
+    partitions =
+      try do
+        Partition
+        |> Ash.Query.for_read(:enabled)
+        |> Ash.read!(scope: scope)
+      rescue
+        _ -> []
+      end
+
+    others =
+      partitions
+      |> Enum.map(fn partition -> {partition.name || partition.slug, partition.slug} end)
+      |> Enum.reject(fn {_name, slug} -> slug == "default" end)
+      |> Enum.sort_by(&elem(&1, 0))
+
+    [{"Default", "default"} | others]
   end
 end

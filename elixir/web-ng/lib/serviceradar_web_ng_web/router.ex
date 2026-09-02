@@ -7,10 +7,20 @@ defmodule ServiceRadarWebNGWeb.Router do
   import ServiceRadarWebNGWeb.UserAuth
 
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.Mcp
+  alias ServiceRadarWebNGWeb.Plugs.ApiAuth
+  alias ServiceRadarWebNGWeb.Plugs.ConfineNarrowScope
   alias ServiceRadarWebNGWeb.Plugs.GatewayAuth
   alias ServiceRadarWebNGWeb.Plugs.LockoutCheck
+  alias ServiceRadarWebNGWeb.Plugs.McpAshContext
+  alias ServiceRadarWebNGWeb.Plugs.McpEnabled
+  alias ServiceRadarWebNGWeb.Plugs.McpRequirePermission
+  alias ServiceRadarWebNGWeb.Plugs.McpRequireUser
+  alias ServiceRadarWebNGWeb.Plugs.McpSessionAudit
+  alias ServiceRadarWebNGWeb.Plugs.McpWwwAuthenticate
   alias ServiceRadarWebNGWeb.Plugs.RateLimit
   alias ServiceRadarWebNGWeb.Plugs.RateLimit.Bodies
+  alias ServiceRadarWebNGWeb.Plugs.RequireOauthScope
   alias ServiceRadarWebNGWeb.Plugs.SecurityHeaders
   alias ServiceRadarWebNGWeb.Settings.ShellHook
 
@@ -135,7 +145,28 @@ defmodule ServiceRadarWebNGWeb.Router do
   pipeline :api_key_auth do
     plug(:accepts, ["json"])
     plug(SecurityHeaders)
-    plug(ServiceRadarWebNGWeb.Plugs.ApiAuth)
+    plug(ApiAuth)
+    # Confines CLI device-flow tokens to the routes their narrow scope was
+    # granted for. Coarse client-credential scopes, API keys and sessions pass
+    # through untouched. See `Auth.NarrowScopes`.
+    plug(ConfineNarrowScope)
+  end
+
+  # MCP streamable HTTP. Default-off (`McpEnabled`), user-bound API
+  # credentials with the `mcp` OAuth scope, never legacy static keys.
+  pipeline :mcp do
+    plug(:accepts, ["json"])
+    plug(SecurityHeaders)
+    plug(McpEnabled)
+    plug(McpWwwAuthenticate)
+    # Register before_send before auth plugs so 401/403 still emit mcp_auth_failed.
+    plug(McpSessionAudit)
+    plug(ApiAuth)
+    plug(McpRequireUser)
+    plug(RequireOauthScope, scope: "mcp")
+    plug(McpRequirePermission)
+    plug(RateLimit, bucket: :mcp, subject: :ip_and_actor, response_mode: :json)
+    plug(McpAshContext)
   end
 
   pipeline :dev_routes do
@@ -186,9 +217,16 @@ defmodule ServiceRadarWebNGWeb.Router do
   # the existing Settings → Dashboard Packages LiveView upload modal continue
   # to work (session-auth, no JWT, no `oauth_token_scope` assign).
   pipeline :require_dashboard_publish_scope do
-    plug(ServiceRadarWebNGWeb.Plugs.RequireOauthScope,
+    plug(RequireOauthScope,
       scope: "dashboard.publish",
       fallback_permission: "cli.dashboard.publish"
+    )
+  end
+
+  pipeline :require_plugin_publish_scope do
+    plug(RequireOauthScope,
+      scope: "plugin.publish",
+      fallback_permission: "plugins.stage"
     )
   end
 
@@ -453,6 +491,28 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/remote-access/sessions/:id/stream", RemoteAccessStreamController, :connect)
   end
 
+  scope "/.well-known", ServiceRadarWebNGWeb do
+    pipe_through(:api)
+
+    get("/oauth-protected-resource", OAuthMetadataController, :protected_resource)
+    get("/oauth-protected-resource/mcp", OAuthMetadataController, :protected_resource)
+    get("/oauth-authorization-server", OAuthMetadataController, :authorization_server)
+  end
+
+  scope "/mcp" do
+    pipe_through(:mcp)
+
+    forward("/", AshAi.Mcp.Router,
+      otp_app: :serviceradar_web_ng,
+      tools: Mcp.v1_tools(),
+      mcp_resources: Mcp.v1_resources(),
+      protocol_version_statement: "2025-03-26",
+      mcp_name: "serviceradar",
+      tool_argument_transformer: &Mcp.wrap_tool_arguments/3,
+      instructions: Mcp.instructions()
+    )
+  end
+
   # Other scopes may use custom stacks.
   scope "/api", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_auth)
@@ -602,6 +662,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/validation-runs", ValidationRunController, :create)
     get("/validation-runs/:id", ValidationRunController, :show)
     get("/validation-runs/:id/results", ValidationRunController, :results)
+
+    # Address -> device uid, without the probe. A validation run also resolves identity,
+    # but only as a step before scanning; a caller that wants the id and not the scan
+    # had no way to ask for it.
+    get("/identity/resolve", IdentityController, :resolve)
+    post("/identity/resolve", IdentityController, :resolve_batch)
   end
 
   # Edge onboarding admin API (API key or bearer token auth)
@@ -633,9 +699,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     # Plugin packages
     get("/plugin-packages", PluginPackageController, :index)
-    post("/plugin-packages", PluginPackageController, :create)
     get("/plugin-packages/:id", PluginPackageController, :show)
-    post("/plugin-packages/:id/upload-url", PluginPackageController, :upload_url)
     post("/plugin-packages/:id/download-url", PluginPackageController, :download_url)
     post("/plugin-packages/:id/approve", PluginPackageController, :approve)
     post("/plugin-packages/:id/deny", PluginPackageController, :deny)
@@ -657,6 +721,19 @@ defmodule ServiceRadarWebNGWeb.Router do
     # NATS account & credentials
     get("/nats/account", CollectorController, :account_status)
     get("/nats/credentials", CollectorController, :credentials)
+  end
+
+  ## CLI plugin publish (stage + bundle upload token).
+  # A sibling of the /api/admin block above so the publish-scope pipeline gates
+  # only these two write calls. `GET /plugin-packages/:id` deliberately stays in
+  # the general block: it is read-only, a session viewer holds `plugins.view`
+  # rather than `plugins.stage`, and RequireOauthScope's fallback would 403
+  # them. Narrow-scoped CLI tokens still reach it only via `Auth.NarrowScopes`.
+  scope "/api/admin", ServiceRadarWebNGWeb.Api do
+    pipe_through([:api_key_auth, :require_plugin_publish_scope])
+
+    post("/plugin-packages", PluginPackageController, :create)
+    post("/plugin-packages/:id/upload-url", PluginPackageController, :upload_url)
   end
 
   # Edge package download - token-gated (no session auth required)
@@ -800,6 +877,13 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through(:api)
 
     post("/token", OAuthController, :token)
+    post("/backchannel-logout", OAuthBackchannelLogoutController, :create)
+  end
+
+  scope "/oauth", ServiceRadarWebNGWeb do
+    pipe_through(:browser)
+
+    get("/authorize", OAuthAuthorizeController, :new)
   end
 
   ## CLI device-code auth (RFC 8628)
@@ -912,6 +996,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/scans/:id/export.csv", ScanExportController, :csv)
     get("/scans/:id/export.xlsx", ScanExportController, :xlsx)
 
+    get(
+      "/settings/networks/integrations/runs/:id/export.csv",
+      ArmisNorthboundRunExportController,
+      :csv
+    )
+
     live_session :require_authenticated_user,
       on_mount: [
         {ServiceRadarWebNGWeb.UserAuth, :require_authenticated},
@@ -990,7 +1080,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/diagnostics/mtr/:trace_id", DiagnosticsLive.MtrTrace, :show)
       live("/settings/profile", UserLive.Settings, :edit)
       live("/settings/api-credentials", UserLive.ApiCredentials, :index)
+      live("/settings/mcp-sessions", Settings.McpSessionsLive, :index)
       live("/settings/cli-sessions", Settings.CliSessionsLive, :index)
+      live("/oauth/consent", OAuthConsentLive)
       live("/settings/cli-auth", Settings.CliAuthPolicyLive, :index)
       live("/settings/user-groups", Settings.UserGroupsLive, :index)
 
@@ -1125,6 +1217,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/auth/users", Settings.AuthUsersLive, :index)
       live("/settings/auth/users/:id", Settings.AuthUserLive.Show, :show)
       live("/settings/auth/rbac", Settings.RbacLive, :index)
+      live("/settings/auth/authorization", Settings.AuthorizationLive, :index)
 
       # Ansible settings (controllers, repositories, and retention)
       live("/settings/ansible", Settings.AnsibleLive, :index)

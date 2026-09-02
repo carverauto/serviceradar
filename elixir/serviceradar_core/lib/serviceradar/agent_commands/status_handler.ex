@@ -38,9 +38,24 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   def init(opts) do
     PubSub.subscribe_ingress()
 
+    actor = SystemActor.system(:agent_command_status)
+
     {:ok,
      %{
-       actor: SystemActor.system(:agent_command_status),
+       actor: actor,
+       ack_persister: Keyword.get(opts, :ack_persister, &persist_ack/2),
+       progress_persister: Keyword.get(opts, :progress_persister, &persist_progress/2),
+       persisted_ack_broadcaster:
+         Keyword.get(opts, :persisted_ack_broadcaster, &PubSub.broadcast_persisted_ack/1),
+       persisted_progress_broadcaster:
+         Keyword.get(
+           opts,
+           :persisted_progress_broadcaster,
+           &PubSub.broadcast_persisted_progress/1
+         ),
+       ack_consumer: Keyword.get(opts, :ack_consumer, default_ack_consumer(actor)),
+       progress_consumers:
+         Keyword.get(opts, :progress_consumers, default_progress_consumers(actor)),
        cleanup_reconciler: Keyword.get(opts, :cleanup_reconciler, CleanupReconciler),
        callback_result_coordinator:
          Keyword.get(opts, :callback_result_coordinator, CallbackCommandResultCoordinator),
@@ -82,8 +97,16 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   def handle_info({:command_ack, data}, state) do
     data = AutomationResultSanitizer.sanitize_ack(data)
 
-    if persist_ack(data, state.actor) == :ok do
-      AgentReleaseManager.handle_command_ack(data, actor: state.actor)
+    if persist_update_with(data, state, :ack_persister, &persist_ack/2, :ack) == :ok do
+      safe_broadcast_persisted_update(
+        data,
+        Map.get(state, :persisted_ack_broadcaster, &PubSub.broadcast_persisted_ack/1),
+        :ack
+      )
+
+      state
+      |> Map.get(:ack_consumer, default_ack_consumer(Map.get(state, :actor)))
+      |> safe_call_update_consumer(data, :ack)
     end
 
     {:noreply, state}
@@ -92,10 +115,21 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   def handle_info({:command_progress, data}, state) do
     data = AutomationResultSanitizer.sanitize_progress(data)
 
-    if persist_progress(data, state.actor) == :ok do
-      safe_maybe_ingest_mtr_result(data)
-      AdhocScanResultHandler.handle_command_progress(data)
-      AgentReleaseManager.handle_command_progress(data, actor: state.actor)
+    if persist_update_with(data, state, :progress_persister, &persist_progress/2, :progress) ==
+         :ok do
+      safe_broadcast_persisted_update(
+        data,
+        Map.get(
+          state,
+          :persisted_progress_broadcaster,
+          &PubSub.broadcast_persisted_progress/1
+        ),
+        :progress
+      )
+
+      state
+      |> Map.get(:progress_consumers, default_progress_consumers(Map.get(state, :actor)))
+      |> Enum.each(&safe_call_update_consumer(&1, data, :progress))
     end
 
     {:noreply, state}
@@ -374,6 +408,69 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   defp safe_call_result_consumer(_consumer, _data), do: :ok
 
+  defp default_ack_consumer(actor) do
+    fn data -> AgentReleaseManager.handle_command_ack(data, actor: actor) end
+  end
+
+  defp default_progress_consumers(actor) do
+    [
+      &safe_maybe_ingest_mtr_result/1,
+      &AdhocScanResultHandler.handle_command_progress/1,
+      fn data -> AgentReleaseManager.handle_command_progress(data, actor: actor) end
+    ]
+  end
+
+  defp safe_call_update_consumer(consumer, data, kind) when is_function(consumer, 1) do
+    consumer.(data)
+    :ok
+  rescue
+    exception ->
+      Logger.warning("AgentCommandStatusHandler: persisted update consumer failed",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        update_kind: kind,
+        exception: exception.__struct__
+      )
+
+      :ok
+  catch
+    failure_kind, _reason ->
+      Logger.warning("AgentCommandStatusHandler: persisted update consumer threw",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        update_kind: kind,
+        failure_kind: failure_kind
+      )
+
+      :ok
+  end
+
+  defp safe_call_update_consumer(_consumer, _data, _kind), do: :ok
+
+  defp safe_broadcast_persisted_update(data, broadcaster, kind)
+       when is_function(broadcaster, 1) do
+    broadcaster.(data)
+    :ok
+  rescue
+    exception ->
+      Logger.warning("AgentCommandStatusHandler: persisted update broadcast failed",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        update_kind: kind,
+        exception: exception.__struct__
+      )
+
+      :ok
+  catch
+    failure_kind, _reason ->
+      Logger.warning("AgentCommandStatusHandler: persisted update broadcast threw",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        update_kind: kind,
+        failure_kind: failure_kind
+      )
+
+      :ok
+  end
+
+  defp safe_broadcast_persisted_update(_data, _broadcaster, _kind), do: :ok
+
   defp safe_broadcast_persisted_result(data, broadcaster) when is_function(broadcaster, 1) do
     broadcaster.(data)
     :ok
@@ -419,6 +516,32 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
       )
 
       {:error, :command_result_persistence_failed}
+  end
+
+  defp persist_update_with(data, state, persister_key, default_persister, kind) do
+    persister = Map.get(state, persister_key, default_persister)
+
+    if is_function(persister, 2),
+      do: persister.(data, Map.get(state, :actor)),
+      else: {:error, :command_update_persister_unavailable}
+  rescue
+    exception ->
+      Logger.warning("AgentCommandStatusHandler: command update persistence raised",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        update_kind: kind,
+        exception: exception.__struct__
+      )
+
+      {:error, :command_update_persistence_failed}
+  catch
+    failure_kind, _reason ->
+      Logger.warning("AgentCommandStatusHandler: command update persistence threw",
+        command_id: map_get_any(data, [:command_id, "command_id"], nil),
+        update_kind: kind,
+        failure_kind: failure_kind
+      )
+
+      {:error, :command_update_persistence_failed}
   end
 
   defp persist_ack(%{command_id: command_id} = data, _actor) do

@@ -7,6 +7,8 @@ defmodule ServiceRadar.Dashboards.Checks.ActorCanEditDashboard do
 
   import Ash.Expr
 
+  alias ServiceRadar.Dashboards.Checks.SubjectGrant
+
   @impl true
   def describe(_opts), do: "actor can edit authored dashboard"
 
@@ -16,15 +18,7 @@ defmodule ServiceRadar.Dashboards.Checks.ActorCanEditDashboard do
   end
 
   def filter(%{id: actor_id}, _authorizer, _opts) when not is_nil(actor_id) do
-    expr(
-      owner_id == ^actor_id or
-        exists(
-          access_grants,
-          access == :edit and
-            ((subject_type == :user and subject_user_id == ^actor_id) or
-               (subject_type == :group and exists(subject_group.memberships, user_id == ^actor_id)))
-        )
-    )
+    SubjectGrant.authored_edit(actor_id)
   end
 
   def filter(_actor, _authorizer, _opts), do: expr(false)

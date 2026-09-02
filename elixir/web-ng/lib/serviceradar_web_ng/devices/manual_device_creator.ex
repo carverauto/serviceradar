@@ -10,10 +10,42 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadarWebNG.Devices.HostnameResolver
 
   require Ash.Query
+  require Logger
+
+  @partition_slug ~r/^[a-z0-9][a-z0-9_-]{0,62}$/
+
+  @doc false
+  def parse_partition(nil), do: {:ok, ""}
+
+  def parse_partition(value) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      "" ->
+        {:ok, ""}
+
+      slug ->
+        if Regex.match?(@partition_slug, slug) do
+          {:ok, slug}
+        else
+          {:error, slug}
+        end
+    end
+  end
+
+  def parse_partition(_value), do: {:error, "invalid"}
+
+  @doc false
+  def coerce_partition(value) do
+    case parse_partition(value) do
+      {:ok, ""} -> "default"
+      {:ok, slug} -> slug
+      {:error, _} -> "default"
+    end
+  end
 
   @spec create(map() | nil, map()) :: {:ok, struct()} | {:error, term()}
   def create(nil, _device_data), do: {:error, :missing_scope}
@@ -37,7 +69,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
 
   def upsert(scope, device_data) when is_map(device_data) do
     with {:ok, device_data} <- prepare_device_data(device_data) do
-      uid = generate_device_uid(device_data.ip)
+      uid = generate_device_uid(device_data.ip, device_data.partition)
       attrs = build_device_attrs(uid, device_data)
 
       scope
@@ -63,14 +95,25 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   end
 
   defp normalize_device_data(device_data) do
-    %{
-      hostname: blank_to_nil(Map.get(device_data, :hostname) || Map.get(device_data, "hostname")),
-      ip: blank_to_nil(Map.get(device_data, :ip) || Map.get(device_data, "ip")),
-      type: blank_to_nil(Map.get(device_data, :type) || Map.get(device_data, "type")),
-      tags: Map.get(device_data, :tags) || Map.get(device_data, "tags") || [],
-      metadata: stringify_metadata(Map.get(device_data, :metadata) || Map.get(device_data, "metadata") || %{})
-    }
+    raw_partition = Map.get(device_data, :partition) || Map.get(device_data, "partition")
+
+    case parse_partition(raw_partition) do
+      {:ok, partition} ->
+        %{
+          hostname: blank_to_nil(Map.get(device_data, :hostname) || Map.get(device_data, "hostname")),
+          ip: blank_to_nil(Map.get(device_data, :ip) || Map.get(device_data, "ip")),
+          partition: if(partition == "", do: "default", else: partition),
+          type: blank_to_nil(Map.get(device_data, :type) || Map.get(device_data, "type")),
+          tags: Map.get(device_data, :tags) || Map.get(device_data, "tags") || [],
+          metadata: stringify_metadata(Map.get(device_data, :metadata) || Map.get(device_data, "metadata") || %{})
+        }
+
+      {:error, slug} ->
+        {:error, {:invalid_partition, slug}}
+    end
   end
+
+  defp resolve_hostname_ip({:error, _} = error), do: error
 
   defp resolve_hostname_ip(%{ip: ip} = device_data) when is_binary(ip), do: device_data
 
@@ -92,6 +135,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
       uid: uid,
       hostname: device_data.hostname,
       ip: device_data.ip,
+      partition: device_data.partition,
       name: device_data.hostname || device_data.ip,
       type: device_data.type,
       type_id: parse_type_id(device_data.type),
@@ -119,7 +163,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
         {:ok, :created, device}
 
       {:error, %Invalid{} = error} ->
-        if unique_uid_error?(error) do
+        if unique_uid_error?(error) or unique_ip_error?(error) do
           retry_unique_uid_as_update(attrs, device_data, scope, error)
         else
           {:error, error}
@@ -139,12 +183,12 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   defp persist_upsert({:error, _} = error, _attrs, _device_data, _scope), do: error
 
   defp retry_unique_uid_as_update(attrs, device_data, scope, error) do
-    case lookup_by_uid(scope, Map.get(attrs, :uid)) do
+    with {:ok, []} <- lookup_by_uid(scope, Map.get(attrs, :uid)),
+         {:ok, []} <- lookup_by_ip(scope, device_data.ip, device_data.partition) do
+      {:error, error}
+    else
       {:ok, [device | _]} ->
         update_matched_device(device, [], attrs, device_data, scope)
-
-      {:ok, []} ->
-        {:error, error}
 
       {:error, _} = lookup_error ->
         lookup_error
@@ -152,7 +196,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   end
 
   defp update_matched_device(device, duplicates, attrs, device_data, scope) do
-    with {:ok, restored} <- restore_if_deleted(device, scope),
+    with {:ok, restored} <- resolve_live_target(device, scope),
          {:ok, updated} <- update_existing_device(restored, attrs, scope),
          {:ok, updated} <- maybe_merge_metadata(updated, device_data, scope),
          :ok <- merge_active_duplicates(duplicates, updated) do
@@ -170,10 +214,12 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   end
 
   defp find_existing_matches(scope, uid, device_data) do
+    partition = device_data.partition
+
     with {:ok, uid_matches} <- lookup_by_uid(scope, uid),
-         {:ok, ip_matches} <- lookup_by_ip(scope, device_data.ip),
-         {:ok, identifier_matches} <- lookup_by_ip_identifier(scope, device_data.ip),
-         {:ok, hostname_matches} <- lookup_by_hostname(scope, device_data.hostname) do
+         {:ok, ip_matches} <- lookup_by_ip(scope, device_data.ip, partition),
+         {:ok, identifier_matches} <- lookup_by_ip_identifier(scope, device_data.ip, partition),
+         {:ok, hostname_matches} <- lookup_by_hostname(scope, device_data.hostname, partition) do
       matches =
         []
         |> append_matches(:uid, uid_matches)
@@ -196,30 +242,30 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
 
   defp lookup_by_uid(_scope, _uid), do: {:ok, []}
 
-  defp lookup_by_ip(scope, ip) when is_binary(ip) do
+  defp lookup_by_ip(scope, ip, partition) when is_binary(ip) and is_binary(partition) do
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: true})
-    |> Ash.Query.filter(ip == ^ip)
+    |> Ash.Query.filter(ip == ^ip and partition == ^partition)
     |> Ash.read(scope: scope)
     |> Page.unwrap()
   end
 
-  defp lookup_by_ip(_scope, _ip), do: {:ok, []}
+  defp lookup_by_ip(_scope, _ip, _partition), do: {:ok, []}
 
-  defp lookup_by_hostname(scope, hostname) when is_binary(hostname) do
+  defp lookup_by_hostname(scope, hostname, partition) when is_binary(hostname) and is_binary(partition) do
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: true})
-    |> Ash.Query.filter(hostname == ^hostname)
+    |> Ash.Query.filter(hostname == ^hostname and partition == ^partition)
     |> Ash.read(scope: scope)
     |> Page.unwrap()
   end
 
-  defp lookup_by_hostname(_scope, _hostname), do: {:ok, []}
+  defp lookup_by_hostname(_scope, _hostname, _partition), do: {:ok, []}
 
-  defp lookup_by_ip_identifier(scope, ip) when is_binary(ip) do
+  defp lookup_by_ip_identifier(scope, ip, partition) when is_binary(ip) and is_binary(partition) do
     DeviceIdentifier
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(identifier_type == :ip and identifier_value == ^ip)
+    |> Ash.Query.filter(identifier_type == :ip and identifier_value == ^ip and partition == ^partition)
     |> Ash.read(scope: scope)
     |> Page.unwrap()
     |> case do
@@ -234,7 +280,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     end
   end
 
-  defp lookup_by_ip_identifier(_scope, _ip), do: {:ok, []}
+  defp lookup_by_ip_identifier(_scope, _ip, _partition), do: {:ok, []}
 
   defp load_identifier_devices([], _scope), do: {:ok, []}
 
@@ -254,14 +300,18 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     Enum.min_by(matches, &canonical_rank/1)
   end
 
-  defp canonical_rank(%{reason: :uid}), do: 0
+  # Live rows always beat tombstones. A uid match on a merged-away device used
+  # to rank 0 and then :restore, which races identity recon (StaleRecord) and
+  # can undo a merge. Prefer the live IP/hostname survivor.
+  defp canonical_rank(%{reason: :uid, device: %{deleted_at: nil}}), do: 0
   defp canonical_rank(%{reason: :ip, device: %{deleted_at: nil}}), do: 1
   defp canonical_rank(%{reason: :ip_identifier, device: %{deleted_at: nil}}), do: 2
   defp canonical_rank(%{reason: :hostname, device: %{deleted_at: nil}}), do: 3
-  defp canonical_rank(%{reason: :ip}), do: 4
-  defp canonical_rank(%{reason: :ip_identifier}), do: 5
-  defp canonical_rank(%{reason: :hostname}), do: 6
-  defp canonical_rank(_match), do: 7
+  defp canonical_rank(%{reason: :uid}), do: 4
+  defp canonical_rank(%{reason: :ip}), do: 5
+  defp canonical_rank(%{reason: :ip_identifier}), do: 6
+  defp canonical_rank(%{reason: :hostname}), do: 7
+  defp canonical_rank(_match), do: 8
 
   defp duplicate_matches(matches, canonical) do
     matches
@@ -269,12 +319,70 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     |> Enum.uniq_by(fn %{device: device} -> device.uid end)
   end
 
-  defp restore_if_deleted(%Device{deleted_at: nil} = device, _scope), do: {:ok, device}
+  defp resolve_live_target(%Device{deleted_at: nil} = device, _scope), do: {:ok, device}
 
-  defp restore_if_deleted(%Device{} = device, scope) do
-    device
-    |> Ash.Changeset.for_update(:restore, %{})
-    |> Ash.update(scope: scope)
+  defp resolve_live_target(%Device{uid: uid} = device, scope) do
+    case reload_follow_canonical(uid, scope) do
+      {:ok, %Device{deleted_at: nil} = live} ->
+        {:ok, live}
+
+      {:ok, %Device{} = tombstoned} ->
+        restore_deleted(tombstoned, scope)
+
+      {:error, :not_found} ->
+        restore_deleted(device, scope)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  # Atomic Ash.update on a tombstoned row raises StaleRecord because the
+  # primary read filters deleted_at. Restore through include_deleted bulk
+  # update, same as MergeEngine.recreate_device/3.
+  defp restore_deleted(%Device{uid: uid} = device, scope) do
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid == ^uid)
+
+    case Ash.bulk_update(query, :restore, %{},
+           scope: scope,
+           return_errors?: true,
+           return_records?: true
+         ) do
+      %Ash.BulkResult{status: :success, records: [restored | _]} ->
+        {:ok, restored}
+
+      %Ash.BulkResult{status: :success} ->
+        Device.get_by_uid(uid, false, scope: scope)
+
+      %Ash.BulkResult{errors: [error | _]} ->
+        {:error, error}
+
+      %Ash.BulkResult{errors: []} ->
+        Device.get_by_uid(uid, false, scope: scope)
+
+      other ->
+        Logger.warning("Failed to restore #{uid} for CSV/manual upsert: #{inspect(other)}")
+        {:error, {:restore_failed, device.uid}}
+    end
+  end
+
+  defp reload_follow_canonical(uid, scope) when is_binary(uid) do
+    actor = SystemActor.system(:manual_device_readd)
+    canonical_uid = IdentityReconciler.follow_canonical_device_id(uid, actor)
+
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
+    |> Ash.Query.filter(uid == ^canonical_uid)
+    |> Ash.read(scope: scope)
+    |> Page.unwrap()
+    |> case do
+      {:ok, [found | _]} -> {:ok, found}
+      {:ok, []} -> {:error, :not_found}
+      {:error, _} = error -> error
+    end
   end
 
   defp update_existing_device(%Device{} = device, attrs, scope) do
@@ -375,9 +483,28 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
                "source" => "manual_device_creator"
              }
            ) do
-        :ok -> {:cont, :ok}
-        {:error, _} = error -> {:halt, error}
-        other -> {:halt, {:error, other}}
+        :ok ->
+          {:cont, :ok}
+
+        {:error, {:merge_blocked, guard}} ->
+          Logger.warning(
+            "CSV/manual upsert left duplicate #{device.uid} beside #{canonical.uid} " <>
+              "(merge blocked: #{guard})"
+          )
+
+          {:cont, :ok}
+
+        {:error, reason} = error ->
+          if Fence.stale?(reason) do
+            Logger.warning("CSV/manual upsert skipped duplicate #{device.uid}: stale after identity change")
+
+            {:cont, :ok}
+          else
+            {:halt, error}
+          end
+
+        other ->
+          {:halt, {:error, other}}
       end
     end)
   end
@@ -386,14 +513,23 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     Device.get_by_uid(uid, false, scope: scope)
   end
 
-  defp generate_device_uid(ip) when is_binary(ip) do
+  # `default` keeps the historical `manual:<ip>` seed so re-importing isolation
+  # copies still matches the devices already in inventory. Other partitions
+  # include the slug so the same address can exist as a second live device.
+  defp generate_device_uid(ip, partition) when is_binary(ip) do
+    seed =
+      case coerce_partition(partition) do
+        "default" -> "manual:#{ip}"
+        other -> "manual:#{other}:#{ip}"
+      end
+
     :sha256
-    |> :crypto.hash("manual:#{ip}")
+    |> :crypto.hash(seed)
     |> Base.encode16(case: :lower)
     |> String.slice(0, 32)
   end
 
-  defp generate_device_uid(_ip), do: Ash.UUID.generate()
+  defp generate_device_uid(_ip, _partition), do: Ash.UUID.generate()
 
   defp hostname_resolver do
     Application.get_env(:serviceradar_web_ng, :device_hostname_resolver, HostnameResolver)
@@ -480,6 +616,22 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   end
 
   defp unique_uid_error?(_error), do: false
+
+  defp unique_ip_error?(%Invalid{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &unique_ip_error_detail?/1)
+  end
+
+  defp unique_ip_error?(_error), do: false
+
+  defp unique_ip_error_detail?(error) do
+    fields = List.wrap(Map.get(error, :fields, [])) ++ List.wrap(Map.get(error, :field))
+    constraint = to_string(Map.get(error, :constraint) || Map.get(error, :constraint_name) || "")
+    message = to_string(Map.get(error, :message) || "")
+
+    Enum.member?(fields, :ip) or
+      String.contains?(constraint, "ocsf_devices_unique_active_ip_idx") or
+      String.contains?(message, "ocsf_devices_unique_active_ip_idx")
+  end
 
   defp unique_uid_error_detail?(%InvalidAttribute{} = error) do
     field = Map.get(error, :field)

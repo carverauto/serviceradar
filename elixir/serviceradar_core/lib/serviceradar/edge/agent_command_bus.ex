@@ -16,6 +16,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.Security.RateLimiter
+  alias ServiceRadar.SweepJobs.AgentAssignment
 
   require Logger
 
@@ -28,6 +29,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   @max_endpoint_inventory_cohort_size 128
   @max_endpoint_inventory_cohort_concurrency 16
   @send_timeout 5_000
+  @sweep_dispatch_max_concurrency 8
   @endpoint_inventory_capability "endpoint-inventory"
   @endpoint_inventory_cache_query_type "endpoint_inventory.cache_query"
   @endpoint_inventory_force_fresh_scan_type "endpoint_inventory.force_fresh_scan"
@@ -412,19 +414,282 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   def run_sweep_group(group, opts \\ []) do
+    with {:ok, {dispatch_id, dispatch_generation}} <- sweep_dispatch_identity(opts) do
+      do_run_sweep_group(group, opts, dispatch_id, dispatch_generation)
+    end
+  end
+
+  defp do_run_sweep_group(group, opts, dispatch_id, dispatch_generation) do
     payload = %{sweep_group_id: group.id}
+    group_partition = group.partition || "default"
+    agent_ids = AgentAssignment.normalize(group.agent_ids)
+    dispatch_fun = Keyword.get(opts, :dispatch_fun, &dispatch/4)
 
     opts =
-      add_context(opts, %{sweep_group_id: group.id, partition_id: group.partition || "default"})
+      add_context(opts, %{
+        sweep_group_id: group.id,
+        device_partition_id: group_partition,
+        sweep_dispatch_id: dispatch_id,
+        sweep_dispatch_generation: dispatch_generation
+      })
 
-    dispatch_for_assignment(
-      group.partition || "default",
-      group.agent_id,
-      "sweep",
-      "sweep.run_group",
-      payload,
+    listing_opts =
+      Keyword.take(opts, [:registry_present?, :local_registry_reader, :registry_rpc])
+
+    publish_sweep_dispatch(group.id, dispatch_id, dispatch_generation, :started, %{
+      commands: [],
+      failures: []
+    })
+
+    sessions = list_online_sessions(listing_opts)
+
+    result =
+      case agent_ids do
+        [] ->
+          dispatch_sweep_group_to_all(sessions, group_partition, payload, opts, dispatch_fun)
+
+        selected_agent_ids ->
+          dispatch_sweep_group_to_selected(
+            sessions,
+            selected_agent_ids,
+            payload,
+            opts,
+            dispatch_fun
+          )
+      end
+
+    publish_sweep_dispatch(group.id, dispatch_id, dispatch_generation, :finished, result)
+    sweep_dispatch_return(result)
+  end
+
+  # All-agents groups compile onto every scanner in the partition. Run now must
+  # fan out the same way; picking the first online session by agent_id left the
+  # rest of the fleet idle.
+  defp dispatch_sweep_group_to_all(sessions, partition, payload, opts, dispatch_fun) do
+    case online_agents_for_assignment(sessions, partition, "sweep") do
+      [] ->
+        %{commands: [], failures: [], error: :agent_offline}
+
+      sessions ->
+        sessions
+        |> Enum.map(&{:ok, &1})
+        |> dispatch_sweep_candidates(payload, opts, dispatch_fun)
+        |> collect_sweep_dispatches()
+    end
+  end
+
+  defp dispatch_sweep_group_to_selected(sessions, agent_ids, payload, opts, dispatch_fun) do
+    sessions_by_agent =
+      sessions
+      |> Enum.filter(& &1.canonical_principal?)
+      |> Enum.group_by(& &1.agent_id)
+
+    agent_ids
+    |> Enum.map(fn agent_id ->
+      case selected_sweep_session(agent_id, sessions_by_agent) do
+        {:ok, session} -> {:ok, session}
+        {:error, reason} -> {:error, agent_id, reason}
+      end
+    end)
+    |> dispatch_sweep_candidates(payload, opts, dispatch_fun)
+    |> collect_sweep_dispatches()
+  end
+
+  # A selected UID is authority only through a canonical four-part control key.
+  # Legacy agent-only keys remain observable for transition diagnostics, but they
+  # cannot select a sweep target or make a canonical principal ambiguous.
+  defp selected_sweep_session(agent_id, sessions_by_agent) do
+    sessions = Map.get(sessions_by_agent, agent_id, [])
+
+    case sessions |> Enum.map(& &1.partition_id) |> Enum.uniq() do
+      [] ->
+        {:error, {:agent_offline, agent_id}}
+
+      [partition_id] ->
+        with {:ok, evidence} <- resolve_control_session_evidence(partition_id, agent_id, nil),
+             :ok <- selected_sweep_capability(agent_id, evidence) do
+          {:ok,
+           %{
+             agent_id: agent_id,
+             partition_id: partition_id,
+             metadata: evidence
+           }}
+        end
+
+      _multiple ->
+        {:error, {:agent_partition_ambiguous, agent_id}}
+    end
+  end
+
+  defp selected_sweep_capability(agent_id, %{capabilities: capabilities})
+       when is_list(capabilities) do
+    if "sweep" in capabilities,
+      do: :ok,
+      else: {:error, {:agent_capability_missing, agent_id, "sweep"}}
+  end
+
+  defp selected_sweep_capability(agent_id, _evidence),
+    do: {:error, {:agent_capability_missing, agent_id, "sweep"}}
+
+  defp dispatch_sweep_session(session, payload, opts, dispatch_fun) do
+    gateway_node = gateway_node_from_metadata(session.metadata)
+
+    dispatch_opts =
       opts
-    )
+      |> put_assignment_context(session.partition_id, "sweep")
+      |> add_context(%{
+        agent_id: session.agent_id,
+        member_partition_id: session.partition_id
+      })
+      |> Keyword.put(:required_gateway_node, gateway_node)
+
+    case dispatch_fun.(session.agent_id, "sweep.run_group", payload, dispatch_opts) do
+      {:ok, command_id} -> {:ok, session.agent_id, command_id}
+      {:error, reason} -> {:error, session.agent_id, reason}
+      other -> {:error, session.agent_id, other}
+    end
+  end
+
+  defp dispatch_sweep_candidates(candidates, payload, opts, dispatch_fun) do
+    dispatch_entries =
+      candidates
+      |> Enum.with_index()
+      |> Enum.flat_map(fn
+        {{:ok, session}, index} -> [{index, session}]
+        {{:error, _agent_id, _reason}, _index} -> []
+      end)
+
+    max_concurrency = sweep_dispatch_concurrency(opts)
+
+    dispatched_by_index =
+      dispatch_entries
+      |> Task.async_stream(
+        fn {_index, session} ->
+          safe_dispatch_sweep_session(session, payload, opts, dispatch_fun)
+        end,
+        max_concurrency: max_concurrency,
+        ordered: true,
+        timeout: :infinity
+      )
+      |> Enum.zip(dispatch_entries)
+      |> Map.new(fn {task_result, {index, session}} ->
+        {index, normalize_sweep_dispatch_task_result(task_result, session.agent_id)}
+      end)
+
+    candidates
+    |> Enum.with_index()
+    |> Enum.map(fn
+      {{:ok, _session}, index} -> Map.fetch!(dispatched_by_index, index)
+      {{:error, agent_id, reason}, _index} -> {:error, agent_id, reason}
+    end)
+  end
+
+  defp safe_dispatch_sweep_session(session, payload, opts, dispatch_fun) do
+    {:completed, dispatch_sweep_session(session, payload, opts, dispatch_fun)}
+  rescue
+    exception -> {:task_exit, {:exception, exception.__struct__}}
+  catch
+    :exit, reason -> {:task_exit, reason}
+    kind, _reason -> {:task_exit, kind}
+  end
+
+  defp normalize_sweep_dispatch_task_result({:ok, {:completed, result}}, _agent_id), do: result
+
+  defp normalize_sweep_dispatch_task_result({:ok, {:task_exit, reason}}, agent_id),
+    do: {:error, agent_id, {:dispatch_task_exit, safe_sweep_dispatch_exit(reason)}}
+
+  defp normalize_sweep_dispatch_task_result({:exit, reason}, agent_id),
+    do: {:error, agent_id, {:dispatch_task_exit, safe_sweep_dispatch_exit(reason)}}
+
+  defp safe_sweep_dispatch_exit(reason) when is_atom(reason), do: reason
+  defp safe_sweep_dispatch_exit(_reason), do: :abnormal
+
+  defp sweep_dispatch_concurrency(opts) do
+    case Keyword.get(opts, :sweep_dispatch_max_concurrency, @sweep_dispatch_max_concurrency) do
+      value when is_integer(value) and value > 0 -> min(value, @sweep_dispatch_max_concurrency)
+      _invalid -> @sweep_dispatch_max_concurrency
+    end
+  end
+
+  defp collect_sweep_dispatches(results) do
+    commands =
+      Enum.flat_map(results, fn
+        {:ok, agent_id, command_id} -> [%{agent_id: agent_id, command_id: command_id}]
+        _failure -> []
+      end)
+
+    failures =
+      Enum.flat_map(results, fn
+        {:error, agent_id, reason} -> [%{agent_id: agent_id, reason: reason}]
+        _success -> []
+      end)
+
+    error = if commands == [], do: first_sweep_failure(failures)
+
+    maybe_put(%{commands: commands, failures: failures}, :error, error)
+  end
+
+  defp first_sweep_failure([%{reason: reason} | _rest]), do: reason
+  defp first_sweep_failure([]), do: :agent_offline
+
+  defp publish_sweep_dispatch(group_id, dispatch_id, dispatch_generation, phase, result) do
+    result
+    |> Map.put(:sweep_group_id, group_id)
+    |> Map.put(:sweep_dispatch_id, dispatch_id)
+    |> Map.put(:sweep_dispatch_generation, dispatch_generation)
+    |> Map.put(:phase, phase)
+    |> AgentCommandPubSub.broadcast_sweep_dispatch()
+  end
+
+  defp sweep_dispatch_identity(opts) do
+    dispatch_id = Keyword.get_lazy(opts, :sweep_dispatch_id, &Ash.UUIDv7.generate/0)
+
+    allocator =
+      Keyword.get(
+        opts,
+        :sweep_dispatch_generation_allocator,
+        &allocate_sweep_dispatch_generation/0
+      )
+
+    case call_sweep_dispatch_generation_allocator(allocator) do
+      {:ok, generation} -> {:ok, {dispatch_id, generation}}
+      {:error, _reason} -> {:error, :sweep_dispatch_generation_unavailable}
+    end
+  end
+
+  defp allocate_sweep_dispatch_generation do
+    case control_repo().query("SELECT txid_current()::text", []) do
+      {:ok, %{rows: [[generation]]}} -> {:ok, generation}
+      {:error, reason} -> {:error, reason}
+      _unexpected -> {:error, :unexpected_generation_result}
+    end
+  end
+
+  defp call_sweep_dispatch_generation_allocator(allocator) when is_function(allocator, 0) do
+    normalize_sweep_dispatch_generation(allocator.())
+  rescue
+    _exception -> {:error, :generation_allocator_failed}
+  catch
+    _kind, _reason -> {:error, :generation_allocator_failed}
+  end
+
+  defp call_sweep_dispatch_generation_allocator(_allocator),
+    do: {:error, :invalid_generation_allocator}
+
+  defp normalize_sweep_dispatch_generation({:ok, generation}) when is_binary(generation) do
+    case Integer.parse(generation) do
+      {generation, ""} when generation > 0 -> {:ok, Integer.to_string(generation)}
+      _invalid -> {:error, :invalid_generation}
+    end
+  end
+
+  defp normalize_sweep_dispatch_generation({:error, reason}), do: {:error, reason}
+  defp normalize_sweep_dispatch_generation(_unexpected), do: {:error, :invalid_generation_result}
+
+  defp sweep_dispatch_return(%{commands: [], error: reason}), do: {:error, reason}
+
+  defp sweep_dispatch_return(%{commands: commands, failures: failures}) do
+    {:ok, %{commands: commands, failures: failures}}
   end
 
   def dispatch_bulk_mtr(agent_id, targets, opts \\ []) when is_list(targets) do
@@ -1203,8 +1468,14 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp successful_cohort_command_ids(dispatches) do
     dispatches
     |> Enum.flat_map(fn
-      %{command_id: command_id, status: :dispatched} when is_binary(command_id) -> [command_id]
-      _ -> []
+      %{command_id: command_id, status: :dispatched} ->
+        case normalize_cohort_command_id(command_id) do
+          nil -> []
+          normalized -> [normalized]
+        end
+
+      _ ->
+        []
     end)
     |> MapSet.new()
   end
@@ -1226,19 +1497,29 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
       true ->
         receive do
-          {:command_result, %{command_id: command_id} = result} ->
-            if MapSet.member?(expected_command_ids, command_id) do
-              do_collect_endpoint_inventory_cohort_results(
-                expected_command_ids,
-                deadline,
-                Map.put(results, command_id, result)
-              )
-            else
-              do_collect_endpoint_inventory_cohort_results(
-                expected_command_ids,
-                deadline,
-                results
-              )
+          {:command_result, result} when is_map(result) ->
+            case normalize_cohort_command_id(cohort_result_command_id(result)) do
+              command_id when is_binary(command_id) ->
+                if MapSet.member?(expected_command_ids, command_id) do
+                  do_collect_endpoint_inventory_cohort_results(
+                    expected_command_ids,
+                    deadline,
+                    Map.put(results, command_id, result)
+                  )
+                else
+                  do_collect_endpoint_inventory_cohort_results(
+                    expected_command_ids,
+                    deadline,
+                    results
+                  )
+                end
+
+              _ ->
+                do_collect_endpoint_inventory_cohort_results(
+                  expected_command_ids,
+                  deadline,
+                  results
+                )
             end
 
           _other ->
@@ -1248,6 +1529,27 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         end
     end
   end
+
+  defp cohort_result_command_id(result) when is_map(result) do
+    Map.get(result, :command_id) || Map.get(result, "command_id")
+  end
+
+  defp normalize_cohort_command_id(nil), do: nil
+
+  defp normalize_cohort_command_id(command_id) when is_binary(command_id) do
+    case Ecto.UUID.cast(command_id) do
+      {:ok, uuid} ->
+        uuid
+
+      :error ->
+        case Ecto.UUID.load(command_id) do
+          {:ok, uuid} -> uuid
+          :error -> command_id
+        end
+    end
+  end
+
+  defp normalize_cohort_command_id(_command_id), do: nil
 
   defp endpoint_inventory_cohort_coverage(coverage_seed, dispatches, answered) do
     dispatch_failures = Enum.count(dispatches, &(&1.status == :failed))
@@ -1704,17 +2006,30 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   @doc false
   def pick_online_agent(partition, capability, opts) when is_list(opts) do
+    case list_online_agents_for_assignment(partition, capability, opts) do
+      [%{agent_id: agent_id, pid: pid, metadata: metadata} | _] ->
+        {:ok, agent_id, pid, metadata}
+
+      [] ->
+        {:error, :agent_offline}
+    end
+  end
+
+  @doc false
+  def list_online_agents_for_assignment(partition, capability, opts \\ []) do
     opts
     |> list_online_sessions()
+    |> online_agents_for_assignment(partition, capability)
+  end
+
+  defp online_agents_for_assignment(sessions, partition, capability) do
+    sessions
     |> Enum.filter(fn session ->
       session.canonical_principal? and session.partition_id == partition and
         (capability == nil or capability in session.capabilities)
     end)
+    |> Enum.uniq_by(& &1.agent_id)
     |> Enum.sort_by(& &1.agent_id)
-    |> case do
-      [%{agent_id: agent_id, pid: pid, metadata: metadata} | _] -> {:ok, agent_id, pid, metadata}
-      [] -> {:error, :agent_offline}
-    end
   end
 
   defp process_alive?(pid) when is_pid(pid) do

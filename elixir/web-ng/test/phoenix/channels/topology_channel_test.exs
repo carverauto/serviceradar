@@ -131,22 +131,21 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
              ["cluster:a", "cluster:b"]
   end
 
-  test "next_expanded_clusters collapses the oldest expansion past the configured limit" do
-    original_limit = Application.get_env(:serviceradar_web_ng, :god_view_expanded_cluster_limit)
-    Application.put_env(:serviceradar_web_ng, :god_view_expanded_cluster_limit, 2)
+  test "next_expanded_clusters never evicts an expansion to make room for another" do
+    # There is no cap. A deployment with five endpoint clusters must be able to hold all five
+    # open; the previous limit of four silently collapsed the first when the fifth was opened,
+    # which reads to the operator as a click closing an unrelated group.
+    clusters = for index <- 1..12, do: "cluster:#{index}"
 
-    on_exit(fn ->
-      if is_nil(original_limit) do
-        Application.delete_env(:serviceradar_web_ng, :god_view_expanded_cluster_limit)
-      else
-        Application.put_env(:serviceradar_web_ng, :god_view_expanded_cluster_limit, original_limit)
-      end
-    end)
+    expanded =
+      Enum.reduce(clusters, [], fn cluster, acc ->
+        TopologyChannel.next_expanded_clusters(acc, cluster, true)
+      end)
 
-    assert TopologyChannel.next_expanded_clusters(["cluster:a", "cluster:b"], "cluster:c", true) ==
-             ["cluster:b", "cluster:c"]
+    assert expanded == clusters
 
-    assert TopologyChannel.next_expanded_clusters(["cluster:b", "cluster:c"], "cluster:b", false) ==
-             ["cluster:c"]
+    # collapsing one leaves every other expansion untouched
+    assert TopologyChannel.next_expanded_clusters(expanded, "cluster:5", false) ==
+             List.delete(clusters, "cluster:5")
   end
 end

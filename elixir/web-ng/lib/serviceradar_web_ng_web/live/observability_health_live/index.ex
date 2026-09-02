@@ -87,6 +87,10 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/observability/health")}
   end
 
+  def handle_event("srql_reset", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_reset", params, fallback_path: "/observability/health")}
+  end
+
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "capacity_forecasts")}
   end
@@ -225,7 +229,12 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
                       {format_number(value(row, "projected_value"))}
                     </td>
                     <td class="whitespace-nowrap font-mono text-xs">
-                      {format_timestamp(value(row, "projected_exhaustion_at"))}
+                      <.user_time
+                        id={"observability-capacity-#{capacity_time_key(row, index)}-projected-exhaustion-at"}
+                        value={value(row, "projected_exhaustion_at")}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                      />
                     </td>
                   </tr>
                 </tbody>
@@ -252,6 +261,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
               :for={{row, index} <- Enum.with_index(Enum.take(@overview.capacity_rows, 4))}
               row={row}
               index={index}
+              timezone={@current_scope.user.timezone || "Etc/UTC"}
             />
             <div
               :if={@overview.capacity_rows == []}
@@ -284,7 +294,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
               No anomaly findings found in the last 24 hours.
             </div>
             <.link
-              :for={row <- @overview.anomaly_rows}
+              :for={{row, index} <- Enum.with_index(@overview.anomaly_rows)}
               navigate={anomaly_event_href(row)}
               class="block px-5 py-4 transition-colors hover:bg-sr-subtle/50"
             >
@@ -298,7 +308,12 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
                       {value(row, "source_type") || value(row, "log_provider") || "anomaly"}
                     </span>
                     <span :if={device_label(row)}>{device_label(row)}</span>
-                    <span>{format_timestamp(value(row, "time"))}</span>
+                    <.user_time
+                      id={"observability-anomaly-#{anomaly_time_key(row, index)}-time"}
+                      value={value(row, "time")}
+                      timezone={@current_scope.user.timezone || "Etc/UTC"}
+                      style={:compact}
+                    />
                   </div>
                 </div>
                 <.ui_badge size="sm" variant={severity_badge_variant(value(row, "severity"))}>
@@ -310,7 +325,11 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
         </section>
       </div>
 
-      <.capacity_detail_modal :if={is_map(@selected_capacity)} row={@selected_capacity} />
+      <.capacity_detail_modal
+        :if={is_map(@selected_capacity)}
+        row={@selected_capacity}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
+      />
     </Layouts.app>
     """
   end
@@ -336,6 +355,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
 
   attr :row, :map, required: true
   attr :index, :integer, default: 0
+  attr :timezone, :string, required: true
 
   defp forecast_card(assigns) do
     current = number_value(assigns.row, "current_value")
@@ -388,13 +408,20 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
       </div>
 
       <div class="mt-3 text-xs text-sr-muted">
-        Exhaustion {format_timestamp(value(@row, "projected_exhaustion_at"))}
+        Exhaustion
+        <.user_time
+          id={"observability-forecast-#{capacity_time_key(@row, @index)}-projected-exhaustion-at"}
+          value={value(@row, "projected_exhaustion_at")}
+          timezone={@timezone}
+          style={:compact}
+        />
       </div>
     </button>
     """
   end
 
   attr :row, :map, required: true
+  attr :timezone, :string, required: true
 
   defp capacity_detail_modal(assigns) do
     device_uid = capacity_device_uid(assigns.row)
@@ -443,20 +470,26 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
             value={format_number(value(@row, "exhaustion_threshold"))}
             mono
           />
-          <.capacity_fact
-            label="Exhaustion"
-            value={format_timestamp(value(@row, "projected_exhaustion_at"))}
-            mono
-          />
+          <.capacity_fact label="Exhaustion" mono>
+            <.user_time
+              id={"observability-capacity-detail-#{capacity_time_key(@row, 0)}-projected-exhaustion-at"}
+              value={value(@row, "projected_exhaustion_at")}
+              timezone={@timezone}
+              style={:compact}
+            />
+          </.capacity_fact>
           <.capacity_fact label="Unit" value={capacity_value_unit(@row)} mono />
           <.capacity_fact label="Resource key" value={value(@row, "resource_key")} mono />
           <.capacity_fact label="Resource ID" value={value(@row, "resource_id")} mono />
           <.capacity_fact label="Skip reason" value={value(@row, "skip_reason")} />
-          <.capacity_fact
-            label="Forecasted at"
-            value={format_timestamp(value(@row, "forecasted_at"))}
-            mono
-          />
+          <.capacity_fact label="Forecasted at" mono>
+            <.user_time
+              id={"observability-capacity-detail-#{capacity_time_key(@row, 0)}-forecasted-at"}
+              value={value(@row, "forecasted_at")}
+              timezone={@timezone}
+              style={:compact}
+            />
+          </.capacity_fact>
         </div>
 
         <div class="sr-ui-modal-action">
@@ -487,11 +520,12 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   attr :label, :string, required: true
   attr :value, :any, default: nil
   attr :mono, :boolean, default: false
+  slot :inner_block
 
   defp capacity_fact(assigns) do
     ~H"""
     <div
-      :if={not blank_capacity?(@value)}
+      :if={@inner_block != [] or not blank_capacity?(@value)}
       class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/30 p-3"
     >
       <div class="text-[10px] font-medium uppercase tracking-wider text-sr-muted">{@label}</div>
@@ -499,7 +533,11 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
         "mt-1 break-all text-sm text-sr-ink",
         @mono && "font-mono text-[13px]"
       ]}>
-        {@value}
+        <%= if @inner_block != [] do %>
+          {render_slot(@inner_block)}
+        <% else %>
+          {@value}
+        <% end %>
       </div>
     </div>
     """
@@ -965,20 +1003,35 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   defp format_number(value) when is_binary(value), do: value
   defp format_number(_value), do: "-"
 
-  defp format_timestamp(nil), do: "-"
-
-  defp format_timestamp(%DateTime{} = value) do
-    Calendar.strftime(value, "%Y-%m-%d %H:%M UTC")
+  defp capacity_time_key(row, index) do
+    stable_time_key(
+      [
+        value(row, "id"),
+        value(row, "forecast_id"),
+        value(row, "resource_key"),
+        value(row, "resource_id"),
+        value(row, "metric_name")
+      ],
+      index
+    )
   end
 
-  defp format_timestamp(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, dt, _offset} -> format_timestamp(dt)
-      _ -> value
+  defp anomaly_time_key(row, index) do
+    stable_time_key([value(row, "id"), value(row, "uid"), value(row, "event_id")], index)
+  end
+
+  defp stable_time_key(candidates, index) do
+    Enum.find_value(candidates, &observability_id_fragment/1) || Integer.to_string(index)
+  end
+
+  defp observability_id_fragment(value) when value in [nil, ""], do: nil
+
+  defp observability_id_fragment(value) do
+    case value |> to_string() |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-") |> String.trim("-") do
+      "" -> nil
+      fragment -> fragment
     end
   end
-
-  defp format_timestamp(value), do: to_string(value)
 
   defp stat_tone_class("warning"), do: "text-warning"
   defp stat_tone_class("error"), do: "text-error"

@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
   attr(:findings, :list, default: [])
   attr(:error, :string, default: nil)
   attr(:has_exposure, :boolean, default: false)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def bumblebee_section(assigns) do
     assigns =
@@ -52,10 +53,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
               value={field(@latest_posture, :active_finding_count) || @finding_count}
             />
             <.summary_stat label="Coverage" value={field(@latest_posture, :coverage_state)} />
-            <.summary_stat
-              label="Last Scan"
-              value={format_timestamp(field(@latest_posture, :last_scan_at))}
-            />
+            <.summary_stat label="Last Scan">
+              <.user_time
+                id={"device-bumblebee-#{time_key(field(@latest_posture, :run_id) || "latest")}-last-scan-at"}
+                value={field(@latest_posture, :last_scan_at)}
+                timezone={@timezone}
+                style={:compact}
+              />
+            </.summary_stat>
           </div>
 
           <div class="sr-ui-table-shell">
@@ -105,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
                   No active Bumblebee findings.
                 </td>
               </tr>
-              <tr :for={finding <- @findings}>
+              <tr :for={{finding, index} <- Enum.with_index(@findings)}>
                 <td class="max-w-56 truncate font-mono text-xs">
                   {field(finding, :catalog_id) || field(finding, :finding_id)}
                 </td>
@@ -120,7 +125,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
                     {severity_label(field(finding, :severity))}
                   </.ui_badge>
                 </td>
-                <td class="font-mono text-xs">{format_timestamp(field(finding, :last_seen_at))}</td>
+                <td class="font-mono text-xs">
+                  <.user_time
+                    id={"device-bumblebee-finding-#{finding_time_key(finding, index)}-last-seen-at"}
+                    value={field(finding, :last_seen_at)}
+                    timezone={@timezone}
+                    style={:compact}
+                  />
+                </td>
               </tr>
             </tbody>
           </table>
@@ -131,13 +143,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
   end
 
   attr(:label, :string, required: true)
-  attr(:value, :any, required: true)
+  attr(:value, :any, default: nil)
+  slot(:inner_block)
 
   defp summary_stat(assigns) do
     ~H"""
     <div class="rounded border border-sr-line bg-sr-subtle/30 px-3 py-2">
       <div class="text-[0.65rem] font-semibold uppercase text-sr-muted">{@label}</div>
-      <div class="mt-1 truncate text-sm font-semibold">{empty_dash(@value)}</div>
+      <div class="mt-1 truncate text-sm font-semibold">
+        <%= if @inner_block != [] do %>
+          {render_slot(@inner_block)}
+        <% else %>
+          {empty_dash(@value)}
+        <% end %>
+      </div>
     </div>
     """
   end
@@ -180,9 +199,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
   defp empty_dash(""), do: "-"
   defp empty_dash(value), do: to_string(value)
 
-  defp format_timestamp(nil), do: "-"
-  defp format_timestamp(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M UTC")
-  defp format_timestamp(value), do: to_string(value)
+  defp finding_time_key(finding, index) do
+    [
+      field(finding, :catalog_id),
+      field(finding, :finding_id),
+      field(finding, :id),
+      field(finding, :uid)
+    ]
+    |> Enum.find_value(&optional_time_key/1)
+    |> Kernel.||(Integer.to_string(index))
+  end
+
+  defp optional_time_key(value) when value in [nil, ""], do: nil
+
+  defp optional_time_key(value) do
+    case time_key(value) do
+      "" -> nil
+      key -> key
+    end
+  end
+
+  defp time_key(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
+  end
 
   defp state_badge_variant("scanned"), do: "success"
   defp state_badge_variant("scan_failed"), do: "error"

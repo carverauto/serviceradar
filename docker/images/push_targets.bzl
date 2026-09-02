@@ -55,6 +55,14 @@ def declare_oci_push_targets():
             visibility = ["//visibility:public"],
         )
 
+        oci_push(
+            name = "{}_push_commit_only".format(image),
+            image = ":{}".format(push_image),
+            repository = repository,
+            remote_tags = ":{}_commit_tag".format(image),
+            visibility = ["//visibility:public"],
+        )
+
         command_name = "{}_push_cmd".format(image)
         command(
             name = command_name,

@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   attr(:expanded_srql?, :boolean, default: false)
   attr(:can_manage?, :boolean, default: false)
   attr(:csv_data_url, :string, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def panel_result(%{result: {:ok, preview}} = assigns) do
     assigns =
@@ -51,7 +52,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
         <pre class="overflow-x-auto whitespace-pre-wrap font-mono text-xs"><%= @panel.srql_query %></pre>
       </div>
       <div class="sr-authored-dashboard-panel-body p-4">
-        <.render_visual panel={@panel} rows={@rows} fields={@fields} trend={@trend} />
+        <.render_visual
+          panel={@panel}
+          rows={@rows}
+          fields={@fields}
+          trend={@trend}
+          timezone={@timezone}
+        />
       </div>
     </article>
     """
@@ -164,6 +171,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   attr(:rows, :list, default: [])
   attr(:fields, :list, default: [])
   attr(:trend, :any, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def render_visual(%{panel: %{visual_type: type}} = assigns) when type in [:stat, "stat", :count, "count"] do
     value =
@@ -171,6 +179,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
 
     assigns =
       assigns
+      |> assign(:raw_value, value)
       |> assign(:value, format_value(value))
       |> assign(
         :label,
@@ -183,13 +192,28 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     <div
       class="flex h-full min-h-0 items-center"
       role="group"
-      aria-label={"#{@label}: #{@value}#{@unit}"}
+      aria-labelledby={"authored-dashboard-panel-#{@panel.id}-stat-label authored-dashboard-panel-#{@panel.id}-stat-value"}
     >
       <div>
-        <div class="text-4xl font-semibold tracking-normal text-slate-100">
-          {@value}<span class="text-xl text-slate-400">{@unit}</span>
+        <div
+          id={"authored-dashboard-panel-#{@panel.id}-stat-value"}
+          class="text-4xl font-semibold tracking-normal text-slate-100"
+        >
+          <.user_time
+            :if={timestamp_value?(@raw_value)}
+            id={"authored-dashboard-panel-#{@panel.id}-stat-time"}
+            value={@raw_value}
+            timezone={@timezone}
+            style={:compact}
+          />
+          <span :if={not timestamp_value?(@raw_value)}>{@value}</span><span class="text-xl text-slate-400">{@unit}</span>
         </div>
-        <div class="mt-2 text-sm text-slate-400">{@label}</div>
+        <div
+          id={"authored-dashboard-panel-#{@panel.id}-stat-label"}
+          class="mt-2 text-sm text-slate-400"
+        >
+          {@label}
+        </div>
         <div :if={@trend_summary} class="mt-2 text-xs text-slate-500">
           {trend_summary_text(@trend_summary)}
         </div>
@@ -215,6 +239,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
         rows={@chart_rows}
         fields={@chart_fields}
         trend={@trend_summary}
+        timezone={@timezone}
       />
     </div>
     """
@@ -231,15 +256,31 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
           <thead>
             <tr>
               <th>{@pivot.row_label}</th>
-              <th :for={column <- @pivot.columns}>{column}</th>
+              <th :for={column <- @pivot.columns}>
+                <.table_cell
+                  value={column.value}
+                  type={@pivot.column_type}
+                  renderer="text"
+                  id={"authored-dashboard-pivot-#{safe_dom_id(@panel.id)}-column-#{column.index}"}
+                  timezone={@timezone}
+                />
+              </th>
               <th :if={@pivot.show_totals?}>Total</th>
             </tr>
           </thead>
           <tbody>
             <tr :for={row <- @pivot.rows}>
-              <th>{row.label}</th>
+              <th>
+                <.table_cell
+                  value={row.value}
+                  type={@pivot.row_type}
+                  renderer="text"
+                  id={"authored-dashboard-pivot-#{safe_dom_id(@panel.id)}-row-#{row.index}"}
+                  timezone={@timezone}
+                />
+              </th>
               <td :for={column <- @pivot.columns}>
-                {Map.get(row.values, column, @pivot.empty_value)}
+                {Map.get(row.values, column.key, @pivot.empty_value)}
               </td>
               <td :if={@pivot.show_totals?}>{row.total}</td>
             </tr>
@@ -264,6 +305,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
       panel={@chart_panel}
       rows={@chart_rows}
       fields={@chart_fields}
+      timezone={@timezone}
     />
     """
   end
@@ -281,6 +323,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
       panel={@chart_panel}
       rows={@chart_rows}
       fields={@chart_fields}
+      timezone={@timezone}
     />
     """
   end
@@ -297,9 +340,15 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
           </tr>
         </thead>
         <tbody>
-          <tr :for={row <- Enum.take(@rows, 100)}>
+          <tr :for={{row, row_index} <- Enum.with_index(Enum.take(@rows, 100))}>
             <td :for={column <- @columns} class="max-w-64 truncate">
-              <.table_cell value={table_value(row, column)} renderer={column.renderer} />
+              <.table_cell
+                id={"authored-dashboard-panel-#{@panel.id}-row-#{stable_row_id(row, row_index)}-#{safe_dom_id(column.field)}"}
+                value={table_value(row, column)}
+                type={column.type}
+                renderer={column.renderer}
+                timezone={@timezone}
+              />
             </td>
           </tr>
         </tbody>
@@ -337,7 +386,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   defp chart_fields(fields), do: Enum.map(fields, &canvas_field/1)
 
   defp chart_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp chart_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+
+  defp chart_value(%NaiveDateTime{} = value) do
+    value
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.to_iso8601()
+  end
+
   defp chart_value(value) when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value), do: value
   defp chart_value(value) when is_list(value), do: Enum.map(value, &chart_value/1)
 
@@ -386,40 +441,52 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   end
 
   attr(:value, :any, default: nil)
+  attr(:type, :atom, default: :string)
   attr(:renderer, :string, default: "text")
+  attr(:id, :string, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   defp table_cell(assigns) do
     assigns = assign(assigns, :cell, table_cell_value(assigns.value, assigns.renderer))
 
     ~H"""
-    <%= case @cell do %>
-      <% {:status, text, tone} -> %>
-        <.ui_badge size="sm" variant={status_badge_variant(tone)} title={text}>
-          <.icon name={status_icon(tone)} class="size-3" /> {text}
-        </.ui_badge>
-      <% {:boolean, true} -> %>
-        <.ui_badge size="sm" variant="success" title="true">
-          <.icon name="hero-check" class="size-3" /> true
-        </.ui_badge>
-      <% {:boolean, false} -> %>
-        <.ui_badge size="sm" variant="error" title="false">
-          <.icon name="hero-x-mark" class="size-3" /> false
-        </.ui_badge>
-      <% {:sparkline, points, title} -> %>
-        <svg
-          viewBox="0 0 100 24"
-          preserveAspectRatio="none"
-          class="h-6 w-28 text-sr-brand"
-          role="img"
-          aria-label="sparkline"
-        >
-          <polyline points={points} fill="none" stroke="currentColor" stroke-width="2" />
-        </svg>
-        <span class="sr-only">{title}</span>
-      <% {:json, summary, title} -> %>
-        <span class="font-mono text-[11px]" title={title}>{summary}</span>
-      <% {:text, text, title} -> %>
-        <span title={title}>{text}</span>
+    <.user_time
+      :if={timestamp_value?(@value, @type)}
+      id={@id}
+      value={@value}
+      timezone={@timezone}
+      style={:compact}
+    />
+    <%= if not timestamp_value?(@value, @type) do %>
+      <%= case @cell do %>
+        <% {:status, text, tone} -> %>
+          <.ui_badge size="sm" variant={status_badge_variant(tone)} title={text}>
+            <.icon name={status_icon(tone)} class="size-3" /> {text}
+          </.ui_badge>
+        <% {:boolean, true} -> %>
+          <.ui_badge size="sm" variant="success" title="true">
+            <.icon name="hero-check" class="size-3" /> true
+          </.ui_badge>
+        <% {:boolean, false} -> %>
+          <.ui_badge size="sm" variant="error" title="false">
+            <.icon name="hero-x-mark" class="size-3" /> false
+          </.ui_badge>
+        <% {:sparkline, points, title} -> %>
+          <svg
+            viewBox="0 0 100 24"
+            preserveAspectRatio="none"
+            class="h-6 w-28 text-sr-brand"
+            role="img"
+            aria-label="sparkline"
+          >
+            <polyline points={points} fill="none" stroke="currentColor" stroke-width="2" />
+          </svg>
+          <span class="sr-only">{title}</span>
+        <% {:json, summary, title} -> %>
+          <span class="font-mono text-[11px]" title={title}>{summary}</span>
+        <% {:text, text, title} -> %>
+          <span title={title}>{text}</span>
+      <% end %>
     <% end %>
     """
   end
@@ -516,11 +583,14 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
       |> Enum.filter(&is_map/1)
       |> Enum.reject(&(&1["visible"] == false))
       |> Enum.map(fn column ->
+        field = column["field"] || column[:field]
+
         %{
-          field: column["field"] || column[:field],
+          field: field,
           path: column["path"] || column[:path],
-          label: column["label"] || humanize_field(column["field"] || column[:field]),
-          renderer: column["renderer"] || "text"
+          label: column["label"] || humanize_field(field),
+          renderer: column["renderer"] || "text",
+          type: field_type_for(fields, field)
         }
       end)
       |> Enum.reject(&is_nil(&1.field))
@@ -532,7 +602,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
             field: field_name(field),
             path: nil,
             label: humanize_field(field_name(field)),
-            renderer: default_renderer(canvas_field(field))
+            renderer: default_renderer(canvas_field(field)),
+            type: field_type(field)
           }
         end)
 
@@ -608,42 +679,73 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
     aggregate = binding["aggregate"] || "sum"
     empty_value = binding["empty_value"] || "0"
 
-    grouped =
-      Enum.reduce(rows, %{}, fn row, acc ->
-        row_key = format_value(Map.get(row, row_field))
-        column_key = format_value(Map.get(row, column_field))
-        value = numeric(Map.get(row, value_field)) || 0
-
-        update_in(acc, [Access.key(row_key, %{}), Access.key(column_key, [])], &[value | &1])
-      end)
+    grouped = Enum.reduce(rows, %{}, &add_pivot_value(&1, &2, row_field, column_field, value_field))
 
     columns =
       grouped
       |> Map.values()
-      |> Enum.flat_map(&Map.keys/1)
-      |> Enum.uniq()
-      |> Enum.sort()
+      |> Enum.reduce(%{}, fn row_group, acc ->
+        Map.merge(acc, row_group.columns, fn _key, existing, _duplicate -> existing end)
+      end)
+      |> Enum.sort_by(fn {key, _column} -> key end)
+      |> Enum.with_index()
+      |> Enum.map(fn {{key, column}, index} ->
+        %{key: key, value: column.value, index: index}
+      end)
 
     pivot_rows =
       grouped
-      |> Enum.sort_by(fn {label, _values} -> label end)
-      |> Enum.map(fn {label, values_by_column} ->
+      |> Enum.sort_by(fn {key, _row_group} -> key end)
+      |> Enum.with_index()
+      |> Enum.map(fn {{_key, row_group}, index} ->
         values =
           Map.new(columns, fn column ->
-            values = Map.get(values_by_column, column, [])
-            {column, aggregate_values(values, aggregate)}
+            values = get_in(row_group, [:columns, column.key, :values]) || []
+            {column.key, aggregate_values(values, aggregate)}
           end)
 
-        %{label: label, values: values, total: aggregate_values(Map.values(values), "sum")}
+        %{
+          value: row_group.value,
+          index: index,
+          values: values,
+          total: aggregate_values(Map.values(values), "sum")
+        }
       end)
 
     %{
       row_label: humanize_field(row_field || "row"),
+      row_type: field_type_for(fields, row_field),
+      column_type: field_type_for(fields, column_field),
       columns: columns,
       rows: pivot_rows,
       empty_value: empty_value,
       show_totals?: true
     }
+  end
+
+  defp add_pivot_value(row, acc, row_field, column_field, value_field) do
+    row_value = Map.get(row, row_field)
+    column_value = Map.get(row, column_field)
+    row_key = format_value(row_value)
+    column_key = format_value(column_value)
+    value = numeric(Map.get(row, value_field)) || 0
+
+    Map.update(
+      acc,
+      row_key,
+      %{value: row_value, columns: %{column_key => %{value: column_value, values: [value]}}},
+      fn row_group ->
+        columns =
+          Map.update(
+            row_group.columns,
+            column_key,
+            %{value: column_value, values: [value]},
+            &Map.update!(&1, :values, fn values -> [value | values] end)
+          )
+
+        %{row_group | columns: columns}
+      end
+    )
   end
 
   defp aggregate_values([], _aggregate), do: 0
@@ -912,6 +1014,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
   defp field_type("string"), do: :string
   defp field_type(_field), do: :string
 
+  defp field_type_for(fields, name) do
+    fields
+    |> Enum.find(&(field_name(&1) == to_string(name)))
+    |> field_type()
+  end
+
   defp numeric(value) when is_integer(value), do: value * 1.0
   defp numeric(value) when is_float(value), do: value
 
@@ -924,12 +1032,55 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelComponents do
 
   defp numeric(_value), do: nil
 
-  defp format_value(%DateTime{} = value), do: Calendar.strftime(value, "%Y-%m-%d %H:%M:%S")
-  defp format_value(%NaiveDateTime{} = value), do: Calendar.strftime(value, "%Y-%m-%d %H:%M:%S")
+  defp format_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp format_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
   defp format_value(value) when is_binary(value), do: value
   defp format_value(value) when is_integer(value), do: Integer.to_string(value)
   defp format_value(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 2)
   defp format_value(value) when is_boolean(value), do: to_string(value)
   defp format_value(nil), do: ""
   defp format_value(value), do: inspect(value)
+
+  defp timestamp_value?(%DateTime{}), do: true
+  defp timestamp_value?(%NaiveDateTime{}), do: true
+  defp timestamp_value?(_value), do: false
+
+  defp timestamp_value?(%DateTime{}, _type), do: true
+  defp timestamp_value?(%NaiveDateTime{}, _type), do: true
+
+  defp timestamp_value?(value, :datetime) when is_binary(value) do
+    match?({:ok, _datetime, _offset}, DateTime.from_iso8601(value))
+  end
+
+  defp timestamp_value?(_value, _type), do: false
+
+  defp stable_row_id(row, index) when is_map(row) do
+    row
+    |> first_present_row_identity()
+    |> case do
+      nil -> Integer.to_string(index)
+      identity -> safe_dom_id(identity)
+    end
+  end
+
+  defp stable_row_id(_row, index), do: Integer.to_string(index)
+
+  defp first_present_row_identity(row) do
+    Enum.find_value(["id", :id, "uid", :uid, "uuid", :uuid, "key", :key], fn key ->
+      case Map.get(row, key) do
+        value when value not in [nil, ""] -> value
+        _value -> nil
+      end
+    end)
+  end
+
+  defp safe_dom_id(value) do
+    value = to_string(value)
+
+    cond do
+      value == "" -> "value"
+      Regex.match?(~r/\A[a-zA-Z0-9_-]+\z/, value) -> "s-#{value}"
+      true -> "e-#{Base.url_encode64(value, padding: false)}"
+    end
+  end
 end

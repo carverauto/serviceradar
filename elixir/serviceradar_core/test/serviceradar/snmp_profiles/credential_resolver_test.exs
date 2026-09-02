@@ -6,6 +6,8 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.NetworkCredentialRule
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceSNMPCredential
@@ -114,6 +116,110 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
                CredentialResolver.resolve_for_device(device_uid, actor)
 
       assert credential.community == "public"
+    end
+
+    @tag :integration
+    test "credential rule wins over a profile-bound secret" do
+      actor = SystemActor.system(:test)
+      unique = System.unique_integer([:positive])
+      device_uid = Ecto.UUID.generate()
+      hostname = "snmp-rule-#{unique}"
+      agent_id = "agent-snmp-#{unique}"
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: device_uid,
+            hostname: hostname,
+            type_id: 10,
+            created_time: DateTime.utc_now(),
+            modified_time: DateTime.utc_now()
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, profile_secret} =
+        NetworkCredentialSecret
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "profile-snmp-#{unique}",
+            provider: "snmp",
+            credential_kind: :snmp,
+            secret_payload: Jason.encode!(%{"community" => "profile-community"})
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Rule vs profile #{unique}",
+            target_query: ~s(in:devices hostname:"#{hostname}"),
+            priority: 100,
+            version: :v2c,
+            credential_secret_id: profile_secret.id
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, rule_secret} =
+        NetworkCredentialSecret
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "rule-snmp-#{unique}",
+            provider: "snmp",
+            credential_kind: :snmp,
+            username: "serviceradar",
+            secret_payload:
+              Jason.encode!(%{
+                "username" => "serviceradar",
+                "security_level" => "authPriv",
+                "auth_protocol" => "sha",
+                "auth_password" => "unifi-pass",
+                "priv_protocol" => "aes"
+              })
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      {:ok, _rule} =
+        NetworkCredentialRule
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "snmp-rule-#{unique}",
+            provider: "snmp",
+            auth_method: "v3",
+            purpose: "snmp_monitoring",
+            target_query: "in:devices",
+            scope_type: :agent,
+            scope_value: agent_id,
+            secret_id: rule_secret.id
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      assert {:ok, %{credential: credential, source: :credential_rule}} =
+               CredentialResolver.resolve_for_device(device_uid, actor, agent_id: agent_id)
+
+      assert credential.version == :v3
+      assert credential.username == "serviceradar"
+      assert credential.security_level == :auth_priv
+      assert credential.auth_protocol == :sha
+      assert credential.priv_protocol == :aes
+      assert credential.auth_password == "unifi-pass"
+      assert credential.priv_password == "unifi-pass"
     end
 
     @tag :integration

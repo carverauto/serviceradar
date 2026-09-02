@@ -38,7 +38,7 @@
 - [x] 5.5 Complete full CI and security scanning on the feature branch.
 
 ## 6. Publish and operate the first OpenText plugin
-- [x] 6.1 Land the plugin under `go/cmd/wasm-plugins/opentext-network-automation` and register its first-party bundle.
+- [x] 6.1 Land the plugin under `go/cmd/wasm-plugins/opentext-nom` and register its first-party bundle.
 - [ ] 6.2 Merge and tag ServiceRadar, then sign and publish the bundle through the protected first-party Wasm workflow.
 - [ ] 6.3 Import and approve the package, assign it to the selected `example-namespace` agent, and create its scoped credential rule.
 - [ ] 6.4 Compare one manual collection with a current product export and inspect DIRE convergence/conflict samples.

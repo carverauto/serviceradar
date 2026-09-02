@@ -23,7 +23,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
 
   @default_srql_query "in:devices sort:last_seen:desc"
   @srql_page_limit 500
-  @max_srql_pages 40
+  @max_srql_pages 2_000
 
   @type stats :: %{
           looked_up: non_neg_integer(),
@@ -47,28 +47,25 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
     cache? = Keyword.get(opts, :cache?, true)
     timeout_ms = Map.get(settings, :timeout_ms) || 250
 
-    case resolve_devices(settings, actor, now, opts) do
-      {:ok, devices, meta} ->
-        stats =
-          Enum.reduce(devices, Map.merge(empty_stats(), meta), fn device, acc ->
-            apply_device(device, actor, now, lookup, persist, timeout_ms, cache?, acc)
-          end)
+    case Keyword.fetch(opts, :devices) do
+      {:ok, devices} ->
+        loaded = unwrap_devices(devices)
+        count = length(loaded)
 
-        Logger.info("DeviceHostnameRdns: finished run",
-          query: Map.get(meta, :query),
-          cohort_rows: stats.cohort_rows,
-          candidates: stats.candidates,
-          loaded: stats.loaded,
-          looked_up: stats.looked_up,
-          updated: stats.updated,
-          skipped: stats.skipped,
-          errors: stats.errors
+        loaded
+        |> process_devices(
+          actor,
+          now,
+          lookup,
+          persist,
+          timeout_ms,
+          cache?,
+          Map.merge(empty_stats(), %{cohort_rows: count, candidates: count, loaded: count})
         )
+        |> finish_run()
 
-        {:ok, stats}
-
-      {:error, reason} ->
-        {:error, reason}
+      :error ->
+        run_srql_cohort(settings, actor, now, lookup, persist, timeout_ms, cache?, opts)
     end
   end
 
@@ -108,11 +105,12 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
     }
   end
 
-  @spec candidate?(map(), map(), DateTime.t()) :: boolean()
-  def candidate?(device, settings, now \\ DateTime.utc_now()) do
+  @spec candidate?(map(), map(), DateTime.t(), keyword()) :: boolean()
+  def candidate?(device, settings, now \\ DateTime.utc_now(), opts \\ []) do
     ip = device_ip(device)
     overwrite? = Map.get(settings, :overwrite_existing) == true
     retry_after = Map.get(settings, :retry_after_minutes) || 1_440
+    ignore_retry? = Keyword.get(opts, :ignore_retry?, false)
 
     cond do
       ip == "" ->
@@ -121,7 +119,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
       not overwrite? and not ReverseDns.missing_or_ip_hostname?(device_hostname(device), ip) ->
         false
 
-      recently_looked_up?(device, now, retry_after) ->
+      not ignore_retry? and recently_looked_up?(device, now, retry_after) ->
         false
 
       true ->
@@ -129,45 +127,117 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
     end
   end
 
-  defp resolve_devices(settings, actor, now, opts) do
-    case Keyword.fetch(opts, :devices) do
-      {:ok, devices} ->
-        loaded = unwrap_devices(devices)
-        count = length(loaded)
-        {:ok, loaded, %{cohort_rows: count, candidates: count, loaded: count}}
-
-      :error ->
-        list_candidates(settings, actor, now, opts)
-    end
-  end
-
-  defp list_candidates(settings, actor, now, opts) do
+  defp run_srql_cohort(settings, actor, now, lookup, persist, timeout_ms, cache?, opts) do
     batch_size = max(Map.get(settings, :batch_size) || 200, 1)
+    max_srql_pages = max(Keyword.get(opts, :max_srql_pages, @max_srql_pages), 1)
+    ignore_retry? = Keyword.get(opts, :ignore_retry?, false)
     query_page = query_page_fun(opts)
     load_devices = Keyword.get(opts, :load_devices, &load_devices_by_uid/2)
 
     query =
       Map.get(settings, :srql_query) || Map.get(settings, "srql_query") || @default_srql_query
 
-    with {:ok, normalized} <- normalize_device_query(query),
-         {:ok, %{scanned: scanned, candidates: candidates}} <-
-           collect_candidates(query_page, normalized, settings, now, batch_size),
-         {:ok, devices} <- load_devices.(candidates, actor) do
-      Logger.info("DeviceHostnameRdns: selected cohort",
+    with {:ok, normalized} <- normalize_device_query(query) do
+      context = %{
+        actor: actor,
+        batch_size: batch_size,
+        cache?: cache?,
+        ignore_retry?: ignore_retry?,
+        load_devices: load_devices,
+        lookup: lookup,
+        max_pages: max_srql_pages,
+        now: now,
+        persist: persist,
         query: normalized,
-        srql_rows: scanned,
-        candidates: length(candidates),
-        loaded: length(devices)
-      )
+        query_page: query_page,
+        settings: settings,
+        timeout_ms: timeout_ms
+      }
 
-      {:ok, devices,
-       %{
-         query: normalized,
-         cohort_rows: scanned,
-         candidates: length(candidates),
-         loaded: length(devices)
-       }}
+      case process_srql_pages(
+             context,
+             nil,
+             MapSet.new(),
+             [],
+             0,
+             Map.put(empty_stats(), :query, normalized)
+           ) do
+        {:ok, stats} ->
+          Logger.info("DeviceHostnameRdns: selected cohort",
+            query: normalized,
+            srql_rows: stats.cohort_rows,
+            candidates: stats.candidates,
+            loaded: stats.loaded,
+            batch_size: batch_size
+          )
+
+          finish_run(stats)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
+  end
+
+  defp process_candidate_batches(
+         candidates,
+         batch_size,
+         load_devices,
+         actor,
+         now,
+         lookup,
+         persist,
+         timeout_ms,
+         cache?,
+         stats
+       ) do
+    candidates
+    |> Stream.chunk_every(batch_size)
+    |> Enum.reduce_while({:ok, stats}, fn batch, {:ok, acc} ->
+      case load_devices.(batch, actor) do
+        {:ok, devices} when is_list(devices) ->
+          next_acc =
+            process_devices(
+              devices,
+              actor,
+              now,
+              lookup,
+              persist,
+              timeout_ms,
+              cache?,
+              Map.update!(acc, :loaded, &(&1 + length(devices)))
+            )
+
+          {:cont, {:ok, next_acc}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+
+        other ->
+          {:halt, {:error, {:device_load_failed, other}}}
+      end
+    end)
+  end
+
+  defp process_devices(devices, actor, now, lookup, persist, timeout_ms, cache?, stats) do
+    Enum.reduce(devices, stats, fn device, acc ->
+      apply_device(device, actor, now, lookup, persist, timeout_ms, cache?, acc)
+    end)
+  end
+
+  defp finish_run(stats) do
+    Logger.info("DeviceHostnameRdns: finished run",
+      query: Map.get(stats, :query),
+      cohort_rows: stats.cohort_rows,
+      candidates: stats.candidates,
+      loaded: stats.loaded,
+      looked_up: stats.looked_up,
+      updated: stats.updated,
+      skipped: stats.skipped,
+      errors: stats.errors
+    )
+
+    {:ok, Map.delete(stats, :query)}
   end
 
   defp query_page_fun(opts) do
@@ -187,64 +257,42 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
     )
   end
 
-  defp collect_candidates(query_page, query, settings, now, batch_size) do
-    collect_candidates(query_page, query, settings, now, batch_size, nil, [], 0, 0)
-  end
-
-  defp collect_candidates(
-         _query_page,
-         _query,
-         _settings,
-         _now,
-         _batch_size,
+  defp process_srql_pages(
+         %{max_pages: max_pages},
          _cursor,
-         candidates,
-         scanned,
-         page
+         _seen_cursors,
+         _pending_candidates,
+         page,
+         stats
        )
-       when page >= @max_srql_pages do
-    {:ok, %{scanned: scanned, candidates: Enum.reverse(candidates)}}
+       when page >= max_pages do
+    {:error,
+     {:srql_page_limit_exceeded, %{max_pages: max_pages, scanned_rows: stats.cohort_rows}}}
   end
 
-  defp collect_candidates(
-         query_page,
-         query,
-         settings,
-         now,
-         batch_size,
-         cursor,
-         candidates,
-         scanned,
-         page
-       ) do
+  defp process_srql_pages(context, cursor, seen_cursors, pending_candidates, page, stats) do
     page_opts = maybe_put([limit: @srql_page_limit, direction: "next"], :cursor, cursor)
 
-    case query_page.(query, page_opts) do
+    case context.query_page.(context.query, page_opts) do
       {:ok, %{rows: rows} = result} when is_list(rows) ->
         absorb_candidate_page(
-          query_page,
-          query,
-          settings,
-          now,
-          batch_size,
+          context,
           result[:next_cursor] || result["next_cursor"],
-          candidates,
-          scanned,
+          seen_cursors,
+          pending_candidates,
           page,
+          stats,
           rows
         )
 
       {:ok, rows} when is_list(rows) ->
         absorb_candidate_page(
-          query_page,
-          query,
-          settings,
-          now,
-          batch_size,
+          context,
           nil,
-          candidates,
-          scanned,
+          seen_cursors,
+          pending_candidates,
           page,
+          stats,
           rows
         )
 
@@ -257,48 +305,74 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   end
 
   defp absorb_candidate_page(
-         query_page,
-         query,
-         settings,
-         now,
-         batch_size,
+         context,
          next_cursor,
-         candidates,
-         scanned,
+         seen_cursors,
+         pending_candidates,
          page,
+         stats,
          rows
        ) do
-    page_candidates =
-      rows
-      |> Enum.map(&row_to_device/1)
-      |> Enum.filter(&candidate?(&1, settings, now))
-
-    remaining = batch_size - length(candidates)
-    taken = Enum.take(page_candidates, max(remaining, 0))
-    next_candidates = Enum.reverse(taken, candidates)
-    next_scanned = scanned + length(rows)
-
-    cond do
-      length(next_candidates) >= batch_size ->
-        {:ok, %{scanned: next_scanned, candidates: Enum.reverse(next_candidates)}}
-
-      is_binary(next_cursor) and next_cursor != "" ->
-        collect_candidates(
-          query_page,
-          query,
-          settings,
-          now,
-          batch_size,
-          next_cursor,
-          next_candidates,
-          next_scanned,
-          page + 1
+    if valid_cursor?(next_cursor) and MapSet.member?(seen_cursors, next_cursor) do
+      {:error, {:srql_pagination_stalled, next_cursor}}
+    else
+      page_candidates =
+        rows
+        |> Enum.map(&row_to_device/1)
+        |> Enum.filter(
+          &candidate?(&1, context.settings, context.now, ignore_retry?: context.ignore_retry?)
         )
 
-      true ->
-        {:ok, %{scanned: next_scanned, candidates: Enum.reverse(next_candidates)}}
+      stats =
+        stats
+        |> Map.update!(:cohort_rows, &(&1 + length(rows)))
+        |> Map.update!(:candidates, &(&1 + length(page_candidates)))
+
+      pending_candidates = pending_candidates ++ page_candidates
+      final_page? = not valid_cursor?(next_cursor)
+
+      {ready_candidates, remaining_candidates} =
+        if final_page? do
+          {pending_candidates, []}
+        else
+          split_complete_batches(pending_candidates, context.batch_size)
+        end
+
+      with {:ok, stats} <-
+             process_candidate_batches(
+               ready_candidates,
+               context.batch_size,
+               context.load_devices,
+               context.actor,
+               context.now,
+               context.lookup,
+               context.persist,
+               context.timeout_ms,
+               context.cache?,
+               stats
+             ) do
+        if final_page? do
+          {:ok, stats}
+        else
+          process_srql_pages(
+            context,
+            next_cursor,
+            MapSet.put(seen_cursors, next_cursor),
+            remaining_candidates,
+            page + 1,
+            stats
+          )
+        end
+      end
     end
   end
+
+  defp split_complete_batches(candidates, batch_size) do
+    complete_count = div(length(candidates), batch_size) * batch_size
+    Enum.split(candidates, complete_count)
+  end
+
+  defp valid_cursor?(cursor), do: is_binary(cursor) and cursor != ""
 
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, _key, ""), do: opts

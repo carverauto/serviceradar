@@ -125,13 +125,19 @@ function nodeSceneRecords(nodes, groups) {
     .sort((left, right) => left.id.localeCompare(right.id))
 }
 
-function isMemberAnchorRelation(source, target, groupsById) {
+// A member's owner is its anchor OR its summary: the server attaches each endpoint to the
+// cluster node, and this module already models that itself -- the layout relations below are
+// built with sourceId: group.gatewayId. Matching only the anchor meant a real payload's member
+// edges were never absorbed into the group, so all 24 survived as separate rendered routes
+// (32 -> 56) and the fitted scale collapsed. Same anchor-vs-summary assumption the overview
+// projection carried; this is that fix ported to the bounded-detail scene.
+function isMemberClusterRelation(source, target, groupsById) {
   const member = source.kind === "endpoint-member" ? source : (target.kind === "endpoint-member" ? target : null)
   if (!member) return null
 
   const other = member === source ? target : source
   const group = groupsById.get(member.clusterId)
-  if (!group || other.id !== group.anchorId) return null
+  if (!group || (other.id !== group.anchorId && other.id !== group.gatewayId)) return null
   return {group, member}
 }
 
@@ -167,7 +173,7 @@ function relations(graph, indexedNodes, groups) {
     const attachmentRelation = isAttachmentRelation(edge)
     if (attachmentRelation) attachmentEdges += 1
     const relationId = semanticRelationId(edge, source.id, target.id)
-    const memberAnchor = isMemberAnchorRelation(source, target, groupsById)
+    const memberAnchor = isMemberClusterRelation(source, target, groupsById)
     if (memberAnchor) {
       const current = memberSemanticIds.get(memberAnchor.member.id) || []
       current.push(relationId)

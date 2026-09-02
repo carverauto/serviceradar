@@ -30,6 +30,7 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorkerPruneIntegrationTest do
   alias ServiceRadar.Automation.Ansible.PlaybookRun
   alias ServiceRadar.Automation.Ansible.RetentionWorker
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   require Ash.Query
 
@@ -89,7 +90,7 @@ defmodule ServiceRadar.Automation.Ansible.RetentionWorkerPruneIntegrationTest do
         name: "retention-test-#{System.unique_integer([:positive])}",
         base_url: "https://awx.test.invalid",
         agent_id: "agent-retention-test",
-        credential_secret_id: Ash.UUID.generate()
+        credential_secret_id: CredentialIntegrationFixtures.secret_id!()
       })
 
     playbook =

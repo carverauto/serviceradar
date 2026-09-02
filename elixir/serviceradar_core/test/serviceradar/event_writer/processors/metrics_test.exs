@@ -548,6 +548,28 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 
+  describe "numeric_row?/1" do
+    # A string-typed SNMP reading rides through the envelope carrying value 0.0
+    # so the protobuf point has a shape at all. Letting it into
+    # timeseries_metrics would create a permanently flat series for a version
+    # string and feed that to anomaly detection.
+    test "excludes a reading the timeseries column cannot represent" do
+      refute Metrics.numeric_row?(%{metadata: %{"non_numeric" => "true", "oid" => ".1.3.6.1.2"}})
+    end
+
+    test "keeps an ordinary numeric reading" do
+      assert Metrics.numeric_row?(%{metadata: %{"oid" => ".1.3.6.1.2"}})
+    end
+
+    # The marker is absent on every metric the rest of the system produces, so
+    # its absence must never exclude a row.
+    test "keeps a row with no metadata at all" do
+      assert Metrics.numeric_row?(%{})
+      assert Metrics.numeric_row?(%{metadata: nil})
+      assert Metrics.numeric_row?(%{metadata: %{}})
+    end
+  end
+
   defp entries(map) do
     Enum.map(map, fn {key, value} -> %StringMapEntry{key: key, value: to_string(value)} end)
   end

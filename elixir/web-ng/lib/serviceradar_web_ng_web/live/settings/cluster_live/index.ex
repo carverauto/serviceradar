@@ -400,7 +400,11 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
               </div>
             </:header>
 
-            <.agents_table agents={@agents} expanded={true} />
+            <.agents_table
+              agents={@agents}
+              expanded={true}
+              timezone={@current_scope.user.timezone || "Etc/UTC"}
+            />
           </.ui_panel>
         </div>
 
@@ -479,7 +483,15 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
                     <td class="font-mono text-xs">
                       {event_details(event)}
                     </td>
-                    <td class="text-xs font-mono">{format_timestamp(event.timestamp)}</td>
+                    <td class="text-xs font-mono">
+                      <.user_time
+                        id={"settings-cluster-event-#{cluster_event_dom_id(event)}-timestamp"}
+                        value={event.timestamp}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:time}
+                        fallback="—"
+                      />
+                    </td>
                   </tr>
                 <% end %>
               </tbody>
@@ -601,6 +613,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   attr(:agents, :list, required: true)
   attr(:expanded, :boolean, default: false)
+  attr(:timezone, :string, required: true)
 
   defp agents_table(assigns) do
     ~H"""
@@ -659,7 +672,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
               </td>
               <td :if={@expanded}>
                 <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
-                  {format_time(agent.last_seen)}
+                  <.user_time
+                    id={"settings-cluster-agent-#{dom_id_segment(agent.agent_id)}-last-seen"}
+                    value={agent.last_seen}
+                    timezone={@timezone}
+                    style={:time}
+                    fallback="—"
+                  />
                 </.link>
               </td>
               <td :if={@expanded}>
@@ -1128,10 +1147,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   defp node_param(node), do: to_string(node)
 
-  defp format_time(nil), do: "—"
-  defp format_time(%DateTime{} = dt), do: Calendar.strftime(dt, "%H:%M:%S")
-  defp format_time(_), do: "—"
-
   defp agent_identity_details(agent) do
     [
       present_text(Map.get(agent, :hostname)),
@@ -1176,13 +1191,25 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   defp present_text(_value), do: nil
 
-  defp format_timestamp(nil), do: "—"
+  defp cluster_event_dom_id(event) do
+    identity = Map.get(event, :node) || Map.get(event, :agent_id) || event_details(event)
+    timestamp = Map.get(event, :timestamp)
 
-  defp format_timestamp(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%H:%M:%S")
+    micros =
+      case timestamp do
+        %DateTime{} = value -> DateTime.to_unix(value, :microsecond)
+        _ -> "unknown-time"
+      end
+
+    dom_id_segment("#{Map.get(event, :type)}-#{identity}-#{micros}")
   end
 
-  defp format_timestamp(_), do: "—"
+  defp dom_id_segment(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
+  end
 
   defp event_details(%{type: :node_up, node: node}), do: to_string(node)
   defp event_details(%{type: :node_down, node: node}), do: to_string(node)

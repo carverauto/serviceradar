@@ -39,6 +39,27 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
     end
   end
 
+  defmodule DummyControlSession do
+    @moduledoc false
+    use GenServer
+
+    def start_link(opts) do
+      GenServer.start_link(__MODULE__, :ok, name: opts[:name])
+    end
+
+    @impl true
+    def init(:ok), do: {:ok, %{}}
+
+    @impl true
+    def handle_call({:push_config, _response}, _from, state), do: {:reply, :ok, state}
+
+    def handle_call({:send_command, command, _context}, _from, state) do
+      {:reply, {:ok, command}, state}
+    end
+
+    def handle_call(_request, _from, state), do: {:reply, :ok, state}
+  end
+
   setup_all do
     ServiceRadar.TestSupport.start_core!()
     :ok
@@ -449,7 +470,9 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
     unique_id: unique_id
   } do
     first_candidate = quarantined_manual_assignment!(actor, unique_id)
-    second_candidate = quarantined_manual_assignment!(actor, unique_id + 1)
+
+    second_candidate =
+      quarantined_manual_assignment!(actor, :erlang.unique_integer([:positive]))
 
     assert {:ok, [first]} =
              PluginAssignmentRecovery.list_legacy(actor: actor, limit: 1)
@@ -1173,16 +1196,25 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
   end
 
   defp register_control_session!(agent_uid, partition_id) do
-    assert {:ok, _pid} =
-             ProcessRegistry.register(
-               {:agent_control, partition_id, agent_uid, node()},
-               %{
-                 agent_id: agent_uid,
-                 partition_id: partition_id,
-                 gateway_node: node(),
-                 capabilities: ["wasm"]
-               }
-             )
+    metadata = %{
+      agent_id: agent_uid,
+      partition_id: partition_id,
+      gateway_node: node(),
+      capabilities: ["wasm"]
+    }
+
+    name =
+      ProcessRegistry.via({:agent_control, partition_id, agent_uid, node()}, metadata)
+
+    {:ok, pid} = DummyControlSession.start_link(name: name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+
+      ProcessRegistry.unregister({:agent_control, partition_id, agent_uid, node()})
+    end)
 
     assert_control_partition(agent_uid, partition_id, 40)
   end

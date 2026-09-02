@@ -223,6 +223,41 @@ defmodule ServiceRadar.Plugins.ManifestTest do
              "https://plugins.example.test/example-inventory/v1.0.0/configuration"
   end
 
+  test "inventory sources may advertise emitted facts" do
+    manifest =
+      update_in(
+        integration_manifest(),
+        ["integrations", "inventory_sources", Access.at(0)],
+        &Map.put(&1, "emitted_facts", ["switch_port_attachment", "vlan_uid"])
+      )
+
+    assert {:ok, parsed} = Manifest.from_map(manifest)
+    assert [source] = parsed.integrations["inventory_sources"]
+    assert source["emitted_facts"] == ["switch_port_attachment", "vlan_uid"]
+  end
+
+  test "plugin manifests must not declare fact winners" do
+    manifest =
+      update_in(
+        integration_manifest(),
+        ["integrations", "inventory_sources", Access.at(0)],
+        &Map.put(&1, "winner", true)
+      )
+
+    assert {:error, errors} = Manifest.from_map(manifest)
+
+    assert Enum.any?(errors, fn error ->
+             String.contains?(error, "winner") and
+               String.contains?(error, "must not declare fact authority")
+           end)
+  end
+
+  test "plugin manifests must not declare precedence" do
+    manifest = put_in(integration_manifest(), ["integrations", "precedence"], ["armis"])
+    assert {:error, errors} = Manifest.from_map(manifest)
+    assert Enum.any?(errors, &String.contains?(&1, "precedence"))
+  end
+
   test "integration documentation rejects non-HTTPS URLs" do
     manifest =
       put_in(
@@ -531,6 +566,181 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert {:error, errors} = Manifest.validate_config_schema(schema)
     assert Enum.any?(errors, &String.contains?(&1, "unsupported keys"))
   end
+
+  describe "snmp_requirements" do
+    @valid_snmp_requirement %{
+      "name" => "clearpass-node-health",
+      "description" => "Node CPU, disk, version and role from CLEARPASS-MIB.",
+      "category" => "system",
+      "default_poll_interval_seconds" => 300,
+      "default_timeout_seconds" => 5,
+      "default_retries" => 3,
+      "target_hint" => "in:devices device_type:clearpass",
+      "oids" => [
+        %{
+          "oid" => ".1.3.6.1.4.1.14823.1.6.1.1.1.1.1.16.0",
+          "name" => "node_cpu_pct",
+          "data_type" => "gauge"
+        },
+        %{
+          "oid" => ".1.3.6.1.4.1.14823.1.6.1.1.3.1.1.2",
+          "name" => "service_name",
+          "data_type" => "string",
+          "mode" => "walk",
+          "max_rows" => 256,
+          "walk_timeout_seconds" => 20
+        }
+      ]
+    }
+
+    test "a well-formed block parses, including a walked table" do
+      assert {:ok, manifest} = Manifest.from_map(with_snmp([@valid_snmp_requirement]))
+      assert [requirement] = manifest.snmp_requirements
+      assert requirement["name"] == "clearpass-node-health"
+      assert [_get, walk] = requirement["oids"]
+      assert walk["mode"] == "walk"
+      assert walk["max_rows"] == 256
+    end
+
+    test "a manifest without the block is unaffected" do
+      assert {:ok, manifest} = Manifest.from_map(@valid_manifest)
+      assert manifest.snmp_requirements == []
+    end
+
+    # The centralized-credentials rule, enforced structurally. A plugin that
+    # could name a community string or a credential secret would reintroduce
+    # per-plugin credential configuration through a side door.
+    test "no credential key is expressible" do
+      for key <- ~w(version community username security_level auth_protocol
+                    auth_password priv_protocol priv_password credential_secret_id) do
+        requirement = Map.put(@valid_snmp_requirement, key, "anything")
+
+        assert {:error, errors} = Manifest.from_map(with_snmp([requirement]))
+
+        assert Enum.any?(
+                 errors,
+                 &String.contains?(&1, "snmp_requirements[1].#{key} is not allowed")
+               ),
+               "#{key} was accepted: #{inspect(errors)}"
+      end
+    end
+
+    # A package must not be able to start probing real inventory, become the
+    # instance default, or outrank an operator's own profile.
+    test "no polling-control key is expressible" do
+      for {key, value} <- [
+            {"enabled", true},
+            {"is_default", true},
+            {"priority", 100},
+            {"agent_ids", ["agent-1"]},
+            {"host", "10.0.0.1"},
+            {"port", 161}
+          ] do
+        requirement = Map.put(@valid_snmp_requirement, key, value)
+
+        assert {:error, errors} = Manifest.from_map(with_snmp([requirement]))
+
+        assert Enum.any?(
+                 errors,
+                 &String.contains?(&1, "snmp_requirements[1].#{key} is not allowed")
+               ),
+               "#{key} was accepted: #{inspect(errors)}"
+      end
+    end
+
+    test "an unknown key is an error rather than an ignored value" do
+      requirement = Map.put(@valid_snmp_requirement, "cadence", 60)
+
+      assert {:error, errors} = Manifest.from_map(with_snmp([requirement]))
+
+      assert Enum.any?(
+               errors,
+               &String.contains?(&1, "snmp_requirements[1].cadence is not allowed")
+             )
+    end
+
+    # These are the agent's own rules. They are enforced at import because
+    # ValidateForAgent drops a target it cannot use: a malformed OID would
+    # otherwise be accepted into a package, materialize into a profile, and then
+    # silently collect nothing.
+    test "an OID the agent would reject is refused at import" do
+      cases = [
+        {%{"oid" => "1.3.6.1.2.1.1.3.0"}, "must start with .1.3.6.1."},
+        {%{"oid" => ".1.3.6.1.4.x.1"}, "must start with .1.3.6.1."},
+        {%{"data_type" => "widget"}, "data_type must be one of"},
+        {%{"mode" => "sweep"}, "mode must be one of"},
+        {%{"name" => String.duplicate("a", 65)}, "at most 64 bytes"},
+        {%{"name" => ""}, "must be a non-empty string"},
+        {%{"scale" => -1}, "scale must be a non-negative number"},
+        {%{"max_rows" => -1}, "max_rows must be a non-negative number"}
+      ]
+
+      for {override, expected} <- cases do
+        oid =
+          Map.merge(
+            %{"oid" => ".1.3.6.1.2.1.1.3.0", "name" => "x", "data_type" => "gauge"},
+            override
+          )
+
+        requirement = Map.put(@valid_snmp_requirement, "oids", [oid])
+
+        assert {:error, errors} = Manifest.from_map(with_snmp([requirement]))
+
+        assert Enum.any?(errors, &String.contains?(&1, expected)),
+               "#{inspect(override)} was accepted; expected #{expected}, got #{inspect(errors)}"
+      end
+    end
+
+    test "an empty oid list is refused" do
+      requirement = Map.put(@valid_snmp_requirement, "oids", [])
+
+      assert {:error, errors} = Manifest.from_map(with_snmp([requirement]))
+      assert Enum.any?(errors, &String.contains?(&1, "oids must be a non-empty list"))
+    end
+
+    test "a non-positive default is refused" do
+      requirement = Map.put(@valid_snmp_requirement, "default_retries", 0)
+
+      assert {:error, errors} = Manifest.from_map(with_snmp([requirement]))
+
+      assert Enum.any?(
+               errors,
+               &String.contains?(&1, "default_retries must be a positive integer")
+             )
+    end
+
+    # Validation reads through normalize_string, so an OID with surrounding
+    # whitespace validates fine. Storing the raw value would then materialize a
+    # template the agent rejects on isValidOID, and the target would be dropped
+    # silently at the far end rather than refused here.
+    test "stored oids are normalized, not merely validated" do
+      requirement =
+        Map.put(@valid_snmp_requirement, "oids", [
+          %{
+            "oid" => " .1.3.6.1.2.1.1.3.0 ",
+            "name" => " uptime ",
+            "data_type" => "gauge",
+            "mode" => " walk "
+          }
+        ])
+
+      assert {:ok, manifest} = Manifest.from_map(with_snmp([requirement]))
+
+      assert [%{"oid" => oid, "name" => name, "mode" => mode}] =
+               hd(manifest.snmp_requirements)["oids"]
+
+      assert oid == ".1.3.6.1.2.1.1.3.0"
+      assert name == "uptime"
+      assert mode == "walk"
+    end
+
+    test "the block itself must be a list" do
+      assert {:error, errors} = Manifest.from_map(with_snmp(%{"name" => "x"}))
+      assert Enum.any?(errors, &String.contains?(&1, "snmp_requirements must be a list"))
+    end
+  end
+
+  defp with_snmp(requirements), do: Map.put(@valid_manifest, "snmp_requirements", requirements)
 
   defp integration_manifest do
     @valid_manifest

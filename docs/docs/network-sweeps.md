@@ -8,6 +8,10 @@ title: Network Sweeps
 Network sweeps let you define scheduled scans against device inventories and
 explicit IP targets. Sweeps are configured in the Web UI under Settings > Networks.
 
+Sweeps are active scans. They are not [Visibility Profiles](./visibility-profiles.md),
+which configure passive host-side fingerprinting, DPI, and flow attribution on
+enrolled agents.
+
 ## Sweep Groups
 
 Sweep groups are the primary unit of configuration. Each group includes:
@@ -19,8 +23,62 @@ Sweep groups are the primary unit of configuration. Each group includes:
   - **Static targets** (CIDR, IP, or IP range strings)
 - **Scanner profile** (optional): Base ports/modes/timeouts.
 - **Overrides**: Group-specific settings that override the profile.
-- **Partition / agent**: Scope the sweep to a specific partition or agent.
+- **Partition / agent assignment**: Choose the target-device partition and
+  which agents receive the sweep.
 - **Enabled toggle**: Disable a group without deleting it.
+
+### Agent Assignment
+
+Sweep groups support two assignment modes:
+
+- **All eligible agents in this partition** sends the group to every eligible
+  agent in the group's target-device partition. This is stored as an empty
+  `agent_ids` list.
+- **Selected agents** sends the group only to the fixed, non-empty set of agent
+  UIDs chosen by the operator. A selected agent may have a control session in a
+  different partition from the target devices; this supports isolation and
+  cross-partition scanning without changing the group's device partition.
+
+The selected-agent picker searches by name or UID and loads at most 50 rows at
+a time with server-side pagination. Online status, control-session partition,
+and reported sweep capability are advisory context in the picker. They do not
+silently remove an existing assignment. If a previously selected UID no longer
+resolves, the picker retains and displays the raw UID as unavailable so an
+operator can remove it deliberately.
+
+Scheduled delivery uses the stored UID assignment. **Run now** additionally
+requires a unique live, sweep-capable control session for each selected agent.
+Reachable agents still receive their commands when other selected agents are
+offline or fail dispatch; the result reports successful command IDs and each
+per-agent failure as a partial outcome. It never falls back to the group's
+device partition for an unresolved selected agent.
+
+### Last Run and Missed Sweeps
+
+`last_run_at` is a group-level timestamp for the latest execution report
+received from any eligible agent in All mode or any selected agent in Selected
+mode. One member's report can therefore keep the group-level missed-sweep check
+current. It does not prove that every assigned member ran or reported; inspect
+the per-agent execution history to determine member coverage.
+
+Missed-sweep diagnostics include the canonical `agent_ids` array. An empty
+array means All mode; a non-empty array is the exact selected subset.
+
+### Rolling Upgrade Compatibility
+
+The assignment migration is additive and runs before array-aware application
+pods start during a normal hooked Helm upgrade. Multi-agent selection is
+enabled immediately after the upgrade; there is no manual cutover or feature
+flag. During the typical 10-30 second rolling overlap, an old pod sees All as
+the legacy nil scalar or a multi-agent subset as its first selected UID. This
+is deliberately fail-narrow: an old pod may temporarily deliver to one member
+of the subset, but it cannot broaden the job to unselected agents.
+
+The legacy scalar column, synchronization trigger, and partial index remain in
+place for rollback compatibility. They are removed only in a later deprecation
+release after no supported current or rollback binary depends on them. If Helm
+migration hooks are disabled, apply the migration externally before rolling
+the application pods.
 
 ## Scanner Profiles
 
@@ -110,4 +168,3 @@ Static targets are always included in the sweep, regardless of criteria matches:
 - Target criteria are evaluated when configs are compiled.
 - Sweep results update device availability and discovery metadata.
 - Large result sets are chunked by the agent and streamed to the gateway.
-

@@ -34,6 +34,10 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/gateways")}
   end
 
+  def handle_event("srql_reset", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_reset", params, fallback_path: "/gateways")}
+  end
+
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "gateways")}
   end
@@ -70,13 +74,17 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
   @impl true
   def render(assigns) do
     pagination = get_in(assigns, [:srql, :pagination]) || %{}
-    assigns = assign(assigns, :pagination, pagination)
+
+    assigns =
+      assigns
+      |> assign(:pagination, pagination)
+      |> assign(:timezone, user_timezone(assigns[:current_scope]))
 
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <.ui_panel>
-          <.gateways_table id="gateways" gateways={@gateways} />
+          <.gateways_table id="gateways" gateways={@gateways} timezone={@timezone} />
 
           <div class="mt-4 pt-4 border-t border-sr-line">
             <.ui_pagination
@@ -95,6 +103,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
 
   attr :id, :string, required: true
   attr :gateways, :list, default: []
+  attr :timezone, :string, required: true
 
   defp gateways_table(assigns) do
     ~H"""
@@ -124,6 +133,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
           </tr>
 
           <%= for {gateway, idx} <- Enum.with_index(@gateways) do %>
+            <% {timestamp, timestamp_fallback} = gateway_timestamp(gateway) %>
             <tr
               id={"#{@id}-row-#{idx}"}
               class="hover:bg-sr-subtle/40 cursor-pointer transition-colors"
@@ -145,7 +155,13 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
                 {gateway_address(gateway)}
               </td>
               <td class="whitespace-nowrap text-xs font-mono">
-                {format_timestamp(gateway)}
+                <.user_time
+                  id={"gateway-#{gateway_id(gateway)}-last-seen"}
+                  value={timestamp}
+                  timezone={@timezone}
+                  style={:full}
+                  fallback={timestamp_fallback}
+                />
               </td>
             </tr>
           <% end %>
@@ -186,17 +202,25 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
       "—"
   end
 
-  defp format_timestamp(gateway) do
+  defp gateway_timestamp(gateway) do
     ts = Map.get(gateway, "last_seen") || Map.get(gateway, "updated_at")
 
     case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> ts || "—"
+      {:ok, dt} -> {dt, timestamp_fallback(ts)}
+      _ -> {nil, timestamp_fallback(ts)}
     end
   end
 
+  defp timestamp_fallback(value) when is_binary(value) and value != "", do: value
+  defp timestamp_fallback(_value), do: "—"
+
   defp parse_timestamp(nil), do: :error
   defp parse_timestamp(""), do: :error
+  defp parse_timestamp(%DateTime{} = value), do: {:ok, value}
+
+  defp parse_timestamp(%NaiveDateTime{} = value) do
+    {:ok, DateTime.from_naive!(value, "Etc/UTC")}
+  end
 
   defp parse_timestamp(value) when is_binary(value) do
     value = String.trim(value)
@@ -214,4 +238,8 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Index do
   end
 
   defp parse_timestamp(_), do: :error
+
+  defp user_timezone(%{user: %{timezone: timezone}}) when is_binary(timezone) and timezone != "", do: timezone
+
+  defp user_timezone(_current_scope), do: "Etc/UTC"
 end

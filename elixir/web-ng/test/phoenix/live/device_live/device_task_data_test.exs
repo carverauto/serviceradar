@@ -35,7 +35,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTaskDataTest do
       specs = [
         DeviceTaskData.spec(10_000, :ok, fn -> :fine end),
         DeviceTaskData.spec(10_000, :nested, fn ->
-          Task.yield_many([Task.async(fn -> raise "grandchild" end)], 1_000)
+          # The window only has to outlast a scheduling stall, never a healthy
+          # run: the grandchild's crash normally kills this task through
+          # Task.async's link in microseconds, so yield_many never waits. At
+          # 1_000 a stalled VM could leave the grandchild unscheduled for the
+          # whole window; yield_many then returned [{task, nil}], :nested
+          # completed NORMALLY, and the assertion below saw
+          # %{ok: :fine, nested: [{%Task{}, nil}]}. Kept under run/3's 5_000ms
+          # batch budget so the test still cannot hang.
+          Task.yield_many([Task.async(fn -> raise "grandchild" end)], 4_000)
         end)
       ]
 

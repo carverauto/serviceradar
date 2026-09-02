@@ -16,6 +16,7 @@ defmodule ServiceRadar.Plugins.NotificationCredentialRequirement do
     query
     form_urlencoded
     oauth2_password_bearer
+    oauth2_client_credentials
   )
 
   @common_keys ~w(injection_mode required config_key ttl_seconds allow)
@@ -85,7 +86,7 @@ defmodule ServiceRadar.Plugins.NotificationCredentialRequirement do
           "form_urlencoded" ->
             ~w(method host path) ++ mapping_keys(normalized)
 
-          "oauth2_password_bearer" ->
+          mode when mode in ~w(oauth2_password_bearer oauth2_client_credentials) ->
             ~w(method host path token_method token_host token_port token_path) ++
               mapping_keys(normalized)
         end
@@ -110,14 +111,14 @@ defmodule ServiceRadar.Plugins.NotificationCredentialRequirement do
   def targets(requirement, path \\ "credential requirement") do
     with {:ok, normalized} <- normalize(requirement, path) do
       request_target =
-        if normalized["injection_mode"] in ~w(form_urlencoded oauth2_password_bearer) do
+        if normalized["injection_mode"] in (~w(form_urlencoded) ++ oauth2_modes()) do
           [target_from(normalized, :request, "")]
         else
           []
         end
 
       token_target =
-        if normalized["injection_mode"] == "oauth2_password_bearer" do
+        if normalized["injection_mode"] in oauth2_modes() do
           [target_from(normalized, :token, "token_")]
         else
           []
@@ -178,12 +179,13 @@ defmodule ServiceRadar.Plugins.NotificationCredentialRequirement do
     |> mapping_errors(requirement, path, :form)
   end
 
-  defp prepend_mode_errors(errors, requirement, "oauth2_password_bearer", path) do
+  defp prepend_mode_errors(errors, requirement, mode, path)
+       when mode in ~w(oauth2_password_bearer oauth2_client_credentials) do
     errors
     |> exact_target_errors(requirement, path, "")
     |> exact_target_errors(requirement, path, "token_")
     |> token_method_errors(requirement, path)
-    |> mapping_errors(requirement, path, :oauth)
+    |> mapping_errors(requirement, path, oauth2_grant(mode))
   end
 
   defp prepend_mode_errors(errors, _requirement, _mode, _path), do: errors
@@ -235,13 +237,14 @@ defmodule ServiceRadar.Plugins.NotificationCredentialRequirement do
 
     errors = duplicate_mapping_target_errors(errors, field_entries, fixed_entries, path)
 
-    if mode == :oauth do
-      errors
-      |> required_mapping_target_errors(field_entries, "username", path)
-      |> required_mapping_target_errors(field_entries, "password", path)
-      |> fixed_password_grant_errors(requirement, path)
-    else
-      errors
+    case mode do
+      {:oauth, grant_type, required_fields} ->
+        required_fields
+        |> Enum.reduce(errors, &required_mapping_target_errors(&2, field_entries, &1, path))
+        |> fixed_grant_type_errors(requirement, grant_type, path)
+
+      _ ->
+        errors
     end
   end
 
@@ -253,11 +256,11 @@ defmodule ServiceRadar.Plugins.NotificationCredentialRequirement do
     end
   end
 
-  defp fixed_password_grant_errors(errors, requirement, path) do
-    if requirement["fixed_grant_type"] == "password" do
+  defp fixed_grant_type_errors(errors, requirement, grant_type, path) do
+    if requirement["fixed_grant_type"] == grant_type do
       errors
     else
-      ["#{path}.fixed_grant_type must equal password" | errors]
+      ["#{path}.fixed_grant_type must equal #{grant_type}" | errors]
     end
   end
 
@@ -445,7 +448,7 @@ defmodule ServiceRadar.Plugins.NotificationCredentialRequirement do
   defp allowed_keys("query"), do: @common_keys ++ ["name"]
   defp allowed_keys("form_urlencoded"), do: @common_keys ++ @target_keys
 
-  defp allowed_keys("oauth2_password_bearer"),
+  defp allowed_keys(mode) when mode in ~w(oauth2_password_bearer oauth2_client_credentials),
     do: @common_keys ++ @target_keys ++ @token_target_keys
 
   defp allowed_keys(_mode), do: @common_keys
@@ -455,14 +458,26 @@ defmodule ServiceRadar.Plugins.NotificationCredentialRequirement do
   end
 
   defp field_mapping_key?(key, mode),
-    do: mode in ~w(form_urlencoded oauth2_password_bearer) and String.starts_with?(key, "field_")
+    do: mode in (~w(form_urlencoded) ++ oauth2_modes()) and String.starts_with?(key, "field_")
 
   # A plugin can put non-secret fixed fields in its own form body. The only
   # fixed field the host must synthesize is the OAuth password grant type; a
   # general fixed_* surface would also let a manifest smuggle credential
   # literals into a host grant.
-  defp fixed_mapping_key?("fixed_grant_type", "oauth2_password_bearer"), do: true
+  defp fixed_mapping_key?("fixed_grant_type", mode)
+       when mode in ~w(oauth2_password_bearer oauth2_client_credentials),
+       do: true
+
   defp fixed_mapping_key?(_key, _mode), do: false
+
+  # The two OAuth2 modes run the identical host-side exchange and differ only in
+  # the grant they perform and the two credential fields that grant requires.
+  defp oauth2_modes, do: ~w(oauth2_password_bearer oauth2_client_credentials)
+
+  defp oauth2_grant("oauth2_password_bearer"), do: {:oauth, "password", ~w(username password)}
+
+  defp oauth2_grant("oauth2_client_credentials"),
+    do: {:oauth, "client_credentials", ~w(client_id client_secret)}
 
   defp mapping_key?(key),
     do: String.starts_with?(key, "field_") or String.starts_with?(key, "fixed_")

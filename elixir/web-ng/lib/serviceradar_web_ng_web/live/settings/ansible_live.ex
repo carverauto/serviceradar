@@ -517,7 +517,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
                 {ctrl.status}
               </.ui_badge>
               <div :if={ctrl.last_health_at} class="text-xs text-sr-muted mt-1">
-                {Calendar.strftime(ctrl.last_health_at, "%Y-%m-%d %H:%M:%S UTC")}
+                <.user_time
+                  id={"settings-ansible-controller-#{ctrl.id}-last-health-at"}
+                  value={ctrl.last_health_at}
+                  timezone={@current_scope.user.timezone || "Etc/UTC"}
+                  style={:compact}
+                />
               </div>
             </td>
             <td>
@@ -925,7 +930,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
                 {repo.last_sync_status}
               </.ui_badge>
               <div :if={repo.last_sync_at} class="text-xs text-sr-muted mt-1">
-                {Calendar.strftime(repo.last_sync_at, "%Y-%m-%d %H:%M:%S UTC")}
+                <.user_time
+                  id={"settings-ansible-repository-#{repo.id}-last-sync-at"}
+                  value={repo.last_sync_at}
+                  timezone={@current_scope.user.timezone || "Etc/UTC"}
+                  style={:compact}
+                />
               </div>
               <div :if={repo.last_sync_summary} class="text-xs text-sr-muted mt-1">
                 {repo.last_sync_summary}

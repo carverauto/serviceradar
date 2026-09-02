@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.BulkPanel do
   alias ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.Config
 
   attr(:bulk_jobs, :list, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def render(assigns) do
     recent_bars = Bulk.recent_job_bars(assigns.bulk_jobs)
@@ -52,7 +53,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.BulkPanel do
       </div>
 
       <.latest_mix_panel latest_mix={@latest_mix} />
-      <.jobs_table bulk_jobs={@bulk_jobs} />
+      <.jobs_table bulk_jobs={@bulk_jobs} timezone={@timezone} />
     </div>
     """
   end
@@ -176,6 +177,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.BulkPanel do
   end
 
   attr(:bulk_jobs, :list, required: true)
+  attr(:timezone, :string, required: true)
 
   defp jobs_table(assigns) do
     ~H"""
@@ -197,7 +199,15 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.BulkPanel do
       </thead>
       <tbody>
         <tr :for={job <- @bulk_jobs} class="hover">
-          <td class="whitespace-nowrap text-xs">{format_time(job.inserted_at)}</td>
+          <td class="whitespace-nowrap text-xs">
+            <.user_time
+              id={"mtr-bulk-job-#{job.id}-inserted-at"}
+              value={job.inserted_at}
+              timezone={@timezone}
+              style={:compact}
+              fallback="-"
+            />
+          </td>
           <td>
             <.ui_badge size="sm" variant={pending_status_variant(job.status)}>
               {job.status |> to_string() |> String.replace("_", " ") |> String.upcase()}

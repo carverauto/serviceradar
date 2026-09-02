@@ -71,6 +71,8 @@ defmodule ServiceRadar.Plugins.Manifest do
     :display_contract,
     :signal_schemas,
     :producer_schedules,
+    :alert_rules,
+    :snmp_requirements,
     :notifications,
     :integrations
   ]
@@ -92,6 +94,8 @@ defmodule ServiceRadar.Plugins.Manifest do
           display_contract: map(),
           signal_schemas: [map()],
           producer_schedules: [map()],
+          alert_rules: [map()],
+          snmp_requirements: [map()],
           notifications: [map()],
           integrations: IntegrationDescriptor.descriptor()
         }
@@ -137,6 +141,83 @@ defmodule ServiceRadar.Plugins.Manifest do
   @allowed_producer_dispatch_scopes ["assignment", "package", "target_query"]
   @allowed_producer_command_types ["plugin.run_action", "addon.run_command"]
   @allowed_producer_schedule_types ["interval", "cron", "manual"]
+  # A plugin proposes rules; it never activates them. `enabled` is deliberately
+  # NOT accepted -- see AlertRuleCatalog for why a manifest must not be able to
+  # turn on something that pages people.
+  @allowed_alert_rule_signals ~w(metric log event)
+
+  @allowed_alert_rule_keys ~w(
+    name
+    description
+    signal
+    match
+    group_by
+    threshold
+    window_seconds
+    bucket_seconds
+    cooldown_seconds
+    renotify_seconds
+    event
+    alert
+  )
+
+  # A plugin declares the SNMP data it needs; it never arms the polling.
+  # `enabled`, `is_default`, `priority`, and `agent_ids` are deliberately NOT
+  # accepted -- see SNMPRequirementCatalog for why a manifest must not be able
+  # to start outbound probing of real inventory, nor outrank an operator's own
+  # profile. Neither are any credential keys: SNMP credentials come from
+  # Settings -> Credential Rules and are bound by an operator, never shipped or
+  # named in a package.
+  @allowed_snmp_requirement_keys ~w(
+    name
+    description
+    category
+    default_poll_interval_seconds
+    default_timeout_seconds
+    default_retries
+    target_hint
+    oids
+  )
+
+  @allowed_snmp_oid_keys ~w(
+    oid
+    name
+    data_type
+    scale
+    delta
+    mode
+    max_rows
+    walk_timeout_seconds
+  )
+
+  # Mirrors DataType in go/pkg/agent/snmp/types.go.
+  @allowed_snmp_data_types ~w(counter gauge boolean bytes string float)
+  @allowed_snmp_modes ~w(get walk)
+
+  # Mirrors maxOIDNameLength in go/pkg/agent/snmp/config.go.
+  @max_snmp_oid_name_length 64
+
+  # Rejected outright rather than ignored, so a manifest that tries to ship a
+  # credential or arm its own polling fails loudly at import instead of having
+  # the key silently dropped.
+  @refused_snmp_requirement_keys ~w(
+    enabled
+    is_default
+    priority
+    agent_ids
+    host
+    port
+    version
+    community
+    username
+    security_level
+    auth_protocol
+    auth_password
+    priv_protocol
+    priv_password
+    credential_secret_id
+  )
+
   @allowed_producer_schedule_keys ~w(
     id
     schedule_id
@@ -327,6 +408,11 @@ defmodule ServiceRadar.Plugins.Manifest do
     {producer_schedules, errors} =
       validate_producer_schedules(fetch(map, :producer_schedules), errors)
 
+    {alert_rules, errors} = validate_alert_rules(fetch(map, :alert_rules), errors)
+
+    {snmp_requirements, errors} =
+      validate_snmp_requirements(fetch(map, :snmp_requirements), errors)
+
     raw_notifications = fetch(map, :notifications)
     {notifications, errors} = validate_notifications(raw_notifications, errors)
     errors = validate_notify_capability_coherence(capabilities, raw_notifications, errors)
@@ -361,6 +447,8 @@ defmodule ServiceRadar.Plugins.Manifest do
          display_contract: display_contract,
          signal_schemas: signal_schemas,
          producer_schedules: producer_schedules,
+         alert_rules: alert_rules,
+         snmp_requirements: snmp_requirements,
          notifications: notifications,
          integrations: integrations
        }}
@@ -1020,6 +1108,299 @@ defmodule ServiceRadar.Plugins.Manifest do
 
   defp validate_signal_schemas(_signal_schemas, errors),
     do: {[], ["signal_schemas must be a list" | errors]}
+
+  defp validate_alert_rules(nil, errors), do: {[], errors}
+
+  defp validate_alert_rules(rules, errors) when is_list(rules) do
+    rules
+    |> Enum.with_index(1)
+    |> Enum.reduce({[], errors}, fn {rule, index}, {acc, errors} ->
+      case validate_alert_rule(rule, index) do
+        {:ok, normalized} -> {[normalized | acc], errors}
+        {:error, rule_errors} -> {acc, rule_errors ++ errors}
+      end
+    end)
+    |> then(fn {rules, errors} -> {Enum.reverse(rules), errors} end)
+  end
+
+  defp validate_alert_rules(_rules, errors), do: {[], ["alert_rules must be a list" | errors]}
+
+  defp validate_alert_rule(rule, index) when is_map(rule) do
+    rule = normalize_map(rule) || %{}
+    errors = unknown_alert_rule_key_errors(rule, index)
+
+    {name, errors} =
+      case normalize_string(fetch(rule, :name)) do
+        value when is_binary(value) and value != "" -> {value, errors}
+        _ -> {nil, ["alert_rules[#{index}].name must be a non-empty string" | errors]}
+      end
+
+    signal = normalize_string(fetch(rule, :signal)) || "metric"
+
+    errors =
+      if signal in @allowed_alert_rule_signals do
+        errors
+      else
+        [
+          "alert_rules[#{index}].signal must be one of: #{Enum.join(@allowed_alert_rule_signals, ", ")}"
+          | errors
+        ]
+      end
+
+    # A rule whose match is empty matches EVERY record on its signal. That is
+    # not a plausible thing to ship deliberately, and it would fire on the first
+    # metric that arrived, so it is rejected rather than accepted and disabled.
+    match = fetch(rule, :match)
+
+    errors =
+      if is_map(match) and map_size(match) > 0 do
+        errors
+      else
+        ["alert_rules[#{index}].match must be a non-empty map" | errors]
+      end
+
+    group_by = fetch(rule, :group_by)
+
+    errors =
+      cond do
+        is_nil(group_by) ->
+          errors
+
+        is_list(group_by) and group_by != [] and Enum.all?(group_by, &is_binary/1) ->
+          errors
+
+        true ->
+          ["alert_rules[#{index}].group_by must be a non-empty list of strings" | errors]
+      end
+
+    if errors == [] do
+      {:ok, Map.put(rule, "name", name)}
+    else
+      {:error, errors}
+    end
+  end
+
+  defp validate_alert_rule(_rule, index), do: {:error, ["alert_rules[#{index}] must be a map"]}
+
+  defp unknown_alert_rule_key_errors(rule, index) do
+    rule
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 in @allowed_alert_rule_keys))
+    |> Enum.map(&"alert_rules[#{index}].#{&1} is not allowed")
+  end
+
+  defp validate_snmp_requirements(nil, errors), do: {[], errors}
+
+  defp validate_snmp_requirements(requirements, errors) when is_list(requirements) do
+    requirements
+    |> Enum.with_index(1)
+    |> Enum.reduce({[], errors}, fn {requirement, index}, {acc, errors} ->
+      case validate_snmp_requirement(requirement, index) do
+        {:ok, normalized} -> {[normalized | acc], errors}
+        {:error, requirement_errors} -> {acc, requirement_errors ++ errors}
+      end
+    end)
+    |> then(fn {requirements, errors} -> {Enum.reverse(requirements), errors} end)
+  end
+
+  defp validate_snmp_requirements(_requirements, errors),
+    do: {[], ["snmp_requirements must be a list" | errors]}
+
+  defp validate_snmp_requirement(requirement, index) when is_map(requirement) do
+    requirement = normalize_map(requirement) || %{}
+    errors = snmp_requirement_key_errors(requirement, index)
+
+    {name, errors} =
+      case normalize_string(fetch(requirement, :name)) do
+        value when is_binary(value) and value != "" -> {value, errors}
+        _ -> {nil, ["snmp_requirements[#{index}].name must be a non-empty string" | errors]}
+      end
+
+    errors =
+      errors
+      |> snmp_positive_integer_errors(requirement, :default_poll_interval_seconds, index)
+      |> snmp_positive_integer_errors(requirement, :default_timeout_seconds, index)
+      |> snmp_positive_integer_errors(requirement, :default_retries, index)
+      |> snmp_oids_errors(requirement, index)
+
+    if errors == [] do
+      # Store the NORMALIZED oids, not the raw ones. Validation reads through
+      # normalize_string, so an OID with surrounding whitespace validates fine;
+      # storing the raw value would then materialize a template the agent
+      # rejects on `isValidOID`, and the target would be silently dropped at the
+      # far end rather than refused here.
+      {:ok,
+       requirement
+       |> Map.put("name", name)
+       |> Map.put("oids", normalize_snmp_oids(fetch(requirement, :oids)))}
+    else
+      {:error, errors}
+    end
+  end
+
+  defp validate_snmp_requirement(_requirement, index),
+    do: {:error, ["snmp_requirements[#{index}] must be a map"]}
+
+  defp normalize_snmp_oids(oids) when is_list(oids), do: Enum.map(oids, &normalize_snmp_oid/1)
+
+  defp normalize_snmp_oid(oid) do
+    oid = normalize_map(oid) || %{}
+
+    Enum.reduce(~w(oid name data_type mode), oid, fn key, acc ->
+      case normalize_string(fetch(acc, key)) do
+        nil -> acc
+        value -> Map.put(acc, key, value)
+      end
+    end)
+  end
+
+  defp snmp_requirement_key_errors(requirement, index) do
+    keys = requirement |> Map.keys() |> Enum.map(&to_string/1)
+
+    refused =
+      keys
+      |> Enum.filter(&(&1 in @refused_snmp_requirement_keys))
+      |> Enum.map(fn key ->
+        "snmp_requirements[#{index}].#{key} is not allowed: " <>
+          "a plugin declares what it needs polled, and never credentials, targets, or whether to poll"
+      end)
+
+    unknown =
+      keys
+      |> Enum.reject(&(&1 in @allowed_snmp_requirement_keys))
+      |> Enum.reject(&(&1 in @refused_snmp_requirement_keys))
+      |> Enum.map(&"snmp_requirements[#{index}].#{&1} is not allowed")
+
+    refused ++ unknown
+  end
+
+  defp snmp_positive_integer_errors(errors, requirement, key, index) do
+    case fetch(requirement, key) do
+      nil ->
+        errors
+
+      value when is_integer(value) and value > 0 ->
+        errors
+
+      _ ->
+        ["snmp_requirements[#{index}].#{key} must be a positive integer" | errors]
+    end
+  end
+
+  defp snmp_oids_errors(errors, requirement, index) do
+    case fetch(requirement, :oids) do
+      oids when is_list(oids) and oids != [] ->
+        oids
+        |> Enum.with_index(1)
+        |> Enum.reduce(errors, fn {oid, oid_index}, acc ->
+          snmp_oid_errors(acc, oid, index, oid_index)
+        end)
+
+      _ ->
+        ["snmp_requirements[#{index}].oids must be a non-empty list" | errors]
+    end
+  end
+
+  # Every constraint here is one the Go agent applies too. It is enforced at
+  # import because ValidateForAgent drops a target it cannot use: a malformed
+  # OID would otherwise be accepted into a package, materialize into a profile,
+  # and then silently collect nothing.
+  defp snmp_oid_errors(errors, oid, index, oid_index) when is_map(oid) do
+    oid = normalize_map(oid) || %{}
+    path = "snmp_requirements[#{index}].oids[#{oid_index}]"
+
+    errors =
+      oid
+      |> Map.keys()
+      |> Enum.map(&to_string/1)
+      |> Enum.reject(&(&1 in @allowed_snmp_oid_keys))
+      |> Enum.map(&"#{path}.#{&1} is not allowed")
+      |> Kernel.++(errors)
+
+    errors
+    |> snmp_oid_string_errors(oid, path)
+    |> snmp_oid_enum_errors(oid, path)
+    |> snmp_oid_number_errors(oid, path)
+  end
+
+  defp snmp_oid_errors(errors, _oid, index, oid_index),
+    do: ["snmp_requirements[#{index}].oids[#{oid_index}] must be a map" | errors]
+
+  defp snmp_oid_string_errors(errors, oid, path) do
+    errors =
+      case normalize_string(fetch(oid, :oid)) do
+        value when is_binary(value) -> snmp_oid_format_errors(errors, value, path)
+        _ -> ["#{path}.oid must be a string" | errors]
+      end
+
+    case normalize_string(fetch(oid, :name)) do
+      value
+      when is_binary(value) and value != "" and byte_size(value) <= @max_snmp_oid_name_length ->
+        errors
+
+      _ ->
+        [
+          "#{path}.name must be a non-empty string of at most #{@max_snmp_oid_name_length} bytes"
+          | errors
+        ]
+    end
+  end
+
+  # Mirrors isValidOID in go/pkg/agent/snmp/config.go: the `.1.3.6.1.` prefix
+  # and all-numeric arcs.
+  defp snmp_oid_format_errors(errors, value, path) do
+    numeric_arcs? =
+      value
+      |> String.trim_leading(".")
+      |> String.split(".")
+      |> then(
+        &(&1 != [] and Enum.all?(&1, fn arc -> arc != "" and String.match?(arc, ~r/^\d+$/) end))
+      )
+
+    if String.starts_with?(value, ".1.3.6.1.") and numeric_arcs? do
+      errors
+    else
+      ["#{path}.oid must start with .1.3.6.1. and contain only numeric arcs" | errors]
+    end
+  end
+
+  defp snmp_oid_enum_errors(errors, oid, path) do
+    errors =
+      case normalize_string(fetch(oid, :data_type)) do
+        value when value in @allowed_snmp_data_types ->
+          errors
+
+        _ ->
+          [
+            "#{path}.data_type must be one of: #{Enum.join(@allowed_snmp_data_types, ", ")}"
+            | errors
+          ]
+      end
+
+    case normalize_string(fetch(oid, :mode)) do
+      nil -> errors
+      value when value in @allowed_snmp_modes -> errors
+      _ -> ["#{path}.mode must be one of: #{Enum.join(@allowed_snmp_modes, ", ")}" | errors]
+    end
+  end
+
+  defp snmp_oid_number_errors(errors, oid, path) do
+    errors =
+      case fetch(oid, :delta) do
+        nil -> errors
+        value when is_boolean(value) -> errors
+        _ -> ["#{path}.delta must be a boolean" | errors]
+      end
+
+    Enum.reduce([:scale, :max_rows, :walk_timeout_seconds], errors, fn key, acc ->
+      case fetch(oid, key) do
+        nil -> acc
+        value when is_number(value) and value >= 0 -> acc
+        _ -> ["#{path}.#{key} must be a non-negative number" | acc]
+      end
+    end)
+  end
 
   defp validate_producer_schedules(nil, errors), do: {[], errors}
 

@@ -77,30 +77,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.Format do
 
   def to_int(_), do: 0
 
-  def format_flow_time_short(nil), do: nil
-  def format_flow_time_short(""), do: nil
-
-  def format_flow_time_short(value) when is_binary(value) do
-    v = String.trim(value)
-
-    case DateTime.from_iso8601(v) do
-      {:ok, dt, _} ->
-        Calendar.strftime(dt, "%H:%M:%S")
-
-      _ ->
-        case NaiveDateTime.from_iso8601(v) do
-          {:ok, ndt} ->
-            dt = DateTime.from_naive!(ndt, "Etc/UTC")
-            Calendar.strftime(dt, "%H:%M:%S")
-
-          _ ->
-            v
-        end
-    end
-  end
-
-  def format_flow_time_short(other), do: to_string(other || "")
-
   def flows_table_traffic_header("pps"), do: "Packets"
   def flows_table_traffic_header("bps"), do: "Packets / Bits"
   def flows_table_traffic_header(_), do: "Packets / Bytes"

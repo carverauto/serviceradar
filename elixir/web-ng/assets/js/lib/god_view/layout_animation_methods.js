@@ -1,3 +1,5 @@
+import {hasManagedTopologyScene} from "./topology_layout_mode"
+
 export const godViewLayoutAnimationMethods = {
   animateTransition(previousGraph, nextGraph) {
     const {state, deps} = this
@@ -6,7 +8,7 @@ export const godViewLayoutAnimationMethods = {
       state.pendingAnimationFrame = null
     }
 
-    if (nextGraph?._layoutMode === "elk-scene" && nextGraph?._topologyScene) {
+    if (hasManagedTopologyScene(nextGraph)) {
       deps.renderGraph(nextGraph)
       return
     }

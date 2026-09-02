@@ -107,6 +107,36 @@ describe("admitTopologyLabels", () => {
     expect(first.admitted.map((item) => item.nodeId)).toEqual(
       Array.from({length: 24}, (_, index) => `member-${String(index).padStart(2, "0")}`),
     )
+    expect(first.missingRequiredLabelIds).toEqual([])
+    expect(reordered).toEqual(first)
+  })
+
+  it("reports every missing required label ID in deterministic order", () => {
+    const input = {
+      candidates: [
+        {nodeId: "ordinary", text: "Ordinary", point: [80, 60], role: "infrastructure"},
+        {nodeId: "selected", text: "Selected", point: [80, 60], role: "member", selected: true},
+      ],
+      glyphBoxes: [
+        {nodeId: "selected", left: 72, top: 52, right: 88, bottom: 68},
+      ],
+      routeCorridors: [
+        {points: [[20, 85], [140, 85]], strokeWidth: 8},
+      ],
+      safeRect: {left: 10, top: 10, right: 150, bottom: 110},
+      requiredLabelIds: ["z-missing-candidate", "selected", "ordinary"],
+      measureText: () => ({width: 48, height: 12}),
+    }
+
+    const first = admitTopologyLabels(input)
+    const reordered = admitTopologyLabels({
+      ...input,
+      candidates: [...input.candidates].reverse(),
+      requiredLabelIds: [...input.requiredLabelIds].reverse(),
+    })
+
+    expect(first.admitted.map((item) => item.nodeId)).toEqual(["selected"])
+    expect(first.missingRequiredLabelIds).toEqual(["ordinary", "z-missing-candidate"])
     expect(reordered).toEqual(first)
   })
 
@@ -127,6 +157,82 @@ describe("admitTopologyLabels", () => {
       textAnchor: "start",
       alignmentBaseline: "center",
     }])
+  })
+
+  it("uses a route-clear diagonal for a four-way incident fanout", () => {
+    const result = admitTopologyLabels({
+      candidates: [{nodeId: "router", text: "Router", point: [100, 100], role: "infrastructure", fontSize: 12}],
+      glyphBoxes: [{nodeId: "router", left: 90, top: 90, right: 110, bottom: 110}],
+      routeCorridors: [
+        {sourceId: "router", targetId: "north", points: [[100, 100], [100, 50]], strokeWidth: 6},
+        {sourceId: "router", targetId: "east", points: [[100, 100], [170, 100]], strokeWidth: 6},
+        {sourceId: "router", targetId: "south", points: [[100, 100], [100, 150]], strokeWidth: 6},
+        {sourceId: "router", targetId: "west", points: [[100, 100], [30, 100]], strokeWidth: 6},
+      ],
+      safeRect: {left: 0, top: 0, right: 220, bottom: 220},
+      requiredLabelIds: ["router"],
+      measureText: () => ({width: 40, height: 12}),
+    })
+
+    expect(result.missingRequiredLabelIds).toEqual([])
+    expect(result.admitted).toMatchObject([{nodeId: "router", anchor: "top-right"}])
+    expect(result.admitted.every((item) => result.admitted.length === 1 && [
+      {points: [[100, 100], [100, 50]], strokeWidth: 6},
+      {points: [[100, 100], [170, 100]], strokeWidth: 6},
+      {points: [[100, 100], [100, 150]], strokeWidth: 6},
+      {points: [[100, 100], [30, 100]], strokeWidth: 6},
+    ].every((route) => !boxIntersectsCorridor(item.box, route)))).toBe(true)
+  })
+
+  it("does not exempt an incident route after it leaves and re-enters the owner approach", () => {
+    const result = admitTopologyLabels({
+      candidates: [{nodeId: "router", text: "Router", point: [100, 100], role: "infrastructure", fontSize: 12}],
+      glyphBoxes: [{nodeId: "router", left: 90, top: 90, right: 110, bottom: 110}],
+      routeCorridors: [{
+        sourceId: "router",
+        targetId: "north",
+        points: [[100, 100], [100, 40], [150, 40], [150, 80], [100, 80]],
+        strokeWidth: 6,
+      }],
+      // Only the top anchor fits. The route's final segment crosses that label
+      // after travelling well beyond the bounded owner approach.
+      safeRect: {left: 76, top: 0, right: 124, bottom: 110},
+      requiredLabelIds: ["router"],
+      measureText: () => ({width: 40, height: 12}),
+    })
+
+    expect(result.admitted).toEqual([])
+    expect(result.missingRequiredLabelIds).toEqual(["router"])
+  })
+
+  it("places a four-way fanout label deterministically when one incident route re-enters", () => {
+    const routeCorridors = [
+      {
+        sourceId: "router",
+        targetId: "north",
+        points: [[100, 100], [100, 40], [150, 40], [150, 80], [100, 80]],
+        strokeWidth: 6,
+      },
+      {sourceId: "router", targetId: "east", points: [[100, 100], [170, 100]], strokeWidth: 6},
+      {sourceId: "router", targetId: "south", points: [[100, 100], [100, 170]], strokeWidth: 6},
+      {sourceId: "router", targetId: "west", points: [[100, 100], [30, 100]], strokeWidth: 6},
+    ]
+    const input = {
+      candidates: [{nodeId: "router", text: "Router", point: [100, 100], role: "infrastructure", fontSize: 12}],
+      glyphBoxes: [{nodeId: "router", left: 90, top: 90, right: 110, bottom: 110}],
+      routeCorridors,
+      safeRect: {left: 0, top: 0, right: 220, bottom: 220},
+      requiredLabelIds: ["router"],
+      measureText: () => ({width: 40, height: 12}),
+    }
+
+    const first = admitTopologyLabels(input)
+    const reordered = admitTopologyLabels({...input, routeCorridors: [...routeCorridors].reverse()})
+
+    expect(first.missingRequiredLabelIds).toEqual([])
+    expect(first.admitted).toMatchObject([{nodeId: "router", anchor: "bottom-right"}])
+    expect(first.admitted.every((item) => routeCorridors.every((route) => !boxIntersectsCorridor(item.box, route)))).toBe(true)
+    expect(reordered).toEqual(first)
   })
 
   it("gives selected labels priority over lower-priority collisions", () => {

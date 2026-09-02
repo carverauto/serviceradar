@@ -1,7 +1,7 @@
 # Design: Dashboard SDK npm Publishing
 
 ## Context
-The dashboard SDK is intended to be consumed by independent customer dashboard repositories such as `wifi-dashboard`. Those repositories should install `@serviceradar/dashboard-sdk` from npm and use SDK-owned commands for renderer development and packaging. Keeping publish logic inside each customer dashboard would duplicate CI, token handling, package validation, and release policy.
+The dashboard SDK is intended to be consumed by independent customer dashboard repositories such as `example-dashboard`. Those repositories should install `@serviceradar/dashboard-sdk` from npm and use SDK-owned commands for renderer development and packaging. Keeping publish logic inside each customer dashboard would duplicate CI, token handling, package validation, and release policy.
 
 ## Goals
 - Publish `@serviceradar/dashboard-sdk` through npm with standard `npm install` semantics.
@@ -10,7 +10,7 @@ The dashboard SDK is intended to be consumed by independent customer dashboard r
 - Use npm trusted publishing from the GitHub mirror so npm publish does not require a long-lived npm token.
 
 ## Non-Goals
-- Publishing customer dashboard packages such as Example to npm.
+- Publishing customer dashboard packages to npm.
 - Changing ServiceRadar's server-side dashboard package import verification.
 
 ## Decisions

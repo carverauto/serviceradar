@@ -287,8 +287,11 @@ defmodule ServiceRadar.Policies.Checks do
       if is_binary(permission) do
         # Fast path: if actor map already has a MapSet of permissions, check directly
         case actor do
-          %{permissions: %MapSet{} = perms} -> MapSet.member?(perms, permission)
-          _ -> RBAC.has_permission?(actor, permission)
+          %{permissions: %MapSet{} = perms} ->
+            ServiceRadar.Identity.RBAC.Catalog.holds?(perms, permission)
+
+          _ ->
+            RBAC.has_permission?(actor, permission)
         end
       else
         false

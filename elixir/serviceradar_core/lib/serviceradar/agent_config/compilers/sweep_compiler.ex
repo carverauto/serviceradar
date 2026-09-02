@@ -59,7 +59,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     # DB connection's search_path determines the schema
     actor = opts[:actor] || SystemActor.system(:sweep_compiler)
 
-    # Load sweep groups for this partition/agent
+    # Load groups whose fixed subset contains this agent (any device partition)
+    # plus partition-wide groups in the agent's own partition. Device partition
+    # != agent partition for isolation scans.
     groups = load_sweep_groups(partition, agent_id, actor)
 
     # Load profiles that might be referenced
@@ -190,7 +192,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
         Enum.each(groups, fn g ->
           Logger.debug(
-            "SweepCompiler: group #{g.name} - target_query=#{inspect(g.target_query)}, static_targets=#{inspect(g.static_targets)}, agent_id=#{inspect(g.agent_id)}"
+            "SweepCompiler: group #{g.name} - target_query=#{inspect(g.target_query)}, static_targets=#{inspect(g.static_targets)}, agent_ids=#{inspect(g.agent_ids)}"
           )
         end)
 

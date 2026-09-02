@@ -107,12 +107,6 @@ var (
 	errCNPGUsernameRequired             = fmt.Errorf("cnpg.username is required when CNPG is enabled")
 )
 
-// MCPConfigRef represents MCP configuration to avoid circular imports
-type MCPConfigRef struct {
-	Enabled bool   `json:"enabled"`
-	APIKey  string `json:"api_key" sensitive:"true"`
-}
-
 // ReaperConfig configures the stale device reaper.
 type ReaperConfig struct {
 	Interval Duration `json:"interval"`
@@ -185,7 +179,6 @@ type CoreServiceConfig struct {
 	NATS            *NATSConfig       `json:"nats,omitempty"`
 	Events          *EventsConfig     `json:"events,omitempty"`
 	Logging         *logger.Config    `json:"logging,omitempty"`
-	MCP             *MCPConfigRef     `json:"mcp,omitempty"`
 	SRQL            *SRQLConfig       `json:"srql,omitempty"`
 	// KV endpoints for admin config operations (hub/leaf mappings)
 	KVEndpoints    []KVEndpoint                  `json:"kv_endpoints,omitempty"`

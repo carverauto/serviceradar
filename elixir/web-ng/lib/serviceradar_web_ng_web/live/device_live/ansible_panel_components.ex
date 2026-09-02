@@ -30,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   attr(:launch_resolution, :map, default: nil)
   attr(:launch_readiness, :string, default: nil)
   attr(:launch_form, :any, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def ansible_operations_section(assigns) do
     assigns =
@@ -160,7 +161,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
                   <span class="block text-xs text-sr-muted">controller-local</span>
                 </td>
                 <td class="whitespace-nowrap text-xs">
-                  {fmt_ts(record.execution.started_at || record.operation.started_at)}
+                  <.user_time
+                    id={"device-ansible-operation-#{record.operation.id}-started-at"}
+                    value={record.execution.started_at || record.operation.started_at}
+                    timezone={@timezone}
+                    style={:compact}
+                  />
                 </td>
                 <td>
                   <.ui_button
@@ -490,10 +496,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnsiblePanelComponents do
   defp short_id(id) when is_binary(id) and byte_size(id) > 8, do: String.slice(id, 0, 8) <> "…"
 
   defp short_id(id), do: to_string(id)
-
-  defp fmt_ts(nil), do: "—"
-  defp fmt_ts(%DateTime{} = ts), do: Calendar.strftime(ts, "%Y-%m-%d %H:%M")
-  defp fmt_ts(_), do: "—"
 
   defp state_badge_variant(:succeeded), do: "success"
   defp state_badge_variant(:partial), do: "warning"

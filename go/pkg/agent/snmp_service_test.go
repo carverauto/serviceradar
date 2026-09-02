@@ -689,3 +689,27 @@ func TestProtoToSNMPOIDConfig_GetIsDefault(t *testing.T) {
 	require.Zero(t, got.MaxRows)
 	require.Zero(t, got.WalkTimeout)
 }
+
+func TestProtoToSNMPConfigCopiesProfileAndTargetIDs(t *testing.T) {
+	t.Parallel()
+
+	got := protoToSNMPConfig(&proto.SNMPConfig{
+		Enabled:     true,
+		ProfileId:   "profile-uuid",
+		ProfileName: "ClearPass node health",
+		Targets: []*proto.SNMPTargetConfig{
+			{
+				Id:   "target-uuid",
+				Name: "clearpass-a",
+				Host: "10.0.0.8",
+				Port: 161,
+			},
+		},
+	})
+
+	require.Equal(t, "profile-uuid", got.ProfileID)
+	require.Equal(t, "ClearPass node health", got.ProfileName)
+	require.Len(t, got.Targets, 1)
+	require.Equal(t, "target-uuid", got.Targets[0].ID)
+	require.Equal(t, "clearpass-a", got.Targets[0].Name)
+}

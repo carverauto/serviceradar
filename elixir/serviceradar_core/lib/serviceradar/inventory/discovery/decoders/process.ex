@@ -12,11 +12,18 @@ defmodule ServiceRadar.Inventory.Discovery.Decoders.Process do
   is why the Go translator keyed it on `TranslationOptions.CollectorIP` rather
   than on anything in the snapshot.
 
-  It is still registered `:enrichment_only`. The agent host always already has a
-  device -- sysmon and the agent's own self-report create it -- so nothing is
-  lost by refusing to let a process listing mint one, and refusing closes the
-  door on a process snapshot arriving with an unexpected address and creating a
-  device from it.
+  It is still registered `:enrichment_only`, and refusing closes the door on a
+  process snapshot arriving with an unexpected address and creating a device from
+  it.
+
+  The original justification here claimed the agent host "always already has a
+  device -- sysmon and the agent's own self-report create it". The second half was
+  not true when written: there is no agent self-report source, and measured on the
+  demo cluster only 15 devices out of 50,212 carry an `agent_id` identifier at all.
+  A device for the agent host is minted by OBSERVER sources (mapper, sweep,
+  census), which is a weaker guarantee than the comment implied. See
+  `openspec/changes/add-agent-self-report-device-identity`; when that ships the
+  original claim becomes true and this note can go.
 
   Emits OBSERVATIONS ONLY; identity is stamped by `DiscoveryIngestor`.
 

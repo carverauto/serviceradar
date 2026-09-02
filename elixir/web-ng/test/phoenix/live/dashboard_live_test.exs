@@ -30,7 +30,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "#ops-topbar")
     assert has_element?(view, "#ops-brand-logo")
     assert has_element?(view, ".sr-ops-brand-mark")
+    assert has_element?(view, "#ops-profile-menu[phx-hook='DetailsState']")
     assert has_element?(view, "#ops-profile-menu-toggle[aria-label='Open profile menu']")
+    assert has_element?(view, "#ops-profile-menu-toggle .pointer-events-none")
     assert has_element?(view, "#ops-profile-menu a[href='/settings/profile']", "Profile")
     refute has_element?(view, ".sr-ops-notification-dot")
   end
@@ -44,8 +46,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert has_element?(view, "a.sr-ops-kpi-card[href='/observability?tab=alerts']", "Active Alerts")
     assert has_element?(view, "a.sr-ops-small-stat[href*='tab=netflows']", "Window")
     assert has_element?(view, "a.sr-ops-small-stat[href*='tab=netflows']", "Conversations")
-    assert has_element?(view, "a.sr-ops-metric-card[href='/diagnostics/mtr']", "Latency (Avg)")
-    assert has_element?(view, "a.sr-ops-metric-card[href='/diagnostics/mtr']", "Packet Loss")
+    assert has_element?(view, "a.sr-ops-metric-card[href='/diagnostics/mtr']", "Destination Latency")
+    assert has_element?(view, "a.sr-ops-metric-card[href='/diagnostics/mtr']", "Destination Loss")
     assert has_element?(view, "a.sr-ops-metric-card[href='/services']", "Service Health")
     assert has_element?(view, "[data-testid='threat-intel-summary']")
     assert has_element?(view, "a[href='/settings/networks/threat-intel']", "Manage")
@@ -324,12 +326,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
   end
 
   defp create_dashboard_instance!(route_slug) do
+    actor = ServiceRadarWebNG.AshTestHelpers.system_actor()
+
     package =
       DashboardPackage
       |> Ash.Changeset.for_create(:create, package_attrs())
-      |> Ash.create!()
+      |> Ash.create!(actor: actor)
       |> Ash.Changeset.for_update(:enable, %{})
-      |> Ash.update!()
+      |> Ash.update!(actor: actor)
 
     DashboardInstance
     |> Ash.Changeset.for_create(:create, %{
@@ -342,7 +346,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
       settings: %{},
       metadata: %{}
     })
-    |> Ash.create!()
+    |> Ash.create!(actor: actor)
   end
 
   defp package_attrs do

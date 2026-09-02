@@ -10,9 +10,13 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Identity.OAuthClient
   alias ServiceRadar.Identity.OAuthClient.Credentials
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
+
+  @api_credentials_permission Constants.api_credentials_manage_permission()
 
   on_mount {ServiceRadarWebNGWeb.UserAuth, :require_sudo_mode}
 
@@ -165,9 +169,11 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
                         </td>
                         <td class="text-sm">
                           <%= if client.last_used_at do %>
-                            <span title={DateTime.to_iso8601(client.last_used_at)}>
-                              {format_relative_time(client.last_used_at)}
-                            </span>
+                            <.last_used_time
+                              id={"api-credential-#{client.id}-last-used-at"}
+                              value={client.last_used_at}
+                              timezone={@current_scope.user.timezone || "Etc/UTC"}
+                            />
                           <% else %>
                             <span class="text-sr-muted">Never</span>
                           <% end %>
@@ -341,6 +347,16 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
               <span class="text-sm font-medium text-sr-ink">Write</span>
               <span class="text-xs text-sr-muted">- Create and modify resources</span>
             </label>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                name="client[scopes][]"
+                value="mcp"
+                class={ui_checkbox_class()}
+              />
+              <span class="text-sm font-medium text-sr-ink">MCP</span>
+              <span class="text-xs text-sr-muted">- Call the MCP server at /mcp</span>
+            </label>
           </div>
         </div>
 
@@ -461,21 +477,28 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
 
   @impl true
   def mount(_params, _session, socket) do
-    user = socket.assigns.current_scope.user
+    scope = socket.assigns.current_scope
 
-    socket =
-      socket
-      |> assign(:clients, load_clients(user))
-      |> assign(:show_create_modal, false)
-      |> assign(:show_secret_modal, false)
-      |> assign(:show_revoke_modal, false)
-      |> assign(:create_form, to_form(%{"name" => "", "description" => "", "scopes" => ["read"]}))
-      |> assign(:new_client, nil)
-      |> assign(:new_secret, nil)
-      |> assign(:client_to_revoke, nil)
-      |> assign(:base_url, get_base_url())
+    if RBAC.can?(scope, @api_credentials_permission) do
+      user = scope.user
 
-    {:ok, socket}
+      {:ok,
+       socket
+       |> assign(:clients, load_clients(user))
+       |> assign(:show_create_modal, false)
+       |> assign(:show_secret_modal, false)
+       |> assign(:show_revoke_modal, false)
+       |> assign(:create_form, to_form(%{"name" => "", "description" => "", "scopes" => ["read"]}))
+       |> assign(:new_client, nil)
+       |> assign(:new_secret, nil)
+       |> assign(:client_to_revoke, nil)
+       |> assign(:base_url, get_base_url())}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, "You don't have permission to manage API credentials.")
+       |> push_navigate(to: ~p"/dashboard")}
+    end
   end
 
   @impl true
@@ -649,6 +672,30 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
 
   defp status_label(_), do: "Active"
 
+  attr(:id, :string, required: true)
+  attr(:value, :any, required: true)
+  attr(:timezone, :string, required: true)
+
+  defp last_used_time(assigns) do
+    assigns = assign(assigns, :display, format_relative_time(assigns.value))
+
+    ~H"""
+    <%= case @display do %>
+      <% {:absolute, value} -> %>
+        <.user_time id={@id} value={value} timezone={@timezone} style={:date} />
+      <% relative -> %>
+        <span>{relative}</span>
+        <.user_time
+          id={@id}
+          value={@value}
+          timezone={@timezone}
+          style={:full}
+          class="sr-only"
+        />
+    <% end %>
+    """
+  end
+
   defp format_relative_time(datetime) do
     diff = DateTime.diff(DateTime.utc_now(), datetime, :second)
 
@@ -657,7 +704,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentials do
       diff < 3600 -> "#{div(diff, 60)} min ago"
       diff < 86_400 -> "#{div(diff, 3600)} hours ago"
       diff < 604_800 -> "#{div(diff, 86_400)} days ago"
-      true -> Calendar.strftime(datetime, "%b %d, %Y")
+      true -> {:absolute, datetime}
     end
   end
 end

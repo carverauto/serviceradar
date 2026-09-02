@@ -29,6 +29,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.Events do
     {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, opts)}
   end
 
+  def handle_event("srql_reset", params, socket) do
+    opts = [fallback_path: "/diagnostics/mtr", extra_params: Params.extra_query_params(socket)]
+    {:noreply, SRQLPage.handle_event(socket, "srql_reset", params, opts)}
+  end
+
   def handle_event("srql_builder_toggle", _params, socket),
     do: {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "mtr_traces")}
 

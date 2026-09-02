@@ -7,6 +7,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
+  alias ServiceRadar.AgentCommands.ResultCoordinationTaskSupervisor
   alias ServiceRadar.AgentCommands.StatusHandler
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
@@ -92,7 +93,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       Task.start(fn ->
         Process.sleep(25)
 
-        AgentCommandPubSub.broadcast_result(%{
+        result = %{
           command_id: command.command_id,
           command_type: command.command_type,
           agent_id: state.agent_id,
@@ -110,7 +111,16 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
               "stale_threshold_seconds" => 3600
             }
           }
-        })
+        }
+
+        # Ingress is what a real agent publishes. Command-scoped fan-out is what
+        # collect_endpoint_inventory_cohort_results/2 actually waits on, and in
+        # production that happens only after StatusHandler persists. The test
+        # helper publishes both so aggregation does not stall behind a named
+        # GenServer that integration shards share, or behind an ExUnit timeout
+        # equal to the collect ceiling.
+        AgentCommandPubSub.broadcast_result(result)
+        AgentCommandPubSub.broadcast_persisted_result(result)
       end)
     end
 
@@ -435,6 +445,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert fallback =~ "SRQL"
     end
 
+    @tag timeout: 120_000
     test "endpoint inventory cohort cache query aggregates command-scoped results", %{
       agent_id: agent_id
     } do
@@ -478,11 +489,11 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
                  # validation AND durable persistence, so the deadline is really a bound on
                  # someone else's write throughput.
                  #
-                 # Generous costs nothing. collect_endpoint_inventory_cohort_results/2
-                 # returns the moment every expected command_id has answered
-                 # (agent_command_bus.ex:1221), so a fast run never waits for this number.
-                 # Only a loaded one does, which is exactly when it should.
-                 timeout_ms: 60_000,
+                 # Keep this below the ExUnit timeout. collect returns as soon as
+                 # every expected command_id has answered, so a fast run never
+                 # waits for this number. 60_000 equalled the default ExUnit
+                 # budget and turned a missed fan-out into TimeoutError.
+                 timeout_ms: 45_000,
                  cohort_concurrency: 2
                )
 
@@ -1315,6 +1326,18 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   defp ensure_status_handler_started do
+    case Process.whereis(ResultCoordinationTaskSupervisor) do
+      nil ->
+        {:ok, _pid} =
+          Task.Supervisor.start_link(
+            name: ResultCoordinationTaskSupervisor,
+            max_children: 32
+          )
+
+      _pid ->
+        :ok
+    end
+
     case Process.whereis(StatusHandler) do
       nil -> StatusHandler.start_link([])
       _pid -> :ok

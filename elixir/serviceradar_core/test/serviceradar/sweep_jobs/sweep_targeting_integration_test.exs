@@ -11,10 +11,13 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
+  alias ServiceRadar.AgentConfig.ConfigCache
   alias ServiceRadar.AgentConfig.ConfigServer
+  alias ServiceRadar.AgentConfig.DependencyDiagnostics
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.TestSupport
@@ -588,6 +591,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
       unique_id: unique_id
     } do
       agent_id = "agent-specific-#{unique_id}"
+      register_agent(agent_id, actor)
 
       # Create agent-specific group
       {:ok, _specific_group} =
@@ -641,6 +645,7 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
     } do
       agent_id = "agent-owner-#{unique_id}"
       other_agent_id = "agent-other-#{unique_id}"
+      register_agent(agent_id, actor)
 
       {:ok, _specific_group} =
         SweepGroup
@@ -667,6 +672,166 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
 
       # Should NOT include group assigned to different agent
       refute "Owner Only Group #{unique_id}" in group_names
+    end
+  end
+
+  describe "canonical agent assignment eligibility" do
+    test "the shared read action applies partition-wide and fixed-subset groups", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      selected_a = register_agent("agent-selected-a-#{unique_id}", actor)
+      selected_b = register_agent("agent-selected-b-#{unique_id}", actor)
+      unselected = register_agent("agent-unselected-#{unique_id}", actor)
+      partition = "agent-assignment-#{unique_id}"
+      other_partition = "agent-assignment-other-#{unique_id}"
+
+      {:ok, partition_wide} =
+        create_group("Partition wide #{unique_id}", partition, %{agent_ids: []}, actor)
+
+      {:ok, selected} =
+        create_group(
+          "Selected subset #{unique_id}",
+          other_partition,
+          %{agent_ids: [selected_a.uid, selected_b.uid]},
+          actor
+        )
+
+      {:ok, deselected} =
+        create_group(
+          "Deselected subset #{unique_id}",
+          other_partition,
+          %{agent_ids: [unselected.uid]},
+          actor
+        )
+
+      {:ok, disabled} =
+        create_group(
+          "Disabled subset #{unique_id}",
+          other_partition,
+          %{agent_ids: [selected_a.uid], enabled: false},
+          actor
+        )
+
+      selected_a_ids = eligible_group_ids(selected_a.uid, partition, actor)
+      selected_b_ids = eligible_group_ids(selected_b.uid, partition, actor)
+      unselected_ids = eligible_group_ids(unselected.uid, partition, actor)
+      nil_requester_ids = eligible_group_ids(nil, partition, actor)
+      blank_requester_ids = eligible_group_ids("", partition, actor)
+
+      assert partition_wide.id in selected_a_ids
+      assert partition_wide.id in selected_b_ids
+      assert partition_wide.id in unselected_ids
+      assert partition_wide.id in nil_requester_ids
+      assert partition_wide.id in blank_requester_ids
+
+      assert selected.id in selected_a_ids
+      assert selected.id in selected_b_ids
+      refute selected.id in unselected_ids
+      refute selected.id in nil_requester_ids
+      refute selected.id in blank_requester_ids
+
+      refute deselected.id in selected_a_ids
+      refute disabled.id in selected_a_ids
+    end
+
+    test "a subset reassignment invalidates every warmed agent config before recompiling", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      deselected_agent = register_agent("agent-deselected-#{unique_id}", actor)
+      selected_agent = register_agent("agent-selected-#{unique_id}", actor)
+      partition = "assignment-invalidation-#{unique_id}"
+
+      {:ok, group} =
+        create_group(
+          "Invalidate subset #{unique_id}",
+          partition,
+          %{agent_ids: [deselected_agent.uid]},
+          actor
+        )
+
+      {:ok, initially_deselected} =
+        ConfigServer.get_config(:sweep, partition, deselected_agent.uid)
+
+      {:ok, initially_unselected} = ConfigServer.get_config(:sweep, partition, selected_agent.uid)
+
+      assert group.id in config_group_ids(initially_deselected)
+      refute group.id in config_group_ids(initially_unselected)
+
+      assert {:ok, _} = ConfigCache.get(:sweep, partition, deselected_agent.uid)
+      assert {:ok, _} = ConfigCache.get(:sweep, partition, selected_agent.uid)
+
+      DependencyDiagnostics.clear()
+
+      assert {:ok, _updated} =
+               group
+               |> Ash.Changeset.for_update(:update, %{agent_ids: [selected_agent.uid]},
+                 actor: actor
+               )
+               |> Ash.update()
+
+      assert_eventually(
+        fn ->
+          Enum.any?(DependencyDiagnostics.recent(), fn diagnostic ->
+            diagnostic.dependency_id == :sweep_group_config and
+              diagnostic.action_type == :update and
+              diagnostic.affected_agents == :all_online and diagnostic.result == :ok
+          end)
+        end,
+        "fleet-wide sweep update dispatch"
+      )
+
+      assert_eventually(
+        fn ->
+          ConfigCache.get(:sweep, partition, deselected_agent.uid) == :miss and
+            ConfigCache.get(:sweep, partition, selected_agent.uid) == :miss
+        end,
+        "both warmed sweep configs to be invalidated"
+      )
+
+      {:ok, recomputed_deselected} =
+        ConfigServer.get_config(:sweep, partition, deselected_agent.uid)
+
+      {:ok, recomputed_selected} = ConfigServer.get_config(:sweep, partition, selected_agent.uid)
+
+      refute group.id in config_group_ids(recomputed_deselected)
+      assert group.id in config_group_ids(recomputed_selected)
+    end
+
+    test "the explicit-membership predicate can use the sweep-group GIN index", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      agent = register_agent("agent-index-#{unique_id}", actor)
+      partition = "assignment-index-#{unique_id}"
+
+      for index <- 1..32 do
+        assert {:ok, _group} =
+                 create_group(
+                   "Index subset #{unique_id}-#{index}",
+                   partition,
+                   %{agent_ids: [agent.uid]},
+                   actor
+                 )
+      end
+
+      {:ok, ecto_query} =
+        SweepGroup
+        |> Ash.Query.for_read(:for_agent_partition, %{agent_id: agent.uid, partition: partition})
+        |> Ash.Query.data_layer_query()
+
+      {sql, params} = Ecto.Adapters.SQL.to_sql(:all, Repo, ecto_query)
+
+      assert {:ok, %{rows: plan_rows}} =
+               Repo.transaction(fn ->
+                 assert %{command: :set} = Repo.query!("SET LOCAL enable_seqscan = off")
+                 Repo.query!("EXPLAIN (COSTS OFF) #{sql}", params)
+               end)
+
+      plan = Enum.map_join(plan_rows, "\n", &hd/1)
+      assert plan =~ "sweep_groups_agent_ids_gin_idx"
+      assert plan =~ "Index Cond: (agent_ids @>"
     end
   end
 
@@ -774,5 +939,58 @@ defmodule ServiceRadar.SweepJobs.SweepTargetingIntegrationTest do
 
   defp device_target_networks(compiled_group) do
     Enum.map(compiled_group["device_targets"] || [], & &1["network"])
+  end
+
+  defp eligible_group_ids(agent_id, partition, actor) do
+    SweepGroup
+    |> Ash.Query.for_read(:for_agent_partition, %{agent_id: agent_id, partition: partition})
+    |> Ash.read!(actor: actor)
+    |> Enum.map(& &1.id)
+  end
+
+  defp config_group_ids(config_entry) do
+    Enum.map(config_entry.config["groups"] || [], & &1["sweep_group_id"])
+  end
+
+  defp assert_eventually(predicate, artifact, timeout_ms \\ 2_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    await_artifact(predicate, artifact, deadline)
+  end
+
+  defp await_artifact(predicate, artifact, deadline) do
+    if predicate.() do
+      :ok
+    else
+      if System.monotonic_time(:millisecond) >= deadline do
+        flunk("Timed out waiting for #{artifact}")
+      else
+        Process.sleep(10)
+        await_artifact(predicate, artifact, deadline)
+      end
+    end
+  end
+
+  defp create_group(name, partition, attrs, actor) do
+    SweepGroup
+    |> Ash.Changeset.for_create(
+      :create,
+      Map.merge(
+        %{
+          name: name,
+          partition: partition,
+          interval: "15m",
+          static_targets: ["10.0.0.1"]
+        },
+        attrs
+      ),
+      actor: actor
+    )
+    |> Ash.create()
+  end
+
+  defp register_agent(uid, actor) do
+    Agent
+    |> Ash.Changeset.for_create(:register, %{uid: uid}, actor: actor)
+    |> Ash.create!()
   end
 end

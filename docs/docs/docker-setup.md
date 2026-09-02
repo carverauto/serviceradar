@@ -25,6 +25,10 @@ docker compose logs config-updater | grep "Password:"
 
 Access ServiceRadar at http://localhost (Caddy). Log in with `root@localhost` and the password from the logs. The API is available at http://localhost/api (via proxy) or http://localhost:8090.
 
+MCP at `/mcp` is off by default. Enable it with
+`SERVICERADAR_MCP_ENABLED=true` and see [MCP Integration](./mcp-integration.md)
+for Helm, Compose, and Codex / Claude Code / Grok client setup.
+
 ## Common Commands
 
 ```bash

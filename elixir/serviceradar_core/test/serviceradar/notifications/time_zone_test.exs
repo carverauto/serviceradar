@@ -2,6 +2,7 @@ defmodule ServiceRadar.Notifications.TimeZoneTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Notifications.TimeZone
+  alias ServiceRadar.TimeZone, as: NeutralTimeZone
 
   @now ~U[2026-08-11 14:00:00.000000Z]
 
@@ -13,6 +14,9 @@ defmodule ServiceRadar.Notifications.TimeZoneTest do
     end
 
     assert TimeZone.supported?("America/New_York", query: query)
+
+    assert TimeZone.supported?("America/New_York", query: query) ==
+             NeutralTimeZone.supported?("America/New_York", query: query)
   end
 
   test "does not accept a missing catalog name or an empty zone" do
@@ -28,6 +32,9 @@ defmodule ServiceRadar.Notifications.TimeZoneTest do
       assert params == [@now, "America/New_York"]
       {:ok, %{rows: [[~N[2026-08-11 10:00:00.000000]]]}}
     end
+
+    assert TimeZone.local_datetime(@now, "America/New_York", query: query) ==
+             NeutralTimeZone.local_datetime(@now, "America/New_York", query: query)
 
     assert TimeZone.local_datetime(@now, "America/New_York", query: query) ==
              {:ok, ~N[2026-08-11 10:00:00.000000]}

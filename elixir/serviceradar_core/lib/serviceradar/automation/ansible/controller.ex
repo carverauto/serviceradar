@@ -35,6 +35,7 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
 
   alias ServiceRadar.Automation.Ansible.Changes.SeedControllerLifecycle
   alias ServiceRadar.Automation.Ansible.Changes.SyncLegacyControllerCredential
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @manage_check {ActorHasPermission, permission: "ansible.controllers.manage"}
@@ -66,6 +67,13 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
     table "ansible_controllers"
     repo ServiceRadar.Repo
     schema "platform"
+
+    references do
+      reference :credential_secret, on_delete: :restrict
+      reference :sync_credential_secret, on_delete: :restrict
+      reference :execution_credential_secret, on_delete: :restrict
+      reference :callback_credential_secret, on_delete: :restrict
+    end
   end
 
   paper_trail do
@@ -326,6 +334,40 @@ defmodule ServiceRadar.Automation.Ansible.Controller do
 
     create_timestamp :inserted_at
     update_timestamp :updated_at
+  end
+
+  relationships do
+    belongs_to :credential_secret, NetworkCredentialSecret do
+      allow_nil? false
+      public? true
+      define_attribute? false
+      source_attribute :credential_secret_id
+      destination_attribute :id
+    end
+
+    belongs_to :sync_credential_secret, NetworkCredentialSecret do
+      allow_nil? true
+      public? true
+      define_attribute? false
+      source_attribute :sync_credential_secret_id
+      destination_attribute :id
+    end
+
+    belongs_to :execution_credential_secret, NetworkCredentialSecret do
+      allow_nil? true
+      public? true
+      define_attribute? false
+      source_attribute :execution_credential_secret_id
+      destination_attribute :id
+    end
+
+    belongs_to :callback_credential_secret, NetworkCredentialSecret do
+      allow_nil? true
+      public? true
+      define_attribute? false
+      source_attribute :callback_credential_secret_id
+      destination_attribute :id
+    end
   end
 
   identities do

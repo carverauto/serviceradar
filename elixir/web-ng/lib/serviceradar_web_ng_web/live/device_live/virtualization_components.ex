@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
   # ---------------------------------------------------------------------------
 
   attr(:summary, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def virtualization_guests_tab(assigns) do
     guests =
@@ -86,6 +87,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
   end
 
   attr(:summary, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def virtualization_section(assigns) do
     summary = assigns.summary
@@ -137,7 +139,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
             {@provider_label}
           </span>
         </div>
-        <span class="text-xs text-sr-muted font-mono">{format_timestamp(@observed_at)}</span>
+        <.user_time
+          id={"device-virtualization-#{virtualization_time_key(@host, @guest)}-observed-at"}
+          value={@observed_at}
+          timezone={@timezone}
+          style={:compact}
+          class="text-xs text-sr-muted font-mono"
+        />
       </div>
 
       <div class="p-4 space-y-4">
@@ -468,32 +476,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(value), do: not is_nil(value)
 
-  defp format_timestamp(nil), do: "—"
+  defp virtualization_time_key(host, guest) do
+    candidate =
+      case host || guest do
+        %{device_uid: value} when is_binary(value) and value != "" -> value
+        %{provider_ref: value} when is_binary(value) and value != "" -> value
+        %{name: value} when is_binary(value) and value != "" -> value
+        _ -> "resource"
+      end
 
-  defp format_timestamp(value) do
-    case parse_datetime(value) do
-      {:ok, %DateTime{} = dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> "—"
-    end
+    candidate
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
   end
-
-  defp parse_datetime(%DateTime{} = dt), do: {:ok, dt}
-
-  defp parse_datetime(%NaiveDateTime{} = ndt) do
-    {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-  end
-
-  defp parse_datetime(value) when is_binary(value) do
-    with {:error, _} <- DateTime.from_iso8601(value),
-         {:ok, ndt} <- NaiveDateTime.from_iso8601(value) do
-      {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-    else
-      {:ok, dt, _offset} -> {:ok, dt}
-      {:error, _} -> {:error, :invalid_datetime}
-    end
-  end
-
-  defp parse_datetime(_), do: {:error, :invalid_datetime}
 
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_pct(value) when is_integer(value), do: Integer.to_string(value)

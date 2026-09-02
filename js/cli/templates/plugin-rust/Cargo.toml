@@ -1,0 +1,15 @@
+[package]
+name = "__CRATE_NAME__"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+serviceradar-sdk-rust = "0.1"
+serde = { version = "1", features = ["derive"] }
+
+[profile.release]
+# Wasm is shipped over the wire to every assigned agent and cached by content
+# hash, so size is worth more here than the last few percent of speed.
+opt-level = "z"
+lto = true
+strip = true

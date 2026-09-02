@@ -66,6 +66,8 @@ const config: Config = {
           {from: '/docs/edge-onboarding', to: '/docs/edge-agent-onboarding'},
           {from: '/docs/kv-configuration', to: '/docs/configuration-system'},
           {from: '/specs/wasm-plugin-system', to: '/docs/wasm-plugins'},
+          {from: '/docs/nco-validation-runs', to: '/docs/validation-runs'},
+          {from: '/docs/nco-device-facts', to: '/docs/device-facts'},
         ],
       },
     ],

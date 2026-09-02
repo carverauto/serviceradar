@@ -28,6 +28,10 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
     table "device_snmp_credentials"
     repo ServiceRadar.Repo
     schema "platform"
+
+    references do
+      reference :credential_secret, on_delete: :restrict
+    end
   end
 
   code_interface do
@@ -170,6 +174,14 @@ defmodule ServiceRadar.Inventory.DeviceSNMPCredential do
   end
 
   relationships do
+    belongs_to :credential_secret, ServiceRadar.Credentials.NetworkCredentialSecret do
+      allow_nil? true
+      public? true
+      define_attribute? false
+      source_attribute :credential_secret_id
+      destination_attribute :id
+    end
+
     belongs_to :device, ServiceRadar.Inventory.Device do
       source_attribute :device_id
       destination_attribute :uid

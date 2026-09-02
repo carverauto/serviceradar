@@ -1,6 +1,9 @@
 use super::{
     bind::SqlBindValue,
-    fields::{agg_expr, flow_cagg_for_bucket, is_rate_agg, resolve_value_column, series_expr},
+    fields::{
+        agg_expr, flow_cagg_for_bucket, is_rate_agg, rate_bucket_combine, resolve_value_column,
+        series_expr,
+    },
     filters::filter_clause,
 };
 use crate::{
@@ -262,7 +265,7 @@ rate_data AS (
 SELECT
   to_timestamp(floor(extract(epoch from timestamp) / {bucket_secs}) * {bucket_secs}) AT TIME ZONE 'UTC' AS timestamp,
   series,
-  AVG(rate_value) AS value
+  {rate_combine}(rate_value) AS value
 FROM rate_data
 WHERE rate_value IS NOT NULL  -- Skip NULL rates from counter wraps
 GROUP BY 1, 2"#,
@@ -272,6 +275,13 @@ GROUP BY 1, 2"#,
             table = table,
             where_clause = where_clause,
             rate_partition_expr = rate_partition_expr,
+            // AVG answers "the typical rate of one of these"; SUM answers "the
+            // combined rate of all of them". They diverge exactly when a display
+            // series collapses several underlying counters -- several
+            // controllers each keeping their own counters for one RADIUS
+            // server, where the fleet total is the sum and the average
+            // understates it by the controller count.
+            rate_combine = rate_bucket_combine(downsample.agg),
             bucket_secs = bucket_secs
         );
         let _ = time_range;

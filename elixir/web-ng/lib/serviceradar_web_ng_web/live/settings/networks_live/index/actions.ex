@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
+  alias ServiceRadarWebNGWeb.Live.Settings.NetworksLive.AgentPicker
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.TargetBuilder
 
@@ -37,7 +38,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
     |> assign(:builder, TargetBuilder.default_builder_state())
     |> assign(:builder_sync, true)
     |> assign(:last_target_query, nil)
-    |> assign(:agents, load_agents(scope))
+    |> initialize_agent_picker(scope, [])
   end
 
   def apply_action(socket, :edit_group, %{"id" => id}) do
@@ -67,11 +68,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
         |> assign(:builder, builder)
         |> assign(:builder_sync, builder_sync)
         |> assign(:last_target_query, group.target_query)
-        |> assign(:agents, load_agents(scope))
+        |> initialize_agent_picker(scope, group.agent_ids || [])
     end
   end
 
   def apply_action(socket, :discovery, _params) do
+    scope = socket.assigns.current_scope
+
     socket
     |> assign(:page_title, "Discovery Jobs")
     |> assign(:current_path, "/settings/networks/discovery")
@@ -85,9 +88,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
     |> assign(:mapper_mikrotik_form, empty_mikrotik_form())
     |> assign(:mapper_mikrotik_present, false)
     |> assign(:mapper_mikrotik, empty_mikrotik_fields())
+    |> assign(:mapper_agents, load_mapper_agents(scope))
   end
 
   def apply_action(socket, :new_mapper_job, _params) do
+    scope = socket.assigns.current_scope
+
     defaults = %{
       "name" => "",
       "description" => "",
@@ -115,6 +121,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
     |> assign(:mapper_mikrotik_form, empty_mikrotik_form())
     |> assign(:mapper_mikrotik_present, false)
     |> assign(:mapper_mikrotik, empty_mikrotik_fields())
+    |> assign(:mapper_agents, load_mapper_agents(scope))
   end
 
   def apply_action(socket, :edit_mapper_job, %{"id" => id}) do
@@ -144,6 +151,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
         |> assign(:mapper_mikrotik_form, mikrotik_form)
         |> assign(:mapper_mikrotik_present, mikrotik_present)
         |> assign(:mapper_mikrotik, Map.put(mikrotik, :password_present, mikrotik_present))
+        |> assign(:mapper_agents, load_mapper_agents(scope, job.agent_id))
     end
   end
 
@@ -155,11 +163,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
         |> push_navigate(to: ~p"/settings/networks")
 
       group ->
+        scope = socket.assigns.current_scope
+
+        summary_agents =
+          if connected?(socket), do: load_sweep_group_summary_agents(scope, [group]), else: %{}
+
         socket
         |> assign(:page_title, group.name)
         |> assign(:current_path, "/settings/networks")
         |> assign(:show_form, :show_group)
         |> assign(:selected_group, group)
+        |> assign(:sweep_group_summary_agents, summary_agents)
     end
   end
 
@@ -200,5 +214,21 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
         |> assign(:banner_grab_draft, FormComponents.banner_grab_to_map(profile.banner_grab))
         |> assign(:banner_preview_device_count, count_target_devices(scope, "in:devices"))
     end
+  end
+
+  defp initialize_agent_picker(socket, scope, agent_ids) do
+    picker = AgentPicker.new(agent_ids)
+
+    summary_agent =
+      case picker.committed |> MapSet.to_list() |> Enum.sort() do
+        [uid] -> if connected?(socket), do: load_agent_by_uid(scope, uid)
+        _ -> nil
+      end
+
+    socket
+    |> assign(:agent_picker, picker)
+    |> assign(:agent_picker_open, false)
+    |> assign(:agent_picker_selected_rows, [])
+    |> assign(:agent_picker_summary_agent, summary_agent)
   end
 end

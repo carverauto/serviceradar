@@ -110,7 +110,10 @@ export function expandedFarm01Graph() {
       details: {...node.details, cluster_expanded: true},
     }
   })
-  const anchorIndex = nodes.findIndex((node) => node.id === "farm01:gateway-01")
+  // The server attaches each member to its summary/cluster node, never straight to the anchor.
+  // Parenting these on the anchor instead made the island regression unreproducible: the member
+  // already had a visible counterpart, so nothing exercised the re-parenting path.
+  const summaryIndex = nodes.findIndex((node) => node.id === "farm01:endpoint-summary-01")
   const members = Array.from({length: FARM01_EXPECTED.addedMemberCount}, (_, index) => ({
     id: `farm01:endpoint-member-${String(index + 1).padStart(2, "0")}`,
     label: `Farm01 endpoint ${index + 1}`,
@@ -125,7 +128,7 @@ export function expandedFarm01Graph() {
   }))
   const memberEdges = members.map((_, index) => ({
     id: `farm01:attachment:member-${String(index + 1).padStart(2, "0")}`,
-    source: anchorIndex,
+    source: summaryIndex,
     target: nodes.length + index,
     topologyClass: "endpoints",
     evidenceClass: "endpoint-attachment",

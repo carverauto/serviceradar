@@ -1,9 +1,9 @@
 # Change: Add dashboard SDK query state and rendering ergonomics
 
 ## Why
-Custom dashboard authors currently have to hand-roll SRQL state synchronization, frame query overrides, reset semantics, dedupe, debouncing, and host topbar/URL updates. The Example WiFi map integration shows that this plumbing is too easy to get wrong and makes otherwise straightforward React map/dashboard code look contrived.
+Custom dashboard authors currently have to hand-roll SRQL state synchronization, frame query overrides, reset semantics, dedupe, debouncing, and host topbar/URL updates. The customer WiFi map integration shows that this plumbing is too easy to get wrong and makes otherwise straightforward React map/dashboard code look contrived.
 
-A parity audit of the Example WiFi map against the standalone reference at `tmp/wifi-map/site_inventory_map.html` further showed that the same plumbing burden extends well beyond SRQL. Dashboard authors are also rebuilding generic frame normalization and Arrow decoding, per-keystroke local filter passes against unindexed row arrays, and deck.gl/Mapbox bootstrap with manual layer memoization. Each of these surfaces a perf cliff (GPU buffer rebuild on every render, full O(n×m) filter scans, frame-array reference churn that invalidates downstream `useMemo`) that a customer writing their first dashboard will hit without any signal that the SDK should have absorbed the work. The SDK needs primitives at the same level of abstraction as the host APIs it already proxies.
+A parity audit of the customer WiFi map against the standalone reference at `tmp/wifi-map/site_inventory_map.html` further showed that the same plumbing burden extends well beyond SRQL. Dashboard authors are also rebuilding generic frame normalization and Arrow decoding, per-keystroke local filter passes against unindexed row arrays, and deck.gl/Mapbox bootstrap with manual layer memoization. Each of these surfaces a perf cliff (GPU buffer rebuild on every render, full O(n×m) filter scans, frame-array reference churn that invalidates downstream `useMemo`) that a customer writing their first dashboard will hit without any signal that the SDK should have absorbed the work. The SDK needs primitives at the same level of abstraction as the host APIs it already proxies.
 
 ## What Changes
 - Add a React-friendly dashboard SDK primitive for query-driven dashboard state.
@@ -13,9 +13,9 @@ A parity audit of the Example WiFi map against the standalone reference at `tmp/
 - Add map runtime primitives that wrap Mapbox + deck.gl host injection, validate the required libraries, own the lifecycle, and return memoized layer factories so accessor functions and layer instances do not churn on every parent render.
 - Add SDK-owned dashboard package tooling so customer projects do not maintain bespoke renderer build scripts, manifest digest stamping, harness URLs, or import commands. The customer-owned project still emits a `dist/renderer.js` package artifact, but the SDK owns the command that creates and validates it.
 - Document the intended integration pattern so custom dashboard packages can preserve renderer portability while using ServiceRadar host capabilities naturally.
-- Update Example dashboard integration to consume the helpers after approval; the consumption refactor should retire the equivalent plumbing in `wifi-dashboard/src/map/` rather than ship in parallel.
+- Update customer dashboard integration to consume the helpers after approval; the consumption refactor should retire the equivalent plumbing in `example-dashboard/src/map/` rather than ship in parallel.
 
 ## Impact
 - Affected specs: dashboard-sdk
-- Affected code: `/home/mfreeman/src/serviceradar-sdk-dashboard/src/*`, `/home/mfreeman/src/serviceradar-sdk-dashboard/tools/*`, Example dashboard package React/map code (notably `frameData.js`, `mapState.js`, `filterCounts.js`, `createUalMapController.js`, `deckLayers.js`, `srqlQuery.js`), dashboard SDK README/tests
-- Follow-up validation: SDK unit tests, Example unit/parity tests, Docker/local web-ng Playwright checks
+- Affected code: `/home/mfreeman/src/serviceradar-sdk-dashboard/src/*`, `/home/mfreeman/src/serviceradar-sdk-dashboard/tools/*`, customer dashboard package React/map code (notably `frameData.js`, `mapState.js`, `filterCounts.js`, `createMapController.js`, `deckLayers.js`, `srqlQuery.js`), dashboard SDK README/tests
+- Follow-up validation: SDK unit tests, customer unit/parity tests, Docker/local web-ng Playwright checks

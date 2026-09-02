@@ -14,8 +14,12 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentialsTest do
   import Phoenix.LiveViewTest
   import ServiceRadarWebNG.AccountsFixtures
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.OAuthClient
   alias ServiceRadar.Identity.OAuthClient.Credentials
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Identity.User
 
   # Real logins stamp sudo mode in the session (20-minute window); the
   # ApiCredentials LiveView mounts under `:require_sudo_mode`, so tests must
@@ -37,6 +41,18 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentialsTest do
       )
 
     client
+  end
+
+  describe "permission gate" do
+    test "redirects when the role profile omits settings.api_credentials.manage", %{conn: conn} do
+      user = restrict_user(user_fixture(%{role: :viewer}), ["devices.view"])
+
+      assert {:error, {:live_redirect, %{to: "/dashboard"}}} =
+               conn
+               |> log_in_user(user)
+               |> put_sudo_mode()
+               |> live(~p"/settings/api-credentials")
+    end
   end
 
   describe "delete_client" do
@@ -95,5 +111,24 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentialsTest do
       assert result =~ "Client revoked successfully."
       refute result =~ "Client not found."
     end
+  end
+
+  defp restrict_user(user, permissions) do
+    actor = SystemActor.system(:api_credentials_rbac_test)
+
+    {:ok, profile} =
+      RoleProfile.create_profile(
+        %{
+          name: "api-creds-rbac-#{System.unique_integer([:positive])}",
+          description: "catalog-gate fixture",
+          permissions: permissions
+        },
+        actor: actor
+      )
+
+    {:ok, assigned} = User.update_role_profile(user, %{role_profile_id: profile.id}, actor: actor)
+    RBAC.invalidate_user_cache(assigned.id)
+    RBAC.clear_process_cache()
+    assigned
   end
 end

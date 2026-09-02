@@ -13,9 +13,42 @@ ServiceRadar integrates with NetBox in two complementary ways:
    (tracked in OpenSpec `add-flow-prefix-tag-enrichment`; product fetch will move
    to a plugin under #4650).
 
-Credentials may still be stored under **Settings -> Integrations** (type
-**Netbox**) for the prefix-import path. Device inventory uses **plugin
-assignment parameters**, not that form, today.
+The two paths take their credentials differently. Device inventory reads its
+token from the plugin assignment's parameters under **Admin -> Plugins**
+(`/settings/agents/plugins`). The prefix-import path uses the NetBox source
+under **Settings -> Integrations** (type **Netbox**).
+
+:::caution Not in 1.4.49
+**The `netbox` credential rule provider.** On 1.4.49 the `netbox-inventory`
+manifest declares no `integrations` block, so there is no `NetBox` entry under
+**New Credential** or **New Rule**, no `netbox` provider, and no
+`inventory_sync` purpose. Looking for NetBox on
+**Settings -> Networks -> Credential Rules** is a dead end on that release, and
+the assignment parameters below are the way to configure it.
+
+Merged work adds an `integrations.credential_profiles` block to
+`go/cmd/wasm-plugins/netbox/plugin.yaml` -- provider `netbox`, one `api_token`
+auth method, purpose `inventory_sync`, `supports_rules: true` -- so the token
+moves onto a credential and the rule delivers it, which is what
+[Credential Management](./credentials.md) exists to do. That page's
+[NetBox section](./credentials.md#netbox) has the full declaration.
+
+Two rule fields behave differently here than they do for a per-device
+integration. **Controller host** is the NetBox instance and becomes `base_url`,
+so set the full origin (`https://netbox.example.com`). **Target query** is only
+a delivery gate: the sync walks the instance named by the rule and ignores the
+resolved targets, so the manifest default resolves a single device
+(`in:devices sort:uid:asc limit:1`) and you narrow it to the NetBox host's own
+device record. What the rule does not fix is that it renders the flat
+single-source fields, so an assignment with a non-empty `sources[]` ignores what
+the rule delivers.
+
+The parameter shapes documented below -- the `sources` array and the flat
+single-source shorthand -- stay supported either way. Multi-source assignments
+remain hand-entered.
+
+First release containing the profile: `<first-release>`.
+:::
 
 ---
 
@@ -56,11 +89,23 @@ Assignment parameters (see the plugin's config schema):
 | `sources` | List of NetBox instances to sync (`source_id`, `base_url`, `api_token`, per-source options below). | required |
 | `source_id` | Stable identifier scoping device identities and snapshot bookkeeping. Never change it after devices are discovered. | required |
 | `base_url` | NetBox base URL, e.g. `https://netbox.example.com`. | required |
-| `api_token` | NetBox API token, sent as `Authorization: Token <value>`. Stored in the assignment parameters, so scope it to read-only DCIM access; secret-reference delivery is a planned follow-up. | required |
+| `api_token` | NetBox API token, sent as `Authorization: Token <value>`. Stored in the assignment parameters, so scope it to read-only DCIM access; a credential rule delivers it without storing it here from `<first-release>`. | required |
 | `page_size` | DRF page size (`limit` parameter). | `100` |
 | `timeout_ms` | Per-request timeout. | `30000` |
-| `insecure_skip_verify` | Skip TLS validation for self-signed certs. Combine with the [Self-Signed Certificates guide](./tls-security.md#self-signed-certificates). | `false` |
+| `insecure_skip_verify` | Skip TLS validation for self-signed certs. Prefer trusting the issuing CA on the agent through `plugin_http_trusted_ca_files` in `agent.json`; see the [Self-Signed Certificates guide](./tls-security.md#self-signed-certificates). | `false` |
 | `network_blacklist` | CIDRs whose devices are excluded from discovery. | `[]` |
+
+The flat `source_id` / `base_url` / `api_token` fields are a single-source
+shorthand: they are read only when `sources` is absent. Whichever shape you use,
+`api_token` must be set per source, or that source fails with
+`NetBox source <id> has no api_token configured`.
+
+Scope the token to read-only DCIM access. It is stored in
+`plugin_assignments.params`, which is a weaker placement than a credential, and
+on 1.4.49 the only mitigation is least privilege on the NetBox side. From
+`<first-release>` a `netbox` credential rule delivers the token instead, and the
+assignment row holds a secret reference rather than the value -- see
+[Credential Management: NetBox](./credentials.md#netbox).
 
 ### How data flows
 
@@ -84,8 +129,29 @@ Assignment parameters (see the plugin's config schema):
 
 ### Troubleshooting (inventory)
 
-- Permission errors indicate insufficient API token scopes; the plugin needs
-  read access to DCIM devices.
+- `NetBox inventory_sync has no sources configured`: the assignment's `sources[]`
+  is empty and no flat `base_url` was given either. Fill in the source
+  parameters on the assignment under **Admin -> Plugins**
+  (`/settings/agents/plugins`). From `<first-release>` the message reads
+  `NetBox inventory_sync has no source configured: set base_url and api_token,
+  or attach a NetBox credential rule`, and the condition is narrower: the flat
+  fallback engages as soon as any of `base_url`, `api_token`, `source_id` or
+  `source_name` is set, so a half-configured source is reported by the field it
+  is missing rather than as having no source.
+- `NetBox source <id> has no api_token configured`: the source entry exists but
+  its `api_token` is blank.
+- `NetBox source <id> has an invalid base_url`: the entry's `base_url` is blank
+  or does not parse. From `<first-release>` a blank one reports separately as
+  `NetBox source <id> has no base_url configured`, and a malformed one appends
+  the reason, as in `has an invalid base_url: base url must be http or https`.
+- `NetBox configuration could not be loaded`: the plugin got no config from the
+  agent runtime at all -- check that the assignment exists and is enabled.
+  `NetBox configuration could not be parsed` (from `<first-release>`) means the
+  config arrived but was not valid JSON in either the plain-object or the
+  `serviceradar.plugin_inputs.v1` envelope shape.
+- `NetBox inventory_sync failed for <id>: NetBox request failed: status 403`
+  (or `401`) means the token was rejected: insufficient scopes, or a token the
+  instance does not recognise. The plugin needs read access to DCIM devices.
 - Large instances: raise `page_size` (up to 1000) to reduce request count. The
   plugin bounds a single source at 2,000 devices per sync (the agent caps a
   scheduled result payload at 2 MiB); larger inventories fail loudly on the
@@ -94,9 +160,14 @@ Assignment parameters (see the plugin's config schema):
 - `base_url` with a literal IP address works for RFC1918 addresses (the
   manifest grants those networks); a NetBox reached via a public IP literal
   needs a DNS hostname.
-- `CRITICAL` results with "request failed" indicate connectivity, TLS, or
-  auth problems; response bodies are never included in results, so check the
-  agent log for the paired HTTP host-call entries.
+- Any `CRITICAL` result reads `NetBox inventory_sync failed for <id>: <reason>`
+  and means the pull aborted, so nothing was emitted and the previous complete
+  snapshot stays authoritative. A `<reason>` of `NetBox request failed` is
+  connectivity or TLS; a pagination `<reason>` such as
+  `pagination returned 90 of 100 devices` or `device count changed during
+  pagination` is NetBox changing under the walk. Response bodies are never
+  included in results, so check the agent log for the paired HTTP host-call
+  entries.
 - See the [Troubleshooting Guide](./troubleshooting-guide.md#netbox) for log
   locations.
 
@@ -106,10 +177,12 @@ Assignment parameters (see the plugin's config schema):
   runtime was removed in the January 2026 sync rearchitecture; the Wasm plugin
   above is its replacement. The NetBox source form under **Integrations ->
   New Source** configures the legacy/prefix path and does **not** drive this
-  plugin yet.
+  plugin; the plugin is driven by its assignment parameters.
 - Prefix and IPAM tag import (for NetFlow prefix tagging) is described next
-  and tracked in `add-flow-prefix-tag-enrichment` / forgejo #4641; moving that
-  fetch into a plugin is #4650.
+  and tracked in `add-flow-prefix-tag-enrichment` /
+  [GitHub #3527](https://github.com/carverauto/serviceradar/issues/3527);
+  moving that fetch into a plugin is
+  [GitHub #3528](https://github.com/carverauto/serviceradar/issues/3528).
 
 ---
 

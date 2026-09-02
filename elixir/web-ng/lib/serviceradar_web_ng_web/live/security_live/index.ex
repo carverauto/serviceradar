@@ -114,7 +114,10 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
           <.selected_detection_panel detection={@selected_detection} />
         </div>
 
-        <.security_overview_panel overview={@security_overview} />
+        <.security_overview_panel
+          overview={@security_overview}
+          timezone={@current_scope.user.timezone || "Etc/UTC"}
+        />
 
         <section class="rounded-sr-surface border border-sr-line bg-sr-surface p-5 text-sr-ink shadow-sr-surface">
           <div class="flex flex-wrap items-center justify-between gap-3">
@@ -159,6 +162,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
   end
 
   attr(:overview, :map, required: true)
+  attr(:timezone, :string, required: true)
 
   defp security_overview_panel(assigns) do
     ~H"""
@@ -214,7 +218,11 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
             No critical or high findings in the latest indexed rows.
           </div>
           <div :if={@overview.recent != []} class="divide-y divide-sr-line">
-            <.recent_security_finding :for={finding <- @overview.recent} finding={finding} />
+            <.recent_security_finding
+              :for={finding <- @overview.recent}
+              finding={finding}
+              timezone={@timezone}
+            />
           </div>
         </div>
       </div>
@@ -256,6 +264,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
   end
 
   attr(:finding, :map, required: true)
+  attr(:timezone, :string, required: true)
 
   defp recent_security_finding(assigns) do
     ~H"""
@@ -272,7 +281,12 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
           <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-sr-muted">
             <span>{@finding.source}</span>
             <span :if={@finding.resource}>{@finding.resource}</span>
-            <span :if={@finding.time}>{@finding.time}</span>
+            <.security_finding_time
+              :if={@finding.time}
+              id={security_finding_time_id(@finding)}
+              value={@finding.time}
+              timezone={@timezone}
+            />
           </div>
         </div>
         <span class={["px-1.5 py-0.5 text-[0.65rem]", severity_badge_class(@finding.severity)]}>
@@ -281,6 +295,27 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
       </div>
     </.link>
     """
+  end
+
+  attr :id, :string, required: true
+  attr :value, :any, required: true
+  attr :timezone, :string, required: true
+
+  def security_finding_time(assigns) do
+    ~H"""
+    <.user_time
+      id={@id}
+      value={@value}
+      timezone={@timezone}
+      style={:compact}
+      fallback="—"
+    />
+    """
+  end
+
+  defp security_finding_time_id(finding) do
+    identity = finding.event_id || :erlang.phash2(finding)
+    "security-recent-finding-#{identity}-time"
   end
 
   attr(:title, :string, required: true)

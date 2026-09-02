@@ -82,6 +82,32 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
   def ingest(_envelope, _updates, _context, _opts), do: :ok
 
   @doc """
+  Activates a fully resolved source collection.
+
+  This entry point is used when the source sync has already reconciled typed
+  identifiers to canonical device UIDs. It shares the same transactional
+  activation path and stale/idempotent protections as plugin snapshots.
+  """
+  @spec activate_resolved(map(), [map()], keyword()) :: :ok | {:error, term()}
+  def activate_resolved(snapshot, observations, opts \\ [])
+
+  def activate_resolved(snapshot, observations, opts)
+      when is_map(snapshot) and is_list(observations) do
+    activator = Keyword.get(opts, :activator, &activate_snapshot/2)
+
+    with :ok <- validate_resolved_snapshot(snapshot, observations) do
+      normalize_activation_result(activator.(snapshot, observations))
+    end
+  rescue
+    error ->
+      Logger.warning("Resolved source observation activation failed: #{Exception.message(error)}")
+      {:error, :source_observation_ingest_failed}
+  end
+
+  def activate_resolved(_snapshot, _observations, _opts),
+    do: {:error, :invalid_resolved_source_snapshot}
+
+  @doc """
   Validates a source snapshot and rejects stale or conflicting collections
   before canonical device records are mutated.
 
@@ -187,6 +213,49 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestor do
       {:ok, devices} -> {:ok, Enum.reverse(devices)}
       error -> error
     end
+  end
+
+  defp validate_resolved_snapshot(snapshot, observations) do
+    ids = Enum.map(observations, &Map.get(&1, :source_object_id))
+
+    cond do
+      not valid_source?(Map.get(snapshot, :source)) ->
+        {:error, :invalid_inventory_source}
+
+      not valid_instance?(Map.get(snapshot, :source_instance)) ->
+        {:error, :invalid_source_instance}
+
+      not bounded_string?(Map.get(snapshot, :collection_id), 160) ->
+        {:error, :invalid_collection_id}
+
+      not valid_hash?(Map.get(snapshot, :content_hash)) ->
+        {:error, :invalid_content_hash}
+
+      not is_struct(Map.get(snapshot, :observed_at), DateTime) ->
+        {:error, :invalid_snapshot_timestamp}
+
+      length(observations) > @max_devices ->
+        {:error, :source_snapshot_device_limit_exceeded}
+
+      length(ids) != length(Enum.uniq(ids)) ->
+        {:error, :duplicate_source_object}
+
+      Enum.any?(observations, &(not valid_resolved_observation?(&1, snapshot))) ->
+        {:error, :invalid_resolved_source_observation}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp valid_resolved_observation?(observation, snapshot) do
+    is_map(observation) and bounded_string?(Map.get(observation, :device_id), 160) and
+      bounded_string?(Map.get(observation, :source_object_id), 160) and
+      bounded_string?(Map.get(observation, :source_integration_id), 320) and
+      Map.get(observation, :partition) == Map.get(snapshot, :partition) and
+      Map.get(observation, :source) == Map.get(snapshot, :source) and
+      Map.get(observation, :source_instance) == Map.get(snapshot, :source_instance) and
+      Map.get(observation, :collection_id) == Map.get(snapshot, :collection_id)
   end
 
   defp normalize_source_device(update, snapshot) do

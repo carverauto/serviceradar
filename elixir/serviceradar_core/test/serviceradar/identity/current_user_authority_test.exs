@@ -98,7 +98,21 @@ defmodule ServiceRadar.Identity.CurrentUserAuthorityTest do
     end
   end
 
-  test "requires a non-empty permission request" do
+  test "an empty permission list reloads current authority without a permission gate" do
+    current_user = %{id: @user_id, status: :active, role: :operator}
+
+    assert {:ok, %{user: ^current_user, permissions: permissions}} =
+             CurrentUserAuthority.authorize(%{id: @user_id}, [],
+               dependencies: %{
+                 load_user: fn @user_id -> {:ok, current_user} end,
+                 load_permissions: fn ^current_user -> {:ok, MapSet.new(["analytics.view"])} end
+               }
+             )
+
+    assert MapSet.member?(permissions, "analytics.view")
+  end
+
+  test "rejects blank or mixed permission requests" do
     refute_authorized = fn required ->
       assert {:error, :current_authority_denied} =
                CurrentUserAuthority.authorize(%{id: @user_id}, required,
@@ -111,7 +125,6 @@ defmodule ServiceRadar.Identity.CurrentUserAuthorityTest do
                )
     end
 
-    refute_authorized.([])
     refute_authorized.("")
     refute_authorized.([@permission, nil])
   end

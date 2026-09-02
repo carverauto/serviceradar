@@ -184,6 +184,7 @@ type V3Auth struct {
 
 // Target represents a device to monitor via SNMP.
 type Target struct {
+	ID        string      `json:"id,omitempty"`
 	Name      string      `json:"name"`
 	Host      string      `json:"host"`
 	Port      uint16      `json:"port"`

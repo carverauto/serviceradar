@@ -6,6 +6,7 @@ import {
   PORTRAIT_PROFILE,
   applyTopologySceneToGraph,
   buildElkSceneGraph,
+  elkGroupContainerId,
   decodeElkScene,
   layoutTopologyScene,
   validateTopologyScene,
@@ -189,7 +190,7 @@ function containerRelativeElkResult() {
       },
       {id: "route-container", x: 100, y: 40, width: 260, height: 180},
       {
-        id: "group",
+        id: elkGroupContainerId("group"),
         x: 200,
         y: 100,
         width: 200,
@@ -340,7 +341,7 @@ describe("layout_elk_scene", () => {
     const input = prepareTopologySceneInput(expandedFarm01Graph())
     const elkGraph = buildElkSceneGraph(input, LANDSCAPE_PROFILE)
     const expandedGroup = input.groups.find((group) => group.expanded)
-    const group = findElkNode(elkGraph, expandedGroup.id)
+    const group = findElkNode(elkGraph, elkGroupContainerId(expandedGroup.id))
 
     expect(group.children.map((child) => child.id)).toContain(expandedGroup.gatewayId)
     expect(
@@ -469,7 +470,7 @@ describe("layout_elk_scene", () => {
     const input = prepareTopologySceneInput(expandedFarm01Graph())
     const elkGraph = buildElkSceneGraph(input, PORTRAIT_PROFILE)
     const expandedGroup = input.groups.find((group) => group.expanded)
-    const group = findElkNode(elkGraph, expandedGroup.id)
+    const group = findElkNode(elkGraph, elkGroupContainerId(expandedGroup.id))
     const packingEdges = group.edges.filter(
       (edge) => edge.layoutOptions?.["serviceradar.render"] === "false",
     )
@@ -484,7 +485,7 @@ describe("layout_elk_scene", () => {
 
   it("owns every relation at its lowest common compound without duplicating root edges", () => {
     const elkGraph = buildElkSceneGraph(locallyRelatedGroupSceneInput(), PORTRAIT_PROFILE)
-    const group = findElkNode(elkGraph, "group")
+    const group = findElkNode(elkGraph, elkGroupContainerId("group"))
 
     expect(elkGraph.edges.map((edge) => edge.id)).toEqual(["root-trunk"])
     expect(group.edges.map((edge) => edge.id)).toEqual(["local-member", "pack-a", "pack-b"])
@@ -508,7 +509,7 @@ describe("layout_elk_scene", () => {
     const visibleSummaries = input.nodes.filter((node) => node.kind === "endpoint-summary" && node.render)
 
     expect(elkGraph.children.some((child) => child.id === input.groups[0].gatewayId)).toEqual(true)
-    expect(input.groups.every((group) => findElkNode(elkGraph, group.id) === null)).toEqual(true)
+    expect(input.groups.every((group) => findElkNode(elkGraph, elkGroupContainerId(group.id)) === null)).toEqual(true)
     expect(visibleSummaries).toHaveLength(6)
     for (const summary of visibleSummaries) {
       const elkSummary = findElkNode(elkGraph, summary.id)
@@ -610,7 +611,7 @@ describe("layout_elk_scene", () => {
 
   it("rejects an expected expanded group when ELK returns its nodes as root leaves", () => {
     const elkResult = containerRelativeElkResult()
-    elkResult.children = elkResult.children.filter((child) => child.id !== "group")
+    elkResult.children = elkResult.children.filter((child) => child.id !== elkGroupContainerId("group"))
     elkResult.children.push({id: "gateway", x: 220, y: 130, width: 50, height: 50})
 
     const scene = decodeElkScene(elkResult, containerRelativeSceneInput())
@@ -1002,6 +1003,16 @@ describe("layout_elk_scene", () => {
     }
   })
 
+  it("labels the Layered adapter output as bounded detail", async () => {
+    const graph = collapsedFarm01Graph()
+    const scene = await layoutTopologyScene(prepareTopologySceneInput(graph), {
+      engine: new ELK(),
+      profile: LANDSCAPE_PROFILE,
+    })
+
+    expect(applyTopologySceneToGraph(graph, scene)._layoutMode).toBe("elk-scene-detail")
+  })
+
   it("keeps every Farm01 manifold physically connected from its fitted glyph to every semantic branch", async () => {
     for (const graph of [collapsedFarm01Graph(), expandedFarm01Graph()]) {
       const scene = await layoutTopologyScene(prepareTopologySceneInput(graph), {
@@ -1134,5 +1145,53 @@ describe("layout_elk_scene", () => {
     )
     expect(glyphOverlaps).toEqual([])
     expect(collisions).toEqual([])
+  })
+})
+
+describe("expanded group whose summary node carries the cluster id", () => {
+  // Production names the endpoint-cluster summary node with the cluster id itself
+  // (`build_endpoint_cluster_node` sets `id: group.cluster_id`), so the compound group and
+  // one of its own children share an identifier. The regression fixtures give the summary a
+  // separate id, which is why this never showed up in a test while every real expansion
+  // failed.
+  function productionShapedGraph(memberCount) {
+    const anchorId = "sr:anchor-1"
+    const clusterId = `cluster:endpoints:${anchorId}`
+    const nodes = [
+      {id: anchorId, label: "switch", state: 1, operUp: 1,
+        details: {cluster_kind: "endpoint-anchor", cluster_anchor_id: anchorId}},
+      {id: clusterId, label: `${memberCount} endpoints`, state: 1, operUp: 1, clusterCount: memberCount,
+        details: {cluster_id: clusterId, cluster_kind: "endpoint-summary",
+          cluster_anchor_id: anchorId, cluster_expanded: true}},
+    ]
+    const edges = [{id: "att:summary", source: 0, target: 1,
+      topologyClass: "endpoints", evidenceClass: "endpoint-attachment"}]
+    for (let index = 0; index < memberCount; index += 1) {
+      edges.push({id: `att:member-${index}`, source: 0, target: nodes.length,
+        topologyClass: "endpoints", evidenceClass: "endpoint-attachment"})
+      nodes.push({id: `sr:member-${index}`, label: `endpoint ${index}`, state: 1, operUp: 1,
+        details: {cluster_id: clusterId, cluster_kind: "endpoint-member",
+          cluster_anchor_id: anchorId, cluster_expanded: true}})
+    }
+    return {nodes, edges}
+  }
+
+  it("keeps every member inside the group the ELK container actually laid out", async () => {
+    const input = prepareTopologySceneInput(productionShapedGraph(13))
+    const group = input.groups.find((candidate) => (candidate.memberIds || []).length > 0)
+    expect(group.id, "this fixture only means something while the ids collide").toBe(group.gatewayId)
+
+    const scene = await layoutTopologyScene(input, {engine: new ELK()})
+    const laidOut = scene.groups.find((candidate) => candidate.id === group.id)
+    const byId = new Map(scene.nodes.map((node) => [node.id, node]))
+
+    for (const memberId of laidOut.memberIds) {
+      const node = byId.get(memberId)
+      expect(node, `${memberId} must be in the scene`).toBeTruthy()
+      expect(node.center.x - node.width / 2).toBeGreaterThanOrEqual(laidOut.bounds.minX - 1)
+      expect(node.center.x + node.width / 2).toBeLessThanOrEqual(laidOut.bounds.maxX + 1)
+      expect(node.center.y - node.height / 2).toBeGreaterThanOrEqual(laidOut.bounds.minY - 1)
+      expect(node.center.y + node.height / 2).toBeLessThanOrEqual(laidOut.bounds.maxY + 1)
+    }
   })
 })

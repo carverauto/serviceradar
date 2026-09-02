@@ -3,6 +3,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
 
   defmacro __using__(_opts) do
     quote do
+      unquote(overlay_definitions())
+      unquote(timeseries_definitions())
+    end
+  end
+
+  defp overlay_definitions do
+    quote do
       defp mtr_overlays do
         if mtr_path_edges_present?() do
           cypher = """
@@ -87,6 +94,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
 
         %{
           path_count: count,
+          endpoint_sample_count: 0,
+          loss_sample_count: 0,
+          latency_sample_count: 0,
           avg_loss_pct: Float.round(avg_loss, 2),
           avg_latency_ms: Float.round(avg_latency_ms, 1),
           degraded_count: Enum.count(overlays, &(&1.loss_pct > 0 or &1.avg_us > 100_000))
@@ -97,48 +107,92 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
         do: timeseries
 
       defp merge_mtr_summaries(_timeseries, overlays_summary), do: overlays_summary
+    end
+  end
 
+  defp timeseries_definitions do
+    quote do
       @sobelow_skip ["SQL.Query"]
       defp mtr_timeseries_summary(time_window) do
         if relation_exists?("platform.mtr_traces") and relation_exists?("platform.mtr_hops") do
           sql = """
           WITH selected_traces AS (
-            SELECT id
+            SELECT id, target_reached, total_hops
             FROM mtr_traces
             WHERE time >= $1
           ),
-          last_hops AS (
-            SELECT DISTINCT ON (h.trace_id) h.trace_id, h.avg_us
-            FROM mtr_hops h
-            INNER JOIN selected_traces st ON st.id = h.trace_id
-            WHERE h.addr IS NOT NULL
-            ORDER BY h.trace_id, h.hop_number DESC
-          ),
-          hop_loss AS (
-            SELECT h.trace_id, AVG(h.loss_pct)::float AS avg_loss_pct
-            FROM mtr_hops h
-            INNER JOIN selected_traces st ON st.id = h.trace_id
-            GROUP BY h.trace_id
+          destination_hops AS (
+            SELECT trace_id, sent, received, avg_us
+            FROM (
+              SELECT
+                h.trace_id,
+                h.sent,
+                h.received,
+                h.avg_us,
+                ROW_NUMBER() OVER (
+                  PARTITION BY h.trace_id
+                  ORDER BY h.time DESC, h.id DESC
+                ) AS terminal_rank
+              FROM mtr_hops h
+              INNER JOIN selected_traces st ON st.id = h.trace_id
+                AND st.target_reached
+                AND h.hop_number = st.total_hops
+            ) terminal_candidates
+            WHERE terminal_rank = 1
           )
           SELECT
             COUNT(st.id)::bigint,
-            COALESCE(AVG(NULLIF(lh.avg_us, 0)), 0)::float / 1000.0,
-            COALESCE(AVG(hl.avg_loss_pct), 0)::float,
+            COUNT(dh.trace_id)::bigint,
+            COUNT(dh.trace_id) FILTER (WHERE dh.sent > 0)::bigint,
+            COUNT(dh.trace_id) FILTER (WHERE dh.avg_us IS NOT NULL AND dh.received > 0)::bigint,
+            (
+              100.0 * (
+                SUM(dh.sent::numeric) FILTER (WHERE dh.sent > 0) -
+                  SUM(dh.received::numeric) FILTER (WHERE dh.sent > 0)
+              ) /
+                NULLIF(SUM(dh.sent::numeric) FILTER (WHERE dh.sent > 0), 0)
+            )::float8,
+            (
+              SUM(dh.avg_us::numeric * dh.received::numeric)
+                FILTER (WHERE dh.avg_us IS NOT NULL AND dh.received > 0) /
+                NULLIF(
+                  SUM(dh.received::numeric)
+                    FILTER (WHERE dh.avg_us IS NOT NULL AND dh.received > 0),
+                  0
+                ) /
+                1000.0
+            )::float8,
             COUNT(st.id) FILTER (
-              WHERE COALESCE(hl.avg_loss_pct, 0) > 0
-                 OR COALESCE(lh.avg_us, 0) > 100000
+              WHERE NOT st.target_reached
+                 OR (dh.sent > dh.received)
+                 OR (dh.avg_us IS NOT NULL AND dh.received > 0 AND dh.avg_us > 100000)
             )::bigint
           FROM selected_traces st
-          LEFT JOIN last_hops lh ON lh.trace_id = st.id
-          LEFT JOIN hop_loss hl ON hl.trace_id = st.id
+          LEFT JOIN destination_hops dh ON dh.trace_id = st.id
           """
 
           case ServiceRadarWebNG.Repo.query(sql, [cutoff_for_time_window(time_window)]) do
-            {:ok, %{rows: [[path_count, avg_latency_ms, avg_loss_pct, degraded_count]]}} ->
+            {:ok,
+             %{
+               rows: [
+                 [
+                   path_count,
+                   endpoint_sample_count,
+                   loss_sample_count,
+                   latency_sample_count,
+                   avg_loss_pct,
+                   avg_latency_ms,
+                   degraded_count
+                 ]
+               ]
+             }} ->
               %{
                 path_count: to_int(path_count),
-                avg_latency_ms: Float.round(to_float(avg_latency_ms), 1),
-                avg_loss_pct: Float.round(to_float(avg_loss_pct), 2),
+                endpoint_sample_count: to_int(endpoint_sample_count),
+                loss_sample_count: to_int(loss_sample_count),
+                latency_sample_count: to_int(latency_sample_count),
+                avg_latency_ms: round_nullable(avg_latency_ms, 1),
+                avg_loss_pct: round_nullable(avg_loss_pct, 2),
                 degraded_count: to_int(degraded_count)
               }
 
@@ -151,6 +205,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
       rescue
         _ -> empty_mtr_summary()
       end
+
+      defp round_nullable(nil, _precision), do: nil
+      defp round_nullable(value, precision), do: Float.round(to_float(value), precision)
     end
   end
 end

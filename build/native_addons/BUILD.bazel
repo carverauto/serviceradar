@@ -57,13 +57,26 @@ go_test(
 # Builds per-arch native add-on bundles (zip + sha256 + metadata.json) for every
 # add-on declared in addon_inventory.bzl. Signing (Cosign + ed25519
 # upload-signature), the discovery index, and the Forgejo release upload reuse the
-# Wasm plugin rails (scripts/ + .forgejo) and consume :all_metadata / :all_bundles.
+# Wasm plugin rails (scripts/ + .github/workflows) and consume :all_metadata / :all_bundles.
 declare_native_addon_targets(ADDON_BUNDLES)
 
 py_test(
     name = "assemble_addon_bundle_test",
     srcs = ["assemble_addon_bundle_test.py"],
     data = [":assemble_addon_bundle.py"],
+)
+
+py_test(
+    name = "powerdns_bundle_manifest_files_test",
+    srcs = ["powerdns_bundle_manifest_files_test.py"],
+    args = [
+        "$(rootpath :powerdns_addon_bundle_zip)",
+        "$(rootpath :powerdns_addon_bundle.linux.amd64.tar.gz)",
+    ],
+    data = [
+        ":powerdns_addon_bundle.linux.amd64.tar.gz",
+        ":powerdns_addon_bundle_zip",
+    ],
 )
 
 genquery(
@@ -185,6 +198,7 @@ test_suite(
         ":binary_size_test",
         ":dependency_isolation_test",
         ":inventory_consistency_test",
+        ":powerdns_bundle_manifest_files_test",
         ":validate_addon_manifests_test",
         "//scripts:native_addon_version_bumps_test",
         "//scripts:verify_native_addon_publish_negative_test",

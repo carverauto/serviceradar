@@ -4,9 +4,10 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext do
 
   Composite checks derive rather than probe: a vantage point reads whatever the
   sweeps already produced for its agent. Which sweeps those are is not a single
-  "scan profile" — `SweepGroup.agent_id` is nullable and means "any agent in
-  partition", so an agent is covered by every group explicitly assigned to it
-  *plus* every unassigned group in its partition. Showing one group as "the
+  "scan profile" — an empty `SweepGroup.agent_ids` means every agent in its
+  partition, while a non-empty array is a fixed subset. An agent is covered by
+  every group that contains it *plus* every partition-wide group in its
+  partition. Showing one group as "the
   profile" would misstate which ports are probed.
 
   Read-only. Editing belongs to sweep administration, which owns these records.
@@ -25,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext do
           ports: [integer()],
           modes: [String.t()],
           interval: String.t() | nil,
+          interval_seconds: pos_integer() | nil,
           profile_name: String.t() | nil
         }
 
@@ -80,10 +82,11 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext do
 
   defp groups_for(nil, _partition, _opts), do: []
 
-  # `:for_agent_partition` is the read whose filter is exactly this rule:
-  # enabled, in this partition, and either assigned to this agent or assigned to
-  # none. `:by_agent` looks closer but ignores partition, so it would credit a
-  # vantage point with partition-wide groups from a partition it cannot see.
+  # `:for_agent_partition` is the read whose filter is: enabled, and either
+  # its fixed subset contains this agent (including isolation scans whose device
+  # partition differs) or is partition-wide in this agent's partition.
+  # `:by_agent` ignores partition entirely and would credit a vantage with every
+  # partition-wide group.
   defp groups_for(agent_id, partition, opts) do
     SweepGroup
     |> Ash.Query.for_read(:for_agent_partition, %{agent_id: agent_id, partition: partition})
@@ -104,13 +107,75 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.SweepContext do
     %{
       id: group.id,
       name: group.name,
-      assigned?: group.agent_id == agent_id,
+      assigned?: agent_id in (group.agent_ids || []),
       ports: group.ports || profile_field(group, :ports) || [],
       modes: group.sweep_modes || profile_field(group, :sweep_modes) || [],
       interval: group.interval,
+      interval_seconds: interval_seconds(group.interval),
       profile_name: profile_field(group, :name)
     }
   end
+
+  @doc """
+  The slowest sweep interval covering each agent, in seconds.
+
+  A vantage point's freshness window has to be at least this long or the
+  resolver reports unknown for the whole scope between runs. Keyed by agent id
+  because that is what a vantage point row carries; agents with no covering
+  group are absent rather than zero, so "no coverage" stays distinguishable
+  from "covered by an instant sweep".
+  """
+  @spec coverage_intervals([entry()]) :: %{optional(String.t()) => pos_integer()}
+  def coverage_intervals(entries) do
+    Enum.reduce(entries, %{}, fn entry, acc ->
+      seconds =
+        entry.groups
+        |> Enum.map(& &1.interval_seconds)
+        |> Enum.reject(&is_nil/1)
+        |> case do
+          [] -> nil
+          values -> Enum.max(values)
+        end
+
+      case {entry.agent_id, seconds} do
+        {agent_id, seconds} when is_binary(agent_id) and is_integer(seconds) ->
+          Map.put(acc, agent_id, seconds)
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  @doc """
+  A sweep group's operator-facing duration string ("30s", "5m", "1h") in seconds.
+
+  Public because it is the parser the freshness comparison depends on, and an
+  unparsed unit silently disables that comparison. Anything unrecognised yields
+  nil, which suppresses the comparison rather than inventing a number to compare
+  against — guessing here would warn about a mismatch that may not exist.
+  """
+  @spec interval_seconds(String.t() | nil) :: pos_integer() | nil
+  def interval_seconds(nil), do: nil
+
+  def interval_seconds(interval) when is_binary(interval) do
+    case Integer.parse(String.trim(interval)) do
+      {value, unit} when value > 0 ->
+        case String.trim(unit) do
+          "" -> value
+          "s" -> value
+          "m" -> value * 60
+          "h" -> value * 3600
+          "d" -> value * 86_400
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  def interval_seconds(_interval), do: nil
 
   defp profile_field(%{profile: %Ash.NotLoaded{}}, _field), do: nil
   defp profile_field(%{profile: nil}, _field), do: nil

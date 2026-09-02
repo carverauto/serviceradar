@@ -1,6 +1,6 @@
 {
   "id": "com.carverauto.anomaly.detection_finding.display",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "schema_id": "com.carverauto.anomaly.detection_finding",
   "schema_version": "1.0.0",
   "widgets": [
@@ -35,8 +35,8 @@
     {
       "type": "timeline",
       "fields": [
-        {"label": "Event Time", "path": "time"},
-        {"label": "Observed (unix nano)", "path": "anomaly.observed_at_unix_nano"}
+        {"label": "Event Time", "path": "time", "format": "timestamp"},
+        {"label": "Observed (unix nano)", "path": "anomaly.observed_at_unix_nano", "format": "unix_nano"}
       ]
     },
     {

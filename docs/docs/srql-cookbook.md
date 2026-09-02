@@ -98,6 +98,24 @@ in:devices stats:count() as total by vendor_name sort:total:desc
 
 The most common vendors in your fleet.
 
+### Count composite-check verdicts
+
+```srql
+in:composite_results stats:count() as n by check,verdict
+```
+
+A GROUP BY, not a truncated row dump. Unsupported aggregations or group
+fields return `InvalidRequest` instead of silently listing rows.
+
+### Roll up composite-check vantage inputs
+
+```srql
+in:composite_results check:pci-isolation stats:"count() as n by input_key, input_value, input_stale"
+```
+
+Unnests the `inputs` JSONB map. Empty or null `inputs` contribute no
+vantage rows.
+
 ---
 
 ## Inspecting events and logs
@@ -362,17 +380,17 @@ in:attributed_flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
 ```
 
 Same bidirectional `ip:` helper as raw flows. In the UI, rows show **PROCESS**
-(e.g. `gitea`, `anubis`) and **PUBLIC ENDPOINT** (e.g. `Gateway: forgejo-http`)
+(e.g. `nginx`, `anubis`) and **PUBLIC ENDPOINT** (e.g. `Gateway: serviceradar-web`)
 when the correlator stamped ownership.
 
 ### Filter by public endpoint owner
 
 ```srql
-in:attributed_flows time:last_24h service_name:forgejo-http sort:time:desc limit:50
+in:attributed_flows time:last_24h service_name:serviceradar-web sort:time:desc limit:50
 ```
 
 ```srql
-in:attributed_flows time:last_24h service_name:anubis-forgejo sort:time:desc limit:50
+in:attributed_flows time:last_24h service_name:harbor-http sort:time:desc limit:50
 ```
 
 ```srql
@@ -401,16 +419,16 @@ netprobe did not join a process (or no SSH hit a joined socket yet), not that
 `port:` is broken.
 
 ```srql
-in:attributed_flows time:last_24h service_name:forgejo-ssh sort:time:desc limit:50
+in:attributed_flows time:last_24h service_name:git-ssh sort:time:desc limit:50
 ```
 
-SSH that was stamped with the public endpoint owner `forgejo-ssh`. Requires
+SSH that was stamped with the public endpoint owner `git-ssh`. Requires
 inventory + correlator VIP join on `:22`.
 
 ### Process-focused attributed traffic
 
 ```srql
-in:attributed_flows time:last_1h process:gitea sort:time:desc limit:50
+in:attributed_flows time:last_1h process:sshd sort:time:desc limit:50
 ```
 
 ```srql

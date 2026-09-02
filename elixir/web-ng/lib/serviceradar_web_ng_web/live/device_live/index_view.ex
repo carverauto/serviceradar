@@ -89,7 +89,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
       </div>
 
       <!-- Add Device Modal -->
-      <.add_device_modal :if={@show_add_device_modal} form={@add_device_form} />
+      <.add_device_modal
+        :if={@show_add_device_modal}
+        form={@add_device_form}
+        partition_options={@import_partition_options}
+      />
 
       <!-- Import CSV Modal -->
       <.import_csv_modal
@@ -99,6 +103,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
         csv_errors={@csv_errors}
         csv_warnings={@csv_warnings}
         import_status={@import_status}
+        import_partition={@import_partition}
+        import_partition_error={@import_partition_error}
+        partition_options={@import_partition_options}
       />
 
       <!-- Bulk Edit Modal -->

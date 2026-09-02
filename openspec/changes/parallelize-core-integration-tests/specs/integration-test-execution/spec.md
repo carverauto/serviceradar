@@ -434,10 +434,15 @@ of the ordinary wildcard's 114-slot workflow-wide preflight.
 - **AND** a developer-only diagnostic override MUST NOT lower either CI workload
 
 ### Requirement: Heavy coverage is a default-branch and release qualification gate
-BuildBuddy SHALL run the focused heavy lifecycle on pushes to `staging`, on a nightly UTC
-schedule, and for release tags. BuildBuddy's linked GitHub App SHALL publish the classic commit
-status context `LargeIngestionGate` for the exact commit, and release publication MUST wait for a
-successful BuildBuddy result for the immutable tag commit.
+BuildBuddy SHALL run the focused heavy lifecycle on pushes to `staging` and on a nightly UTC
+schedule. It SHALL NOT start a second 50GB job from a `v*` tag push: the tag is cut from a
+chore commit, the staging merge has a different SHA and the same tree, and a tag-triggered
+duplicate sits `queued=true` without an invocation while publication polls the tag SHA.
+BuildBuddy's linked GitHub App SHALL publish the classic commit status context
+`LargeIngestionGate` for the workflow commit. Release publication MUST wait for a successful
+BuildBuddy result for the immutable tag commit **or** a first-parent descendant of that
+commit on fetched `origin/staging` whose git tree SHA is identical (the ancestry-preserving
+merge).
 
 #### Scenario: Nightly coverage runs outside pull requests
 - **GIVEN** the latest default-branch commit
@@ -448,15 +453,34 @@ successful BuildBuddy result for the immutable tag commit.
 
 #### Scenario: Release commit lacks heavy-gate evidence
 - **GIVEN** a release tag points to a commit that contains the heavy-gate target
-- **AND** that commit has no successful current `LargeIngestionGate` status
+- **AND** neither that commit nor a same-tree first-parent descendant on `origin/staging`
+  has a successful current `LargeIngestionGate` status
 - **WHEN** the release workflow reaches qualification
-- **THEN** it SHALL use explicit `statuses: read` permission to query the exact commit
-- **AND** it SHALL wait for the named classic status for at most 30 minutes
-- **AND** it SHALL evaluate only the newest status record for the exact context
+- **THEN** it SHALL use explicit `statuses: read` permission to query the tag commit and
+  those same-tree descendants
+- **AND** it SHALL wait for a named classic success for at most 90 minutes
+- **AND** it SHALL evaluate only the newest status record per SHA for the exact context
 - **AND** it SHALL accept only `success` whose parsed target URL uses HTTPS, host exactly
   `carverauto.buildbuddy.io`, and a nonempty `/invocation/<id>` path
-- **AND** it SHALL stop before artifact publication if the status remains missing, pending, or
-  failed
+- **AND** a pending or failed status on the tag SHA SHALL NOT fail qualification while a
+  same-tree staging descendant is still missing or pending
+- **AND** it SHALL stop before artifact publication if every candidate remains missing,
+  pending, or terminal-failed
+
+#### Scenario: Staging merge status qualifies the tagged chore commit
+- **GIVEN** a release tag points at chore commit T
+- **AND** `origin/staging` first-parent history contains merge commit M
+- **AND** T is an ancestor of M
+- **AND** `git rev-parse T^{tree}` equals `git rev-parse M^{tree}`
+- **AND** `LargeIngestionGate` is success on M and pending on T
+- **WHEN** the release workflow reaches qualification
+- **THEN** it SHALL accept M's success and proceed to publication
+
+#### Scenario: Tag push does not enqueue a second heavy job
+- **GIVEN** a `v*` tag is pushed
+- **WHEN** BuildBuddy evaluates `LargeIngestionGate` triggers
+- **THEN** it SHALL NOT start the heavy action from the tag event
+- **AND** the staging-push and nightly triggers remain in force
 
 #### Scenario: Historical tag predates the complete gate contract
 - **GIVEN** a manual release retry selects an immutable tag commit that does not contain the

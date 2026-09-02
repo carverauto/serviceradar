@@ -9,9 +9,11 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
   alias Ash.Page.Keyset
   alias ServiceRadar.AgentConfig.DependencyDiagnostics
+  alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Integrations
+  alias ServiceRadar.Integrations.ArmisNorthboundLedger
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
@@ -42,12 +44,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         |> assign(:agents, agents)
         |> assign(:agent_index, agent_index)
         |> assign(:agent_options, agent_options)
+        |> assign(:composite_check_options, composite_check_options(socket))
         |> assign(:sync_agent_available, sync_agent_available)
         |> assign(:show_create_modal, false)
         |> assign(:show_edit_modal, false)
         |> assign(:show_details_modal, false)
         |> assign(:selected_source, nil)
         |> assign(:selected_source_runs, [])
+        |> assign(:selected_source_target_examples, [])
         |> assign(:selected_source_config_diagnostics, [])
         |> assign(:create_form, build_create_form(actor))
         |> assign(:edit_form, nil)
@@ -136,9 +140,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
     case get_source(id, actor) do
       {:ok, source} ->
+        runs = list_recent_update_runs(source.id, actor)
+
         socket
         |> assign(:selected_source, source)
-        |> assign(:selected_source_runs, list_recent_update_runs(source.id, actor))
+        |> assign(:selected_source_runs, runs)
+        |> assign(:selected_source_target_examples, list_target_examples(runs))
         |> assign(:selected_source_config_diagnostics, list_config_diagnostics(source.id))
         |> assign(:show_details_modal, true)
 
@@ -205,6 +212,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
        |> assign(:agents, agents)
        |> assign(:agent_index, agent_index)
        |> assign(:agent_options, agent_options)
+       |> assign(:composite_check_options, composite_check_options(socket))
        |> assign(:form_queries, [default_query()])
        |> assign(:form_network_blacklist, "")
        |> assign(:form_custom_fields, "")}
@@ -314,6 +322,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
      |> assign(:show_details_modal, false)
      |> assign(:selected_source, nil)
      |> assign(:selected_source_runs, [])
+     |> assign(:selected_source_target_examples, [])
      |> assign(:selected_source_config_diagnostics, [])}
   end
 
@@ -408,6 +417,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         parse_network_blacklist(Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist))
 
       params = Map.put(params, "network_blacklist", blacklist)
+      params = put_composite_setting(params, %{})
+      params = put_fact_authority_setting(params)
 
       params =
         Map.put(
@@ -419,7 +430,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       form = AshPhoenix.Form.validate(socket.assigns.create_form.source, params)
 
       case AshPhoenix.Form.submit(form, params: params, actor: actor) do
-        {:ok, _source} ->
+        {:ok, source} ->
+          _ = sync_fact_authority(source, params, actor)
+
           {:noreply,
            socket
            |> assign(:show_create_modal, false)
@@ -458,6 +471,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       parse_network_blacklist(Map.get(params, "network_blacklist_text", socket.assigns.form_network_blacklist))
 
     params = Map.put(params, "network_blacklist", blacklist)
+    params = put_composite_setting(params, Map.get(socket.assigns.selected_source || %{}, :settings))
+    params = put_fact_authority_setting(params)
 
     params =
       Map.put(
@@ -469,7 +484,9 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     form = AshPhoenix.Form.validate(socket.assigns.edit_form.source, params)
 
     case AshPhoenix.Form.submit(form, params: params, actor: actor) do
-      {:ok, _source} ->
+      {:ok, source} ->
+        _ = sync_fact_authority(source, params, actor)
+
         {:noreply,
          socket
          |> assign(:show_edit_modal, false)
@@ -551,12 +568,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         case ArmisNorthboundRunWorker.enqueue_now(source.id) do
           {:ok, _job} ->
             refreshed = refresh_selected_source(socket.assigns.selected_source, actor)
+            runs = list_recent_update_runs(source.id, actor)
 
             {:noreply,
              socket
              |> put_flash(:info, "Queued Armis northbound run for #{source.name}")
              |> assign(:selected_source, refreshed)
-             |> assign(:selected_source_runs, list_recent_update_runs(source.id, actor))
+             |> assign(:selected_source_runs, runs)
+             |> assign(:selected_source_target_examples, list_target_examples(runs))
              |> assign(:sources, list_sources(actor, active_filters(socket)))}
 
           {:error, reason} ->
@@ -843,7 +862,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                           </div>
                         <% end %>
                         <div class="mt-1 text-xs text-sr-muted">
-                          {format_datetime(source.last_sync_at)}
+                          <.user_time
+                            id={"settings-integration-source-#{source.id}-last-sync-at"}
+                            value={source.last_sync_at}
+                            timezone={@current_scope.user.timezone || "Etc/UTC"}
+                            style={:compact}
+                            fallback="-"
+                          />
                         </div>
                       </td>
                       <td>
@@ -854,7 +879,13 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                             result={source.northbound_last_result}
                           />
                           <div class="mt-1 text-xs text-sr-muted">
-                            {format_datetime(source.northbound_last_run_at)}
+                            <.user_time
+                              id={"settings-integration-source-#{source.id}-northbound-last-run-at"}
+                              value={source.northbound_last_run_at}
+                              timezone={@current_scope.user.timezone || "Etc/UTC"}
+                              style={:compact}
+                              fallback="-"
+                            />
                           </div>
                           <div class="mt-1 text-xs text-sr-muted">
                             {source.northbound_last_updated_count || 0} updated
@@ -1092,6 +1123,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         form_queries={@form_queries}
         form_network_blacklist={@form_network_blacklist}
         form_custom_fields={@form_custom_fields}
+        composite_settings={%{}}
+        composite_check_options={@composite_check_options}
       />
       <.edit_modal
         :if={@show_edit_modal}
@@ -1103,6 +1136,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         form_queries={@form_queries}
         form_network_blacklist={@form_network_blacklist}
         form_custom_fields={@form_custom_fields}
+        composite_settings={composite_settings(@selected_source)}
+        composite_check_options={@composite_check_options}
       />
       <.details_modal
         :if={@show_details_modal}
@@ -1110,6 +1145,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         agent_index={@agent_index}
         selected_source_runs={@selected_source_runs}
         selected_source_config_diagnostics={@selected_source_config_diagnostics}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
       />
     </Layouts.app>
     """
@@ -1220,6 +1256,11 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 prompt="Use canonical device availability"
               />
             </div>
+
+            <.composite_export_fields
+              composite={@composite_settings}
+              composite_check_options={@composite_check_options}
+            />
           <% end %>
 
           <div class="sr-ui-divider text-xs text-sr-muted">Credentials</div>
@@ -1238,6 +1279,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             form={@form}
             custom_fields_value={@form_custom_fields}
           />
+
+          <.fact_authority_fields selected={[]} />
 
           <div class="sr-ui-divider text-xs text-sr-muted">Queries</div>
 
@@ -1426,6 +1469,11 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 prompt="Use canonical device availability"
               />
             </div>
+
+            <.composite_export_fields
+              composite={@composite_settings}
+              composite_check_options={@composite_check_options}
+            />
           <% end %>
 
           <div class="sr-ui-divider text-xs text-sr-muted">Credentials</div>
@@ -1444,6 +1492,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             form={@form}
             custom_fields_value={@form_custom_fields}
           />
+
+          <.fact_authority_fields selected={fact_authority_selected(@source)} />
 
           <div class="sr-ui-divider text-xs text-sr-muted">Queries</div>
 
@@ -1593,9 +1643,20 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <div class="text-xs uppercase tracking-wide text-sr-muted">API Key</div>
-                <code class="mt-1 block rounded bg-sr-subtle p-2 font-mono text-sm">
-                  {credential_display_value(source_credentials(@source), "api_key")}
-                </code>
+                <div class="mt-2">
+                  <.ui_badge
+                    variant={
+                      if credential_present?(source_credentials(@source), ["api_key"]),
+                        do: "success",
+                        else: "ghost"
+                    }
+                    size="xs"
+                  >
+                    {if credential_present?(source_credentials(@source), ["api_key"]),
+                      do: "Saved",
+                      else: "Not saved"}
+                  </.ui_badge>
+                </div>
               </div>
               <div>
                 <div class="text-xs uppercase tracking-wide text-sr-muted">API Secret</div>
@@ -1663,7 +1724,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           <%= if @source.last_sync_at do %>
             <div>
               <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Last Sync</div>
-              <div class="text-sm">{format_datetime(@source.last_sync_at)}</div>
+              <div class="text-sm">
+                <.user_time
+                  id={"settings-integration-source-details-#{@source.id}-last-sync-at"}
+                  value={@source.last_sync_at}
+                  timezone={@timezone}
+                  style={:compact}
+                  fallback="-"
+                />
+              </div>
             </div>
           <% end %>
 
@@ -1701,7 +1770,15 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                   <%= for diagnostic <- @selected_source_config_diagnostics do %>
                     <tr>
                       <td class="text-xs text-sr-muted">
-                        {format_datetime(Map.get(diagnostic, :recorded_at))}
+                        <.user_time
+                          id={
+                            "settings-integration-diagnostic-#{diagnostic_dom_id(diagnostic)}-recorded-at"
+                          }
+                          value={Map.get(diagnostic, :recorded_at)}
+                          timezone={@timezone}
+                          style={:compact}
+                          fallback="-"
+                        />
                       </td>
                       <td class="text-xs text-sr-muted">
                         {Map.get(diagnostic, :config_type)}
@@ -1731,6 +1808,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
           <%= if armis_source?(@source) do %>
             <div class="sr-ui-divider">Armis Northbound</div>
+            <% latest_run = List.first(@selected_source_runs) %>
 
             <div class="grid grid-cols-2 gap-4">
               <div>
@@ -1772,31 +1850,243 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </div>
             </div>
 
-            <div class="grid grid-cols-3 gap-4">
-              <div class="stat bg-sr-subtle rounded-lg p-3">
-                <div class="sr-ui-stat-title text-xs">Last Device Count</div>
-                <div class="sr-ui-stat-value text-lg">
-                  {@source.northbound_last_device_count || 0}
+            <div id="armis-reconciliation-statuses" class="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div class="rounded-lg border border-sr-line bg-sr-subtle p-3">
+                <div class="text-xs uppercase tracking-wide text-sr-muted">Inbound transport</div>
+                <div class="mt-1">
+                  <.status_badge
+                    enabled={@source.enabled}
+                    result={@source.last_result}
+                  />
                 </div>
               </div>
-              <div class="stat bg-sr-subtle rounded-lg p-3">
-                <div class="sr-ui-stat-title text-xs">Last Updated</div>
-                <div class="sr-ui-stat-value text-lg">
-                  {@source.northbound_last_updated_count || 0}
+              <div class="rounded-lg border border-sr-line bg-sr-subtle p-3">
+                <div class="text-xs uppercase tracking-wide text-sr-muted">Snapshot accounting</div>
+                <div class="mt-1">
+                  <.ui_badge
+                    variant={if exact_accounting?(latest_run), do: "success", else: "warning"}
+                    size="xs"
+                  >
+                    {if exact_accounting?(latest_run), do: "Exact", else: "Unavailable"}
+                  </.ui_badge>
                 </div>
               </div>
-              <div class="stat bg-sr-subtle rounded-lg p-3">
-                <div class="sr-ui-stat-title text-xs">Last Skipped</div>
-                <div class="sr-ui-stat-value text-lg">
-                  {@source.northbound_last_skipped_count || 0}
+              <div class="rounded-lg border border-sr-line bg-sr-subtle p-3">
+                <div class="text-xs uppercase tracking-wide text-sr-muted">Northbound transport</div>
+                <div class="mt-1">
+                  <%= if latest_run do %>
+                    <.run_status_badge status={latest_run.status} />
+                  <% else %>
+                    <.ui_badge variant="ghost" size="xs">Never run</.ui_badge>
+                  <% end %>
+                </div>
+              </div>
+              <div class="rounded-lg border border-sr-line bg-sr-subtle p-3">
+                <div class="text-xs uppercase tracking-wide text-sr-muted">Reconciliation</div>
+                <div class="mt-1">
+                  <.reconciliation_status_badge status={
+                    if latest_run, do: latest_run.reconciliation_status, else: :unavailable
+                  } />
                 </div>
               </div>
             </div>
 
             <div>
               <div class="text-xs uppercase tracking-wide text-sr-muted mb-1">Last Run</div>
-              <div class="text-sm">{format_datetime(@source.northbound_last_run_at)}</div>
+              <div class="text-sm">
+                <.user_time
+                  id={"settings-integration-source-details-#{@source.id}-northbound-last-run-at"}
+                  value={@source.northbound_last_run_at}
+                  timezone={@timezone}
+                  style={:compact}
+                  fallback="-"
+                />
+              </div>
             </div>
+            <%= if exact_accounting?(latest_run) do %>
+              <div
+                id="armis-reconciliation-funnel"
+                class="space-y-3 rounded-xl border border-sr-line bg-sr-surface p-4"
+              >
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div class="text-sm font-semibold text-sr-ink">Collection reconciliation</div>
+                    <div class="text-xs text-sr-muted">
+                      One disposition for every distinct Armis ID in this completed collection.
+                    </div>
+                  </div>
+                  <div class="text-right text-xs text-sr-muted">
+                    <div title={latest_run.collection_id}>
+                      Collection
+                      <span class="font-mono">{short_collection_id(latest_run.collection_id)}</span>
+                    </div>
+                    <div class="flex items-center justify-end gap-1">
+                      <span>Observed</span>
+                      <.user_time
+                        id={"settings-integration-run-#{latest_run.id}-collection-observed-at"}
+                        value={latest_run.collection_observed_at}
+                        timezone={@timezone}
+                        style={:compact}
+                        fallback="-"
+                      />
+                    </div>
+                    <.ui_button
+                      id="armis-run-target-export"
+                      href={~p"/settings/networks/integrations/runs/#{latest_run.id}/export.csv"}
+                      size="xs"
+                      variant="outline"
+                      class="mt-2"
+                    >
+                      Export ledger
+                    </.ui_button>
+                  </div>
+                </div>
+
+                <div class="stat bg-sr-subtle rounded-lg p-3">
+                  <div class="sr-ui-stat-title text-xs">Raw rows</div>
+                  <div class="sr-ui-stat-value text-lg">{latest_run.raw_rows || 0}</div>
+                  <div class="sr-ui-stat-desc text-xs text-sr-muted">
+                    {latest_run.excluded_rows || 0} policy-excluded + {latest_run.invalid_rows ||
+                      0} invalid + {latest_run.valid_occurrences || 0} valid occurrences
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="stat bg-sr-subtle rounded-lg p-3">
+                    <div class="sr-ui-stat-title text-xs">Distinct Armis IDs</div>
+                    <div class="sr-ui-stat-value text-lg">{latest_run.distinct_source_ids || 0}</div>
+                    <div class="sr-ui-stat-desc text-xs text-sr-muted">
+                      {latest_run.duplicate_occurrences || 0} repeated occurrences collapsed
+                    </div>
+                  </div>
+                  <div class="stat bg-sr-subtle rounded-lg p-3">
+                    <div class="sr-ui-stat-title text-xs">Conflicting repeats</div>
+                    <div class="sr-ui-stat-value text-lg">
+                      {latest_run.conflicting_duplicate_ids || 0}
+                    </div>
+                    <div class="sr-ui-stat-desc text-xs text-sr-muted">Withheld by source ID</div>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="stat bg-sr-subtle rounded-lg p-3">
+                    <div class="sr-ui-stat-title text-xs">Eligible IDs</div>
+                    <div class="sr-ui-stat-value text-lg">{latest_run.eligible_count || 0}</div>
+                  </div>
+                  <div class="stat bg-sr-subtle rounded-lg p-3">
+                    <div class="sr-ui-stat-title text-xs">Withheld IDs</div>
+                    <div class="sr-ui-stat-value text-lg">{latest_run.withheld_count || 0}</div>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-3 gap-3">
+                  <div class="stat bg-sr-subtle rounded-lg p-3">
+                    <div class="sr-ui-stat-title text-xs">Accepted by Armis</div>
+                    <div class="sr-ui-stat-value text-lg">{latest_run.accepted_count || 0}</div>
+                  </div>
+                  <div class="stat bg-sr-subtle rounded-lg p-3">
+                    <div class="sr-ui-stat-title text-xs">Failed IDs</div>
+                    <div class="sr-ui-stat-value text-lg">{latest_run.failed_count || 0}</div>
+                  </div>
+                  <div class="stat bg-sr-subtle rounded-lg p-3">
+                    <div class="sr-ui-stat-title text-xs">Unattempted IDs</div>
+                    <div class="sr-ui-stat-value text-lg">{latest_run.unattempted_count || 0}</div>
+                  </div>
+                </div>
+
+                <p class="text-xs text-sr-muted">
+                  Accepted means the Armis bulk endpoint returned success; it is not a downstream read-after-write verification.
+                </p>
+
+                <%= if examples = run_population_examples(latest_run, :duplicate_source_id_examples) do %>
+                  <details id="armis-duplicate-examples" class="rounded-lg border border-sr-line p-3">
+                    <summary class="cursor-pointer text-sm font-medium text-sr-ink">
+                      Repeated source-ID examples ({length(examples)})
+                    </summary>
+                    <div class="mt-2 flex flex-wrap gap-2">
+                      <%= for source_id <- examples do %>
+                        <.ui_badge variant="outline" size="xs">{source_id}</.ui_badge>
+                      <% end %>
+                    </div>
+                  </details>
+                <% end %>
+
+                <%= if examples = run_population_examples(latest_run, :invalid_row_examples) do %>
+                  <details id="armis-invalid-examples" class="rounded-lg border border-sr-line p-3">
+                    <summary class="cursor-pointer text-sm font-medium text-sr-ink">
+                      Invalid row examples ({length(examples)})
+                    </summary>
+                    <ul class="mt-2 space-y-1 font-mono text-xs text-sr-muted">
+                      <%= for example <- examples do %>
+                        <li>{example}</li>
+                      <% end %>
+                    </ul>
+                  </details>
+                <% end %>
+
+                <%= if reasons = run_withheld_reason_counts(latest_run) do %>
+                  <div id="armis-withheld-reasons" class="border-t border-sr-line pt-3">
+                    <div class="mb-2 text-xs uppercase tracking-wide text-sr-muted">
+                      Withheld reasons
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                      <%= for {reason, count} <- reasons do %>
+                        <.ui_badge variant="warning" size="xs">
+                          {humanize_reason(reason)}: {count}
+                        </.ui_badge>
+                      <% end %>
+                    </div>
+                  </div>
+                <% end %>
+
+                <%= if @selected_source_target_examples != [] do %>
+                  <div id="armis-disposition-examples" class="space-y-2 border-t border-sr-line pt-3">
+                    <div class="text-xs uppercase tracking-wide text-sr-muted">
+                      Disposition examples
+                    </div>
+                    <%= for {group, examples} <- @selected_source_target_examples do %>
+                      <details class="rounded-lg border border-sr-line p-3">
+                        <summary class="cursor-pointer text-sm font-medium text-sr-ink">
+                          {humanize_reason(group)} ({target_group_count(latest_run, group)})
+                        </summary>
+                        <div class="mt-2 overflow-x-auto">
+                          <table class={ui_table_class(size: "xs")}>
+                            <thead>
+                              <tr>
+                                <th>Armis ID</th><th>Canonical device</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <%= for example <- examples do %>
+                                <tr>
+                                  <td class="font-mono text-xs">{example.source_object_id}</td>
+                                  <td class="font-mono text-xs text-sr-muted">
+                                    {example.canonical_device_uid || "—"}
+                                  </td>
+                                </tr>
+                              <% end %>
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
+            <% else %>
+              <div
+                id="armis-accounting-unavailable"
+                class={ui_alert_class(variant: "warning", class: "text-sm")}
+              >
+                <.icon name="hero-exclamation-triangle" class="size-5" />
+                <div>
+                  <div class="font-medium">Collection accounting unavailable</div>
+                  <div class="text-xs text-sr-muted">
+                    Legacy runs are still visible, but their inventory and update totals are not presented as an exact reconciliation.
+                  </div>
+                </div>
+              </div>
+            <% end %>
 
             <%= if @source.northbound_last_error_message do %>
               <div class={ui_alert_class(variant: "error", class: "text-sm")}>
@@ -1820,16 +2110,24 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                         <th>Status</th>
                         <th>Source</th>
                         <th title="Composite check exported by this run">Composite</th>
-                        <th>Updated</th>
-                        <th>Skipped</th>
-                        <th>Errors</th>
+                        <th>Accepted</th>
+                        <th>Withheld</th>
+                        <th>Failed</th>
+                        <th>Unattempted</th>
+                        <th>Reconciliation</th>
                       </tr>
                     </thead>
                     <tbody>
                       <%= for run <- @selected_source_runs do %>
                         <tr>
                           <td class="text-xs text-sr-muted">
-                            {format_datetime(run.started_at)}
+                            <.user_time
+                              id={"settings-integration-run-#{run.id}-started-at"}
+                              value={run.started_at}
+                              timezone={@timezone}
+                              style={:compact}
+                              fallback="-"
+                            />
                           </td>
                           <td><.run_status_badge status={run.status} /></td>
                           <td class="font-mono text-xs text-sr-muted">
@@ -1844,10 +2142,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                                 <span class="ml-1 text-sr-muted">({form})</span>
                             <% end %>
                           </td>
-                          <td class="text-xs text-sr-muted">{run.updated_count || 0}</td>
-                          <td class="text-xs text-sr-muted">{run.skipped_count || 0}</td>
                           <td class="text-xs text-sr-muted">
-                            {run.error_count || 0}
+                            {run_accepted_count(run)}
+                          </td>
+                          <td class="text-xs text-sr-muted">
+                            {run_withheld_count(run)}
+                          </td>
+                          <td class="text-xs text-sr-muted">
+                            {run_failed_count(run)}
                             <%= if run.error_message do %>
                               <div
                                 class="max-w-[220px] truncate text-error/80"
@@ -1856,6 +2158,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                                 {run.error_message}
                               </div>
                             <% end %>
+                          </td>
+                          <td class="text-xs text-sr-muted">{run.unattempted_count || 0}</td>
+                          <td>
+                            <.reconciliation_status_badge status={run.reconciliation_status} />
                           </td>
                         </tr>
                       <% end %>
@@ -1979,13 +2285,286 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     """
   end
 
+  defp reconciliation_status_badge(assigns) do
+    {variant, label} =
+      case assigns.status do
+        :reconciled -> {"success", "Reconciled"}
+        :degraded -> {"warning", "Degraded"}
+        :failed -> {"error", "Failed"}
+        :pending -> {"info", "Pending"}
+        _ -> {"ghost", "Unavailable"}
+      end
+
+    assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
+  end
+
+  defp exact_accounting?(nil), do: false
+
+  defp exact_accounting?(run) do
+    is_binary(Map.get(run, :collection_id)) and Map.get(run, :collection_id) != "" and
+      Map.get(run, :reconciliation_status) != :unavailable
+  end
+
+  defp short_collection_id(nil), do: "-"
+
+  defp short_collection_id(collection_id) do
+    collection_id = to_string(collection_id)
+    if String.length(collection_id) > 12, do: String.slice(collection_id, 0, 12) <> "…", else: collection_id
+  end
+
+  defp run_withheld_reason_counts(run) do
+    metadata = Map.get(run, :metadata) || %{}
+
+    metadata
+    |> metadata_value(:withheld_reason_counts)
+    |> case do
+      reasons when is_map(reasons) and map_size(reasons) > 0 ->
+        reasons
+        |> Enum.filter(fn {_reason, count} -> is_integer(count) and count > 0 end)
+        |> Enum.sort_by(fn {reason, _count} -> to_string(reason) end)
+        |> case do
+          [] -> nil
+          values -> values
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp run_population_examples(run, key) do
+    metadata = Map.get(run, :metadata) || %{}
+
+    with collection when is_map(collection) <- metadata_value(metadata, :collection),
+         examples when is_list(examples) <- metadata_value(collection, key),
+         examples = examples |> Enum.filter(&is_binary/1) |> Enum.take(100),
+         true <- examples != [] do
+      examples
+    else
+      _ -> nil
+    end
+  end
+
+  defp target_group_count(run, group) do
+    case to_string(group) do
+      "failed" ->
+        run.failed_count || 0
+
+      "unattempted" ->
+        run.unattempted_count || 0
+
+      reason ->
+        run
+        |> run_withheld_reason_counts()
+        |> List.wrap()
+        |> Enum.find_value(0, fn {candidate, count} ->
+          if to_string(candidate) == reason, do: count
+        end)
+    end
+  end
+
+  defp humanize_reason(reason) do
+    reason
+    |> to_string()
+    |> String.replace("_", " ")
+  end
+
+  defp run_accepted_count(run) do
+    if exact_accounting?(run), do: run.accepted_count || 0, else: run.updated_count || 0
+  end
+
+  defp run_withheld_count(run) do
+    if exact_accounting?(run), do: run.withheld_count || 0, else: run.skipped_count || 0
+  end
+
+  defp run_failed_count(run) do
+    if exact_accounting?(run), do: run.failed_count || 0, else: run.error_count || 0
+  end
+
   defp armis_source?(%{source_type: :armis}), do: true
   defp armis_source?("armis"), do: true
   defp armis_source?(:armis), do: true
   defp armis_source?(_), do: false
 
+  # {label, slug} for the composite export picker.
+  #
+  # Non-enabled checks are LISTED but labelled with their state rather than
+  # hidden. CompositeNorthboundValues.for_devices/3 exports nothing for a check
+  # that is not enabled, so hiding drafts would leave an operator unable to find
+  # the check they just built, while offering them unlabelled would let them
+  # save an export that silently publishes nothing.
+  defp composite_check_options(socket) do
+    require Ash.Query
+
+    scope = socket.assigns[:current_scope]
+
+    CompositeCheck
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.sort(name: :asc)
+    |> Ash.read()
+    |> case do
+      {:ok, checks} ->
+        Enum.map(checks, fn check ->
+          label =
+            if check.state == :enabled do
+              check.name
+            else
+              "#{check.name} (#{check.state} - exports nothing until enabled)"
+            end
+
+          {label, check.slug}
+        end)
+
+      {:error, _reason} ->
+        []
+    end
+  end
+
   defp armis_source_type?(type) when type in [:armis, "armis"], do: true
   defp armis_source_type?(_), do: false
+
+  attr(:composite, :map, default: %{})
+  attr(:composite_check_options, :list, default: [])
+
+  @doc false
+  # The three values are one selection, not three settings: composite_export/1
+  # requires all of them and reads a half-configured export as "not configured".
+  # Rendering them as one block is what makes that legible -- three fields
+  # scattered through the form would let an operator fill two and see nothing
+  # happen with no indication why.
+  defp composite_export_fields(assigns) do
+    ~H"""
+    <div class="space-y-3">
+      <div class="sr-ui-divider text-xs text-sr-muted">Composite check export</div>
+
+      <p class="text-xs text-sr-muted">
+        Publishes an enabled composite check's result to its own Armis custom field,
+        alongside availability. All three values are required — leaving the check
+        blank disables the export.
+      </p>
+
+      <div class="grid grid-cols-3 gap-4">
+        <div class="flex flex-col gap-1.5">
+          <label class="text-sm font-medium text-sr-ink">Composite check</label>
+          <select
+            name="composite_check_slug"
+            class={ui_field_class(class: "w-full text-sm")}
+          >
+            <option value="">No composite export</option>
+            <option
+              :for={{label, slug} <- @composite_check_options}
+              value={slug}
+              selected={@composite["check_slug"] == slug}
+            >
+              {label}
+            </option>
+          </select>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label class="text-sm font-medium text-sr-ink">Value</label>
+          <select name="composite_value_form" class={ui_field_class(class: "w-full text-sm")}>
+            <option value="verdict" selected={@composite["value_form"] != "status"}>
+              verdict
+            </option>
+            <option value="status" selected={@composite["value_form"] == "status"}>
+              status
+            </option>
+          </select>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label class="text-sm font-medium text-sr-ink">Armis custom field</label>
+          <input
+            type="text"
+            name="composite_custom_field"
+            value={@composite["custom_field"]}
+            class={ui_field_class(mono: true, class: "w-full text-sm")}
+            placeholder="sr_isolation"
+            autocomplete="off"
+          />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  # settings["composite"] as the form reads it. String keys throughout: the
+  # attribute is a plain :map and the runner reads string keys, so normalising
+  # here keeps the form and the reader speaking the same shape.
+  defp composite_settings(nil), do: %{}
+
+  defp composite_settings(source) do
+    source
+    |> Map.get(:settings)
+    |> case do
+      settings when is_map(settings) -> Map.get(settings, "composite")
+      _other -> nil
+    end
+    |> case do
+      composite when is_map(composite) ->
+        Map.new(composite, fn {k, v} -> {to_string(k), v} end)
+
+      _other ->
+        %{}
+    end
+  end
+
+  # Merged into the source's existing settings rather than replacing them: this
+  # form owns one key, and a wholesale write would silently drop any other
+  # source-specific setting stored alongside it.
+  defp put_composite_setting(params, existing_settings) do
+    slug = params |> Map.get("composite_check_slug", "") |> to_string() |> String.trim()
+    form = params |> Map.get("composite_value_form", "") |> to_string() |> String.trim()
+    field = params |> Map.get("composite_custom_field", "") |> to_string() |> String.trim()
+
+    base =
+      case existing_settings do
+        settings when is_map(settings) -> Map.new(settings, fn {k, v} -> {to_string(k), v} end)
+        _other -> %{}
+      end
+
+    settings =
+      if slug == "" do
+        Map.delete(base, "composite")
+      else
+        Map.put(base, "composite", %{
+          "check_slug" => slug,
+          "value_form" => if(form == "status", do: "status", else: "verdict"),
+          "custom_field" => field
+        })
+      end
+
+    params
+    |> Map.put("settings", settings)
+    |> Map.drop(["composite_check_slug", "composite_value_form", "composite_custom_field"])
+  end
+
+  defp put_fact_authority_setting(params) do
+    keys =
+      params
+      |> Map.get("fact_authority", [])
+      |> List.wrap()
+      |> Enum.map(&to_string/1)
+      |> Enum.filter(&(&1 in ["switch_port_attachment", "vlan_uid"]))
+
+    settings =
+      params
+      |> Map.get("settings", %{})
+      |> case do
+        map when is_map(map) -> Map.new(map, fn {k, v} -> {to_string(k), v} end)
+        _ -> %{}
+      end
+      |> Map.put("fact_authority", keys)
+
+    params
+    |> Map.put("settings", settings)
+    |> Map.delete("fact_authority")
+  end
 
   defp refresh_selected_source(nil, _actor), do: nil
 
@@ -2006,10 +2585,24 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp maybe_put_filter(filters, _key, ""), do: filters
   defp maybe_put_filter(filters, key, value), do: Map.put(filters, key, value)
 
-  defp format_datetime(nil), do: "-"
+  defp diagnostic_dom_id(diagnostic) do
+    identity =
+      Map.get(diagnostic, :id) ||
+        Enum.map_join(
+          [
+            Map.get(diagnostic, :resource_id),
+            Map.get(diagnostic, :config_type),
+            Map.get(diagnostic, :action_type),
+            Map.get(diagnostic, :recorded_at)
+          ],
+          "-",
+          &to_string/1
+        )
 
-  defp format_datetime(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
+    identity
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
   end
 
   defp format_affected_agents(:all_online), do: "All online"
@@ -2235,6 +2828,26 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     _ -> []
   end
 
+  defp list_target_examples([latest_run | _]) do
+    if exact_accounting?(latest_run) do
+      case ArmisNorthboundLedger.examples(latest_run.id, per_group: 5) do
+        {:ok, rows} ->
+          rows
+          |> Enum.group_by(fn row -> row.reason || row.outcome end)
+          |> Enum.sort_by(fn {group, _rows} -> group end)
+
+        {:error, _reason} ->
+          []
+      end
+    else
+      []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp list_target_examples(_runs), do: []
+
   defp list_config_diagnostics(source_id) do
     source_id = to_string(source_id)
 
@@ -2313,7 +2926,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
       "cred_netbox_token",
       "cred_netbox_verify_ssl",
       "cred_credential_secret_id",
-      "credentials_json"
+      "credentials_json",
+      "composite_check_slug",
+      "composite_value_form",
+      "composite_custom_field"
     ])
     |> Map.merge(form_params)
   end
@@ -2544,7 +3160,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp dynamic_credentials_fields(assigns) do
     assigns =
       assigns
-      |> assign(:api_key_value, credential_value(assigns.credentials, "api_key"))
+      |> assign(:api_key_present?, credential_present?(assigns.credentials, ["api_key"]))
       |> assign(
         :v3_client_id_value,
         credential_value(assigns.credentials, ["client_id", "v3_client_id"])
@@ -2598,13 +3214,28 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <span class="text-sm font-medium text-sr-ink">API Key</span>
             </label>
             <input
-              type="text"
+              type="password"
               name="cred_api_key"
-              value={@api_key_value}
               class={ui_field_class(mono: true, class: "w-full text-sm")}
-              placeholder="Enter your Armis API key"
+              placeholder={
+                if @mode == :edit and @api_key_present? do
+                  "Saved key; leave empty to keep existing"
+                else
+                  "Enter your Armis API key"
+                end
+              }
               autocomplete="off"
             />
+            <%= if @mode == :edit do %>
+              <label class="flex items-center justify-between gap-2">
+                <span class="text-xs text-sr-muted">
+                  API key:
+                  <.ui_badge size="xs" variant={if(@api_key_present?, do: "success", else: "ghost")}>
+                    {if @api_key_present?, do: "saved", else: "not saved"}
+                  </.ui_badge>
+                </span>
+              </label>
+            <% end %>
           </div>
           <div class="flex flex-col gap-1.5">
             <label class="flex items-center justify-between gap-2">
@@ -2833,6 +3464,66 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     """
   end
 
+  attr :selected, :list, default: []
+
+  defp fact_authority_fields(assigns) do
+    ~H"""
+    <div class="sr-ui-divider text-xs text-sr-muted">Source fact authority</div>
+    <p class="text-xs text-sr-muted">
+      When Armis and another inventory source disagree, this source can win for the selected facts.
+      Plugin packages cannot set this.
+    </p>
+    <div class="space-y-2">
+      <label class="flex items-center gap-3 text-sm">
+        <input
+          type="checkbox"
+          name="form[fact_authority][]"
+          value="switch_port_attachment"
+          class={ui_toggle_class()}
+          checked={"switch_port_attachment" in @selected}
+        />
+        <span>This source wins for switch port</span>
+      </label>
+      <label class="flex items-center gap-3 text-sm">
+        <input
+          type="checkbox"
+          name="form[fact_authority][]"
+          value="vlan_uid"
+          class={ui_toggle_class()}
+          checked={"vlan_uid" in @selected}
+        />
+        <span>This source wins for VLAN</span>
+      </label>
+    </div>
+    """
+  end
+
+  defp fact_authority_selected(%{settings: settings}) when is_map(settings) do
+    settings
+    |> Map.get("fact_authority", Map.get(settings, :fact_authority, []))
+    |> List.wrap()
+    |> Enum.map(&to_string/1)
+  end
+
+  defp fact_authority_selected(_source), do: []
+
+  defp sync_fact_authority(source, params, actor) do
+    keys =
+      params
+      |> Map.get("fact_authority", Map.get(params, :fact_authority, []))
+      |> List.wrap()
+      |> Enum.map(&to_string/1)
+
+    ServiceRadar.Inventory.SourceFacts.Catalog.sync(
+      "integration_source",
+      to_string(source.id),
+      to_string(source.source_type),
+      to_string(source.id),
+      keys,
+      actor: actor
+    )
+  end
+
   attr(:form, :any, required: true)
   attr(:custom_fields_value, :string, default: "")
 
@@ -2920,14 +3611,6 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp credential_atom_key("vendor_id"), do: :vendor_id
   defp credential_atom_key("v3_vendor_id"), do: :v3_vendor_id
   defp credential_atom_key(_), do: nil
-
-  defp credential_display_value(credentials, key) do
-    case credential_value(credentials, key) do
-      nil -> "-"
-      "" -> "-"
-      value -> value
-    end
-  end
 
   defp credential_present?(credentials, keys) when is_map(credentials) and is_list(keys) do
     Enum.any?(keys, fn key ->

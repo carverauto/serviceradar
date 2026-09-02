@@ -34,7 +34,7 @@ go_test(
     embed = [":banner_grab"],
     # Arms TestEngineKeepsMillionHostSyntheticStreamBounded, the 1M-host back-pressure
     # validation, so it runs in the ordinary unit sweep. It used to run ONLY from a nightly
-    # cron (.forgejo/workflows/banner-grab-large.yml) on the theory that it was "too slow to
+    # cron on the theory that it was "too slow to
     # gate every PR" -- it takes 2.45s on RBE, so that was a property of the old runner, not
     # of the test. It needs no network or fixture: the engine's DialContext is injected with
     # a scripted conn, so nothing here dials anything.

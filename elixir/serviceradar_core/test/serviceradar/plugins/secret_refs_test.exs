@@ -127,9 +127,11 @@ defmodule ServiceRadar.Plugins.SecretRefsTest do
   end
 
   test "network credential refs are accepted without embedded secret material" do
-    ref = SecretRefs.network_credential_ref("018f3f56-1111-7222-8333-123456789abc")
+    secret_id = "018f3f56-1111-7222-8333-123456789abc"
+    ref = SecretRefs.network_credential_ref(secret_id)
 
     assert SecretRefs.secret_ref?(ref)
+    assert {:ok, ^secret_id} = SecretRefs.network_credential_secret_ref_id(ref)
 
     assert :ok =
              SecretRefs.validate_secret_linkage(@schema, %{
@@ -159,6 +161,10 @@ defmodule ServiceRadar.Plugins.SecretRefsTest do
 
     assert SecretRefs.secret_ref?(ref)
     assert String.starts_with?(ref, "credentialref:network-credential-grant:")
+
+    assert {:error, "is not a stored network credential reference"} =
+             SecretRefs.network_credential_secret_ref_id(ref)
+
     assert {:ok, ^secret_id} = SecretRefs.network_credential_ref_id(ref)
     assert {:error, "has already been used"} = SecretRefs.network_credential_ref_id(ref)
   end

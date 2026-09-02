@@ -36,14 +36,17 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentBindingE2ETest do
   @switch_a_uid "sr:e2e-bind-switch-a"
   @switch_b_uid "sr:e2e-bind-switch-b"
   @switch_c_uid "sr:e2e-bind-switch-c"
+  @switch_d_uid "sr:e2e-bind-switch-d"
   @owner_uid "sr:e2e-bind-owner"
   @ip_only_uid "sr:e2e-bind-ip-only"
   @conflict_uid "sr:e2e-bind-mac-conflict"
+  @chr_uid "sr:e2e-bind-chr"
 
   # Universal (IEEE global) MACs so DIRE registers them at strong confidence.
   @secondary_mac "a8:20:66:0d:e2:11"
   @ip_bind_mac "a8:20:66:0d:e2:22"
   @conflict_sighting_mac "a8:20:66:0d:e2:33"
+  @vjuniper_mac "bc:24:11:26:40:e7"
 
   @owner_primary_mac "a8:20:66:0d:aa:01"
   @conflict_owner_mac "a8:20:66:0d:aa:02"
@@ -54,6 +57,8 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentBindingE2ETest do
   @ip_only_ip "198.51.100.222"
   @conflict_primary_ip "198.51.100.224"
   @conflict_ip "198.51.100.225"
+  @chr_primary_ip "198.51.100.226"
+  @chr_alias_ip "198.51.100.227"
 
   setup_all do
     TestSupport.start_core!()
@@ -105,12 +110,15 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentBindingE2ETest do
       @switch_a_uid,
       @switch_b_uid,
       @switch_c_uid,
+      @switch_d_uid,
       @owner_uid,
       @ip_only_uid,
       @conflict_uid,
+      @chr_uid,
       deterministic_uid(@secondary_mac),
       deterministic_uid(@ip_bind_mac),
       deterministic_uid(@conflict_sighting_mac),
+      deterministic_uid(@vjuniper_mac),
       "#{@switch_a_uid}/ifindex:4",
       "#{@switch_b_uid}/ifindex:4",
       "#{@switch_c_uid}/ifindex:4",
@@ -120,7 +128,11 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentBindingE2ETest do
       "#{@ip_only_uid}/#{@ip_only_ip}",
       "#{@ip_only_uid}/unknown-neighbor",
       "#{@conflict_uid}/#{@conflict_ip}",
-      "#{@conflict_uid}/unknown-neighbor"
+      "#{@conflict_uid}/unknown-neighbor",
+      "#{@switch_d_uid}/ifindex:4",
+      "#{@chr_uid}/#{@chr_alias_ip}",
+      "#{@chr_uid}/#{@vjuniper_mac}",
+      "#{@chr_uid}/unknown-neighbor"
     ])
 
     {:ok, actor: SystemActor.system(:mapper_topology_ingestor)}
@@ -214,7 +226,44 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentBindingE2ETest do
     assert row["neighbor_device_id"] == provisional_uid
   end
 
-  defp fdb_payload(switch_uid, neighbor_mac, neighbor_ip) do
+  test "cross-subnet FDB does not register a foreign chassis MAC onto an IP-only device", %{
+    actor: actor
+  } do
+    # Reproduction: farm Catalyst ARP still had the dead CHR IP, while FDB
+    # on the same port learned the vJunos chassis MAC. Binding that MAC onto
+    # the CHR uid is how two pieces of hardware collapsed into one device.
+    create_device!(actor, %{uid: @chr_uid, ip: @chr_primary_ip})
+    create_ip_alias!(actor, @chr_uid, @chr_alias_ip)
+
+    payload =
+      fdb_payload(@switch_d_uid, @vjuniper_mac, @chr_alias_ip,
+        confidence_reason: "cross_subnet_arp_fdb_port_mapping"
+      )
+
+    assert :ok = MapperResultsIngestor.ingest_topology(Jason.encode!([payload]), %{})
+
+    provisional_uid = deterministic_uid(@vjuniper_mac)
+    assert device_count(provisional_uid) == 1
+
+    normalized_mac = IdentityReconciler.normalize_mac(@vjuniper_mac)
+
+    %Postgrex.Result{rows: rows} =
+      SQL.query!(
+        Repo,
+        "SELECT device_id FROM device_identifiers WHERE identifier_type = 'mac' AND identifier_value = $1",
+        [normalized_mac]
+      )
+
+    assert [[^provisional_uid]] = rows
+    refute Enum.any?(rows, fn [device_id] -> device_id == @chr_uid end)
+
+    assert [row] = topology_rows(@switch_d_uid)
+    assert row["neighbor_device_id"] == provisional_uid
+  end
+
+  defp fdb_payload(switch_uid, neighbor_mac, neighbor_ip, opts \\ []) do
+    confidence_reason = Keyword.get(opts, :confidence_reason, "arp_fdb_port_mapping")
+
     base = %{
       "timestamp" => DateTime.truncate(DateTime.utc_now(), :microsecond),
       "protocol" => "SNMP-L2",
@@ -233,7 +282,7 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentBindingE2ETest do
         "evidence_class" => "inferred-segment",
         "relation_family" => "ATTACHED_TO",
         "confidence_tier" => "medium",
-        "confidence_reason" => "arp_fdb_port_mapping"
+        "confidence_reason" => confidence_reason
       }
     }
 

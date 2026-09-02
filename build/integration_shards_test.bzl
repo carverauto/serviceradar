@@ -118,11 +118,29 @@ def _integration_shards_topology_test_impl(ctx):
     serial_counts = serial_source_module_counts()
     serial_test_counts = serial_source_test_counts()
     selected_sources = integration_selected_sources()
-    asserts.equals(env, 126, len(async_sources))
-    asserts.equals(env, 160, len(serial_counts))
-    asserts.equals(env, 160, len(serial_test_counts))
+    # Consistency RELATIONS, not three magic totals.
+    #
+    # These were pinned to 126 / 160 / 286 -- and 126 + 160 == 286, so the only
+    # real invariant was that the async and serial projections partition the
+    # selection exactly. Pinning the absolutes meant every added or removed test
+    # file failed this test even when the projection was correct, and made two
+    # concurrent PRs invalidate each other: BazelCI tests the MERGE of a branch
+    # with its base, so the second PR to run saw a failure caused entirely by the
+    # first. The relations below hold no matter how many tests exist.
+    asserts.equals(env, len(serial_counts), len(serial_test_counts))
     asserts.equals(env, sorted(serial_counts.keys()), sorted(serial_test_counts.keys()))
-    asserts.equals(env, 286, len(selected_sources))
+    asserts.equals(
+        env,
+        len(async_sources) + len(serial_counts),
+        len(selected_sources),
+        "async + serial projections must partition the selection exactly",
+    )
+
+    # A floor, so an emptied or truncated projection still fails loudly. This is
+    # deliberately far below the real figures (126 async / 160 serial) -- it is a
+    # tripwire for catastrophic loss, not a count to maintain.
+    asserts.true(env, len(async_sources) > 50, "async projection looks truncated")
+    asserts.true(env, len(serial_counts) > 50, "serial projection looks truncated")
     asserts.equals(env, _FIXED_EXTERNAL_RESOURCE_SRCS, fixed_external_resource_sources())
 
     partitions = partition_by_lane(selected_sources)
@@ -149,9 +167,59 @@ def _integration_shards_topology_test_impl(ctx):
     asserts.equals(env, sorted(selected_sources), sorted(partitioned_sources))
     asserts.equals(env, len(selected_sources), len(partitioned_sources))
     asserts.equals(env, sorted(serial_counts.keys()), sorted(serial_partitioned_sources))
-    asserts.equals(env, [26, 22, 22, 23, 22, 22, 23], serial_lane_sizes)
-    asserts.equals(env, [187, 192, 192, 191, 190, 190, 190], serial_lane_test_counts)
-    asserts.equals(env, [213, 214, 214, 214, 212, 212, 213], serial_lane_weights)
+    # Balance is asserted as a PROPERTY, not as a snapshot of one distribution.
+    #
+    # These three lists used to be pinned to exact values -- [26, 22, 22, ...] and
+    # friends. Those numbers are output of the bin-packer, not a contract anyone
+    # chose, so adding or removing a single test file redistributed every lane and
+    # failed all three assertions. Nobody could compute the new distribution by
+    # hand, so the fix was always "run it, read the `got` value, paste it back":
+    # churn that carried no information and could not fail usefully. Worse, two PRs
+    # that each added a test invalidated each other, so the second to run saw a red
+    # BazelCI caused by the first. `git log` on this file shows 15 commits in 90
+    # days, several of them titled purely as rebalances or drift reconciliation.
+    #
+    # What actually matters is that no serial lane is much heavier than the others:
+    # the lanes run in parallel, so the heaviest one sets the wall clock. That is
+    # what is asserted here, and it survives adding a test.
+    asserts.equals(env, len(lanes) - 1, len(serial_lane_weights))
+    asserts.equals(env, len(serial_lane_weights), len(serial_lane_sizes))
+    asserts.equals(env, len(serial_lane_weights), len(serial_lane_test_counts))
+
+    serial_lane_count = len(serial_lane_weights)
+    total_weight = 0
+    for weight in serial_lane_weights:
+        total_weight += weight
+
+    max_weight = serial_lane_weights[0]
+    min_weight = serial_lane_weights[0]
+    for weight in serial_lane_weights:
+        if weight > max_weight:
+            max_weight = weight
+        if weight < min_weight:
+            min_weight = weight
+
+    # Integer arithmetic rather than division: `max <= mean * 1.25` and
+    # `min >= mean * 0.75`, with mean = total / lane_count. A lane 25% above
+    # average is a real wall-clock regression; a lane 25% below average means the
+    # packer is leaving capacity unused. Both bounds are far outside the observed
+    # spread (212..214 against a mean of ~213) so ordinary churn cannot trip them,
+    # while a partitioner that collapsed everything into one lane fails loudly.
+    asserts.true(
+        env,
+        max_weight * serial_lane_count * 100 <= total_weight * 125,
+        "serial lane weights are unbalanced (heaviest lane): %s" % serial_lane_weights,
+    )
+    asserts.true(
+        env,
+        min_weight * serial_lane_count * 100 >= total_weight * 75,
+        "serial lane weights are unbalanced (lightest lane): %s" % serial_lane_weights,
+    )
+
+    # Every serial lane must carry work. A zero-weight lane is a scheduling bug
+    # that the ratio bounds alone would not catch if the total were small.
+    for weight in serial_lane_weights:
+        asserts.true(env, weight > 0, "a serial lane carries no tests: %s" % serial_lane_weights)
 
     for source in _FIXED_EXTERNAL_RESOURCE_SRCS:
         asserts.true(env, source in partitions[FIXED_EXTERNAL_RESOURCE_LANE])

@@ -8,4 +8,16 @@ defmodule ServiceRadar.Credentials.PaperTrailMixin do
       end
     end
   end
+
+  def cascade_versions do
+    quote do
+      postgres do
+        schema "platform"
+
+        references do
+          reference :version_source, on_delete: :delete
+        end
+      end
+    end
+  end
 end

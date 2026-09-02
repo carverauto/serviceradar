@@ -64,6 +64,40 @@ pub(super) fn traces() -> VizMeta {
     }
 }
 
+pub(super) fn mtr_traces() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("time", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("agent_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("gateway_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("check_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("check_name", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("device_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("target", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("target_ip", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("target_reached", ColumnType::Bool, None),
+            col("total_hops", ColumnType::Int, Some(ColumnSemantic::Value)),
+            col("protocol", ColumnType::Text, None),
+            col("ip_version", ColumnType::Int, None),
+            col("packet_size", ColumnType::Int, None),
+            col("partition", ColumnType::Text, None),
+            col("error", ColumnType::Text, None),
+            col(
+                "created_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 pub(super) fn trace_summaries() -> VizMeta {
     VizMeta {
         columns: vec![

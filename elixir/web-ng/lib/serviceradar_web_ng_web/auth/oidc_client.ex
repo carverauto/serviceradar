@@ -86,6 +86,71 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   end
 
   @doc """
+  Refreshes IdP tokens using the identity provider's refresh token.
+
+  Used to confirm the IdP session is still alive before minting a new
+  MCP access token.
+  """
+  def refresh_tokens(refresh_token) when is_binary(refresh_token) and refresh_token != "" do
+    with {:ok, config} <- get_config(),
+         {:ok, metadata} <- fetch_discovery_metadata(config.discovery_url) do
+      body = %{
+        grant_type: "refresh_token",
+        refresh_token: refresh_token,
+        client_id: config.client_id,
+        client_secret: config.client_secret
+      }
+
+      exchange_tokens(metadata["token_endpoint"], body)
+    end
+  end
+
+  def refresh_tokens(_), do: {:error, :invalid_refresh_token}
+
+  @logout_event "http://schemas.openid.net/event/backchannel-logout"
+
+  @doc """
+  Verifies an OIDC back-channel logout token and returns its claims.
+  """
+  def verify_logout_token(logout_token) when is_binary(logout_token) and logout_token != "" do
+    with {:ok, config} <- get_config(),
+         {:ok, metadata} <- fetch_discovery_metadata(config.discovery_url),
+         {:ok, jwks} <- fetch_jwks(metadata["jwks_uri"]),
+         {:ok, claims} <- decode_and_verify_jwt(logout_token, jwks, metadata["jwks_uri"]) do
+      cond do
+        claims["iss"] != metadata["issuer"] ->
+          {:error, :invalid_issuer}
+
+        not audience_includes?(claims["aud"], config.client_id) ->
+          {:error, :invalid_audience}
+
+        Map.has_key?(claims, "nonce") ->
+          {:error, :nonce_present}
+
+        not logout_event?(claims["events"]) ->
+          {:error, :invalid_events}
+
+        is_nil(claims["sid"]) and is_nil(claims["sub"]) ->
+          {:error, :missing_sid}
+
+        true ->
+          {:ok, claims}
+      end
+    end
+  end
+
+  def verify_logout_token(_), do: {:error, :invalid_logout_token}
+
+  defp audience_includes?(aud, client_id) when is_binary(client_id) do
+    aud == client_id or client_id in List.wrap(aud)
+  end
+
+  defp audience_includes?(_, _), do: false
+
+  defp logout_event?(events) when is_map(events), do: Map.has_key?(events, @logout_event)
+  defp logout_event?(_), do: false
+
+  @doc """
   Verifies an ID token and extracts claims.
 
   Validates:

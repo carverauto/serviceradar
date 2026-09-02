@@ -1,0 +1,18 @@
+suite: core migrations hook ordering
+templates:
+  - templates/core-migrations-job.yaml
+tests:
+  - it: migrates after CNPG extension preparation and before upgraded pods
+    asserts:
+      - equal:
+          path: metadata.name
+          value: serviceradar-core-migrations
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,pre-upgrade
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "-1"
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: before-hook-creation,hook-succeeded

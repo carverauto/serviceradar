@@ -446,10 +446,18 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
                         {job.cron || "—"}
                       </td>
                       <td class="text-xs text-sr-muted">
-                        {format_datetime_short(job.last_run_at)}
+                        <.short_datetime
+                          id={"admin-job-#{encode_job_id(job.id)}-last-run-at"}
+                          value={job.last_run_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        />
                       </td>
                       <td class="text-xs text-sr-muted">
-                        {format_datetime_short(job.next_run_at)}
+                        <.short_datetime
+                          id={"admin-job-#{encode_job_id(job.id)}-next-run-at"}
+                          value={job.next_run_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        />
                       </td>
                       <td>
                         <div class="flex items-center gap-1">
@@ -685,6 +693,23 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
   defp source_variant(:manual), do: "secondary"
   defp source_variant(_), do: "ghost"
 
+  attr(:id, :string, required: true)
+  attr(:value, :any, required: true)
+  attr(:timezone, :string, required: true)
+
+  defp short_datetime(assigns) do
+    assigns = assign(assigns, :display, format_datetime_short(assigns.value))
+
+    ~H"""
+    <%= case @display do %>
+      <% {:absolute, value} -> %>
+        <.user_time id={@id} value={value} timezone={@timezone} style={:compact} fallback="—" />
+      <% text -> %>
+        {text}
+    <% end %>
+    """
+  end
+
   defp format_datetime_short(nil), do: "—"
 
   defp format_datetime_short(%NaiveDateTime{} = dt) do
@@ -710,7 +735,7 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
           future_minutes < 1 -> "in <1m"
           future_minutes < 60 -> "in #{future_minutes}m"
           future_hours < 24 -> "in #{future_hours}h"
-          true -> Calendar.strftime(dt, "%m/%d %H:%M")
+          true -> {:absolute, dt}
         end
 
       diff_minutes < 1 ->
@@ -723,10 +748,10 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Index do
         "#{diff_hours}h ago"
 
       diff_days < 7 ->
-        "#{diff_days}d ago"
+        {:absolute, dt}
 
       true ->
-        Calendar.strftime(dt, "%m/%d %H:%M")
+        "#{diff_days}d ago"
     end
   end
 end

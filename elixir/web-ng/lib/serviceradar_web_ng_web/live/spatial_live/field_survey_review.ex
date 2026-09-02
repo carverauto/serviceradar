@@ -347,7 +347,13 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                   {session.metadata.label}
                 </div>
                 <div class="mt-1 flex items-center justify-between text-xs text-sr-muted">
-                  <span>{format_time(session.last_seen)}</span>
+                  <.user_time
+                    id={"field-survey-session-#{session.id}-last-seen-time"}
+                    value={session.last_seen}
+                    timezone={@current_scope.user.timezone || "Etc/UTC"}
+                    style={:compact}
+                    fallback="unknown"
+                  />
                   <span>{session.rf_count} RF</span>
                 </div>
                 <div class="mt-1 text-xs text-sr-muted">
@@ -476,7 +482,14 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
                     <div class="min-w-0">
                       <div class="truncate text-sm font-semibold">{artifact_label(artifact)}</div>
                       <div class="truncate text-xs text-sr-muted">
-                        {format_bytes(artifact.byte_size)} · {format_time(artifact.uploaded_at)}
+                        {format_bytes(artifact.byte_size)} ·
+                        <.user_time
+                          id={"field-survey-artifact-#{artifact.id}-uploaded-time"}
+                          value={artifact.uploaded_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                          fallback="unknown"
+                        />
                       </div>
                     </div>
                     <.ui_button href={artifact.download_url} size="xs" variant="outline">
@@ -1279,14 +1292,6 @@ defmodule ServiceRadarWebNGWeb.SpatialLive.FieldSurveyReview do
   defp waterfall_color(score) when score >= 46, do: "#facc15"
   defp waterfall_color(score) when score >= 28, do: "#84cc16"
   defp waterfall_color(_score), do: "#0f766e"
-
-  defp format_time(nil), do: "unknown"
-
-  defp format_time(%DateTime{} = value) do
-    Calendar.strftime(value, "%b %-d %H:%M")
-  end
-
-  defp format_time(_value), do: "unknown"
 
   defp format_number(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_number(value) when is_integer(value), do: Integer.to_string(value)

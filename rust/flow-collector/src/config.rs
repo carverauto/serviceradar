@@ -64,6 +64,14 @@ pub struct Config {
     pub host_slices: Vec<HostSliceConfig>,
     #[serde(default)]
     pub host_slice_allowlist: Vec<String>,
+    /// Optional shared template store for NetFlow / IPFIX templates.
+    /// When configured, every NetFlow listener writes through learned
+    /// templates to this store and consults it on cache miss, allowing
+    /// multiple flow-collector replicas to share template state behind
+    /// a UDP load balancer. Leaving this `None` keeps the legacy
+    /// in-process-only behavior.
+    #[serde(default)]
+    pub template_store: Option<TemplateStoreConfig>,
 
     // Listeners
     pub listeners: Vec<ListenerConfig>,
@@ -97,6 +105,35 @@ pub enum HostNetworkVisibilityStatus {
     #[default]
     Unavailable,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TemplateStoreConfig {
+    /// NATS JetStream KV bucket name (must already exist or will be
+    /// created/updated on startup).
+    pub kv_bucket: String,
+    /// Number of historical revisions to retain per key. Templates rarely
+    /// change so 1 is fine; larger values support audit/debug. NATS KV
+    /// caps history at 64. Validated at config load.
+    #[serde(default = "default_kv_history")]
+    pub kv_history: u8,
+    /// Optional TTL (seconds) for entries in the KV bucket. NATS will
+    /// expire stale templates automatically. `0` disables TTL. Default 0.
+    #[serde(default)]
+    pub kv_ttl_secs: u64,
+    /// Optional NATS URL override for the template store. When unset
+    /// (default), the top-level `nats_url` is used. Setting this lets
+    /// template state live on a different NATS cluster from publish
+    /// traffic — useful for multi-tenant or split-fault-domain setups.
+    #[serde(default)]
+    pub nats_url: Option<String>,
+}
+
+fn default_kv_history() -> u8 {
+    1
+}
+
+/// NATS KV server-side cap.
+const NATS_KV_MAX_HISTORY: u8 = 64;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "protocol", rename_all = "lowercase")]
@@ -136,6 +173,14 @@ pub enum ListenerConfig {
         /// These override `default_sampling_rate`.
         #[serde(default)]
         sampling_rate_overrides: HashMap<IpAddr, u64>,
+        /// Maximum distinct exporters tracked by the parser for this listener.
+        ///
+        /// `netflow_parser` defaults to 10,000 and *evicts* past that (LRU),
+        /// which silently degrades a fleet larger than the cap into constant
+        /// eviction churn. Leaving this unset keeps the library default.
+        /// Raising it costs memory proportional to the number of exporters.
+        #[serde(default)]
+        max_sources: Option<usize>,
     },
 }
 
@@ -323,6 +368,23 @@ impl Config {
         }
         if self.listeners.is_empty() {
             anyhow::bail!("at least one listener is required");
+        }
+        if let Some(ts) = &self.template_store {
+            if ts.kv_bucket.is_empty() {
+                anyhow::bail!("template_store.kv_bucket cannot be empty");
+            }
+            if ts.kv_history < 1 || ts.kv_history > NATS_KV_MAX_HISTORY {
+                anyhow::bail!(
+                    "template_store.kv_history must be in 1..={} (got {})",
+                    NATS_KV_MAX_HISTORY,
+                    ts.kv_history
+                );
+            }
+            if let Some(url) = &ts.nats_url
+                && url.is_empty()
+            {
+                anyhow::bail!("template_store.nats_url, if set, cannot be empty");
+            }
         }
 
         // Check for duplicate listen addresses
@@ -977,5 +1039,88 @@ mod tests {
         assert_eq!(config.stream_name, "events");
         // Defaults apply for parsing; publisher must not reshape events with them.
         assert_eq!(config.stream_max_bytes, 10 * 1024 * 1024 * 1024);
+    }
+
+    #[test]
+    fn template_store_block_deserializes() {
+        // Mirrors what the kustomize manifest and Helm values render.
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "events",
+            "template_store": {
+                "kv_bucket": "flow_templates",
+                "kv_history": 1,
+                "kv_ttl_secs": 0
+            },
+            "listeners": [
+                {
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow"
+                }
+            ]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).expect("deserialize");
+        let ts = cfg.template_store.expect("template_store should parse");
+        assert_eq!(ts.kv_bucket, "flow_templates");
+        assert_eq!(ts.kv_history, 1);
+        assert_eq!(ts.kv_ttl_secs, 0);
+    }
+
+    #[test]
+    fn template_store_omitted_means_disabled() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "events",
+            "listeners": [
+                {
+                    "protocol": "sflow",
+                    "listen_addr": "0.0.0.0:6343",
+                    "subject": "flows.raw.sflow"
+                }
+            ]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).expect("deserialize");
+        assert!(cfg.template_store.is_none());
+    }
+
+    #[test]
+    fn netflow_listener_accepts_max_sources() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "flows",
+            "listeners": [{
+                "protocol": "netflow",
+                "listen_addr": "0.0.0.0:2055",
+                "subject": "flows.raw.netflow",
+                "max_sources": 25000
+            }]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).expect("config should parse");
+        match &cfg.listeners[0] {
+            ListenerConfig::Netflow { max_sources, .. } => {
+                assert_eq!(*max_sources, Some(25_000));
+            }
+            other => panic!("expected netflow listener, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn netflow_max_sources_defaults_to_none() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "flows",
+            "listeners": [{
+                "protocol": "netflow",
+                "listen_addr": "0.0.0.0:2055",
+                "subject": "flows.raw.netflow"
+            }]
+        }"#;
+        let cfg: Config = serde_json::from_str(json).expect("config should parse");
+        match &cfg.listeners[0] {
+            // None means "leave the library default of 10_000 alone".
+            ListenerConfig::Netflow { max_sources, .. } => assert_eq!(*max_sources, None),
+            other => panic!("expected netflow listener, got {other:?}"),
+        }
     }
 }

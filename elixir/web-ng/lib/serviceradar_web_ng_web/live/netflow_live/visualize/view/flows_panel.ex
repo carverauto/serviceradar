@@ -9,7 +9,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsPanel do
   attr(:visualize, :map, required: true)
 
   def render(%{visualize: visualize} = assigns) do
-    assigns = Map.merge(assigns, visualize)
+    assigns =
+      assigns
+      |> Map.merge(visualize)
+      |> assign_window_parts()
 
     ~H"""
     <div class="sr-ui-card bg-sr-surface border border-sr-line">
@@ -18,11 +21,29 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsPanel do
           <div class="flex items-baseline gap-2 min-w-0">
             <div class="text-sm font-semibold">Flows</div>
             <div
-              :if={is_binary(@flows_window_label) and String.trim(@flows_window_label) != ""}
+              :if={not is_nil(@window_start) and not is_nil(@window_end)}
               class="text-[11px] text-sr-muted font-mono truncate"
-              title={@flows_window_label}
             >
-              {@flows_window_label}
+              <.user_time
+                id="netflow-window-start"
+                value={@window_start}
+                timezone={@timezone}
+                style={:compact}
+              />
+              <span aria-hidden="true"> – </span>
+              <.user_time
+                id="netflow-window-end"
+                value={@window_end}
+                timezone={@timezone}
+                style={:compact}
+              />
+            </div>
+            <div
+              :if={is_binary(@window_label) and String.trim(@window_label) != ""}
+              class="text-[11px] text-sr-muted font-mono truncate"
+              title={@window_label}
+            >
+              {@window_label}
             </div>
           </div>
           <div class="text-[11px] text-sr-muted font-mono">
@@ -39,6 +60,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsPanel do
           limit={@limit}
           nf_param={nf_param(@netflow_viz_state)}
           unit_mode={Map.get(@netflow_viz_state, "units", "Bps")}
+          timezone={@timezone}
         />
 
         <div class="pt-3 border-t border-sr-line">
@@ -53,5 +75,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsPanel do
       </div>
     </div>
     """
+  end
+
+  defp assign_window_parts(assigns) do
+    case Map.get(assigns, :flows_window) do
+      %{type: :absolute, start: start_dt, end: end_dt} ->
+        Map.merge(assigns, %{window_start: start_dt, window_end: end_dt, window_label: nil})
+
+      %{type: :relative, label: label} ->
+        Map.merge(assigns, %{window_start: nil, window_end: nil, window_label: label})
+
+      _ ->
+        Map.merge(assigns, %{window_start: nil, window_end: nil, window_label: nil})
+    end
   end
 end

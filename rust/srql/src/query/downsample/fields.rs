@@ -276,12 +276,25 @@ pub(super) fn agg_expr(agg: DownsampleAgg, value_col: &str) -> String {
         DownsampleAgg::Count => "COUNT(*)::double precision".to_string(),
         // Rate is handled specially in build_sql with a CTE, this is a fallback
         DownsampleAgg::Rate => format!("AVG({value_col})"),
+        DownsampleAgg::RateSum => format!("SUM({value_col})"),
+    }
+}
+
+/// How the per-series rates are combined inside one display bucket.
+///
+/// The LAG window always partitions by the full series identity, so the deltas
+/// themselves are per underlying counter either way. This only decides what
+/// happens when a display series collapses several of them together.
+pub(super) fn rate_bucket_combine(agg: DownsampleAgg) -> &'static str {
+    match agg {
+        DownsampleAgg::RateSum => "SUM",
+        _ => "AVG",
     }
 }
 
 /// Check if the aggregation type requires special rate-based query structure
 pub(super) fn is_rate_agg(agg: DownsampleAgg) -> bool {
-    matches!(agg, DownsampleAgg::Rate)
+    matches!(agg, DownsampleAgg::Rate | DownsampleAgg::RateSum)
 }
 
 pub(super) fn flow_cagg_for_bucket(bucket_seconds: i64) -> &'static str {

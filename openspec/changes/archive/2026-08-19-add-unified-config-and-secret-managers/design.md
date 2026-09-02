@@ -205,7 +205,7 @@ instance**:
 SERVICERADAR_ENV = <kind>[":" <instance>]
 
   localhost             ci                 saas
-  onprem:united         onprem:<customer>
+  onprem:acme         onprem:<customer>
 ```
 
 Kept as **one variable** with a compound value rather than two variables, so the deployment boundary

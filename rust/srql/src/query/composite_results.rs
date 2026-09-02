@@ -5,7 +5,9 @@
 //! correlated subquery. The join is what lets a caller filter and read by slug
 //! without knowing check ids.
 
-use super::{BindParam, QueryPlan};
+mod stats;
+
+use super::{BindParam, QueryPlan, bind_sql_param};
 use crate::{
     error::{Result, ServiceError},
     models::CompositeResultRow,
@@ -20,6 +22,7 @@ use diesel::prelude::*;
 use diesel::query_builder::{BoxedSelectStatement, FromClause};
 use diesel::sql_types::Text;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
+use stats::{StatsPayload, build_stats_query, parse_stats_spec, rewrite_placeholders};
 
 type ResultsJoin = diesel::helper_types::InnerJoinQuerySource<
     device_composite_check_results::table,
@@ -72,6 +75,23 @@ pub(super) async fn execute(
 ) -> Result<Vec<serde_json::Value>> {
     ensure_entity(plan)?;
 
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
+        let built = build_stats_query(plan, &spec)?;
+        let sql = rewrite_placeholders(&built.sql);
+        let mut query = diesel::sql_query(sql).into_boxed();
+        for param in built.params {
+            query = bind_sql_param(query, param)?;
+        }
+        let rows: Vec<StatsPayload> = query
+            .load(conn)
+            .await
+            .map_err(|err| ServiceError::Internal(err.into()))?;
+        return Ok(rows
+            .into_iter()
+            .filter_map(|row| row.payload.map(serde_json::Value::from))
+            .collect());
+    }
+
     let rows: Vec<CompositeResultRow> = build_query(plan)?
         .limit(plan.limit)
         .offset(plan.offset)
@@ -87,6 +107,11 @@ pub(super) async fn execute(
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+
+    if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
+        let built = build_stats_query(plan, &spec)?;
+        return Ok((rewrite_placeholders(&built.sql), built.params));
+    }
 
     let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
     let sql = super::diesel_sql(&query)?;

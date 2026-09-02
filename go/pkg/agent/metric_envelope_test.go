@@ -180,6 +180,35 @@ func TestMarshalSNMPMetricEnvelopePreservesCounterSemantics(t *testing.T) {
 	require.Equal(t, ".1.3.6.1.2.1.31.1.1.1.6.7", entry(metric.Metadata, "oid"))
 }
 
+func TestMarshalSNMPMetricEnvelopeCarriesProfileIDInPointMetadata(t *testing.T) {
+	t.Parallel()
+
+	profileID := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	payload, err := marshalSNMPMetricEnvelope([]snmpMetricResult{
+		{
+			Target:    "clearpass-a",
+			Host:      "10.0.0.8",
+			Metric:    "node_version",
+			OID:       ".1.3.6.1.4.1.14823.1.6.1.1.1.1.1.3.0",
+			Value:     "6.11.15",
+			RawValue:  "6.11.15",
+			Timestamp: time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC),
+			DataType:  "string",
+			ProfileID: profileID,
+		},
+	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition})
+	require.NoError(t, err)
+
+	batch := decodeMetricBatch(t, payload)
+	require.Len(t, batch.Metrics, 1)
+
+	point := batch.Metrics[0].Points[0]
+	require.Equal(t, profileID, entry(point.Metadata, "snmp_profile_id"))
+	require.Equal(t, "true", entry(point.Metadata, "non_numeric"))
+	// Provenance must not fork the series: attributes feed the series key.
+	require.Empty(t, entry(point.Attributes, "snmp_profile_id"))
+}
+
 func TestMarshalICMPMetricEnvelope(t *testing.T) {
 	t.Parallel()
 
@@ -449,4 +478,105 @@ func entry(entries []*metricpb.StringMapEntry, key string) string {
 	}
 
 	return ""
+}
+
+// A string-typed OID - a software version, a node role, a service name - has no
+// float representation, and used to be dropped here before it ever reached the
+// consumer. That left it with nowhere to land at all, since
+// timeseries_metrics.value is NOT NULL double precision.
+func TestMarshalSNMPMetricEnvelopeKeepsStringReadings(t *testing.T) {
+	t.Parallel()
+
+	payload, err := marshalSNMPMetricEnvelope([]snmpMetricResult{
+		{
+			Target:    "clearpass-a",
+			Host:      "10.0.0.30",
+			Metric:    "node_version",
+			OID:       ".1.3.6.1.4.1.14823.1.6.1.1.1.1.1.3.0",
+			Value:     "6.11.15",
+			RawValue:  "6.11.15",
+			Timestamp: time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC),
+			DataType:  "string",
+		},
+	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition})
+	require.NoError(t, err)
+
+	batch := decodeMetricBatch(t, payload)
+	require.Len(t, batch.Metrics, 1)
+
+	point := batch.Metrics[0].Points[0]
+	require.Equal(t, "6.11.15", point.RawValue)
+
+	// The marker lives in metadata, never in tags or attributes: those feed the
+	// consumer's series key, so a marker there would fork every SNMP series.
+	require.Equal(t, "true", entry(point.Metadata, "non_numeric"))
+	require.Empty(t, entry(point.Attributes, "non_numeric"))
+	require.Empty(t, entry(batch.Metrics[0].Tags, "non_numeric"))
+}
+
+// A reading with neither a number nor a raw string is genuinely nothing to
+// record, and must still be dropped rather than stored as an empty fact.
+func TestMarshalSNMPMetricEnvelopeStillDropsValuelessReadings(t *testing.T) {
+	t.Parallel()
+
+	payload, err := marshalSNMPMetricEnvelope([]snmpMetricResult{
+		{
+			Target:    "clearpass-a",
+			Host:      "10.0.0.30",
+			Metric:    "node_version",
+			OID:       ".1.3.6.1.4.1.14823.1.6.1.1.1.1.1.3.0",
+			Value:     nil,
+			RawValue:  nil,
+			Timestamp: time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC),
+			DataType:  "string",
+		},
+	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition})
+
+	require.ErrorIs(t, err, errSnmpNoMetricPoints)
+	require.Nil(t, payload)
+}
+
+// The walk index rides as its own metadata field. Recovering it from
+// interface_uid instead would be wrong for a scalar get on a non-interface OID
+// whose last arc is a positive integer, where ifIndexForSNMPPoint derives
+// "ifindex:<last arc>" from the OID itself.
+func TestMarshalSNMPMetricEnvelopeCarriesRawOIDIndex(t *testing.T) {
+	t.Parallel()
+
+	payload, err := marshalSNMPMetricEnvelope([]snmpMetricResult{
+		{
+			Target:    "clearpass-a",
+			Host:      "10.0.0.30",
+			Metric:    "service_name",
+			OID:       ".1.3.6.1.4.1.14823.1.6.1.1.3.1.1.2.4",
+			OIDIndex:  "4",
+			Value:     "radius",
+			RawValue:  "radius",
+			Timestamp: time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC),
+			DataType:  "string",
+		},
+		{
+			Target:    "clearpass-a",
+			Host:      "10.0.0.30",
+			Metric:    "node_role",
+			OID:       ".1.3.6.1.4.1.14823.1.6.1.1.1.1.1.5.0",
+			Value:     "publisher",
+			RawValue:  "publisher",
+			Timestamp: time.Date(2026, 6, 12, 0, 0, 0, 0, time.UTC),
+			DataType:  "string",
+		},
+	}, metricEnvelopeContext{AgentID: "agent-1", GatewayID: "gateway-1", Partition: defaultPartition})
+	require.NoError(t, err)
+
+	batch := decodeMetricBatch(t, payload)
+	require.Len(t, batch.Metrics, 2)
+
+	byName := map[string]*metricpb.MetricPoint{}
+	for _, metric := range batch.Metrics {
+		byName[metric.Name] = metric.Points[0]
+	}
+
+	require.Equal(t, "4", entry(byName["service_name"].Metadata, "oid_index"))
+	// A scalar get has no index, and must not be given one.
+	require.Empty(t, entry(byName["node_role"].Metadata, "oid_index"))
 }

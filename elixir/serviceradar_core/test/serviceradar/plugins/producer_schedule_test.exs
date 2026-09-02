@@ -294,6 +294,116 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
     refute Map.has_key?(payload, "credential_refs")
   end
 
+  test "oauth password grants derive the NNMi token URL when token_url is omitted", %{
+    actor: actor,
+    uid: uid
+  } do
+    Process.put(:producer_schedule_test_pid, self())
+    on_exit(fn -> Process.delete(:producer_schedule_test_pid) end)
+
+    plugin_id = "nom-inventory-producer-#{uid}"
+    agent_uid = "agent-nom-inventory-#{uid}"
+
+    credential_requirements = %{
+      "nom_service_account" => %{
+        "required" => true,
+        "resolution_location" => "agent",
+        "grants" => [
+          %{
+            "name" => "inventory",
+            "grant_type" => "oauth2_password_bearer",
+            "purpose" => "device_inventory",
+            "allow" => %{"methods" => ["POST"], "url_param" => "api_url"},
+            "inject" => %{
+              "type" => "oauth2_password_bearer",
+              "url_param" => "api_url",
+              "token_url_param" => "token_url",
+              "token_method" => "POST",
+              "field_username" => "username",
+              "field_password" => "password",
+              "fixed_grant_type" => "password"
+            }
+          }
+        ]
+      }
+    }
+
+    assert {:ok, package} =
+             create_package(actor, plugin_id, %{
+               "credential_requirements" => credential_requirements
+             })
+
+    assert {:ok, package} = approve_package(actor, package)
+    assert {:ok, assignment} = create_assignment(actor, package, agent_uid)
+
+    assert {:ok, schedule} =
+             ProducerSchedule
+             |> Ash.Query.filter(
+               plugin_package_id == ^package.id and schedule_id == "advisory.refresh"
+             )
+             |> Ash.read_one(actor: actor)
+
+    assert {:ok, schedule} =
+             schedule
+             |> Ash.Changeset.for_update(
+               :update,
+               %{
+                 enabled: true,
+                 plugin_assignment_id: assignment.id,
+                 params: %{
+                   "api_url" => "https://na.example.com/nom/api/automation/v1/wrapper",
+                   "nnm_url" => "https://nnm.example.com:443"
+                 },
+                 credential_refs: %{
+                   "nom_service_account" => "credentialref:example:nom-svc"
+                 },
+                 metadata: %{"credential_rule_id" => Ash.UUID.generate()}
+               },
+               actor: actor
+             )
+             |> Ash.update()
+
+    assert {:ok, _command_id} =
+             ProducerScheduleDispatcher.dispatch(schedule,
+               actor: actor,
+               command_bus: __MODULE__,
+               grant_issuer: fn attrs ->
+                 send(test_pid(), {:nom_credential_grant, attrs})
+
+                 {:ok,
+                  %{
+                    "schema" => "serviceradar.edge_credential_broker_grant.v1",
+                    "grant_id" => "grant-nom",
+                    "credential_secret_ref" => attrs.secret_ref,
+                    "inject" => attrs.inject
+                  }}
+               end
+             )
+
+    assert_receive {:nom_credential_grant, grant}
+    assert grant.inject["token_host"] == "nnm.example.com"
+    assert grant.inject["token_port"] == "443"
+    assert grant.inject["token_path"] == "/idp/oauth2/token"
+    assert grant.inject["host"] == "na.example.com"
+    assert grant.inject["path"] == "/nom/api/automation/v1/wrapper"
+
+    invalid = %{
+      schedule
+      | params: Map.put(schedule.params, "token_url", "http://nnm.example.com/idp/oauth2/token")
+    }
+
+    assert {:error, {:producer_schedule_dispatch_failed, [%{reason: reason}]}} =
+             ProducerScheduleDispatcher.dispatch(invalid,
+               actor: actor,
+               command_bus: __MODULE__,
+               grant_issuer: fn _attrs ->
+                 flunk("must not issue a grant for an invalid token_url")
+               end
+             )
+
+    assert reason == {:invalid_schedule_credential_endpoint, "token_url"}
+  end
+
   test "run_now records commandbus dispatch errors for offline agents", %{actor: actor, uid: uid} do
     assert {:ok, schedule} = create_enabled_schedule(actor, uid)
 

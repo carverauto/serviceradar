@@ -62,7 +62,9 @@ CREATE TABLE public.ocsf_devices (
     tags                JSONB,
     deleted_at          TIMESTAMPTZ,
     deleted_by          TEXT,
-    deleted_reason      TEXT
+    deleted_reason      TEXT,
+    partition           TEXT        NOT NULL DEFAULT 'default',
+    switch_port_attachment JSONB
 );
 
 -- The SRQL engine schema-qualifies device-identity correlation lookups as
@@ -392,6 +394,28 @@ CREATE TABLE otel_traces (
     ingest_agent_id      TEXT NOT NULL DEFAULT '',
     ingest_partition     TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (timestamp, trace_id, span_id)
+);
+
+DROP TABLE IF EXISTS mtr_traces;
+CREATE TABLE mtr_traces (
+    id              UUID        NOT NULL DEFAULT gen_random_uuid(),
+    time            TIMESTAMPTZ NOT NULL,
+    agent_id        TEXT        NOT NULL,
+    gateway_id      TEXT,
+    check_id        TEXT,
+    check_name      TEXT,
+    device_id       TEXT,
+    target          TEXT        NOT NULL,
+    target_ip       TEXT        NOT NULL,
+    target_reached  BOOLEAN     NOT NULL DEFAULT FALSE,
+    total_hops      INTEGER     NOT NULL DEFAULT 0,
+    protocol        TEXT        NOT NULL DEFAULT 'icmp',
+    ip_version      INTEGER     NOT NULL DEFAULT 4,
+    packet_size     INTEGER,
+    partition       TEXT,
+    error           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (time, id)
 );
 
 DROP TABLE IF EXISTS otel_metrics;
@@ -732,3 +756,29 @@ CREATE OR REPLACE VIEW platform.device_identifiers AS
 
 CREATE OR REPLACE VIEW platform.discovered_interfaces AS
     SELECT * FROM public.discovered_interfaces;
+
+-- Canonical source-fact disagreements. Diesel selects every column in
+-- rust/srql/src/schema.rs; without this table a device query is fine but
+-- `in:source_fact_disagreements` fails the same way ocsf_devices did
+-- before its platform view existed.
+DROP TABLE IF EXISTS source_fact_disagreements CASCADE;
+
+CREATE TABLE source_fact_disagreements (
+    id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_uid              TEXT        NOT NULL,
+    fact_key                TEXT        NOT NULL,
+    status                  TEXT        NOT NULL DEFAULT 'open',
+    compare_signature       TEXT        NOT NULL,
+    "values"                JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    configuration_conflict  BOOLEAN     NOT NULL DEFAULT FALSE,
+    first_detected_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_detected_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    cleared_at              TIMESTAMPTZ,
+    dismissed_at            TIMESTAMPTZ,
+    metadata                JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE OR REPLACE VIEW platform.source_fact_disagreements AS
+    SELECT * FROM public.source_fact_disagreements;

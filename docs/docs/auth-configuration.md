@@ -22,6 +22,31 @@ Helm and Docker Compose set these for you (typically via a generated secret/file
 
 Keep `SERVICERADAR_ADMIN_PASSWORD_FORCE_SYNC=false` for normal installs so a password changed in the UI is not overwritten on restart. Set it to `true` only when the mounted secret/file is the intended source of truth for the bootstrap admin password.
 
+## Creating Accounts On First SSO Login
+
+By default an identity-provider user with no local ServiceRadar account is
+denied. Turn on **Create accounts on first SSO login** in
+**Settings -> Authorization** (the same switch as **Settings -> Authentication
+-> Auto-provision Accounts**) when the first successful SSO sign-in should
+create the local row. New accounts get the configured default built-in role
+unless a [group mapping](./group-permission-mapping.md) grants more.
+
+Gate who can authenticate at the IdP (app assignment / group) so that only
+people you intend to onboard can complete the login.
+
+## SSO-Owned Email And Password
+
+Once a local account is linked to an identity provider (`external_id` is set),
+email and password are owned by that IdP. Profile settings show the address as
+read-only and refuse a password change, even if an administrator previously
+set a local password for break-glass sign-in. Change those values in Authentik,
+Entra, or whichever directory issued the account.
+
+Local-only accounts (no `external_id`) can still rotate email and password from
+**Settings -> Profile** when they hold `settings.password.manage` (granted to
+all built-in roles; omit it on a custom role profile to hide the password
+form).
+
 ## Local Password Login With SSO
 
 When Direct SSO or Gateway Proxy mode is enabled, local password login is controlled per account. Admins can enable or disable the **Local password login** toggle for each user under **Settings -> Auth -> Users**.
@@ -89,6 +114,12 @@ Claim mappings apply to OIDC, SAML, and Gateway Proxy to map identity claims int
 - `sub` (stored as the user's external identifier)
 
 Dot-notation is supported for nested claims (example: `user.email`).
+
+These mappings populate user fields (email, name, subject). They do **not**
+assign roles. To turn identity-provider **groups** into a built-in role, a role
+profile, or a ServiceRadar user group -- including how grants are revoked when
+a user leaves a group, and the Microsoft Entra specifics -- see
+[Group Permission Mapping](./group-permission-mapping.md).
 
 ## Hostname And Redirects
 

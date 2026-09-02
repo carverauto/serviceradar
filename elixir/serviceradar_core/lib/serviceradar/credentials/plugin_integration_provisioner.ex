@@ -475,7 +475,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
 
     def list_policy_assignments(policy_id, actor) do
       PluginAssignment
-      |> Ash.Query.for_read(:by_policy, %{policy_id: policy_id}, actor: actor)
+      |> Ash.Query.for_read(:all_partitions_for_policy, %{policy_id: policy_id}, actor: actor)
       |> Ash.read(actor: actor)
     end
 

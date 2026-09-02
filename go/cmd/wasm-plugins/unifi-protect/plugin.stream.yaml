@@ -1,6 +1,6 @@
 id: unifi-protect-camera-stream
 name: UniFi Protect Camera Stream
-version: 0.1.0
+version: 0.1.2
 description: Streams UniFi Protect camera media through the ServiceRadar media host bridge
 entrypoint: stream_camera
 runtime: wasi-preview1
@@ -17,6 +17,14 @@ capabilities:
 permissions:
   allowed_domains:
     - "*"
+  # Domain wildcards never match literal-IP destinations; these ranges cover
+  # Protect controllers addressed by private or carrier-grade NAT IP. Link-local
+  # (169.254.0.0/16) is excluded: no controller is deliberately addressed there.
+  allowed_networks:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+    - "100.64.0.0/10"
   allowed_ports:
     - 80
     - 443

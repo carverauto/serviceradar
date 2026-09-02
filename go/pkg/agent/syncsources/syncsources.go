@@ -40,6 +40,27 @@ import (
 // marking; drivers just call Emit once per fetched batch.
 type EmitFunc func(updates []map[string]any) error
 
+// PopulationStats describes one source collection in source-object terms.
+// Drivers that can identify stable source objects report these counters so the
+// runtime can attach exact accounting to the final sync chunk. Counts are
+// source rows/IDs, not canonical ServiceRadar device rows.
+type PopulationStats struct {
+	RawRows                   int
+	ExcludedRows              int
+	InvalidRows               int
+	ValidOccurrences          int
+	DistinctSourceIDs         int
+	DuplicateOccurrences      int
+	DuplicateSourceIDExamples []string
+	InvalidRowExamples        []string
+	ConflictingDuplicateIDs   []string
+}
+
+// ReportPopulationFunc publishes the latest accounting snapshot for a run.
+// The runtime serializes the last value onto sync_meta; partial runs never
+// activate it because they do not emit a run-final chunk.
+type ReportPopulationFunc func(PopulationStats)
+
 // RunContext carries everything a driver needs for a single sync run.
 type RunContext struct {
 	// RunID uniquely identifies this sync run.
@@ -57,6 +78,8 @@ type RunContext struct {
 	Logger logger.Logger
 	// Emit streams a batch of device updates to the gateway.
 	Emit EmitFunc
+	// ReportPopulation optionally records exact source-row/source-ID counts.
+	ReportPopulation ReportPopulationFunc
 }
 
 // SourceDriver executes one sync run against an integration source.

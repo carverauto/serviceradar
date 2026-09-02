@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ObservabilityPanel do
   alias ServiceRadarWebNGWeb.DashboardLive.Index.MetricsPanel
 
   attr(:dashboard, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def render(assigns) do
     dashboard = assigns.dashboard
@@ -25,7 +26,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ObservabilityPanel do
       </:actions>
       <div class="sr-ops-observability-split" data-testid="observability-split">
         <section class="sr-ops-observability-pane" aria-label="Events over time">
-          <EventsPanel.render dashboard={@dashboard} embedded />
+          <EventsPanel.render dashboard={@dashboard} timezone={@timezone} embedded />
         </section>
         <section class="sr-ops-observability-pane" aria-label="Observability metrics">
           <h3>Metrics</h3>

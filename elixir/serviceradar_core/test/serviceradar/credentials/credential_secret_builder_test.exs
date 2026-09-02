@@ -292,6 +292,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
 
       assert attrs.provider == "snmp"
       assert attrs.credential_kind == :snmp
+      assert NativeDescriptors.snmp()["supports_rules"] == true
       assert Jason.decode!(attrs.secret_payload) == %{"community" => "public-ish"}
       assert attrs.metadata["plugin_id"] == "snmp"
       assert attrs.metadata["plugin_version"] == "native"
@@ -304,6 +305,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
                  "v3",
                  %{
                    "username" => "monitor",
+                   "security_level" => "authPriv",
                    "auth_protocol" => "sha",
                    "auth_password" => "auth-secret",
                    "priv_protocol" => "aes",
@@ -317,6 +319,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
 
       assert %{
                "username" => "monitor",
+               "security_level" => "authPriv",
                "auth_protocol" => "sha",
                "auth_password" => "auth-secret",
                "priv_protocol" => "aes",
@@ -391,5 +394,219 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
                  %{name: "Blank", description: nil}
                )
     end
+  end
+
+  describe "build_rotation/4" do
+    test "builds only replacement-safe attributes and preserves the due date" do
+      due_at = ~U[2027-01-02 03:04:05.000000Z]
+
+      secret =
+        rotatable_secret(%{
+          secret_payload: "old-material-must-never-be-merged",
+          next_rotation_due_at: due_at
+        })
+
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build_rotation(
+                 secret,
+                 CredentialIntegrationFixtures.target_policy_profile(),
+                 %{"username" => "new-operator", "password" => "new-password"},
+                 []
+               )
+
+      assert Enum.sort(Map.keys(attrs)) ==
+               Enum.sort([
+                 :secret_payload,
+                 :username,
+                 :public_fingerprint,
+                 :metadata,
+                 :next_rotation_due_at
+               ])
+
+      assert attrs.secret_payload == "new-password"
+      assert attrs.username == "new-operator"
+      assert attrs.next_rotation_due_at == due_at
+      assert attrs.metadata["credential_descriptor"] == "package_manifest.v1"
+      assert attrs.metadata["auth_method"] == "username_password"
+      refute inspect(attrs) =~ "old-material-must-never-be-merged"
+    end
+
+    test "requires a complete replacement instead of falling back to old material" do
+      marker = "old-secret-must-not-fill-required-field"
+      secret = rotatable_secret(%{secret_payload: marker})
+
+      assert {:error, {:missing_credential_field, "password"}} =
+               CredentialSecretBuilder.build_rotation(
+                 secret,
+                 CredentialIntegrationFixtures.target_policy_profile(),
+                 %{"username" => "new-operator"},
+                 []
+               )
+
+      refute inspect(
+               CredentialSecretBuilder.build_rotation(
+                 secret,
+                 CredentialIntegrationFixtures.target_policy_profile(),
+                 %{"username" => "new-operator"},
+                 []
+               )
+             ) =~ marker
+    end
+
+    test "rejects external, rotating, and disabled credentials before reading submitted material" do
+      marker = "rotation-state-secret-marker"
+      profile = CredentialIntegrationFixtures.target_policy_profile()
+
+      cases = [
+        {rotatable_secret(%{source_type: :external_reference}),
+         :credential_rotation_not_supported},
+        {rotatable_secret(%{rotation_state: :rotating}), :credential_rotation_not_allowed},
+        {rotatable_secret(%{rotation_state: :disabled}), :credential_rotation_not_allowed}
+      ]
+
+      for {secret, expected_error} <- cases do
+        result =
+          CredentialSecretBuilder.build_rotation(
+            secret,
+            profile,
+            %{"username" => "operator", "password" => marker},
+            []
+          )
+
+        assert {:error, ^expected_error} = result
+        refute inspect(result) =~ marker
+      end
+    end
+
+    test "rejects stale descriptor identity, provider, kind, and auth method" do
+      profile = CredentialIntegrationFixtures.target_policy_profile()
+      values = %{"username" => "operator", "password" => "replacement"}
+
+      cases = [
+        {rotatable_secret(%{
+           metadata: %{"credential_descriptor" => "package_manifest.v1"}
+         }), profile, :credential_descriptor_unavailable},
+        {rotatable_secret(), Map.put(profile, "provider", "other-provider"),
+         :credential_provider_mismatch},
+        {rotatable_secret(%{credential_kind: :api_token}), profile, :credential_kind_mismatch},
+        {rotatable_secret(%{
+           metadata: %{
+             "credential_descriptor" => "package_manifest.v1",
+             "auth_method" => "removed-method"
+           }
+         }), profile, :credential_method_not_found}
+      ]
+
+      for {secret, fresh_profile, expected_error} <- cases do
+        assert {:error, ^expected_error} =
+                 CredentialSecretBuilder.build_rotation(secret, fresh_profile, values, [])
+      end
+    end
+
+    test "allows every declared rotatable lifecycle state" do
+      profile = CredentialIntegrationFixtures.target_policy_profile()
+      values = %{"username" => "operator", "password" => "replacement"}
+
+      for state <- [:active, :rotation_due, :rotation_failed] do
+        assert {:ok, %{secret_payload: "replacement"}} =
+                 CredentialSecretBuilder.build_rotation(
+                   rotatable_secret(%{rotation_state: state}),
+                   profile,
+                   values,
+                   []
+                 )
+      end
+    end
+
+    test "backfills descriptor metadata for an unambiguous legacy credential" do
+      profile =
+        CredentialIntegrationFixtures.target_policy_profile()
+        |> Map.put("plugin_id", "example-network-package")
+        |> Map.put("plugin_version", "9.8.7")
+
+      legacy_secret =
+        rotatable_secret(%{
+          metadata: %{
+            "legacy_username_key" => "api_username",
+            "legacy_password_key" => "api_password"
+          }
+        })
+
+      assert {:ok, attrs} =
+               CredentialSecretBuilder.build_rotation(
+                 legacy_secret,
+                 profile,
+                 %{"username" => "new-operator", "password" => "replacement"},
+                 []
+               )
+
+      assert attrs.metadata == %{
+               "auth_method" => "username_password",
+               "credential_descriptor" => "package_manifest.v1",
+               "plugin_id" => "example-network-package",
+               "plugin_version" => "9.8.7"
+             }
+    end
+
+    test "fails closed when a legacy credential kind maps to multiple current methods" do
+      profile = CredentialIntegrationFixtures.target_policy_profile()
+      username_password = Enum.at(profile["auth_methods"], 1)
+
+      ambiguous_profile =
+        Map.put(profile, "auth_methods", [
+          Map.put(username_password, "id", "password_primary"),
+          Map.put(username_password, "id", "password_secondary")
+        ])
+
+      assert {:error, :credential_auth_method_ambiguous} =
+               CredentialSecretBuilder.build_rotation(
+                 rotatable_secret(%{metadata: %{}}),
+                 ambiguous_profile,
+                 %{"username" => "new-operator", "password" => "replacement"},
+                 []
+               )
+    end
+
+    test "does not infer over partial or stale explicit descriptor metadata" do
+      profile = CredentialIntegrationFixtures.target_policy_profile()
+      values = %{"username" => "operator", "password" => "replacement"}
+
+      metadata_cases = [
+        %{"credential_descriptor" => "package_manifest.v1"},
+        %{"auth_method" => "username_password"},
+        %{
+          "credential_descriptor" => "package_manifest.v0",
+          "auth_method" => "username_password"
+        }
+      ]
+
+      for metadata <- metadata_cases do
+        assert {:error, :credential_descriptor_unavailable} =
+                 CredentialSecretBuilder.build_rotation(
+                   rotatable_secret(%{metadata: metadata}),
+                   profile,
+                   values,
+                   []
+                 )
+      end
+    end
+  end
+
+  defp rotatable_secret(overrides \\ %{}) do
+    Map.merge(
+      %{
+        id: "01900000-0000-7000-8000-000000000001",
+        provider: "example-network",
+        credential_kind: :username_password,
+        source_type: :internal_encrypted,
+        rotation_state: :active,
+        next_rotation_due_at: nil,
+        metadata: %{
+          "credential_descriptor" => "package_manifest.v1",
+          "auth_method" => "username_password"
+        }
+      },
+      overrides
+    )
   end
 end

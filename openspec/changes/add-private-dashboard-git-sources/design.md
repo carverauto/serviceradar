@@ -1,7 +1,7 @@
 ## Context
 The current dashboard Git import path accepts a GitHub repository URL, resolves a ref through the GitHub API, fetches the manifest and renderer from `raw.githubusercontent.com`, and records GitHub verification metadata. This works for public repositories but does not support private GitHub repositories, GitHub Enterprise hosts, or Forgejo/Gitea repositories.
 
-UAL's dashboard package is built from `~/src/wifi-dashboard` and can be uploaded manually as `dist/manifest.json` plus `dist/renderer.js`, but the desired production workflow is source-driven and repeatable.
+The customer's dashboard package is built from `~/src/example-dashboard` and can be uploaded manually as `dist/manifest.json` plus `dist/renderer.js`, but the desired production workflow is source-driven and repeatable.
 
 ## Goals
 - Let an admin create a reusable private dashboard Git source.

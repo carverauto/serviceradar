@@ -13,8 +13,8 @@ Options:
                         (default: origin). Use github when cutting against
                         GitHub instead of Forgejo.
   --push                Push the current release branch to the chosen remote
-                        when finished. The tag remains local until the branch
-                        is merged to staging.
+                        when finished. Do not push the tag until
+                        LargeIngestionGate is success on origin/staging.
   --no-push             Do not push any refs (default).
   --dry-run             Print the actions without modifying the repository.
   --prerelease          Mark as pre-release (auto-detected if version contains
@@ -36,8 +36,9 @@ Examples:
   # Hotfix release (skips staging e2e tests; pushes the branch only)
   scripts/cut-release.sh --version 1.0.71 --hotfix --push
 
-After the release branch is merged to staging, run the printed ancestry check
-and explicit tag-push command. Never publish the tag before that merge.
+After the release branch is merged to staging, wait for LargeIngestionGate
+success on origin/staging, then tag that merge commit and push the tag.
+Never publish the tag before the merge, and never while the gate is queued.
 
 The script expects the working tree to be clean aside from VERSION, CHANGELOG,
 scripts/cut-release.sh, helm/serviceradar/Chart.yaml, and the demo ArgoCD source
@@ -205,10 +206,13 @@ fi
 
 print_post_merge_tag_instructions() {
     echo ""
-    echo "After the release branch is merged into staging, publish the tag with:"
+    echo "After the release branch is merged into staging, wait until GitHub commit"
+    echo "status LargeIngestionGate is success on origin/staging. That 50GB job runs"
+    echo "from the staging push, not from the tag. Then tag the merge commit:"
     echo "  git fetch $remote refs/heads/staging:refs/remotes/$remote/staging"
-    echo "  git merge-base --is-ancestor '${tag}^{commit}' refs/remotes/$remote/staging && git push $remote refs/tags/$tag:refs/tags/$tag"
-    echo "The tag push is chained to the ancestry check and will not run if it fails."
+    echo "  git tag -a '$tag' refs/remotes/$remote/staging"
+    echo "  git merge-base --is-ancestor HEAD refs/remotes/$remote/staging && git push $remote refs/tags/$tag:refs/tags/$tag"
+    echo "Do not push the tag while LargeIngestionGate is pending or queued."
 }
 
 # The in-place edits below use GNU sed syntax (the `-i` form and the
@@ -311,22 +315,22 @@ else
 fi
 
 if [[ "$dry_run" == "true" ]]; then
-    echo "[dry-run] Would create annotated tag $tag"
+    echo "[dry-run] Would not create $tag locally; tag origin/staging after LargeIngestionGate is success"
 else
-    git tag -a "$tag" -m "$notes"
+    echo "Not tagging $tag yet. Tag origin/staging after merge once LargeIngestionGate is success."
 fi
 
 if [[ "$push" == "true" ]]; then
     if [[ "$dry_run" == "true" ]]; then
         echo "[dry-run] Would push the release branch only with:"
         echo "[dry-run]   git push $remote $current_branch:refs/heads/$current_branch"
-        echo "[dry-run] The tag would remain local until the release branch is merged to staging."
+        echo "[dry-run] Do not push a tag until LargeIngestionGate is success on origin/staging."
     else
         git push "$remote" "$current_branch:refs/heads/$current_branch"
         echo "Release branch pushed. Open and merge its pull request before publishing the tag."
     fi
 else
-    echo "Branch and tag are ready locally. Push the release branch with:"
+    echo "Release branch is ready locally. Push it with:"
     if [[ -n "$current_branch" && "$current_branch" != "staging" ]]; then
         echo "  git push $remote $current_branch:refs/heads/$current_branch"
     else

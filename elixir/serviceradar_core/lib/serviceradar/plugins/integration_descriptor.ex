@@ -36,7 +36,11 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
   @allowed_rule_control_keys ~w(
     allowed_ports auto_discovery_enabled controller_host target_query transport
   )
-  @allowed_inventory_source_keys ~w(source label description metadata_fields)
+  @allowed_inventory_source_keys ~w(source label description metadata_fields emitted_facts)
+  @forbidden_authority_keys ~w(
+    fact_authority authority precedence winner winners wins canonical_priority
+    authoritative
+  )
   @allowed_metadata_field_keys ~w(key label description format)
   @allowed_documentation_keys ~w(title path url)
 
@@ -51,7 +55,7 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
   @allowed_http_methods ~w(GET POST PUT PATCH DELETE HEAD OPTIONS)
   @allowed_injection_types ~w(
     http_header header bearer_token basic_auth http_basic_auth query query_param http_query
-    form_urlencoded oauth2_password_bearer
+    form_urlencoded oauth2_password_bearer oauth2_client_credentials
   )
   @allowed_scope_types ~w(agent gateway partition)
   @allowed_field_formats ~w(text boolean number timestamp)
@@ -78,7 +82,9 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
     descriptor = MapUtils.stringify_keys(value)
     schedule_by_id = Map.new(producer_schedules, &{Map.get(&1, "schedule_id"), &1})
 
-    errors = unknown_keys(descriptor, @allowed_root_keys, "integrations")
+    errors =
+      forbidden_authority_errors(descriptor, "integrations") ++
+        unknown_keys(descriptor, @allowed_root_keys, "integrations")
 
     {documentation, errors} =
       validate_documentation(Map.get(descriptor, "documentation"), errors)
@@ -177,7 +183,10 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
   defp validate_profile(value, index, schedule_by_id) when is_map(value) do
     value = MapUtils.stringify_keys(value)
     path = "integrations.credential_profiles[#{index}]"
-    errors = unknown_keys(value, @allowed_profile_keys, path)
+
+    errors =
+      forbidden_authority_errors(value, path) ++ unknown_keys(value, @allowed_profile_keys, path)
+
     {provider, errors} = required_id(value, "provider", "#{path}.provider", errors)
     {label, errors} = required_label(value, "label", "#{path}.label", errors)
 
@@ -1020,7 +1029,11 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
   defp validate_inventory_source(value, index) when is_map(value) do
     value = MapUtils.stringify_keys(value)
     path = "integrations.inventory_sources[#{index}]"
-    errors = unknown_keys(value, @allowed_inventory_source_keys, path)
+
+    errors =
+      forbidden_authority_errors(value, path) ++
+        unknown_keys(value, @allowed_inventory_source_keys, path)
+
     {source, errors} = required_id(value, "source", "#{path}.source", errors)
     {label, errors} = required_label(value, "label", "#{path}.label", errors)
 
@@ -1030,14 +1043,15 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
     {metadata_fields, errors} =
       validate_metadata_fields(Map.get(value, "metadata_fields"), path, errors)
 
+    {emitted_facts, errors} =
+      validate_emitted_facts(Map.get(value, "emitted_facts"), "#{path}.emitted_facts", errors)
+
     case errors do
       [] ->
         {:ok,
-         maybe_put(
-           %{"source" => source, "label" => label, "metadata_fields" => metadata_fields},
-           "description",
-           description
-         )}
+         %{"source" => source, "label" => label, "metadata_fields" => metadata_fields}
+         |> maybe_put("description", description)
+         |> maybe_put("emitted_facts", emitted_facts)}
 
       _ ->
         {:error, errors}
@@ -1452,6 +1466,41 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
         end
     end
   end
+
+  defp validate_emitted_facts(nil, _path, errors), do: {[], errors}
+
+  defp validate_emitted_facts(values, path, errors) when is_list(values) do
+    allowed = MapSet.new(ServiceRadar.Inventory.SourceFacts.keys())
+
+    {facts, errors} =
+      Enum.reduce(values, {[], errors}, fn
+        value, {acc, acc_errors} when is_binary(value) ->
+          if value in allowed do
+            {acc ++ [value], acc_errors}
+          else
+            {acc, ["#{path} contains unknown fact key #{value}" | acc_errors]}
+          end
+
+        _value, {acc, acc_errors} ->
+          {acc, ["#{path} entries must be strings" | acc_errors]}
+      end)
+
+    {Enum.uniq(facts), errors}
+  end
+
+  defp validate_emitted_facts(_values, path, errors),
+    do: {[], ["#{path} must be a list of fact keys" | errors]}
+
+  defp forbidden_authority_errors(value, path) when is_map(value) do
+    value
+    |> Map.keys()
+    |> Enum.filter(&(&1 in @forbidden_authority_keys))
+    |> Enum.map(
+      &"#{path}.#{&1} must not declare fact authority or precedence; winners are configured in the platform catalog"
+    )
+  end
+
+  defp forbidden_authority_errors(_value, _path), do: []
 
   defp unknown_keys(value, allowed, path) do
     value

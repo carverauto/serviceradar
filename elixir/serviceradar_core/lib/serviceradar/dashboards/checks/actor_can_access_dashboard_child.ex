@@ -7,6 +7,8 @@ defmodule ServiceRadar.Dashboards.Checks.ActorCanAccessDashboardChild do
 
   import Ash.Expr
 
+  alias ServiceRadar.Dashboards.Checks.SubjectGrant
+
   @impl true
   def describe(_opts), do: "actor can access parent authored dashboard"
 
@@ -16,16 +18,7 @@ defmodule ServiceRadar.Dashboards.Checks.ActorCanAccessDashboardChild do
   end
 
   def filter(%{id: actor_id}, _authorizer, _opts) when not is_nil(actor_id) do
-    expr(
-      dashboard.owner_id == ^actor_id or
-        dashboard.visibility == :public or
-        exists(
-          dashboard.access_grants,
-          access in [:view, :edit] and
-            ((subject_type == :user and subject_user_id == ^actor_id) or
-               (subject_type == :group and exists(subject_group.memberships, user_id == ^actor_id)))
-        )
-    )
+    SubjectGrant.parent_dashboard_access(actor_id)
   end
 
   def filter(_actor, _authorizer, _opts), do: expr(dashboard.visibility == :public)

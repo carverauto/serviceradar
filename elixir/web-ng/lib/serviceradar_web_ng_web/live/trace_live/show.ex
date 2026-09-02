@@ -132,6 +132,10 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
     {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/observability")}
   end
 
+  def handle_event("srql_reset", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_reset", params, fallback_path: "/observability")}
+  end
+
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "otel_trace_summaries")}
   end
@@ -318,8 +322,20 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                         <.kv label="Parent Span ID" value={row.parent_span_id} mono />
                         <.kv label="Kind" value={span_kind_label(row.kind)} />
                         <.kv label="Status" value={span_status_detail(row)} />
-                        <.kv label="Start" value={format_ns_time(row.start_ns)} mono />
-                        <.kv label="End" value={format_ns_time(row.end_ns)} mono />
+                        <.time_kv
+                          id={"trace-span-#{span_identity(row, idx)}-start-time"}
+                          label="Start"
+                          value={datetime_from_ns(row.start_ns)}
+                          fallback="—"
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        />
+                        <.time_kv
+                          id={"trace-span-#{span_identity(row, idx)}-end-time"}
+                          label="End"
+                          value={datetime_from_ns(row.end_ns)}
+                          fallback="—"
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        />
                         <.kv label="Duration" value={format_duration_ms(row.duration_ms)} mono />
                         <.kv label="Service" value={row.service} />
                         <.kv
@@ -412,7 +428,17 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                     class={["transition-colors", log_path && "hover:bg-sr-subtle/40 cursor-pointer"]}
                     phx-click={log_path && JS.navigate(log_path)}
                   >
-                    <td class="whitespace-nowrap text-xs font-mono">{log_timestamp(log)}</td>
+                    <td class="whitespace-nowrap text-xs font-mono">
+                      <% timestamp = effective_log_timestamp(log) %>
+                      <.user_time
+                        id={"trace-log-#{log_identity(log, idx)}-time"}
+                        value={timestamp}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:full}
+                        fallback="—"
+                        class="font-mono text-xs"
+                      />
+                    </td>
                     <td>
                       <.ui_badge size="xs" variant={severity_badge_variant(log)}>
                         {log_severity(log)}
@@ -463,6 +489,28 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
     <div class="rounded-lg border border-sr-line bg-sr-surface p-3">
       <div class="text-[11px] uppercase tracking-wider text-sr-muted mb-1">{@label}</div>
       <div class={["text-sm break-all", @mono && "font-mono text-xs"]}>{format_value(@value)}</div>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :any, required: true
+  attr :fallback, :string, required: true
+  attr :timezone, :string, required: true
+
+  defp time_kv(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-sr-line bg-sr-surface p-3">
+      <div class="mb-1 text-[11px] uppercase tracking-wider text-sr-muted">{@label}</div>
+      <.user_time
+        id={@id}
+        value={@value}
+        timezone={@timezone}
+        style={:full}
+        fallback={@fallback}
+        class="break-all font-mono text-xs"
+      />
     </div>
     """
   end
@@ -825,10 +873,18 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
     end
   end
 
-  defp log_timestamp(log) do
-    case parse_timestamp(Map.get(log, "timestamp")) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> Map.get(log, "timestamp") || "—"
+  defp effective_log_timestamp(log) do
+    Map.get(log, "observed_timestamp") || Map.get(log, "timestamp")
+  end
+
+  defp span_identity(row, index) do
+    if row.span_id in [nil, ""], do: "row-#{index}", else: row.span_id
+  end
+
+  defp log_identity(log, index) do
+    case Map.get(log, "id") do
+      id when id not in [nil, ""] -> id
+      _id -> "row-#{index}"
     end
   end
 
@@ -914,20 +970,14 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
     end
   end
 
-  defp format_ns_time(ns) when is_integer(ns) do
+  defp datetime_from_ns(ns) when is_integer(ns) do
     case DateTime.from_unix(ns, :nanosecond) do
-      {:ok, dt} ->
-        millis = ns |> rem(@nanos_per_second) |> div(1_000_000) |> abs()
-
-        Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S") <>
-          "." <> String.pad_leading(Integer.to_string(millis), 3, "0")
-
-      _ ->
-        Integer.to_string(ns)
+      {:ok, dt} -> dt
+      _ -> nil
     end
   end
 
-  defp format_ns_time(_ns), do: "—"
+  defp datetime_from_ns(_ns), do: nil
 
   defp format_duration_ms(nil), do: "—"
 
@@ -991,15 +1041,13 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   defp parse_timestamp(value) when is_binary(value) do
     value = String.trim(value)
 
+    # Trace summaries are source text; only an explicit offset identifies an instant.
     case DateTime.from_iso8601(value) do
       {:ok, dt, _offset} ->
         {:ok, dt}
 
       {:error, _} ->
-        case NaiveDateTime.from_iso8601(value) do
-          {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-          {:error, _} -> :error
-        end
+        :error
     end
   end
 

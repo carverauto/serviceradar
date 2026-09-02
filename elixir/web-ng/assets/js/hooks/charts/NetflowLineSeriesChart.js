@@ -7,10 +7,21 @@ import {
   clearSVG as nfClearSVG,
   colorScale as nfColorScale,
   ensureSVG as nfEnsureSVG,
+  netflowAxisTimeFormatter,
+  netflowDisplayTimeZone,
   normalizeTimeSeries as nfNormalizeTimeSeries,
   parseSeriesData as nfParseSeriesData,
 } from "../../netflow_charts/util"
 import {nfFormatRateValue} from "../../utils/formatters"
+
+export function lineSeriesTimePresentation(timeZone) {
+  const displayTimeZone = netflowDisplayTimeZone(timeZone)
+
+  return {
+    timeZone: displayTimeZone,
+    axisFormatter: netflowAxisTimeFormatter(displayTimeZone),
+  }
+}
 
 export default {
   mounted() {
@@ -55,6 +66,8 @@ export default {
 
     const visibleKeys = keys.filter((k) => !this._hidden.has(k))
     if (visibleKeys.length === 0) return
+
+    const timePresentation = lineSeriesTimePresentation(el.dataset.timezone)
 
     const maxY = d3.max(visibleKeys, (k) => d3.max(data, (d) => d[k])) || 1
     const x = d3.scaleTime().domain(d3.extent(data, (d) => d.t)).range([0, iw])
@@ -112,7 +125,7 @@ export default {
 
     g.append("g")
       .attr("transform", `translate(0,${ih})`)
-      .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
+      .call(d3.axisBottom(x).ticks(5).tickFormat(timePresentation.axisFormatter).tickSizeOuter(0))
       .call((gg) => gg.selectAll("text").attr("font-size", 10).attr("opacity", 0.7))
 
     g.append("g")
@@ -130,6 +143,7 @@ export default {
       plotLeft: m.left,
       plotWidth: iw,
       viewBoxWidth: width,
+      timeZone: timePresentation.timeZone,
       valueAt: (row, k) => row?.[k] || 0,
       formatValue: (v) => nfFormatRateValue(el.dataset.units, v),
     })

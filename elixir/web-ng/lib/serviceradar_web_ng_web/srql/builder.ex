@@ -45,6 +45,13 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     limit = normalize_limit(Map.get(state, "limit", 100))
     filters = normalize_filters(entity, Map.get(state, "filters", []))
 
+    mode =
+      if bucket |> safe_to_string() |> String.trim() == "",
+        do: :row,
+        else: :downsample
+
+    {filters, _stripped} = apply_mode_filter_allowlist(entity, mode, filters)
+
     tokens =
       ["in:#{entity}"]
       |> maybe_add_time(time)
@@ -57,10 +64,46 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   def update(%{} = state, %{} = params) do
+    {next, _stripped} = update_meta(state, params)
+    next
+  end
+
+  @doc """
+  Like `update/2`, but also returns one field-name entry per filter row stripped
+  by mode allowlists (e.g. enabling chart mode drops `tag` on flows).
+  """
+  def update_meta(%{} = state, %{} = params) do
     state
     |> Map.merge(stringify_map(params))
-    |> normalize_state()
+    |> normalize_state_meta()
   end
+
+  @doc """
+  Active query mode for builder composition: `:downsample` when `bucket` is set,
+  otherwise `:row`. Stats-mode builder support is not wired yet.
+  """
+  def mode(%{} = state) do
+    bucket =
+      state
+      |> Map.get("bucket", "")
+      |> safe_to_string()
+      |> String.trim()
+
+    if bucket == "", do: :row, else: :downsample
+  end
+
+  def mode(_), do: :row
+
+  @doc """
+  Filter field options for the current builder state (mode-aware).
+  Returns a list, or `nil` when the entity does not constrain fields.
+  """
+  def filter_fields_for(%{} = state) do
+    entity = Map.get(state, "entity", "devices")
+    Catalog.filter_fields(entity, mode(state))
+  end
+
+  def filter_fields_for(_), do: nil
 
   def parse(query) when is_binary(query) do
     tokens =
@@ -79,19 +122,21 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
              parts.value_field,
              parts.series
            ) do
-      {:ok,
-       normalize_state(%{
-         "entity" => parts.entity,
-         "time" => parts.time,
-         "bucket" => parts.bucket,
-         "agg" => parts.agg,
-         "value_field" => parts.value_field,
-         "series" => parts.series,
-         "sort_field" => parts.sort_field,
-         "sort_dir" => parts.sort_dir,
-         "limit" => parts.limit,
-         "filters" => parts.filters
-       })}
+      case normalize_state_meta(%{
+             "entity" => parts.entity,
+             "time" => parts.time,
+             "bucket" => parts.bucket,
+             "agg" => parts.agg,
+             "value_field" => parts.value_field,
+             "series" => parts.series,
+             "sort_field" => parts.sort_field,
+             "sort_dir" => parts.sort_dir,
+             "limit" => parts.limit,
+             "filters" => parts.filters
+           }) do
+        {state, []} -> {:ok, state}
+        {_state, stripped} -> {:error, {:unsupported_mode_filter_fields, stripped}}
+      end
     end
   end
 
@@ -135,7 +180,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   defp finalize_tokens(tokens_rev, ""), do: tokens_rev
   defp finalize_tokens(tokens_rev, current), do: [current | tokens_rev]
 
-  defp normalize_state(%{} = state) do
+  defp normalize_state_meta(%{} = state) do
     entity =
       state
       |> Map.get("entity", "devices")
@@ -154,8 +199,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
         _ -> "desc"
       end
 
-    filters = normalize_filters(entity, Map.get(state, "filters", []))
-
     bucket = normalize_bucket(config, Map.get(state, "bucket"))
     agg = normalize_agg(config, Map.get(state, "agg"))
     value_field = normalize_value_field(config, Map.get(state, "value_field"))
@@ -167,7 +210,11 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       |> normalize_time()
       |> ensure_downsample_time(config, bucket)
 
-    %{
+    mode = if bucket == "", do: :row, else: :downsample
+    raw_filters = normalize_filters(entity, Map.get(state, "filters", []))
+    {filters, stripped} = apply_mode_filter_allowlist(entity, mode, raw_filters)
+
+    normalized = %{
       "entity" => config.id,
       "time" => time,
       "bucket" => bucket,
@@ -179,6 +226,63 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
       "limit" => normalize_limit(Map.get(state, "limit", 100)),
       "filters" => filters
     }
+
+    {normalized, stripped}
+  end
+
+  # Drop filters whose field is illegal for the active mode. Unrestricted
+  # entities (`filter_fields` empty → nil allowlist) keep every filter.
+  defp apply_mode_filter_allowlist(entity, mode, filters) when is_list(filters) do
+    case Catalog.filter_fields(entity, mode) do
+      nil ->
+        {filters, []}
+
+      allowed when is_list(allowed) ->
+        allowed_set = MapSet.new(allowed)
+
+        {kept, removed} =
+          Enum.split_with(filters, fn filter ->
+            field = filter |> Map.get("field") |> safe_to_string() |> String.trim()
+            field == "" or MapSet.member?(allowed_set, field)
+          end)
+
+        stripped =
+          removed
+          |> Enum.map(fn filter -> filter |> Map.get("field") |> safe_to_string() end)
+          |> Enum.reject(&(&1 == ""))
+
+        # If every filter was illegal, seed one empty legal row so the UI still
+        # has a place to type — matching default_state's single empty filter.
+        kept =
+          if kept == [] and stripped != [] do
+            field = default_mode_filter_field(entity, mode, allowed)
+
+            [
+              %{
+                "field" => field,
+                "op" => Catalog.default_filter_op(entity, field),
+                "value" => ""
+              }
+            ]
+          else
+            kept
+          end
+
+        {kept, stripped}
+    end
+  end
+
+  defp apply_mode_filter_allowlist(_entity, _mode, _), do: {[], []}
+
+  defp default_mode_filter_field(entity, _mode, allowed) when is_list(allowed) do
+    config = Catalog.entity(entity)
+    preferred = safe_to_string(config.default_filter_field || "")
+
+    if preferred != "" and preferred in allowed do
+      preferred
+    else
+      List.first(allowed) || preferred || "field"
+    end
   end
 
   defp normalize_time(nil), do: ""
@@ -216,7 +320,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
     default = safe_to_string(Map.get(config, :default_bucket) || "")
 
     cond do
-      candidate == "" -> default
+      # `default_state/2` seeds the initial chart bucket. Once a bucket is
+      # explicitly cleared, preserve that row-mode choice instead of silently
+      # re-enabling the default chart mode.
+      candidate == "" -> ""
       Regex.match?(~r/^\d+(?:s|m|h|d)$/, candidate) -> candidate
       true -> default
     end
@@ -323,11 +430,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
   end
 
   defp allowed_search_fields(entity) do
-    case Catalog.entity(entity) do
-      %{filter_fields: []} -> nil
-      %{filter_fields: fields} when is_list(fields) -> fields
-      _ -> nil
-    end
+    # Parse/validate against the row allowlist (superset). Mode stripping happens
+    # later in normalize so freeform-illegal-for-chart fields can still parse,
+    # then get dropped when the builder is in downsample mode.
+    Catalog.filter_fields(entity, :row)
   end
 
   defp default_sort_field(entity) do

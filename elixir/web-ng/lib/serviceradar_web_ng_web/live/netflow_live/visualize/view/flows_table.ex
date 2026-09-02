@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
   attr(:limit, :integer, required: true)
   attr(:nf_param, :string, default: nil)
   attr(:unit_mode, :string, default: "Bps")
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def render(assigns) do
     ~H"""
@@ -56,13 +57,18 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
             <% dst_port = flow_get(flow, ["dst_endpoint_port", "dst_port"]) %>
             <% src_cc = flow_get(flow, ["src_country_iso2"]) || Map.get(@geo_iso2_map, src_ip) %>
             <% dst_cc = flow_get(flow, ["dst_country_iso2"]) || Map.get(@geo_iso2_map, dst_ip) %>
+            <% row_time_id = flow_row_time_id(flow, idx) %>
 
             <tr class="hover:bg-sr-subtle/40">
               <% t_raw = flow_get(flow, ["time", "timestamp"]) %>
-              <td class="whitespace-nowrap text-xs font-mono truncate overflow-hidden" title={t_raw}>
-                <span id={"nf-time-#{idx}"} phx-hook="LocalTime" data-iso={t_raw}>
-                  {format_flow_time_short(t_raw) || "—"}
-                </span>
+              <td class="whitespace-nowrap text-xs font-mono truncate overflow-hidden">
+                <.user_time
+                  id={row_time_id}
+                  value={t_raw}
+                  timezone={@timezone}
+                  style={:time}
+                  fallback={t_raw || "—"}
+                />
               </td>
               <td class="text-xs font-mono min-w-0">
                 <div class="min-w-0">
@@ -348,5 +354,19 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowsTable do
         path: flows_filter_patch(base_path, query, limit, nf_param, "tag", tag)
       }
     end)
+  end
+
+  defp flow_row_time_id(flow, fallback_index) do
+    suffix =
+      flow
+      |> flow_get(["id", "uid", "flow_id"])
+      |> case do
+        nil -> Integer.to_string(fallback_index)
+        value -> to_string(value)
+      end
+      |> String.replace(~r/[^A-Za-z0-9_-]+/, "-")
+      |> String.trim("-")
+
+    "netflow-row-time-#{if suffix == "", do: fallback_index, else: suffix}"
   end
 end

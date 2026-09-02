@@ -89,6 +89,9 @@ func run_check() {
 		}
 		if snapshotErr != "" {
 			status = sdk.StatusCritical
+			if details.CollectionError != "" {
+				summary += ": " + details.CollectionError
+			}
 		}
 		if status == sdk.StatusOK && cfg.CollectEvents {
 			lastEndpoint := details.Endpoints[len(details.Endpoints)-1]

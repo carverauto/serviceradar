@@ -2,6 +2,8 @@ import {describe, expect, it} from "vitest"
 import * as d3 from "d3"
 
 import {
+  gridTooltipTimeLabel,
+  gridTooltipTimeHtml,
   gridPanelAt,
   gridPanelAtPointer,
   gridPanelLayout,
@@ -10,6 +12,29 @@ import {
 } from "./NetflowGridChart"
 
 describe("NetflowGridChart hover geometry", () => {
+  it("formats tooltip instants in the root's explicit saved timezone", () => {
+    const label = gridTooltipTimeLabel(new Date("2026-08-30T18:00:00Z"), {
+      timeZone: "America/Chicago",
+      locale: "en-US",
+    })
+
+    expect(label).toContain("01:00:00 PM")
+    expect(label).toContain("GMT-5")
+  })
+
+  it("keeps canonical UTC accessible while displaying the saved-zone tooltip label", () => {
+    const html = gridTooltipTimeHtml(new Date("2026-08-30T18:00:00Z"), {
+      timeZone: "America/Chicago",
+      locale: "en-US",
+    })
+
+    expect(html).toContain('<time datetime="2026-08-30T18:00:00.000Z"')
+    expect(html).toContain('data-canonical-utc="2026-08-30T18:00:00.000Z"')
+    expect(html).toContain("canonical UTC 2026-08-30T18:00:00.000Z")
+    expect(html).toContain("01:00:00 PM")
+    expect(html).toContain("GMT-5")
+  })
+
   it("maps pointer coordinates to the active grid panel", () => {
     const panels = gridPanelLayout(["src", "dst", "app", "asn"], 400, 200, 10)
 

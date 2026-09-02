@@ -264,14 +264,20 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
                     class="cursor-pointer hover:bg-sr-subtle/50 focus:bg-sr-subtle/60 focus:outline-none"
                     tabindex="0"
                     role="button"
-                    aria-label={"View audit event #{e.kind} at #{format_dt(e.occurred_at)}"}
+                    aria-label={"View audit event #{e.kind}"}
                     phx-click="show-event"
                     phx-keydown="show-event"
                     phx-key="Enter"
                     phx-value-id={e.id}
                   >
                     <td class="px-4 py-2 font-mono text-xs whitespace-nowrap">
-                      {format_dt(e.occurred_at)}
+                      <.user_time
+                        id={"settings-audit-event-#{e.id}-occurred-at"}
+                        value={e.occurred_at}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="—"
+                      />
                     </td>
                     <td class="px-4 py-2 truncate" title={to_string(e.kind)}>{e.kind}</td>
                     <td class="px-4 py-2">{e.severity}</td>
@@ -297,7 +303,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
             </table>
           </div>
 
-          <.event_modal :if={@selected_event} event={@selected_event} />
+          <.event_modal
+            :if={@selected_event}
+            event={@selected_event}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
+          />
         <% else %>
           <p class="text-sm text-error">
             You need <code>settings.audit.view</code> to see security events.
@@ -314,6 +324,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
   # click, or the Escape key (phx-window-keydown). Shows every event field,
   # including the full (untruncated) IP and route plus any details payload.
   attr(:event, :map, required: true)
+  attr(:timezone, :string, required: true)
 
   defp event_modal(assigns) do
     ~H"""
@@ -342,7 +353,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
         <dl class="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
           <div class="sm:col-span-2">
             <dt class="text-xs uppercase text-sr-muted">When</dt>
-            <dd class="font-mono text-xs">{format_dt(@event.occurred_at)}</dd>
+            <dd class="font-mono text-xs">
+              <.user_time
+                id={"settings-audit-event-modal-#{@event.id}-occurred-at"}
+                value={@event.occurred_at}
+                timezone={@timezone}
+                style={:compact}
+                fallback="—"
+              />
+            </dd>
           </div>
           <div>
             <dt class="text-xs uppercase text-sr-muted">Kind</dt>
@@ -406,10 +425,4 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.Events do
   end
 
   defp pretty_details(details), do: inspect(details, pretty: true)
-
-  defp format_dt(nil), do: "—"
-
-  defp format_dt(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-  end
 end

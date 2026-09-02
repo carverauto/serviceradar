@@ -91,6 +91,46 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     assert_receive {:ingest_started, _updates}, 2_000
   end
 
+  test "keeps different sync run envelopes in separate arrival-ordered groups" do
+    batch = fn source_id, run_id, device_id ->
+      [
+        %{
+          "device_id" => device_id,
+          "sync_meta" => %{
+            "sync_service_id" => source_id,
+            "sync_run_id" => run_id,
+            "chunk_index" => 1,
+            "total_chunks" => 3,
+            "is_final" => false
+          }
+        }
+      ]
+    end
+
+    a1 = batch.("source-a", "run-a", "a-1")
+    a2 = batch.("source-a", "run-a", "a-2")
+    b1 = batch.("source-b", "run-b", "b-1")
+    a3 = batch.("source-a", "run-a", "a-3")
+
+    assert SyncIngestorQueue.group_batches_for_ingestion([a1, a2, b1, a3]) == [
+             List.flatten([a1, a2]),
+             b1,
+             a3
+           ]
+  end
+
+  test "strips an accounting-only collection final marker from device ingestion" do
+    control = %{
+      "_sync_control" => "collection_final",
+      "timestamp" => "2026-09-01T08:00:00Z",
+      "sync_meta" => %{"is_final" => true}
+    }
+
+    device = %{"device_id" => "device-a"}
+
+    assert SyncIngestorQueue.strip_sync_control_updates([control, device]) == [device]
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
 

@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
   # ---------------------------------------------------------------------------
 
   attr(:sweep_results, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def sweep_status_section(assigns) do
     results = Map.get(assigns.sweep_results, :results, [])
@@ -57,7 +58,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
             <div class="p-3 bg-sr-subtle/50 rounded-lg">
               <div class="text-xs text-sr-muted uppercase">Last Sweep</div>
               <div class="mt-1 text-sm">
-                {format_sweep_time(@latest.inserted_at)}
+                <.user_time
+                  id="device-sweep-latest-inserted-at"
+                  value={@latest.inserted_at}
+                  timezone={@timezone}
+                  style={:compact}
+                />
               </div>
             </div>
           </div>
@@ -91,9 +97,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
                     </tr>
                   </thead>
                   <tbody>
-                    <%= for result <- Enum.take(@results, 5) do %>
+                    <%= for {result, index} <- Enum.with_index(Enum.take(@results, 5)) do %>
                       <tr class="hover:bg-sr-subtle/40">
-                        <td class="font-mono text-xs">{format_sweep_time(result.inserted_at)}</td>
+                        <td class="font-mono text-xs">
+                          <.user_time
+                            id={"device-sweep-history-#{sweep_time_key(result, index)}-inserted-at"}
+                            value={result.inserted_at}
+                            timezone={@timezone}
+                            style={:compact}
+                          />
+                        </td>
                         <td
                           class="font-mono text-xs truncate max-w-[8rem]"
                           title={get_sweep_agent_id(result)}
@@ -144,6 +157,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
   attr(:aliases, :list, required: true)
   attr(:show_stale, :boolean, default: false)
   attr(:error, :string, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def ip_aliases_section(assigns) do
     assigns =
@@ -205,7 +219,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
                     </.ui_badge>
                   </td>
                   <td class="text-xs tabular-nums">{alias_state.sighting_count || 0}</td>
-                  <td class="font-mono text-xs">{format_alias_time(alias_state.last_seen_at)}</td>
+                  <td class="font-mono text-xs">
+                    <.user_time
+                      id={"device-ip-alias-#{time_key(alias_state.alias_value)}-last-seen-at"}
+                      value={alias_state.last_seen_at}
+                      timezone={@timezone}
+                      style={:compact}
+                    />
+                  </td>
                 </tr>
               <% end %>
             </tbody>
@@ -240,14 +261,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
   def format_response_time(nil), do: "—"
   def format_response_time(ms) when is_number(ms), do: "#{ms}ms"
   def format_response_time(_), do: "—"
-
-  def format_sweep_time(nil), do: "—"
-
-  def format_sweep_time(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  end
-
-  def format_sweep_time(_), do: "—"
 
   def format_ports_compact([]), do: "—"
   def format_ports_compact(ports) when length(ports) <= 3, do: Enum.join(ports, ", ")
@@ -335,24 +348,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SweepComponents do
   defp normalize_alias_state(state) when is_binary(state), do: state
   defp normalize_alias_state(_), do: ""
 
-  defp format_alias_time(nil), do: "—"
-
-  defp format_alias_time(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+  defp sweep_time_key(result, index) do
+    [
+      Map.get(result, :id) || Map.get(result, "id"),
+      Map.get(result, :uid) || Map.get(result, "uid"),
+      Map.get(result, :execution_id) || Map.get(result, "execution_id")
+    ]
+    |> Enum.find_value(&optional_time_key/1)
+    |> Kernel.||(Integer.to_string(index))
   end
 
-  defp format_alias_time(%NaiveDateTime{} = dt) do
-    dt
-    |> DateTime.from_naive!("Etc/UTC")
-    |> format_alias_time()
-  end
+  defp optional_time_key(value) when value in [nil, ""], do: nil
 
-  defp format_alias_time(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, dt, _} -> format_alias_time(dt)
-      _ -> value
+  defp optional_time_key(value) do
+    case time_key(value) do
+      "" -> nil
+      key -> key
     end
   end
 
-  defp format_alias_time(_), do: "—"
+  defp time_key(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
+  end
 end

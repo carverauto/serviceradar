@@ -11,7 +11,8 @@ and are queryable in SRQL and the flow UI.
 
 This is the operational runbook for enabling, monitoring, and rolling back the
 feature. Design background lives in OpenSpec change
-`add-flow-prefix-tag-enrichment` and forgejo issue #4641.
+`add-flow-prefix-tag-enrichment` and GitHub issue
+[#3527](https://github.com/carverauto/serviceradar/issues/3527).
 
 ## Architecture (short)
 

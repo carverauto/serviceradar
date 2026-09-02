@@ -141,10 +141,14 @@ defmodule ServiceRadar.Jobs.JobSchedule do
 
         max_merges = extract_max_merges(schedule.args)
 
-        case ServiceRadar.Inventory.IdentityReconciler.reconcile_duplicates(
-               actor: actor,
-               max_merges: max_merges
-             ) do
+        reconcile_opts =
+          if is_integer(max_merges) and max_merges > 0 do
+            [actor: actor, max_merges: max_merges]
+          else
+            [actor: actor]
+          end
+
+        case ServiceRadar.Inventory.IdentityReconciler.reconcile_duplicates(reconcile_opts) do
           {:ok, stats} ->
             Logger.info("Identity reconciliation completed: #{inspect(stats)}")
 

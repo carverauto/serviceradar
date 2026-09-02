@@ -430,16 +430,42 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   # Match the partial unique index predicate exactly so Postgres can use
   # ocsf_devices_unique_active_ip_idx (index-only) instead of a sequential scan.
+  #
+  # Keyed by {partition, ip}, NOT by ip alone. That index is
+  # `UNIQUE (partition, ip)` since the isolation-partition migration, so an IP
+  # may legally be held by one live device per partition. Keying this map on ip
+  # alone made `Map.new/1` silently keep an arbitrary one of them, and the
+  # conflict remapper below then released or re-pointed the wrong device's uid --
+  # a monitoring sweep could take the isolation copy's row, or the reverse.
   defp load_active_ip_owners([]), do: %{}
 
   defp load_active_ip_owners(ips) do
     from(d in Device,
       where: d.ip in ^ips and is_nil(d.deleted_at) and not is_nil(d.ip) and d.ip != "",
-      select: {d.ip, %{uid: d.uid, metadata: d.metadata, hostname: d.hostname, mac: d.mac}}
+      select:
+        {{d.partition, d.ip},
+         %{uid: d.uid, metadata: d.metadata, hostname: d.hostname, mac: d.mac}}
     )
     |> Repo.all()
     |> Map.new()
   end
+
+  # The partition an incoming record claims. Mirrors `Ids.identifier_partition/2`
+  # so the device row and its identifiers are scoped to the same partition.
+  defp record_partition(record) do
+    case Map.get(record, :partition) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> "default"
+          trimmed -> trimmed
+        end
+
+      _ ->
+        "default"
+    end
+  end
+
+  defp record_ip_key(record), do: {record_partition(record), Map.get(record, :ip)}
 
   defp batch_intended_ips(records) do
     Map.new(records, fn record -> {record.uid, Map.get(record, :ip)} end)
@@ -478,7 +504,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   end
 
   defp partition_holders_by_batch_release(existing_by_ip, batch_ip_by_uid) do
-    Enum.reduce(existing_by_ip, {%{}, []}, fn {ip, holder}, {keepers, releases} ->
+    Enum.reduce(existing_by_ip, {%{}, []}, fn {{_partition, ip} = key, holder},
+                                              {keepers, releases} ->
       case Map.fetch(batch_ip_by_uid, holder.uid) do
         {:ok, new_ip} ->
           if batch_releases_held_ip?(new_ip, ip) do
@@ -498,11 +525,11 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           else
             # nil/omit keeps the current IP via the upsert CASE; same IP keeps
             # the holder. Either way the owner still claims the unique slot.
-            {Map.put(keepers, ip, holder), releases}
+            {Map.put(keepers, key, holder), releases}
           end
 
         :error ->
-          {Map.put(keepers, ip, holder), releases}
+          {Map.put(keepers, key, holder), releases}
       end
     end)
   end
@@ -517,7 +544,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
        ) do
     ip = Map.get(record, :ip)
 
-    case Map.get(active_holders, ip) do
+    case Map.get(active_holders, record_ip_key(record)) do
       nil ->
         {resolved, {remap, conflicts}} =
           drop_batch_conflicting_ip(record, incoming_ip_owners, strong_uids, remap, conflicts)
@@ -633,16 +660,19 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # case, so the old recovery path retried the exact same conflict. Never pick
   # one source identity as the winner based on record order: remove the
   # contested IP from every distinct UID and retain their stronger identities.
+  # Grouped by {partition, ip}: two records sharing an IP in DIFFERENT partitions
+  # are not in conflict, they are the monitoring and isolation copies of one
+  # address and both must survive the batch.
   defp incoming_ip_owners(records) do
     records
     |> Enum.filter(&SourcePolicy.valid_ip?(Map.get(&1, :ip)))
-    |> Enum.group_by(&Map.get(&1, :ip), &Map.fetch!(&1, :uid))
-    |> Map.new(fn {ip, uids} -> {ip, Enum.uniq(uids)} end)
+    |> Enum.group_by(&record_ip_key/1, &Map.fetch!(&1, :uid))
+    |> Map.new(fn {key, uids} -> {key, Enum.uniq(uids)} end)
   end
 
   defp drop_batch_conflicting_ip(record, incoming_ip_owners, strong_uids, remap, conflicts) do
     ip = Map.get(record, :ip)
-    conflicting_uids = Map.get(incoming_ip_owners, ip, [])
+    conflicting_uids = Map.get(incoming_ip_owners, record_ip_key(record), [])
 
     if length(conflicting_uids) > 1 do
       conflicting_uid = Enum.find(conflicting_uids, &(&1 != record.uid))
@@ -806,14 +836,71 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
           hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),
           name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
+          # A type an operator set by hand outranks one an integration inferred.
+          #
+          # Without this, `type` was the one identity field with no precedence
+          # at all: any non-empty incoming string won unconditionally, unlike
+          # `ip` directly above. So an Armis sync relabelled 280 of 412
+          # hand-imported RIDS displays as "Interactive Kiosks", "Thin Client",
+          # "IP Cameras" -- Armis' own inventory categories, passed through
+          # verbatim by `Enrichment.explicit_type_tuple/1`'s `{explicit, 99}`
+          # catch-all. Every SRQL query and rollup selecting `type:rids` then
+          # silently matched a third of the fleet and reported it as the whole.
+          #
+          # The claim is keyed on `discovery_sources` containing 'manual',
+          # which is durable: every writer merges that array rather than
+          # replacing it, so the manual origin survives any number of later
+          # syncs. In `ON CONFLICT DO UPDATE`, `d.` is the PRE-update row
+          # regardless of SET-clause order, so this reads the same array the
+          # `discovery_sources` clause below is about to extend.
+          #
+          # 'Unknown' is not a human answer, it is the absence of one. Both
+          # `Enrichment` (via `Normalize.first_meaningful_string/2`) and SRQL
+          # (`COALESCE(NULLIF(trim(type), ''), 'Unknown')`) already treat it as
+          # the no-type sentinel, and the 20260521 backfill migration selected
+          # rows on exactly that expression. A device carrying it is protecting
+          # nothing, so an integration's guess is still strictly better.
+          #
+          # This is narrower than the `ip` rank guard on purpose. It is not a
+          # general "first writer wins": an integration still freely overwrites
+          # a type another integration inferred, and still fills a blank one.
+          # The only thing it refuses is demoting a human's answer to a guess.
+          #
+          # `type` and `type_id` MUST move together -- holding one and not the
+          # other yields type='rids' with type_id=99, a row that agrees with
+          # neither source. Both carry the identical condition for that reason.
           type:
             fragment(
-              "COALESCE(NULLIF(EXCLUDED.type, ''), ?)",
+              """
+              CASE
+                WHEN 'manual' = ANY(COALESCE(?, ARRAY[]::text[]))
+                     AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
+                     AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
+                  THEN ?
+                ELSE COALESCE(NULLIF(EXCLUDED.type, ''), ?)
+              END
+              """,
+              d.discovery_sources,
+              d.type,
+              d.type,
               d.type
             ),
           type_id:
             fragment(
-              "CASE WHEN EXCLUDED.type_id IS NOT NULL AND EXCLUDED.type_id > 0 THEN EXCLUDED.type_id ELSE ? END",
+              """
+              CASE
+                WHEN 'manual' = ANY(COALESCE(?, ARRAY[]::text[]))
+                     AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
+                     AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
+                  THEN ?
+                WHEN EXCLUDED.type_id IS NOT NULL AND EXCLUDED.type_id > 0
+                  THEN EXCLUDED.type_id
+                ELSE ?
+              END
+              """,
+              d.discovery_sources,
+              d.type,
+              d.type_id,
               d.type_id
             ),
           vendor_name: fragment("COALESCE(EXCLUDED.vendor_name, ?)", d.vendor_name),

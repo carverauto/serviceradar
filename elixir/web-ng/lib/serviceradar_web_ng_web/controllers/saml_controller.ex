@@ -548,6 +548,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     assertion = %{
       subject_name_id: xpath(node, ~x"./saml:Subject/saml:NameID/text()"s, namespaces: namespaces),
       issuer: xpath(node, ~x"./saml:Issuer/text()"s, namespaces: namespaces),
+      session_index: xpath(node, ~x"./saml:AuthnStatement/@SessionIndex"s, namespaces: namespaces),
       attributes: parse_attributes(node, namespaces),
       conditions: %{
         not_before: xpath(node, ~x"./saml:Conditions/@NotBefore"s, namespaces: namespaces),
@@ -567,6 +568,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
         %{
           assertion
           | subject_name_id: xpath(node, ~x"./Subject/NameID/text()"s),
+            session_index: xpath(node, ~x"./AuthnStatement/@SessionIndex"s),
             conditions: %{
               not_before: xpath(node, ~x"./Conditions/@NotBefore"s),
               not_on_or_after: xpath(node, ~x"./Conditions/@NotOnOrAfter"s),
@@ -665,7 +667,9 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
         |> Map.merge(%{
           "email" => user_info.email,
           "name" => user_info.name,
-          "sub" => user_info.external_id
+          "sub" => user_info.external_id,
+          "iss" => assertion.issuer,
+          "SessionIndex" => assertion.session_index
         })
         |> Map.put("service_radar_auth_method", "saml")
 

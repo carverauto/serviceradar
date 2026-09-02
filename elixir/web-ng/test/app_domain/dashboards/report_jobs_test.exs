@@ -20,8 +20,18 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
       {:ok,
        %{
          "results" => [
-           %{"service" => "core", "status" => "ok", "value" => 1},
-           %{"service" => "web-ng", "status" => "ok", "value" => 1}
+           %{
+             "service" => "core",
+             "status" => "ok",
+             "value" => 1,
+             "observed_at" => ~U[2026-08-30 18:00:00Z]
+           },
+           %{
+             "service" => "web-ng",
+             "status" => "ok",
+             "value" => 1,
+             "observed_at" => ~U[2026-08-30 18:01:00Z]
+           }
          ]
        }}
     end
@@ -44,6 +54,13 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
     ensure_oban_started!()
 
     user = admin_user_fixture()
+
+    user =
+      Ash.update!(user, %{timezone: "America/Chicago"},
+        action: :update_timezone_preference,
+        actor: user
+      )
+
     scope = Scope.for_user(user)
 
     {:ok, dashboard} =
@@ -121,16 +138,19 @@ defmodule ServiceRadarWebNG.Dashboards.ReportJobsTest do
     assert delivery.recipient_count == 1
   end
 
+  @tag :web_ng_shared_fixture_db
   test "delivery worker sends email and records success", %{scope: scope, dashboard: dashboard} do
     schedule = schedule_fixture(scope, dashboard, next_due_at: DateTime.add(DateTime.utc_now(), 3600, :second))
     delivery = delivery_fixture(schedule, dashboard, recipients: ["noc@example.com"])
 
     assert :ok = ReportDeliveryWorker.perform(%Oban.Job{args: %{"delivery_id" => delivery.id}})
 
-    assert_email_sent(
-      to: [{"", "noc@example.com"}],
-      subject: "ServiceRadar dashboard report: #{dashboard.title}"
-    )
+    assert_email_sent(fn email ->
+      assert email.to == [{"", "noc@example.com"}]
+      assert email.subject == "ServiceRadar dashboard report: #{dashboard.title}"
+      assert email.text_body =~ "2026-08-30T18:00:00Z"
+      assert email.html_body =~ "2026-08-30T18:00:00Z"
+    end)
 
     delivery = get_delivery!(delivery.id)
     assert delivery.status == :sent

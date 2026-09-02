@@ -306,9 +306,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                           <div>
                             <div class="font-mono text-sm">{status_agent_label(status)}</div>
                             <div class="text-xs text-sr-muted">
-                              {status.collection_id || "collection"} · {format_datetime(
-                                status.last_attempt_at
-                              )}
+                              {status.collection_id || "collection"} ·
+                              <.user_time
+                                id={"settings-threat-intel-sync-status-#{status.id}-last-attempt-at"}
+                                value={status.last_attempt_at}
+                                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                                style={:compact}
+                                fallback="-"
+                              />
                             </div>
                           </div>
                           <.ui_badge size="xs" variant={status_badge_variant(status.last_status)}>
@@ -407,7 +412,17 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                           </td>
                           <td>{finding.match_count}</td>
                           <td>{finding.max_severity || 0}</td>
-                          <td>{format_datetime(finding.looked_up_at)}</td>
+                          <td>
+                            <.user_time
+                              id={
+                                "settings-threat-intel-netflow-finding-#{dom_id_segment(finding.ip)}-looked-up-at"
+                              }
+                              value={finding.looked_up_at}
+                              timezone={@current_scope.user.timezone || "Etc/UTC"}
+                              style={:compact}
+                              fallback="-"
+                            />
+                          </td>
                         </tr>
                       </tbody>
                     </table>
@@ -429,7 +444,20 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                           <div>
                             <div class="font-mono text-sm">{run.source}</div>
                             <div class="text-xs text-sr-muted">
-                              {format_datetime(run.window_start)} - {format_datetime(run.window_end)}
+                              <.user_time
+                                id={"settings-threat-intel-retrohunt-run-#{run.id}-window-start"}
+                                value={run.window_start}
+                                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                                style={:compact}
+                                fallback="-"
+                              /> -
+                              <.user_time
+                                id={"settings-threat-intel-retrohunt-run-#{run.id}-window-end"}
+                                value={run.window_end}
+                                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                                style={:compact}
+                                fallback="-"
+                              />
                             </div>
                           </div>
                           <.ui_badge size="xs" variant={status_badge_variant(run.status)}>
@@ -465,7 +493,15 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                         <td class="font-mono">{finding.indicator}</td>
                         <td>{finding.direction}</td>
                         <td>{finding.evidence_count}</td>
-                        <td>{format_datetime(finding.last_seen_at)}</td>
+                        <td>
+                          <.user_time
+                            id={"settings-threat-intel-retrohunt-finding-#{finding.id}-last-seen-at"}
+                            value={finding.last_seen_at}
+                            timezone={@current_scope.user.timezone || "Etc/UTC"}
+                            style={:compact}
+                            fallback="-"
+                          />
+                        </td>
                       </tr>
                     </tbody>
                   </table>
@@ -500,7 +536,15 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                             <td>{indicator.source}</td>
                             <td>{indicator.label || "-"}</td>
                             <td>{format_optional_int(indicator.confidence)}</td>
-                            <td>{format_datetime(indicator.last_seen_at)}</td>
+                            <td>
+                              <.user_time
+                                id={"settings-threat-intel-indicator-#{indicator.id}-last-seen-at"}
+                                value={indicator.last_seen_at}
+                                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                                style={:compact}
+                                fallback="-"
+                              />
+                            </td>
                           </tr>
                         <% end %>
                       </tbody>
@@ -527,7 +571,13 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                             </div>
                           </div>
                           <div class="shrink-0 text-xs text-sr-muted">
-                            {format_datetime(object.modified_at)}
+                            <.user_time
+                              id={"settings-threat-intel-source-object-#{object.id}-modified-at"}
+                              value={object.modified_at}
+                              timezone={@current_scope.user.timezone || "Etc/UTC"}
+                              style={:compact}
+                              fallback="-"
+                            />
                           </div>
                         </div>
                         <div
@@ -1353,10 +1403,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
   defp skipped_by_type(_status), do: []
 
-  defp format_datetime(nil), do: "-"
-  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  defp format_datetime(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  defp format_datetime(value), do: to_string(value)
+  defp dom_id_segment(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
+  end
 
   defp format_optional_int(nil), do: "-"
   defp format_optional_int(value), do: to_string(value)

@@ -420,23 +420,35 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           </div>
 
           <.agent_summary agent={@agent} live_agent={@live_agent} />
-          <.config_apply_card config_status={@config_status} />
+          <.config_apply_card
+            config_status={@config_status}
+            agent_uid={@agent_uid}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
+          />
           <.release_management_card
             agent={@agent}
             release_targets={@release_targets}
             current_scope={@current_scope}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
           <.capabilities_card
             capabilities={Map.get(@agent, "capabilities", [])}
             plugin_assignments={@plugin_assignments}
           />
-          <.network_visibility_card :if={host_visibility_capable?(@agent)} agent={@agent} />
+          <.network_visibility_card
+            :if={host_visibility_capable?(@agent)}
+            agent={@agent}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
+          />
           <.gateway_node_info
             :if={@gateway_node_info}
             node_info={@gateway_node_info}
             node={Map.get(@agent, "gateway_node")}
           />
-          <.registration_info agent={@agent} />
+          <.registration_info
+            agent={@agent}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
+          />
           <.plugin_assignments_card assignments={@plugin_assignments} />
           <.addon_assignments_card rows={@addon_reconciliation} />
           <.service_checks_card checks={@checks} />
@@ -531,6 +543,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   attr :agent, :map, required: true
   attr :release_targets, :list, default: []
   attr :current_scope, :any, required: true
+  attr :timezone, :string, default: "Etc/UTC"
 
   defp release_management_card(assigns) do
     ~H"""
@@ -567,9 +580,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
             value={Map.get(@agent, "desired_version") || "—"}
             mono
           />
-          <.release_stat
+          <.release_time_stat
+            id={"agent-#{agent_resource_id(@agent)}-last-update-at"}
             label="Last Update"
-            value={format_timestamp(Map.get(@agent, "last_update_at"))}
+            value={Map.get(@agent, "last_update_at")}
+            timezone={@timezone}
           />
           <.release_stat
             label="Latest Error"
@@ -614,7 +629,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
                       {format_progress(target.progress_percent, target.last_status_message)}
                     </td>
                     <td class="font-mono text-xs">
-                      {format_timestamp(target.updated_at || target.inserted_at)}
+                      <.user_time
+                        id={"agent-release-target-#{target.id}-updated-at"}
+                        value={target.updated_at || target.inserted_at}
+                        timezone={@timezone}
+                        style={:compact}
+                      />
                     </td>
                     <td class="max-w-xs truncate text-xs" title={target.last_error || "—"}>
                       {target.last_error || "—"}
@@ -639,6 +659,26 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     <div class="rounded-lg bg-sr-subtle/40 p-3">
       <div class="text-xs uppercase tracking-wider text-sr-muted">{@label}</div>
       <div class={["mt-1 text-sm", @mono && "font-mono"]}>{@value}</div>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :any, required: true
+  attr :timezone, :string, required: true
+
+  defp release_time_stat(assigns) do
+    ~H"""
+    <div class="rounded-lg bg-sr-subtle/40 p-3">
+      <div class="text-xs uppercase tracking-wider text-sr-muted">{@label}</div>
+      <.user_time
+        id={@id}
+        value={timestamp_value(@value)}
+        timezone={@timezone}
+        style={:compact}
+        class="mt-1 text-sm"
+      />
     </div>
     """
   end
@@ -735,6 +775,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   end
 
   attr :agent, :map, required: true
+  attr :timezone, :string, default: "Etc/UTC"
 
   def network_visibility_card(assigns) do
     status = netprobe_sidecar_status(assigns.agent)
@@ -789,10 +830,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
               value={@netprobe_status["restart_count"] || 0}
               mono
             />
-            <.agent_visibility_kv
+            <.agent_visibility_time_kv
+              id={"agent-#{agent_resource_id(@agent)}-netprobe-last-health-at"}
               label="Last Health"
-              value={format_timestamp(@netprobe_status["last_health_at"])}
-              mono
+              value={@netprobe_status["last_health_at"]}
+              timezone={@timezone}
             />
             <.agent_visibility_kv label="Last Error" value={@netprobe_status["last_error"] || "—"} />
           </div>
@@ -811,6 +853,26 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     <div>
       <div class="text-xs text-sr-muted">{@label}</div>
       <div class={["mt-1 truncate", @mono && "font-mono text-xs"]}>{@value || "—"}</div>
+    </div>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+  attr :timezone, :string, required: true
+
+  defp agent_visibility_time_kv(assigns) do
+    ~H"""
+    <div>
+      <div class="text-xs text-sr-muted">{@label}</div>
+      <.user_time
+        id={@id}
+        value={timestamp_value(@value)}
+        timezone={@timezone}
+        style={:compact}
+        class="mt-1 truncate font-mono text-xs"
+      />
     </div>
     """
   end
@@ -891,6 +953,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   end
 
   attr :agent, :map, required: true
+  attr :timezone, :string, default: "Etc/UTC"
 
   defp registration_info(assigns) do
     ~H"""
@@ -903,14 +966,20 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <div :if={has_value?(@agent, "registered_at")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-success"></span>
             <span class="text-xs text-sr-muted w-24">Registered</span>
-            <span class="font-mono text-sm">
-              {format_timestamp(Map.get(@agent, "registered_at"))}
-            </span>
+            <.agent_timeline_time
+              id={"agent-#{agent_resource_id(@agent)}-registered-at"}
+              value={Map.get(@agent, "registered_at")}
+              timezone={@timezone}
+            />
           </div>
           <div :if={has_value?(@agent, "connected_at")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-info"></span>
             <span class="text-xs text-sr-muted w-24">Connected</span>
-            <span class="font-mono text-sm">{format_timestamp(Map.get(@agent, "connected_at"))}</span>
+            <.agent_timeline_time
+              id={"agent-#{agent_resource_id(@agent)}-connected-at"}
+              value={Map.get(@agent, "connected_at")}
+              timezone={@timezone}
+            />
             <span class="text-xs text-sr-muted">
               ({time_ago(Map.get(@agent, "connected_at"))})
             </span>
@@ -918,9 +987,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <div :if={has_value?(@agent, "last_heartbeat")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-info animate-pulse"></span>
             <span class="text-xs text-sr-muted w-24">Last Heartbeat</span>
-            <span class="font-mono text-sm">
-              {format_timestamp(Map.get(@agent, "last_heartbeat"))}
-            </span>
+            <.agent_timeline_time
+              id={"agent-#{agent_resource_id(@agent)}-last-heartbeat"}
+              value={Map.get(@agent, "last_heartbeat")}
+              timezone={@timezone}
+            />
             <span class="text-xs text-sr-muted">
               ({time_ago(Map.get(@agent, "last_heartbeat"))})
             </span>
@@ -928,16 +999,20 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <div :if={has_value?(@agent, "first_seen_time")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-sr-muted/30"></span>
             <span class="text-xs text-sr-muted w-24">First Seen</span>
-            <span class="font-mono text-sm">
-              {format_timestamp(Map.get(@agent, "first_seen_time"))}
-            </span>
+            <.agent_timeline_time
+              id={"agent-#{agent_resource_id(@agent)}-first-seen-at"}
+              value={Map.get(@agent, "first_seen_time")}
+              timezone={@timezone}
+            />
           </div>
           <div :if={has_value?(@agent, "last_seen_time")} class="flex items-center gap-3">
             <span class="size-2 rounded-full bg-sr-muted/30"></span>
             <span class="text-xs text-sr-muted w-24">Last Seen</span>
-            <span class="font-mono text-sm">
-              {format_timestamp(Map.get(@agent, "last_seen_time"))}
-            </span>
+            <.agent_timeline_time
+              id={"agent-#{agent_resource_id(@agent)}-last-seen-at"}
+              value={Map.get(@agent, "last_seen_time")}
+              timezone={@timezone}
+            />
             <span class="text-xs text-sr-muted">
               ({time_ago(Map.get(@agent, "last_seen_time"))})
             </span>
@@ -948,12 +1023,30 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     """
   end
 
+  attr :id, :string, required: true
+  attr :value, :any, required: true
+  attr :timezone, :string, required: true
+
+  defp agent_timeline_time(assigns) do
+    ~H"""
+    <.user_time
+      id={@id}
+      value={timestamp_value(@value)}
+      timezone={@timezone}
+      style={:compact}
+      class="font-mono text-sm"
+    />
+    """
+  end
+
   @doc """
   Config-apply status card: last acked config version, per-section apply
   statuses from the agent's sectioned config ack, and config-apply health.
   Public so it can be unit-tested with render_component/2.
   """
   attr :config_status, :map, default: nil
+  attr :agent_uid, :string, default: "agent"
+  attr :timezone, :string, default: "Etc/UTC"
 
   def config_apply_card(assigns) do
     ~H"""
@@ -985,7 +1078,12 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
               {@config_status.acked_version || "never"}
             </div>
             <div :if={@config_status.acked_at} class="text-xs text-sr-muted">
-              {format_timestamp(@config_status.acked_at)} ({time_ago(@config_status.acked_at)})
+              <.user_time
+                id={"agent-#{@agent_uid}-config-acked-at"}
+                value={timestamp_value(@config_status.acked_at)}
+                timezone={@timezone}
+                style={:compact}
+              /> ({time_ago(@config_status.acked_at)})
             </div>
           </div>
           <div :if={config_ack_pending?(@config_status)}>
@@ -996,7 +1094,13 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
               {@config_status.pushed_version}
             </div>
             <div :if={@config_status.pushed_at} class="text-xs text-sr-muted">
-              since {format_timestamp(@config_status.pushed_at)} ({time_ago(@config_status.pushed_at)})
+              since
+              <.user_time
+                id={"agent-#{@agent_uid}-config-pushed-at"}
+                value={timestamp_value(@config_status.pushed_at)}
+                timezone={@timezone}
+                style={:compact}
+              /> ({time_ago(@config_status.pushed_at)})
             </div>
           </div>
         </div>
@@ -1029,7 +1133,15 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
                     {config_section_field(section, "error") || "—"}
                   </td>
                   <td class="whitespace-nowrap text-xs">
-                    {config_section_since(config_section_field(section, "since"))}
+                    <.user_time
+                      id={"agent-#{@agent_uid}-config-section-#{config_section_dom_id(section)}-since"}
+                      value={timestamp_value(config_section_field(section, "since"))}
+                      timezone={@timezone}
+                      style={:compact}
+                    />
+                    <span :if={time_ago(config_section_field(section, "since")) != ""}>
+                      ({time_ago(config_section_field(section, "since"))})
+                    </span>
                   </td>
                 </tr>
               <% end %>
@@ -1087,12 +1199,15 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp config_section_atom_key("error"), do: :error
   defp config_section_atom_key("since"), do: :since
 
-  defp config_section_since(nil), do: "—"
-
-  defp config_section_since(value) do
-    case time_ago(value) do
-      "" -> format_timestamp(value)
-      ago -> "#{format_timestamp(value)} (#{ago})"
+  defp config_section_dom_id(section) do
+    section
+    |> config_section_field("section")
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
+    |> case do
+      "" -> "unknown"
+      id -> id
     end
   end
 
@@ -1848,37 +1963,38 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     end
   end
 
-  defp format_timestamp(nil), do: "—"
-  defp format_timestamp(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+  defp timestamp_value(nil), do: nil
+  defp timestamp_value(%DateTime{} = datetime), do: datetime
 
-  defp format_timestamp(value) when is_integer(value) and value > 10_000_000_000_000 do
-    value
-    |> DateTime.from_unix!(:nanosecond)
-    |> format_timestamp()
-  end
+  defp timestamp_value(value) when is_integer(value) and value > 10_000_000_000_000,
+    do: DateTime.from_unix!(value, :nanosecond)
 
-  defp format_timestamp(value) when is_integer(value) and value > 0 do
-    value
-    |> DateTime.from_unix!(:second)
-    |> format_timestamp()
-  end
+  defp timestamp_value(value) when is_integer(value) and value > 0, do: DateTime.from_unix!(value, :second)
 
-  defp format_timestamp(value) when is_binary(value) do
+  defp timestamp_value(value) when is_binary(value) do
     value = String.trim(value)
 
     case DateTime.from_iso8601(value) do
       {:ok, dt, _offset} ->
-        format_timestamp(dt)
+        dt
 
       {:error, _} ->
         case NaiveDateTime.from_iso8601(value) do
-          {:ok, ndt} -> format_timestamp(DateTime.from_naive!(ndt, "Etc/UTC"))
-          {:error, _} -> value
+          {:ok, ndt} -> DateTime.from_naive!(ndt, "Etc/UTC")
+          {:error, _} -> nil
         end
     end
   end
 
-  defp format_timestamp(value), do: inspect(value)
+  defp timestamp_value(_value), do: nil
+
+  defp agent_resource_id(agent) do
+    Enum.find(
+      [Map.get(agent, "uid"), Map.get(agent, "agent_id"), Map.get(agent, "id")],
+      "unknown",
+      &(&1 not in [nil, ""])
+    )
+  end
 
   defp time_ago(nil), do: ""
 

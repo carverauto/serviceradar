@@ -268,6 +268,28 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
   Options:
     - `:alert` - map of overrides (title, description, severity, metadata)
     - `:actor` - Ash actor to use for policy checks (optional)
+    - `:device_uid` - canonical `ocsf_devices.uid` this alert is about, or nil
+
+  ## `:device_uid` must already be canonical
+
+  `alerts.device_uid` carries a foreign key to `ocsf_devices(uid)`, so a value
+  that is not a real device uid does not produce a mislabelled alert — it fails
+  the insert and the alert is **lost**. The three callers degrade differently and
+  all of them degrade quietly, so this is worth being blunt about: trivy logs and
+  drops, log promotion counts it as attempted-not-created, and the stateful
+  engine returns an error the state machine only logs — dropping the snapshot's
+  `alert_id` so the rule re-fires forever.
+
+  Trading "an alert with no device" for "no alert" is a bad trade. Callers pass
+  the output of `DeviceCorrelation.resolve/1` (canonical uid, or nil) and never a
+  raw hostname, IP, or record field.
+
+  Populating this is not only a labelling change. It activates two systems that
+  are dormant while the column is NULL: the create-time out-of-service gate on
+  the `:trigger` action, and `:device_out_of_service`, the highest-precedence
+  notification suppression reason. `alert.device_uid` is also a routable match
+  field, so routes and silences written against it begin matching. See the
+  `add-alert-device-identity` OpenSpec change.
   """
   @spec from_event(map(), keyword()) :: {:ok, Alert.t() | :skipped} | {:error, term()}
   def from_event(event, opts \\ []) when is_map(event) do
@@ -288,12 +310,39 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
         source_id: event_id_string(event),
         event_id: event_id_string(event),
         event_time: Map.get(event, :time),
+        # Deliberately NOT sniffed from the event. `event.device[:uid]` is a
+        # hostname or IP whenever correlation failed upstream, and writing that
+        # here violates the FK and loses the alert. The caller resolved it or it
+        # stays nil.
+        device_uid: opts |> Keyword.get(:device_uid) |> normalize_device_uid(),
         metadata: event_alert_metadata(event, alert_config)
       }
 
       create_alert(attrs, opts)
     end
   end
+
+  @doc """
+  Normalise a caller-supplied device uid to a value safe for `alerts.device_uid`.
+
+  Only a non-empty binary survives. An empty or whitespace-only string is not a
+  uid, and because the column carries a foreign key to `ocsf_devices(uid)` it
+  would fail the insert exactly as a hostname does — losing the alert rather
+  than mislabelling it.
+
+  This normalises; it does not verify. Passing a syntactically fine but
+  non-existent uid still violates the FK, which is why callers pass the output
+  of `DeviceCorrelation.resolve/1` and never a raw record field.
+  """
+  @spec normalize_device_uid(term()) :: String.t() | nil
+  def normalize_device_uid(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  def normalize_device_uid(_value), do: nil
 
   @doc """
   Handle stats anomaly alert (non-canonical devices filtered).

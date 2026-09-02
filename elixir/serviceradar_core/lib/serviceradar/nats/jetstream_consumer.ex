@@ -760,10 +760,17 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     end
   end
 
-  defp choose_requested_or_first_stream(requested, subject, streams, allow_fallback) do
+  @doc false
+  def choose_requested_or_first_stream(requested, subject, streams, allow_fallback) do
     cond do
       requested in streams ->
         {:ok, requested}
+
+      # Logical consumer names (SFLOW_RAW) must not become stream names. If the
+      # dedicated `flows` stream already owns flows.raw.*, bind to it even when
+      # fallback onto `events` is refused.
+      String.starts_with?(to_string(subject), "flows.raw.") and "flows" in streams ->
+        {:ok, "flows"}
 
       # Strict explicit stream (flows cutover): never bind to a legacy owner such
       # as events just because STREAM.NAMES found it first.
