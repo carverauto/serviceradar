@@ -162,8 +162,10 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
                     <button
                       type="button"
                       role="option"
+                      id={"timezone-option-#{String.replace(zone, "/", "-")}"}
                       tabindex="-1"
                       data-timezone={zone}
+                      aria-selected="false"
                       class="flex w-full items-center rounded-sr-control px-3 py-2 text-left text-sm text-sr-ink outline-none hover:bg-sr-subtle"
                     >
                       {zone}

@@ -28,13 +28,17 @@ function classList(initial = []) {
 }
 
 function makeItem(timezone) {
+  const attributes = {"aria-selected": "false"}
   return {
+    id: `timezone-option-${timezone.replace(/[^A-Za-z0-9_-]/g, "-")}`,
     dataset: {timezone},
     hidden: false,
     classList: classList(),
-    setAttribute() {},
-    getAttribute() {
-      return null
+    setAttribute(name, value) {
+      attributes[name] = value
+    },
+    getAttribute(name) {
+      return attributes[name] ?? null
     },
   }
 }
@@ -65,6 +69,7 @@ function makeHook({
   }
   const listeners = {}
   const documentListeners = {}
+  const attributes = {}
   const input = {
     value,
     dataset: {optionsId: "timezone_catalog", currentTimezone: current},
@@ -78,9 +83,14 @@ function makeHook({
     removeEventListener(event) {
       delete listeners[event]
     },
-    setAttribute() {},
-    getAttribute() {
-      return null
+    setAttribute(name, value) {
+      attributes[name] = value
+    },
+    removeAttribute(name) {
+      delete attributes[name]
+    },
+    getAttribute(name) {
+      return attributes[name] ?? null
     },
     ownerDocument: {
       getElementById(id) {
@@ -136,6 +146,37 @@ describe("TimezoneSelect hook", () => {
 
     expect(visibleZones(fixture)).toEqual(["America/Chicago"])
     expect(fixture.empty.hidden).toBe(true)
+  })
+
+  it("selects the only matching zone on Enter instead of submitting the query", () => {
+    const fixture = makeHook()
+    let prevented = false
+
+    fixture.hook.mounted()
+    fixture.listeners.focus()
+    fixture.input.value = "chicago"
+    fixture.listeners.input()
+    fixture.listeners.keydown({
+      key: "Enter",
+      preventDefault() {
+        prevented = true
+      },
+    })
+
+    expect(prevented).toBe(true)
+    expect(fixture.input.value).toBe("America/Chicago")
+    expect(fixture.listbox.classList.contains("hidden")).toBe(true)
+  })
+
+  it("marks the active option for assistive tech while the list is open", () => {
+    const fixture = makeHook()
+
+    fixture.hook.mounted()
+    fixture.listeners.focus()
+
+    expect(fixture.input.getAttribute("aria-expanded")).toBe("true")
+    expect(fixture.input.getAttribute("aria-activedescendant")).toBe("timezone-option-Etc-UTC")
+    expect(fixture.items[0].getAttribute("aria-selected")).toBe("true")
   })
 
   it("preserves user text across LiveView updates", () => {

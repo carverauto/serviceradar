@@ -85,6 +85,7 @@ export default {
   _close() {
     this.open = false
     this.el.setAttribute("aria-expanded", "false")
+    this.el.removeAttribute("aria-activedescendant")
     setHidden(this._listbox(), true)
   },
 
@@ -122,6 +123,12 @@ export default {
 
     setHidden(this._empty(), matches.length > 0)
     setHidden(listbox, closed || !this.open)
+
+    if (!closed && this.open) {
+      const items = this._visibleItems()
+      const current = items.findIndex((item) => item.dataset.timezone === this.el.value)
+      this._syncActive(items, current === -1 ? 0 : current)
+    }
   },
 
   _visibleItems() {
@@ -146,12 +153,24 @@ export default {
     }
 
     if (event.key === "Enter" && this.open) {
-      const active = this._visibleItems().find((item) => item.classList.contains("bg-sr-subtle"))
-      if (active?.dataset.timezone) {
-        event.preventDefault()
-        this._choose(active.dataset.timezone)
-      }
+      event.preventDefault()
+      const selected = this._enterSelection()
+      if (selected) this._choose(selected)
+      else this._close()
     }
+  },
+
+  _enterSelection() {
+    const items = this._visibleItems()
+    const highlighted = items.find((item) => item.classList.contains("bg-sr-subtle"))
+    if (highlighted?.dataset.timezone) return highlighted.dataset.timezone
+
+    const typed = (this.el.value || "").trim()
+    const exact = items.find((item) => item.dataset.timezone === typed)
+    if (exact?.dataset.timezone) return exact.dataset.timezone
+    if (items.length === 1) return items[0].dataset.timezone
+
+    return null
   },
 
   _move(delta) {
@@ -161,8 +180,26 @@ export default {
     const current = items.findIndex((item) => item.classList.contains("bg-sr-subtle"))
     const start = current === -1 ? (delta > 0 ? -1 : 0) : current
     const next = Math.min(items.length - 1, Math.max(0, start + delta))
-    items.forEach((item, index) => item.classList.toggle("bg-sr-subtle", index === next))
-    items[next]?.scrollIntoView?.({block: "nearest"})
+    this._syncActive(items, next)
+  },
+
+  _syncActive(items, activeIndex) {
+    items.forEach((item, index) => {
+      const active = index === activeIndex
+      item.classList.toggle("bg-sr-subtle", active)
+      item.setAttribute("aria-selected", active ? "true" : "false")
+      if (!item.id) {
+        item.id = `timezone-option-${String(item.dataset.timezone || "").replace(/[^A-Za-z0-9_-]/g, "-")}`
+      }
+    })
+
+    const active = items[activeIndex]
+    if (active?.id) {
+      this.el.setAttribute("aria-activedescendant", active.id)
+      active.scrollIntoView?.({block: "nearest"})
+    } else {
+      this.el.removeAttribute("aria-activedescendant")
+    }
   },
 
   _pick(event) {
