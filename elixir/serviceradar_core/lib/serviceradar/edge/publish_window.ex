@@ -4,7 +4,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
 
   Publishing must be PIPELINED -- multiple outstanding un-acknowledged sequences at once -- rather
   than serializing every frame on one request and waiting for its PubAck. This is the accounting
-  that makes that safe: it bounds how much may be outstanding at any moment by frame count, by
+  that is meant to make that safe: it bounds how much may be ADMITTED at once by frame count, by
   bytes, and by a per-frame PubAck deadline.
 
   Pure data and functions: no I/O, no process, no clock. `now` and deadlines are passed in, so the
@@ -47,10 +47,48 @@ defmodule ServiceRadar.Edge.PublishWindow do
   So `expired/2` REPORTS; only `settle/3` releases. Expiry is a signal to republish, not a
   reclaim.
 
+  ## WHAT THIS DOES NOT YET BOUND
+
+  The window bounds ADMISSIONS. It does not bound the interval between a caller receiving its
+  reservation and that caller reaching the socket, and nothing here can observe that interval.
+
+  So this interleaving is still reachable, and it is ordinary scheduling rather than a crash: a
+  caller receives attempt 1 and is descheduled; its deadline passes; an expiry sweep ends attempt
+  1 with `attempt_failed/2` and admits attempt 2; the first caller then resumes and publishes
+  under attempt 1. Two publications, one charge.
+
+  Every gate here is on the RESERVATION, and by construction none of them can see whether the
+  attempt they are superseding has already reached the wire. Closing it needs the retry to be
+  fenced against the original attempt's owner -- which requires knowing whether that attempt
+  published.
+
+  ## WHOSE OBLIGATION THIS IS
+
+  It is TASK 3.3's, and stating it as anyone else's was wrong. 3.3 requires the hard
+  frame/byte/PubAck-deadline window; 3.4 owns exact-byte and retained-memory binding; 3.5 owns
+  outcome-specific PubAck validation and prefix advancement. Correlation from 3.5 may help
+  RECOVERY, but it does not move the hard-window obligation out of 3.3.
+
+  Nor would correlation alone fence this: the absence of a PubAck cannot distinguish "never sent"
+  from "in flight", "delayed", or "acknowledged but the ack was lost". What 3.3's publisher
+  pipeline needs is fencing on the REQUEST itself -- its owner, its start, and its termination --
+  so a retry cannot be admitted until the previous attempt is known to have finished.
+
+  Until that exists the hard-window requirement is NOT satisfied, and nothing in this module
+  should be read as claiming it is.
+
   ## Transition policy, stated once
 
-      admit a new sequence, within both bounds   -> {:ok, window}
-      admit a sequence already outstanding       -> {:error, :already_outstanding}
+      admit a new PUBLICATION, within bounds     -> {:ok, window, reservation}
+      admit it again while an attempt is live    -> {:error, :attempt_in_flight}
+      admit it again after the attempt ENDED     -> {:ok, window, reservation}  (retry: re-arms,
+                                                    no new credits, NEW attempt token)
+      a different record on the same slot        -> a DIFFERENT publication, admitted on its own
+                                                    credits (the spec REQUIRES it to be published)
+      activate a provisional attempt             -> {:ok, window}  (handoff confirmed)
+      attempt_failed on the ACTIVE attempt       -> {:ok, window}  (credits KEPT)
+      revoke_pending a provisional attempt       -> {:ok, window}  (credits KEPT)
+      abandon an admission never received       -> {:ok, window}  (credits released, no outcome)
       admit beyond the frame grant               -> {:error, :frame_credits_exhausted}
       admit beyond the byte grant                -> {:error, :byte_credits_exhausted}
       settle with a settling outcome             -> {:ok, window}
@@ -90,11 +128,30 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @enforce_keys [:frame_credits, :byte_credits, :outstanding, :bytes_outstanding]
   defstruct [:frame_credits, :byte_credits, :outstanding, :bytes_outstanding]
 
+  @typedoc """
+  A reservation key: the PUBLICATION -- the authenticated slot AND the record identity. See
+  `key/5` for why it is neither the slot nor the sequence alone.
+  """
+  @type key :: {{binary(), binary(), binary(), pos_integer()}, term()}
+
+  @typedoc """
+  A handle to ONE ATTEMPT: the publication key plus the token minted when that attempt was
+  admitted. Settling and re-arming require it, so an acknowledgement arriving after its attempt was
+  superseded or settled cannot act on whatever holds the key now.
+
+  A reservation between attempts stores `nil` in place of a token -- it holds credits but has no
+  live attempt, so no handle to it exists. That is why `reservation/2` returns `:error` for one.
+  """
+  @type reservation :: {key(), pos_integer()}
+
   @opaque t :: %__MODULE__{
             frame_credits: non_neg_integer(),
             byte_credits: non_neg_integer(),
-            # sequence => {bytes, deadline}
-            outstanding: %{optional(pos_integer()) => {non_neg_integer(), integer()}},
+            # publication key => {bytes, deadline, nil | {:pending | :active, token}}
+            outstanding: %{
+              optional(key()) =>
+                {non_neg_integer(), integer(), nil | {:pending | :active, pos_integer()}}
+            },
             bytes_outstanding: non_neg_integer()
           }
 
@@ -150,11 +207,12 @@ defmodule ServiceRadar.Edge.PublishWindow do
   Refuses rather than overcommitting: a frame that would exceed either grant is not admitted, and
   the caller waits for a settlement instead of publishing anyway.
   """
-  @spec admit(t(), pos_integer(), non_neg_integer(), integer()) :: {:ok, t()} | {:error, atom()}
-  def admit(%__MODULE__{} = w, seq, bytes, deadline_at) do
+  @spec admit(t(), key(), non_neg_integer(), integer()) ::
+          {:ok, t(), reservation()} | {:error, atom()}
+  def admit(%__MODULE__{} = w, key, bytes, deadline_at) do
     cond do
-      not is_integer(seq) or seq < 1 or seq > @u64_max ->
-        {:error, :sequence}
+      not valid_key?(key) ->
+        {:error, :publication}
 
       not is_integer(bytes) or bytes < 0 ->
         {:error, :bytes}
@@ -162,11 +220,156 @@ defmodule ServiceRadar.Edge.PublishWindow do
       not is_integer(deadline_at) ->
         {:error, :deadline}
 
-      Map.has_key?(w.outstanding, seq) ->
-        # A slot is allocated once. A second admit is a caller bug, not a retry: a retry
-        # republishes the SAME slot, which is already outstanding and still charged.
-        {:error, :already_outstanding}
+      true ->
+        reserve(w, key, bytes, deadline_at)
+    end
+  end
 
+  # A reservation holds CREDITS. An ATTEMPT is what is in flight against them. Separating the two
+  # is what stops concurrent identical retries from sharing one charge: the credits are charged
+  # once, but only one attempt may be outstanding at a time.
+  defp reserve(w, key, bytes, deadline_at) do
+    case Map.fetch(w.outstanding, key) do
+      {:ok, {_bytes, _deadline, attempt}} when attempt !== nil ->
+        # An attempt is ALREADY in flight for this publication. Starting a second one would put
+        # two requests on the wire under a single charge; when the first is acknowledged the
+        # credit is freed while the second is still live, and the next admission takes the window
+        # past its grant. The caller must let the current attempt end first.
+        {:error, :attempt_in_flight}
+
+      {:ok, {reserved_bytes, _deadline, nil}} ->
+        # Reserved, with no attempt in flight: the republish path after a failed attempt. No new
+        # credits -- the bytes are already committed -- a moved deadline, and a NEW attempt token
+        # so a late acknowledgement from the previous attempt cannot settle this one.
+        token = mint_token()
+
+        {:ok,
+         %{
+           w
+           | outstanding:
+               Map.put(w.outstanding, key, {reserved_bytes, deadline_at, {:pending, token}})
+         }, {key, token}}
+
+      :error ->
+        admit_new(w, key, bytes, deadline_at)
+    end
+  end
+
+  @doc """
+  Releases a reservation whose admitting caller never RECEIVED it.
+
+  Deliberately a separate, named entry point rather than a settlement: nothing was published and
+  no disposition applies. The narrow authority matters, so it is worth stating what it is NOT --
+  caller death does not authorise this. A caller can die after the request reached the socket, or
+  exit normally after `attempt_failed/2` deliberately kept the credit; releasing on death would
+  permit a second publish while the first is still broker-ambiguous.
+
+  What DOES authorise it is a handoff that never completed: an admission whose reservation the
+  caller never received, so no publication can have been attempted against it. `PublisherPool`
+  owns that determination.
+
+  Takes a RESERVATION, not a bare key: the token binds the release to the exact attempt that was
+  never handed over, so a revocation arriving after that attempt was superseded cannot release
+  whatever holds the key now. A key-only version could not express that, and so could not enforce
+  its own contract.
+
+  Refuses a CONFIRMED attempt for the same reason. Its caller holds it and may already be
+  publishing; releasing the credit then would let one grant cover two publications.
+  """
+  @spec abandon(t(), reservation()) :: {:ok, t()} | {:error, atom()}
+  def abandon(%__MODULE__{} = w, {key, token}) do
+    case Map.fetch(w.outstanding, key) do
+      # PROVISIONAL ONLY. An active attempt is one its caller holds and may already be
+      # publishing; releasing it would free the credit while that request is on the wire, so one
+      # grant would cover two publications. Accepting either phase here made the narrow authority
+      # this function documents unenforceable.
+      {:ok, {bytes, _deadline, {:pending, ^token}}} ->
+        {:ok,
+         %{
+           w
+           | outstanding: Map.delete(w.outstanding, key),
+             bytes_outstanding: w.bytes_outstanding - bytes
+         }}
+
+      _ ->
+        {:error, :not_outstanding}
+    end
+  end
+
+  @doc """
+  Activates a provisional attempt, once its caller has taken delivery of the reservation.
+
+  Until this runs the attempt exists only to hold the slot: it is invisible to `expired/2` and
+  refused by `settle/3`, `rearm/3` and `attempt_failed/2`. That is the point. A provisional token
+  reported as expired was enough for an observer to end the attempt, admit a retry, and put two
+  requests on the wire under a single charge -- while the caller that was handed the first token
+  had not even received it yet.
+  """
+  @spec activate(t(), reservation()) :: {:ok, t()} | {:error, atom()}
+  def activate(%__MODULE__{} = w, {key, token}) do
+    case Map.fetch(w.outstanding, key) do
+      {:ok, {bytes, deadline, {:pending, ^token}}} ->
+        {:ok,
+         %{w | outstanding: Map.put(w.outstanding, key, {bytes, deadline, {:active, token}})}}
+
+      _ ->
+        {:error, :not_outstanding}
+    end
+  end
+
+  @doc """
+  Returns a PROVISIONAL attempt to the no-attempt state, keeping the reservation and its credits.
+
+  Distinct from `attempt_failed/2`, which requires a confirmed attempt, and from `abandon/2`,
+  which releases. This is the retry half of revocation: the caller never took delivery, and the
+  admission it never received had added no credits -- it re-armed a reservation that is still
+  unresolved and still owed a republish. Releasing there handed back a broker-ambiguous frame.
+
+  Named for its authority: only a handoff that did not complete can use it.
+  """
+  @spec revoke_pending(t(), reservation()) :: {:ok, t()} | {:error, atom()}
+  def revoke_pending(%__MODULE__{} = w, {key, token}) do
+    case Map.fetch(w.outstanding, key) do
+      {:ok, {bytes, deadline, {:pending, ^token}}} ->
+        {:ok, %{w | outstanding: Map.put(w.outstanding, key, {bytes, deadline, nil})}}
+
+      _ ->
+        {:error, :not_outstanding}
+    end
+  end
+
+  @doc """
+  Ends the in-flight attempt WITHOUT releasing the reservation.
+
+  The transport outcome was not terminal -- a timeout, a capacity refusal, a dropped connection --
+  so the record is still owed a republish on the same slot and its credits stay charged. What ends
+  is the ATTEMPT, which is what makes the next `admit/4` a legal retry rather than
+  `:attempt_in_flight`.
+
+  Token-checked: an attempt that has already been superseded cannot end the current one.
+  """
+  @spec attempt_failed(t(), reservation()) :: {:ok, t()} | {:error, atom()}
+  def attempt_failed(%__MODULE__{} = w, {key, token}) do
+    case Map.fetch(w.outstanding, key) do
+      # ACTIVE only. A provisional attempt belongs to a handoff that has not completed: ending it
+      # would free the slot for a retry while the original caller is still about to receive its
+      # reservation, putting two attempts on the wire under one charge.
+      {:ok, {bytes, deadline, {:active, ^token}}} ->
+        {:ok, %{w | outstanding: Map.put(w.outstanding, key, {bytes, deadline, nil})}}
+
+      _ ->
+        {:error, :not_outstanding}
+    end
+  end
+
+  # Attempt tokens are drawn from the VM's unique-integer source, NOT a per-window counter. A
+  # counter restarted at 1 with the window, so after a lane restart a stale reservation compared
+  # EQUAL to a fresh one and settling the stale one released the fresh one's credits. A reservation
+  # cannot outlive the node, so node-unique is enough.
+  defp mint_token, do: System.unique_integer([:monotonic, :positive])
+
+  defp admit_new(w, key, bytes, deadline_at) do
+    cond do
       map_size(w.outstanding) + 1 > w.frame_credits ->
         {:error, :frame_credits_exhausted}
 
@@ -174,14 +377,64 @@ defmodule ServiceRadar.Edge.PublishWindow do
         {:error, :byte_credits_exhausted}
 
       true ->
+        token = mint_token()
+
         {:ok,
          %{
            w
-           | outstanding: Map.put(w.outstanding, seq, {bytes, deadline_at}),
+           | outstanding: Map.put(w.outstanding, key, {bytes, deadline_at, {:pending, token}}),
              bytes_outstanding: w.bytes_outstanding + bytes
-         }}
+         }, {key, token}}
     end
   end
+
+  @doc """
+  The CURRENT reservation for a publication key, if it is outstanding.
+
+  An observer holding a key needs the epoch token to settle or re-arm, and it must read it now
+  rather than remember one: a token read earlier may belong to an epoch that has since settled,
+  which is exactly the staleness the token exists to reject.
+  """
+  @spec reservation(t(), key()) :: {:ok, reservation()} | :error
+  def reservation(%__MODULE__{} = w, key) do
+    case Map.fetch(w.outstanding, key) do
+      # Only an IN-FLIGHT attempt has a handle. A reservation whose attempt has ended holds its
+      # credits but has nothing to settle or re-arm; the next `admit/4` mints its next attempt.
+      {:ok, {_bytes, _deadline, {:active, token}}} -> {:ok, {key, token}}
+      _ -> :error
+    end
+  end
+
+  @doc """
+  A reservation key: the PUBLICATION, which is the authenticated slot AND the record identity.
+
+  Not the slot alone. Two things go wrong if the slot alone is the key, and they pull in opposite
+  directions:
+
+    * Keyed on the lane SEQUENCE, different agents alias -- one pool serves every agent and spool
+      in its class, so agent B at sequence 1 looked like agent A retrying, published on A's
+      credits, and settled A's reservation.
+    * Keyed on the SLOT, a second record on that slot is refused -- but the spec REQUIRES it to be
+      published: `Nats-Msg-Id` binds `record_sha256`, so JetStream does not deduplicate it away and
+      "the frame SHALL reach EventWriter", which rejects it as a transport-integrity violation.
+      Adjudicating that here would move EventWriter's decision into the gateway and silently drop
+      the evidence.
+
+  Keying on the publication satisfies both: a retry is the same key (same bytes, same digest) and
+  costs nothing extra, while a different record is a different key and is admitted or refused on
+  its own credits like any other frame.
+  """
+  @spec key(binary(), binary(), binary(), pos_integer(), term()) :: key()
+  def key(network_scope_id, authenticated_agent_id, spool_id, sequence, fingerprint),
+    do: {{network_scope_id, authenticated_agent_id, spool_id, sequence}, fingerprint}
+
+  defp valid_key?({{scope, agent, spool, seq}, _fingerprint})
+       when is_binary(scope) and is_binary(agent) and is_binary(spool) and is_integer(seq) and
+              seq >= 1 and
+              seq <= @u64_max,
+       do: scope != "" and agent != "" and spool != ""
+
+  defp valid_key?(_), do: false
 
   @doc """
   Releases one frame's credits, given the internal outcome that ended the attempt.
@@ -189,9 +442,15 @@ defmodule ServiceRadar.Edge.PublishWindow do
   ## THIS DOES NOT ENFORCE TASK 3.5's PubAck REQUIREMENT
 
   Stated plainly because an earlier revision claimed it did. 3.5 requires the PubAck for the EXACT
-  RECORD IDENTITY and the outcome-specific primary/audit/quarantine/security-quarantine/reject-audit
-  DESTINATION. This module has neither: an outstanding entry is `{bytes, deadline}` against an edge
-  lane sequence, with no record identity, no attempt token, and no expected destination.
+  RECORD IDENTITY, from the outcome-specific
+  primary/audit/quarantine/security-quarantine/reject-audit DESTINATION.
+
+  A reservation now carries the record identity (it is half the key) and an attempt token, so a
+  settlement can no longer be applied to the wrong publication or to a superseded attempt. What is
+  STILL missing is the DESTINATION: nothing here knows which stream an outcome required an ack
+  from, and the ack's `seq` is the JETSTREAM STREAM sequence, not the edge lane sequence, so the
+  two cannot be compared directly. Verifying that the ack came from the destination the outcome
+  names remains the caller's obligation, owed by task 3.5.
 
   Passing an Ack-shaped map here proved nothing, and the previous version's own test demonstrated
   it -- ONE bulk-stream ack settled all five terminal outcomes, and the same ack could settle a
@@ -217,8 +476,8 @@ defmodule ServiceRadar.Edge.PublishWindow do
     * an outcome outside the allowlist is refused, so one added later cannot release credits
       before anyone has classified it
   """
-  @spec settle(t(), pos_integer(), atom()) :: {:ok, t()} | {:error, atom()}
-  def settle(%__MODULE__{} = w, seq, outcome) do
+  @spec settle(t(), reservation(), atom()) :: {:ok, t()} | {:error, atom()}
+  def settle(%__MODULE__{} = w, reservation, outcome) do
     cond do
       outcome == @retryable_outcome ->
         {:error, :not_settled}
@@ -227,7 +486,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
         {:error, :unknown_outcome}
 
       true ->
-        release(w, seq)
+        release(w, reservation)
     end
   end
 
@@ -248,17 +507,21 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @spec internal_outcomes() :: [atom()]
   def internal_outcomes, do: [@retryable_outcome | Map.keys(@settling_outcomes)]
 
-  defp release(w, seq) do
-    case Map.fetch(w.outstanding, seq) do
-      {:ok, {bytes, _deadline}} ->
+  defp release(w, {key, token}) do
+    case Map.fetch(w.outstanding, key) do
+      # The token must match AND the attempt must be confirmed. Without the token a late
+      # acknowledgement from an already-settled attempt released a LATER reservation that had
+      # reused the key; without the phase, a provisional attempt could be settled by anyone who
+      # learned its token before its caller did.
+      {:ok, {bytes, _deadline, {:active, ^token}}} ->
         {:ok,
          %{
            w
-           | outstanding: Map.delete(w.outstanding, seq),
+           | outstanding: Map.delete(w.outstanding, key),
              bytes_outstanding: w.bytes_outstanding - bytes
          }}
 
-      :error ->
+      _ ->
         {:error, :not_outstanding}
     end
   end
@@ -266,24 +529,28 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @doc """
   Replaces an outstanding frame's PubAck deadline, leaving its credits charged.
 
-  This is the republish path, and without it the retry was UNREPRESENTABLE: `admit/4` refuses an
-  outstanding slot (`:already_outstanding`) and `settle/3` would release credits for a frame that
-  is still in flight, so an expired frame could be reported forever but never re-armed.
-
   Charges nothing and releases nothing -- the bytes were already committed and the publication is
   the same publication on the same slot. Only the deadline moves.
 
-  Refuses a sequence that is not outstanding: there is no frame to re-arm, and silently admitting
+  `admit/4` also re-arms when it admits the next attempt for a reservation, which is the path the publisher
+  takes. This remains for a caller that has verified sameness by other means and wants to move a
+  deadline without re-presenting the record.
+
+  Refuses a slot that is not outstanding: there is no frame to re-arm, and silently admitting
   one here would bypass both bounds.
   """
-  @spec rearm(t(), pos_integer(), integer()) :: {:ok, t()} | {:error, atom()}
-  def rearm(%__MODULE__{} = w, seq, deadline_at) do
+  @spec rearm(t(), reservation(), integer()) :: {:ok, t()} | {:error, atom()}
+  def rearm(%__MODULE__{} = w, {key, token}, deadline_at) do
     if is_integer(deadline_at) do
-      case Map.fetch(w.outstanding, seq) do
-        {:ok, {bytes, _old}} ->
-          {:ok, %{w | outstanding: Map.put(w.outstanding, seq, {bytes, deadline_at})}}
+      case Map.fetch(w.outstanding, key) do
+        # Token-checked for the same reason release/2 is: an observer can read an expired
+        # reservation, watch it settle, and then move the deadline of whatever reserved the key
+        # next.
+        {:ok, {bytes, _old, {:active, ^token}}} ->
+          {:ok,
+           %{w | outstanding: Map.put(w.outstanding, key, {bytes, deadline_at, {:active, token}})}}
 
-        :error ->
+        _ ->
           {:error, :not_outstanding}
       end
     else
@@ -292,17 +559,24 @@ defmodule ServiceRadar.Edge.PublishWindow do
   end
 
   @doc """
-  The outstanding sequences whose PubAck deadline has passed, oldest first.
+  The RESERVATIONS whose in-flight attempt has passed its PubAck deadline, oldest first.
+
+  A reservation between attempts is not reported: it is owed a republish, not an acknowledgement.
 
   REPORTS ONLY. The frames stay outstanding and stay charged, because the publisher republishes
   the same bytes on the same slot and the publication is still in flight.
   """
-  @spec expired(t(), integer()) :: [pos_integer()]
+  @spec expired(t(), integer()) :: [reservation()]
   def expired(%__MODULE__{} = w, now) when is_integer(now) do
+    # ACTIVE attempts only. Reporting a provisional one handed its token to anyone watching for
+    # expiry -- enough to end it, admit a retry, and put two attempts on the wire under one charge
+    # before the original caller had even received its reservation.
     w.outstanding
-    |> Enum.filter(fn {_seq, {_bytes, deadline}} -> deadline <= now end)
-    |> Enum.sort_by(fn {seq, {_bytes, deadline}} -> {deadline, seq} end)
-    |> Enum.map(&elem(&1, 0))
+    |> Enum.filter(fn {_key, {_bytes, deadline, attempt}} ->
+      match?({:active, _}, attempt) and deadline <= now
+    end)
+    |> Enum.sort_by(fn {key, {_bytes, deadline, _attempt}} -> {deadline, key} end)
+    |> Enum.map(fn {key, {_bytes, _deadline, {:active, token}}} -> {key, token} end)
   end
 
   @doc """
@@ -335,7 +609,12 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @spec available_bytes(t()) :: non_neg_integer()
   def available_bytes(%__MODULE__{} = w), do: w.byte_credits - w.bytes_outstanding
 
-  @doc "Whether a sequence is currently outstanding."
-  @spec outstanding?(t(), pos_integer()) :: boolean()
-  def outstanding?(%__MODULE__{} = w, seq), do: Map.has_key?(w.outstanding, seq)
+  @doc """
+  Whether a PUBLICATION currently holds a reservation.
+
+  True whether or not an attempt is in flight for it: the question is about the credits, which are
+  charged from admission until settlement or abandonment.
+  """
+  @spec outstanding?(t(), key()) :: boolean()
+  def outstanding?(%__MODULE__{} = w, key), do: Map.has_key?(w.outstanding, key)
 end
