@@ -136,11 +136,12 @@ wrapper script:
 
 Every target must receive `--//build:enable_integration_tests`. Database tests clear the manual
 test filter, use `--strategy=TestRunner=local`, and disable test-result caching. Prepare clears
-the manual build filter and writes `needs_migration` for the caller to inspect. Keep the base
-fixture DSNs in `SRQL_TEST_*`, use one numeric run ID/attempt for the whole sequence, and pair
-`provision_db_sN` with `integration_tests_sN` for a focused run. Always invoke `teardown_db`
-after provisioning, including after a red shard. `provision_db` refuses to clone a template that
-is behind the migrations on disk, so do not reorder the sequence.
+the manual build filter and reports migration status on stdout; the caller matches
+`migration(s) pending`, while extra-applied migrations fail the prepare step outright. Keep the
+base fixture DSNs in `SRQL_TEST_*`, use one numeric run ID/attempt for the whole sequence, and
+pair `provision_db_sN` with `integration_tests_sN` for a focused run. Always invoke
+`teardown_db` after provisioning, including after a red shard. `provision_db` refuses to clone a
+template that is behind the migrations on disk, so do not reorder the sequence.
 
 Against a local docker Postgres with TLS off:
 
