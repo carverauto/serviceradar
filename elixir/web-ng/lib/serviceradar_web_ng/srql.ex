@@ -449,8 +449,18 @@ defmodule ServiceRadarWebNG.SRQL do
 
   defp extract_query_token(_, _), do: nil
 
+  @doc false
+  def encode_result_value(value), do: normalize_value(value)
+
   defp normalize_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp normalize_value(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
+
+  defp normalize_value(%NaiveDateTime{} = value) do
+    # Postgrex returns timestamp-without-time-zone as NaiveDateTime. In this
+    # schema those columns store UTC. An offset-less ISO string is the same
+    # shape as a syslog source wall-clock, so the UI will not localize it.
+    value |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
+  end
+
   defp normalize_value(%Date{} = value), do: Date.to_iso8601(value)
   defp normalize_value(%Time{} = value), do: Time.to_iso8601(value)
   defp normalize_value(%Decimal{} = value), do: Decimal.to_string(value)

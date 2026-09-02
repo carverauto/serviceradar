@@ -133,21 +133,51 @@ defmodule ServiceRadarWebNGWeb.UserLive.Settings do
               id="timezone_form"
               phx-submit="update_timezone"
             >
-              <.input
-                field={@timezone_form[:timezone]}
-                id="user_timezone"
-                type="text"
-                label="Display timezone"
-                list="timezone_catalog"
-                phx-hook="TimezoneSelect"
-                data-options-id="timezone_catalog"
-                data-current-timezone={@current_scope.user.timezone}
-                autocomplete="off"
-                required
-              />
-              <datalist id="timezone_catalog">
-                <option :for={zone <- @timezone_catalog} value={zone} />
-              </datalist>
+              <div class="relative mb-3">
+                <.input
+                  field={@timezone_form[:timezone]}
+                  id="user_timezone"
+                  type="text"
+                  label="Display timezone"
+                  phx-hook="TimezoneSelect"
+                  data-options-id="timezone_catalog"
+                  data-current-timezone={@current_scope.user.timezone}
+                  autocomplete="off"
+                  role="combobox"
+                  aria-autocomplete="list"
+                  aria-controls="timezone_catalog"
+                  aria-expanded="false"
+                  aria-haspopup="listbox"
+                  placeholder="Search, e.g. America/Chicago"
+                  wrapper_class="grid gap-1.5"
+                  required
+                />
+                <ul
+                  id="timezone_catalog"
+                  role="listbox"
+                  aria-label="Timezones"
+                  class="sr-ui-dropdown-menu absolute left-0 right-0 top-full z-[var(--sr-z-menu)] mt-1.5 hidden max-h-64 w-full overflow-y-auto rounded-sr-surface border border-sr-line bg-sr-raised p-1.5 shadow-sr-raised"
+                >
+                  <li :for={zone <- @timezone_catalog}>
+                    <button
+                      type="button"
+                      role="option"
+                      tabindex="-1"
+                      data-timezone={zone}
+                      class="flex w-full items-center rounded-sr-control px-3 py-2 text-left text-sm text-sr-ink outline-none hover:bg-sr-subtle"
+                    >
+                      {zone}
+                    </button>
+                  </li>
+                  <li
+                    data-timezone-empty
+                    class="hidden px-3 py-2 text-sm text-sr-muted"
+                    hidden
+                  >
+                    No matching timezones.
+                  </li>
+                </ul>
+              </div>
               <.button variant="primary" phx-disable-with="Saving...">Save Timezone</.button>
             </.form>
 

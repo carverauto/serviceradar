@@ -493,7 +493,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
             "last_seen_at" => "2026-08-30T18:00:00Z"
           }
         },
-        "triggered_at" => "2026-08-09T12:00:00Z"
+        "triggered_at" => "2026-08-09T12:00:00"
       }
     end
   end

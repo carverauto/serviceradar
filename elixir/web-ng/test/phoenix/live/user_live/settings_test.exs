@@ -242,9 +242,12 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       assert has_element?(lv, "#settings-nav-drawer")
       assert has_element?(lv, ".sr-settings-shell section #timezone_form")
       refute has_element?(lv, "#timezone_form[phx-change]")
-      assert has_element?(lv, "#user_timezone[list='timezone_catalog'][phx-hook='TimezoneSelect']")
-      assert has_element?(lv, "#timezone_catalog option[value='Etc/UTC']")
-      assert has_element?(lv, "#timezone_catalog option[value='America/Chicago']")
+      refute has_element?(lv, "#user_timezone[list]")
+      refute has_element?(lv, "datalist#timezone_catalog")
+      assert has_element?(lv, "#user_timezone[phx-hook='TimezoneSelect'][role='combobox']")
+      assert has_element?(lv, "#timezone_catalog[role='listbox']")
+      assert has_element?(lv, "#timezone_catalog [data-timezone='Etc/UTC']")
+      assert has_element?(lv, "#timezone_catalog [data-timezone='America/Chicago']")
       assert has_element?(lv, "#user_timezone[data-current-timezone='#{user.timezone}']")
       assert has_element?(lv, "#timezone-preview[data-user-time-zone='#{user.timezone}']")
     end
@@ -309,7 +312,7 @@ defmodule ServiceRadarWebNGWeb.UserLive.SettingsTest do
       {:ok, lv, _html} = live(conn, ~p"/settings/profile")
 
       assert has_element?(lv, "#user_timezone[data-current-timezone='#{legacy_timezone}']")
-      assert has_element?(lv, "#timezone_catalog option[value='#{legacy_timezone}']")
+      assert has_element?(lv, "#timezone_catalog [data-timezone='#{legacy_timezone}']")
 
       result =
         lv

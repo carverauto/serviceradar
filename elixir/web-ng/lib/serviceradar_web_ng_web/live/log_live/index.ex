@@ -5159,7 +5159,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     EventTitle.alert_title(alert)
   end
 
-  defp alert_timestamp(alert), do: Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
+  defp alert_timestamp(alert) do
+    raw = Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
+
+    case parse_srql_datetime(raw) do
+      {:ok, datetime} -> datetime
+      _ -> raw
+    end
+  end
 
   attr(:flows, :list, default: [])
   attr(:rdns_map, :map, default: %{})

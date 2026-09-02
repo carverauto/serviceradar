@@ -39,3 +39,23 @@ export function filterTimezoneOptions(serverZones, currentZone, options = {}) {
       return left.localeCompare(right)
     })
 }
+
+function normalizeTimezoneQuery(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_/]+/g, " ")
+}
+
+export function matchingTimezoneOptions(zones, query, currentZone) {
+  const list = Array.isArray(zones) ? zones : []
+  const normalizedQuery = (query ?? "").trim().toLowerCase()
+  const current = (currentZone ?? "").trim().toLowerCase()
+
+  if (normalizedQuery === "" || normalizedQuery === current) {
+    return [...list]
+  }
+
+  const needle = normalizeTimezoneQuery(normalizedQuery)
+  return list.filter((zone) => normalizeTimezoneQuery(zone).includes(needle))
+}
