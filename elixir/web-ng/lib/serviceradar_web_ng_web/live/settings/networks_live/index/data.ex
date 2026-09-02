@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Live.Settings.NetworksLive.AgentPicker
 
   require Ash.Query
 
@@ -20,6 +21,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
       {:ok, groups} -> groups
       {:error, _} -> []
     end
+  end
+
+  def load_sweep_groups_with_summary_agents(scope) do
+    groups = load_sweep_groups(scope)
+    {groups, load_sweep_group_summary_agents(scope, groups)}
+  end
+
+  def load_sweep_group_summary_agents(scope, groups) when is_list(groups) do
+    groups
+    |> Enum.flat_map(fn
+      %{agent_ids: [uid]} when is_binary(uid) -> [uid]
+      _group -> []
+    end)
+    |> Enum.uniq()
+    |> Enum.chunk_every(AgentPicker.page_size())
+    |> Enum.reduce(%{}, fn uids, agents_by_uid ->
+      case load_agents_by_uids(scope, uids) do
+        {:ok, agents} -> Map.merge(agents_by_uid, Map.new(agents, &{&1.uid, &1}))
+        {:error, _reason} -> agents_by_uid
+      end
+    end)
   end
 
   def load_sweep_group(scope, id) do
@@ -52,23 +74,75 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
     end
   end
 
-  def load_agents(scope) do
+  def load_mapper_agents(scope, selected_uid \\ nil) do
     require Logger
 
     if can_manage_networks?(scope) do
-      result = Ash.read(Agent, domain: ServiceRadar.Infrastructure, scope: scope)
+      result =
+        Agent
+        |> Ash.Query.for_read(:by_capability, %{capability: "mapper"})
+        |> Ash.Query.filter(last_seen_time > ago(30, :minute))
+        |> Ash.Query.sort(name: :asc, uid: :asc)
+        |> Ash.Query.limit(50)
+        |> Ash.read(scope: scope)
 
       case result do
         {:ok, agents} ->
-          Logger.debug("load_agents: loaded #{length(agents)} agents")
-          Enum.filter(agents, &active_agent?/1)
+          agents
+          |> Enum.filter(&active_agent?/1)
+          |> include_selected_mapper_agent(scope, selected_uid)
 
         {:error, reason} ->
-          Logger.warning("load_agents: failed to load agents - #{inspect(reason)}")
-          []
+          Logger.warning("load_mapper_agents: failed to load agents - #{inspect(reason)}")
+          include_selected_mapper_agent([], scope, selected_uid)
       end
     else
       []
+    end
+  end
+
+  def load_agents_by_uids(_scope, []), do: {:ok, []}
+
+  def load_agents_by_uids(scope, uids) when is_list(uids) do
+    bounded_uids =
+      uids
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+      |> Enum.take(AgentPicker.page_size())
+
+    Agent
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(uid in ^bounded_uids)
+    |> Ash.Query.load(gateway: [:partition_id])
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, agents} -> {:ok, Enum.take(agents, AgentPicker.page_size())}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def load_agent_by_uid(_scope, uid) when uid in [nil, ""], do: nil
+
+  def load_agent_by_uid(scope, uid) when is_binary(uid) do
+    Agent
+    |> Ash.Query.for_read(:by_uid, %{uid: uid})
+    |> Ash.read_one(scope: scope)
+    |> case do
+      {:ok, agent} -> agent
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp include_selected_mapper_agent(agents, _scope, selected_uid) when selected_uid in [nil, ""], do: agents
+
+  defp include_selected_mapper_agent(agents, scope, selected_uid) do
+    if Enum.any?(agents, &(&1.uid == selected_uid)) do
+      agents
+    else
+      case load_agent_by_uid(scope, selected_uid) do
+        nil -> agents
+        agent -> [agent | agents]
+      end
     end
   end
 

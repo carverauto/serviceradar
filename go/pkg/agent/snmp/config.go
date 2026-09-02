@@ -41,6 +41,8 @@ type SNMPConfig struct {
 	Targets     []Target               `json:"targets"`
 	Partition   string                 `json:"partition"`
 	Logger      *logger.Config         `json:"logger,omitempty"`
+	ProfileID   string                 `json:"profile_id,omitempty"`
+	ProfileName string                 `json:"profile_name,omitempty"`
 }
 
 const (
@@ -328,15 +330,35 @@ func LoadConfigFromFile(path string) (*SNMPConfig, error) {
 	return &config, nil
 }
 
+// TargetRejection records one target dropped by ValidateForAgent and why.
+type TargetRejection struct {
+	Index int
+	Name  string
+	Host  string
+	Err   error
+}
+
 // ValidateForAgent validates an SNMPConfig for agent use (less strict than standalone).
 // This allows configs without NodeAddress, ListenAddr, and Partition.
-func (c *SNMPConfig) ValidateForAgent() error {
+//
+// Unlike Validate, which is all-or-nothing, this DROPS an individual invalid
+// target and keeps the rest, returning what it dropped so the caller can log
+// it. The distinction matters because agent config is pushed from the control
+// plane and covers an entire fleet: one device with an unresolvable hostname or
+// a name the control plane did not sanitize would otherwise reject the whole
+// config, and ApplyProtoConfig stops the running service before rebuilding it -
+// so a single bad target left SNMP collection dead rather than degraded, for
+// every other target on that agent including hand-built ones.
+//
+// An error is still returned when nothing is left to poll, since that is a
+// configuration failure rather than a partial one.
+func (c *SNMPConfig) ValidateForAgent() ([]TargetRejection, error) {
 	if !c.Enabled {
-		return nil // Disabled config is always valid
+		return nil, nil // Disabled config is always valid
 	}
 
 	if len(c.Targets) == 0 {
-		return errNoTargets
+		return nil, errNoTargets
 	}
 
 	// Validate timeout
@@ -347,17 +369,34 @@ func (c *SNMPConfig) ValidateForAgent() error {
 	// Track target names to check for duplicates
 	targetNames := make(map[string]bool)
 
-	// Validate each target
+	kept := c.Targets[:0]
+	rejections := []TargetRejection(nil)
+
 	for i := range c.Targets {
 		if err := c.validateTarget(&c.Targets[i], targetNames); err != nil {
-			return fmt.Errorf("target %d: %w", i+1, err)
+			rejections = append(rejections, TargetRejection{
+				Index: i + 1,
+				Name:  c.Targets[i].Name,
+				Host:  c.Targets[i].Host,
+				Err:   err,
+			})
+
+			continue
 		}
 
 		// set max data points
 		if c.Targets[i].MaxPoints == 0 {
 			c.Targets[i].MaxPoints = defaultMaxPoints
 		}
+
+		kept = append(kept, c.Targets[i])
 	}
 
-	return nil
+	c.Targets = kept
+
+	if len(c.Targets) == 0 {
+		return rejections, errNoTargets
+	}
+
+	return rejections, nil
 }

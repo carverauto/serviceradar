@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Dashboards.FrameRunner
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Endpoint
 
   require Logger
@@ -21,14 +22,19 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
     with true <- Map.has_key?(socket.assigns, :current_user),
          {:ok, stream} <- verify_stream_token(token),
          :ok <- verify_route_slug(route_slug, stream),
+         :ok <- verify_token_user(stream, socket),
+         {:ok, scope} <- RBAC.authorize_current(socket.assigns.current_scope, []),
          {:ok, %DashboardInstance{}} <-
-           Dashboards.get_enabled_instance_by_slug(route_slug, scope: socket.assigns.current_scope) do
+           Dashboards.get_enabled_instance_by_slug(route_slug, scope: scope) do
       socket =
         socket
+        |> assign(:current_scope, scope)
         |> assign(:route_slug, route_slug)
+        |> assign(:all_data_frames, normalize_data_frames(stream["data_frames"] || stream[:data_frames]))
         |> assign(:initial_data_frames, initial_data_frames(stream))
         |> assign(:deferred_data_frames, deferred_data_frames(stream))
         |> assign(:refresh_data_frames, refresh_data_frames(stream))
+        |> assign(:frame_cursors, %{})
         |> assign(:last_frames, [])
         |> assign(:initial_frame_sent, false)
         |> assign(:deferred_frame_sent, false)
@@ -41,6 +47,8 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
       {:ok, %{"refresh_interval_ms" => socket.assigns.refresh_ms}, socket}
     else
       false -> {:error, %{reason: "unauthorized"}}
+      {:error, :unauthorized} -> {:error, %{reason: "unauthorized"}}
+      {:error, :permission_revoked} -> {:error, %{reason: "unauthorized"}}
       {:error, :invalid_route} -> {:error, %{reason: "invalid_stream"}}
       {:error, :not_found} -> {:error, %{reason: "dashboard_unavailable"}}
       {:error, reason} -> {:error, %{reason: format_error(reason)}}
@@ -95,10 +103,33 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
     socket =
       socket
       |> assign(:last_frame_hash, nil)
+      |> assign(:frame_cursors, %{})
       |> assign(:deferred_frame_sent, false)
       |> start_frame_refresh(socket.assigns.initial_data_frames, :initial)
 
     {:reply, {:ok, %{}}, socket}
+  end
+
+  def handle_in("frames:page", payload, socket) do
+    frame_id = payload |> Map.get("frame_id") |> to_string() |> String.trim()
+    cursor = payload |> Map.get("cursor") |> to_string() |> String.trim()
+
+    if frame_id == "" or cursor == "" do
+      {:reply, {:error, %{reason: "frame_id and cursor are required"}}, socket}
+    else
+      case find_data_frame(socket, frame_id) do
+        nil ->
+          {:reply, {:error, %{reason: "unknown_frame"}}, socket}
+
+        frame ->
+          socket =
+            socket
+            |> assign(:frame_cursors, Map.put(socket.assigns.frame_cursors, frame_id, cursor))
+            |> start_frame_refresh([Map.put(frame, "cursor", cursor)], :page)
+
+          {:reply, {:ok, %{}}, socket}
+      end
+    end
   end
 
   defp start_frame_refresh(%{assigns: %{refresh_task_ref: ref}} = socket, _data_frames, _kind) when not is_nil(ref),
@@ -108,6 +139,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
     ref = make_ref()
     parent = self()
     scope = socket.assigns.current_scope
+    data_frames = apply_frame_cursors(data_frames, socket.assigns[:frame_cursors] || %{})
 
     case Task.start(fn -> send(parent, {:dashboard_frame_result, ref, run_data_frames(data_frames, scope)}) end) do
       {:ok, _pid} ->
@@ -171,9 +203,11 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
       socket
   end
 
-  def stream_token(route_slug, data_frames, active_frame_ids \\ []) when is_binary(route_slug) and is_list(data_frames) do
+  def stream_token(route_slug, data_frames, user_id, active_frame_ids \\ [])
+      when is_binary(route_slug) and is_list(data_frames) and not is_nil(user_id) do
     Phoenix.Token.sign(Endpoint, @stream_salt, %{
       "route_slug" => route_slug,
+      "user_id" => to_string(user_id),
       "data_frames" => data_frames,
       "active_frame_ids" => normalize_frame_ids(active_frame_ids)
     })
@@ -188,6 +222,18 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   defp verify_route_slug(route_slug, %{"route_slug" => route_slug}), do: :ok
   defp verify_route_slug(route_slug, %{route_slug: route_slug}), do: :ok
   defp verify_route_slug(_route_slug, _stream), do: {:error, :invalid_route}
+
+  defp verify_token_user(stream, socket) do
+    token_user_id = stream["user_id"] || stream[:user_id]
+    socket_user_id = socket.assigns[:current_user] && socket.assigns.current_user.id
+
+    if token_user_id not in [nil, ""] and socket_user_id not in [nil, ""] and
+         to_string(token_user_id) == to_string(socket_user_id) do
+      :ok
+    else
+      {:error, :unauthorized}
+    end
+  end
 
   defp normalize_data_frames(data_frames) when is_list(data_frames), do: data_frames
   defp normalize_data_frames(_data_frames), do: []
@@ -262,6 +308,21 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   defp frame_id(%{"id" => id}) when is_binary(id), do: id
   defp frame_id(%{id: id}) when is_binary(id), do: id
   defp frame_id(_frame), do: ""
+
+  defp find_data_frame(socket, frame_id) do
+    Enum.find(socket.assigns[:all_data_frames] || [], fn frame -> frame_id(frame) == frame_id end)
+  end
+
+  defp apply_frame_cursors(data_frames, cursors) when is_map(cursors) and map_size(cursors) > 0 do
+    Enum.map(data_frames, fn frame ->
+      case Map.get(cursors, frame_id(frame)) do
+        cursor when is_binary(cursor) and cursor != "" -> Map.put(frame, "cursor", cursor)
+        _ -> frame
+      end
+    end)
+  end
+
+  defp apply_frame_cursors(data_frames, _cursors), do: data_frames
 
   defp frame_value(frame, string_key, atom_key) when is_map(frame) do
     cond do

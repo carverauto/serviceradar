@@ -484,7 +484,8 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   defp normalize(value), do: value
 
-  defp setup_jetstream_consumers(conn, config) do
+  @doc false
+  def setup_jetstream_consumers(conn, config) do
     # Resolve flow-control values with defaults so a Config built directly (e.g.
     # in tests) without going through Config.load/0 still gets a bounded consumer.
     max_ack_pending = config.max_ack_pending || Config.default_max_ack_pending()
@@ -493,8 +494,6 @@ defmodule ServiceRadar.EventWriter.Producer do
 
     default_pull_batch_size =
       config.consumer_pull_batch_size || Config.default_consumer_pull_batch_size()
-
-    expected_count = length(config.streams)
 
     results =
       Enum.map(config.streams, fn stream ->
@@ -510,6 +509,12 @@ defmodule ServiceRadar.EventWriter.Producer do
          )}
       end)
 
+    finalize_consumer_setup(conn, config, results)
+  end
+
+  defp finalize_consumer_setup(conn, %Config{} = config, results) when is_list(results) do
+    expected_count = length(config.streams)
+
     consumers = for {_stream, {:ok, consumer}} <- results, do: consumer
 
     # A `best_effort` stream is a backlog drain, not part of the live pipeline.
@@ -523,11 +528,11 @@ defmodule ServiceRadar.EventWriter.Producer do
       |> Enum.split_with(fn {stream, _} -> Map.get(stream, :best_effort, false) end)
 
     Enum.each(optional_failures, fn {stream, {:error, reason}} ->
-      Logger.warning(
-        "EventWriter skipping best-effort drain consumer " <>
-          "#{inspect(Map.get(stream, :name))} on stream #{inspect(Map.get(stream, :stream_name))}: " <>
-          "#{inspect(reason)}"
-      )
+      log_consumer_setup_failure(:best_effort, config, stream, reason)
+    end)
+
+    Enum.each(failures, fn {stream, {:error, reason}} ->
+      log_consumer_setup_failure(:required, config, stream, reason)
     end)
 
     cond do
@@ -557,6 +562,41 @@ defmodule ServiceRadar.EventWriter.Producer do
            pull_subjects: pull_subjects,
            sid_to_pull_subject: sid_to_pull
          }}
+    end
+  end
+
+  defp log_consumer_setup_failure(classification, config, stream, reason) do
+    name = Map.fetch!(stream, :name)
+    stream_name = Config.jetstream_stream_name(stream)
+    durable_key = Map.get(stream, :durable_source_name) || name
+    durable_name = Config.durable_name(config.consumer_name, durable_key)
+    filter_subject = Map.fetch!(stream, :subject)
+
+    diagnostic =
+      "name=#{inspect(name)} durable=#{inspect(durable_name)} " <>
+        "stream=#{inspect(stream_name)} filter_subject=#{inspect(filter_subject)} " <>
+        "reason=#{inspect(reason)}"
+
+    metadata = [
+      consumer: name,
+      durable: durable_name,
+      stream: stream_name,
+      filter_subject: filter_subject,
+      reason: inspect(reason)
+    ]
+
+    case classification do
+      :best_effort ->
+        Logger.warning(
+          "EventWriter skipping best-effort drain consumer " <> diagnostic,
+          metadata
+        )
+
+      :required ->
+        Logger.error(
+          "Failed to initialize EventWriter durable consumer " <> diagnostic,
+          metadata
+        )
     end
   end
 
@@ -605,12 +645,6 @@ defmodule ServiceRadar.EventWriter.Producer do
        }}
     else
       {:error, reason} ->
-        Logger.error("Failed to initialize EventWriter durable consumer",
-          stream: stream.name,
-          filter_subject: stream.subject,
-          reason: inspect(reason)
-        )
-
         {:error, {stream.name, reason}}
     end
   end
@@ -835,7 +869,7 @@ defmodule ServiceRadar.EventWriter.Producer do
   end
 
   defp expected_stream_name(stream) do
-    Map.get(stream, :stream_name) || stream.name
+    Config.jetstream_stream_name(stream)
   end
 
   defp ensure_durable_opts(stream, durable_name, ack_wait_ns, max_ack_pending, max_deliver) do

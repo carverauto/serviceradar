@@ -54,7 +54,10 @@ var (
 	errSysmonNoScalarMetrics = errors.New("sysmon sample batch has no scalar metrics")
 	// errSnmpNoMetricPoints is returned when an SNMP payload yields no numeric
 	// metric points.
-	errSnmpNoMetricPoints = errors.New("snmp payload has no numeric metric points")
+	// Not "no numeric points": a payload of only string-typed readings is
+	// legitimate now and must not be refused. This fires only when nothing at
+	// all was recordable.
+	errSnmpNoMetricPoints = errors.New("snmp payload has no recordable metric points")
 	// errICMPNoMetricPoints is returned when an ICMP payload yields no metric
 	// points.
 	errICMPNoMetricPoints = errors.New("icmp payload has no metric points")
@@ -164,8 +167,18 @@ func marshalSNMPMetricEnvelope(results []snmpMetricResult, ctx metricEnvelopeCon
 	}
 
 	for _, result := range results {
-		value, ok := numericMetricValue(result.Value)
-		if !ok {
+		value, numeric := numericMetricValue(result.Value)
+		raw := rawMetricValue(result.RawValue, result.Value)
+
+		// A string-typed OID - a software version, a node role, a service name -
+		// is a legal SNMP reading with no float representation, and it used to be
+		// discarded right here. That left it with nowhere to land at all, since
+		// timeseries_metrics.value is NOT NULL double precision. It now rides
+		// through carrying value 0 plus an explicit marker, and the consumer
+		// routes marked points to device_snmp_facts while keeping them OUT of the
+		// time series. A reading with neither a number nor a raw string is still
+		// genuinely nothing to record.
+		if !numeric && raw == "" {
 			continue
 		}
 
@@ -174,7 +187,7 @@ func marshalSNMPMetricEnvelope(results []snmpMetricResult, ctx metricEnvelopeCon
 
 		point := &metricpb.MetricPoint{
 			Value:              value,
-			RawValue:           rawMetricValue(result.RawValue, result.Value),
+			RawValue:           raw,
 			RawValueType:       metricValueType(result.RawValue, result.Value),
 			ObservedAtUnixNano: observedAt,
 			IfIndex:            int32Value(result.IfIndex),
@@ -187,9 +200,7 @@ func marshalSNMPMetricEnvelope(results []snmpMetricResult, ctx metricEnvelopeCon
 				"target": result.Target,
 				"host":   result.Host,
 			}),
-			Metadata: entries(map[string]string{
-				"oid": result.OID,
-			}),
+			Metadata: entries(snmpPointMetadata(result, numeric)),
 		}
 
 		metric := &metricpb.Metric{
@@ -1140,6 +1151,28 @@ func entries(values map[string]string) []*metricpb.StringMapEntry {
 	}
 
 	return entries
+}
+
+// snmpPointMetadata carries the per-point facts that must NOT fork the metric
+// series. Tags and attributes feed TimeseriesSeriesKey (see
+// observability/timeseries_series_key.ex canonical_components/1, which reads
+// tags but never metadata), so a marker placed there would split every existing
+// SNMP series in two.
+func snmpPointMetadata(result snmpMetricResult, numeric bool) map[string]string {
+	metadata := map[string]string{
+		"oid":       result.OID,
+		"oid_index": result.OIDIndex,
+	}
+
+	if result.ProfileID != "" {
+		metadata["snmp_profile_id"] = result.ProfileID
+	}
+
+	if !numeric {
+		metadata["non_numeric"] = "true"
+	}
+
+	return metadata
 }
 
 func numericMetricValue(value any) (float64, bool) {

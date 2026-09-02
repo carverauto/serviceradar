@@ -855,15 +855,29 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <.device_availability_widget availability={@device_availability} loading={@loading} />
           <.high_utilization_widget data={@high_utilization} loading={@loading} />
           <.bandwidth_widget data={@bandwidth} loading={@loading} />
-          <.critical_logs_widget summary={@logs_summary} loading={@loading} />
+          <.critical_logs_widget
+            summary={@logs_summary}
+            loading={@loading}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
+          />
           <.observability_widget data={@observability} loading={@loading} />
-          <.critical_events_widget summary={@events_summary} loading={@loading} />
+          <.critical_events_widget
+            summary={@events_summary}
+            loading={@loading}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
+          />
         </div>
 
         <div class="mt-3 text-xs text-sr-muted flex items-center gap-2">
           <span :if={@loading or @refreshing} class="sr-ui-spinner sr-ui-spinner-xs" />
           <span :if={is_struct(@refreshed_at, DateTime)} class="font-mono">
-            Updated {Calendar.strftime(@refreshed_at, "%H:%M:%S")}
+            Updated
+            <.user_time
+              id="analytics-updated-at"
+              value={@refreshed_at}
+              timezone={@current_scope.user.timezone || "Etc/UTC"}
+              style={:time}
+            />
           </span>
           <span class="text-sr-ink/30">·</span>
           <span>Auto-refresh 30s</span>
@@ -1078,6 +1092,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   attr :summary, :map, required: true
   attr :loading, :boolean, default: false
+  attr :timezone, :string, default: "Etc/UTC"
 
   def critical_events_widget(assigns) do
     ~H"""
@@ -1169,7 +1184,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           class="flex-1 overflow-y-auto space-y-2 min-h-0"
         >
           <%= for event <- Map.get(@summary, :recent, []) do %>
-            <.event_entry event={event} />
+            <.event_entry event={event} timezone={@timezone} />
           <% end %>
         </div>
       </div>
@@ -1179,6 +1194,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   attr :summary, :map, required: true
   attr :loading, :boolean, default: false
+  attr :timezone, :string, default: "Etc/UTC"
 
   def critical_logs_widget(assigns) do
     ~H"""
@@ -1279,7 +1295,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           class="flex-1 overflow-y-auto space-y-2 min-h-0"
         >
           <%= for log <- Map.get(@summary, :recent, []) do %>
-            <.log_entry log={log} />
+            <.log_entry log={log} timezone={@timezone} />
           <% end %>
         </div>
       </div>
@@ -1816,8 +1832,16 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp severity_text_class(_), do: "text-sr-muted"
 
   attr :event, :map, required: true
+  attr :timezone, :string, default: "Etc/UTC"
 
   def event_entry(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :time_id,
+        "analytics-event-#{analytics_row_key(assigns.event)}-observed-at"
+      )
+
     ~H"""
     <div class="p-2 rounded-lg bg-sr-subtle/50 hover:bg-sr-subtle transition-colors">
       <div class="flex items-start gap-2">
@@ -1837,7 +1861,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
             "text-xs",
             severity_text_class(severity_color(event_entry_severity(@event)))
           ]}>
-            {event_entry_severity(@event)} · {format_relative_time(event_entry_timestamp(@event))}
+            {event_entry_severity(@event)} ·
+            <.analytics_time id={@time_id} value={event_entry_timestamp(@event)} timezone={@timezone} />
           </div>
         </div>
       </div>
@@ -1846,8 +1871,16 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   end
 
   attr :log, :map, required: true
+  attr :timezone, :string, default: "Etc/UTC"
 
   def log_entry(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :time_id,
+        "analytics-log-#{analytics_row_key(assigns.log)}-observed-at"
+      )
+
     ~H"""
     <div class="p-2 rounded-lg bg-sr-subtle/50 hover:bg-sr-subtle transition-colors">
       <div class="flex items-start gap-2">
@@ -1859,7 +1892,8 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
           <div class="text-sm font-medium truncate">{@log["service_name"] || "Unknown Service"}</div>
           <div class="text-xs text-sr-muted truncate">{truncate_message(@log["body"])}</div>
           <div class={["text-xs", severity_text_class(log_level_color(@log["severity_text"]))]}>
-            {normalize_log_level(@log["severity_text"])} · {format_relative_time(@log["timestamp"])}
+            {normalize_log_level(@log["severity_text"])} ·
+            <.analytics_time id={@time_id} value={@log["timestamp"]} timezone={@timezone} />
           </div>
         </div>
       </div>
@@ -1926,28 +1960,56 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp truncate_message(_), do: ""
 
-  defp format_relative_time(nil), do: "Unknown"
+  attr :id, :string, required: true
+  attr :value, :any, default: nil
+  attr :timezone, :string, required: true
 
-  defp format_relative_time(timestamp) when is_binary(timestamp) do
+  defp analytics_time(assigns) do
+    assigns = assign(assigns, :display, analytics_time_value(assigns.value))
+
+    ~H"""
+    <%= case @display do %>
+      <% {:absolute, value} -> %>
+        <.user_time id={@id} value={value} timezone={@timezone} style={:date} />
+      <% {:relative, label} -> %>
+        {label}
+    <% end %>
+    """
+  end
+
+  defp analytics_time_value(nil), do: {:relative, "Unknown"}
+
+  defp analytics_time_value(timestamp) when is_binary(timestamp) do
     case DateTime.from_iso8601(timestamp) do
       {:ok, dt, _offset} ->
         now = DateTime.utc_now()
         diff_seconds = DateTime.diff(now, dt, :second)
 
         cond do
-          diff_seconds < 60 -> "Just now"
-          diff_seconds < 3600 -> "#{div(diff_seconds, 60)}m ago"
-          diff_seconds < 86_400 -> "#{div(diff_seconds, 3600)}h ago"
-          diff_seconds < 604_800 -> "#{div(diff_seconds, 86_400)}d ago"
-          true -> Calendar.strftime(dt, "%b %d")
+          diff_seconds < 60 -> {:relative, "Just now"}
+          diff_seconds < 3600 -> {:relative, "#{div(diff_seconds, 60)}m ago"}
+          diff_seconds < 86_400 -> {:relative, "#{div(diff_seconds, 3600)}h ago"}
+          diff_seconds < 604_800 -> {:relative, "#{div(diff_seconds, 86_400)}d ago"}
+          true -> {:absolute, dt}
         end
 
       _ ->
-        "Unknown"
+        {:relative, "Unknown"}
     end
   end
 
-  defp format_relative_time(_), do: "Unknown"
+  defp analytics_time_value(_), do: {:relative, "Unknown"}
+
+  defp analytics_row_key(row) do
+    [Map.get(row, "uid"), Map.get(row, "id"), Map.get(row, "event_id"), Map.get(row, "log_id")]
+    |> Enum.find(&(is_binary(&1) and &1 != ""))
+    |> case do
+      nil -> Integer.to_string(:erlang.phash2(row))
+      value -> value
+    end
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
+  end
 
   defp event_entry_host(%{} = event) do
     first_non_blank([

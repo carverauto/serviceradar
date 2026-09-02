@@ -6,7 +6,7 @@ Wireless operators need the Aruba WiFi map that currently exists as a standalone
 
 The near-term source of truth is the CSV seed data in `tmp/wifi-map/`; the long-term source is a customer-owned Go SDK WiFi-map plugin that collects the same Aruba AP database, controller switchinfo, and RADIUS server-group data directly from controllers. Airport/site reference CSV data is expected to remain a long-lived source of truth and should refresh on a much slower cadence than polling data. The plugin should live in the customer's own repository, not in the ServiceRadar OSS repository.
 
-The browser experience should not become a Example Airline-specific feature baked into ServiceRadar. ServiceRadar should provide the data contracts, SRQL execution, signed package sync, and dashboard runtime needed to host customer dashboards. The customer-specific map/dashboard should live as a signed dashboard renderer package that can be imported from a customer repository. React browser modules should be the preferred authoring path for interactive dashboards, while WASM remains available for constrained render-model engines and lower-level use cases.
+The browser experience should not become a customer-specific feature baked into ServiceRadar. ServiceRadar should provide the data contracts, SRQL execution, signed package sync, and dashboard runtime needed to host customer dashboards. The customer-specific map/dashboard should live as a signed dashboard renderer package that can be imported from a customer repository. React browser modules should be the preferred authoring path for interactive dashboards, while WASM remains available for constrained render-model engines and lower-level use cases.
 
 ## What Changes
 

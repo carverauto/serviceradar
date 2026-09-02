@@ -48,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View do
             <.profiles_panel
               profiles={@profiles}
               profile_target_counts={@profile_target_counts}
+              profile_package_names={@profile_package_names}
             />
           <% end %>
         </div>
@@ -69,6 +70,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View do
           search={@template_search}
           selected_vendor={@selected_vendor}
           custom_templates={@custom_templates}
+          package_names={@template_package_names}
         />
 
         <!-- Custom Template Modal -->

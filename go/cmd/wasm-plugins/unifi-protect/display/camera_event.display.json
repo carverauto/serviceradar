@@ -1,6 +1,6 @@
 {
   "id": "com.carverauto.unifi_protect.camera_event.display",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "schema_id": "com.carverauto.unifi_protect.camera_event",
   "schema_version": "1.0.0",
   "widgets": [
@@ -23,7 +23,7 @@
     {
       "type": "facts",
       "fields": [
-        { "label": "Time", "path": "time" },
+        { "label": "Time", "path": "time", "format": "timestamp" },
         { "label": "Camera", "path": "device.name" },
         { "label": "Camera ID", "path": "device.uid" },
         { "label": "MAC", "path": "device.mac" }
@@ -32,8 +32,8 @@
     {
       "type": "timeline",
       "fields": [
-        { "label": "Event time", "path": "time" },
-        { "label": "Logged time", "path": "metadata.logged_time" }
+        { "label": "Event time", "path": "time", "format": "timestamp" },
+        { "label": "Logged time", "path": "metadata.logged_time", "format": "timestamp" }
       ]
     },
     {

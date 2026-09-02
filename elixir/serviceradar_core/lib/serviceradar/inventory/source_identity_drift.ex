@@ -661,31 +661,9 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
     Enum.flat_map(repairs, fn repair ->
       patch = metadata_repair_patch(repair, actor)
 
-      case Repo.query(
-             """
-             UPDATE platform.ocsf_devices
-             SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
-                 modified_time = timezone('utc', now())
-             WHERE uid = $1
-               AND deleted_at IS NULL
-             """,
-             # Pass the map itself. The `$2::jsonb` placeholder makes Postgres
-             # type the parameter as jsonb, so Postgrex runs it through its own
-             # JSON encoder -- a pre-encoded binary here gets encoded AGAIN and
-             # lands as a jsonb *string scalar*. `object || string` is not a
-             # merge in Postgres, it builds an ARRAY, and every later sync then
-             # appends to that array. The device's `metadata` stops being an
-             # object and Ash can no longer load it as :map, which takes the
-             # whole Armis discovery sync down.
-             [repair.device_uid, patch]
-           ) do
-        {:ok, %{num_rows: 1}} ->
-          audit = Map.fetch!(patch, "source_identity_repair")
-          mark_metadata_repair_resolved(repair, audit)
-          [Map.put(repair, :repair_audit, audit)]
-
-        {:ok, _} ->
-          []
+      case apply_and_verify_metadata_repair(repair, patch) do
+        {:ok, applied} ->
+          [applied]
 
         {:error, reason} ->
           Logger.warning(
@@ -695,6 +673,64 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
           []
       end
     end)
+  end
+
+  defp apply_and_verify_metadata_repair(repair, patch) do
+    Repo.transaction(fn ->
+      with {:ok, %{num_rows: 1}} <-
+             Repo.query(
+               """
+               UPDATE platform.ocsf_devices
+               SET metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
+                   modified_time = timezone('utc', now())
+               WHERE uid = $1
+                 AND deleted_at IS NULL
+               """,
+               # Pass the map itself. The `$2::jsonb` placeholder makes Postgres
+               # type the parameter as jsonb, so Postgrex runs it through its own
+               # JSON encoder -- a pre-encoded binary here gets encoded AGAIN and
+               # lands as a jsonb *string scalar*.
+               [repair.device_uid, patch]
+             ),
+           :ok <- verify_metadata_repair(repair) do
+        audit = Map.fetch!(patch, "source_identity_repair")
+        _ = mark_metadata_repair_resolved(repair, audit)
+        Map.put(repair, :repair_audit, audit)
+      else
+        {:ok, %{num_rows: count}} -> Repo.rollback({:repair_update_count_mismatch, count})
+        {:error, reason} -> Repo.rollback(reason)
+        other -> Repo.rollback({:unexpected_repair_result, other})
+      end
+    end)
+  end
+
+  defp verify_metadata_repair(repair) do
+    case Repo.query(
+           """
+           SELECT metadata
+           FROM platform.ocsf_devices
+           WHERE uid = $1
+             AND deleted_at IS NULL
+           """,
+           [repair.device_uid]
+         ) do
+      {:ok, %{rows: [[metadata]]}} when is_map(metadata) ->
+        armis_matches? = metadata["armis_device_id"] == repair.typed_armis_id
+
+        integration_matches? =
+          repair.integration_type != "armis" or
+            metadata["integration_id"] == repair.typed_armis_id
+
+        if armis_matches? and integration_matches?,
+          do: :ok,
+          else: {:error, :metadata_repair_reread_mismatch}
+
+      {:ok, %{rows: rows}} ->
+        {:error, {:metadata_repair_reread_count_mismatch, length(rows)}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp mark_metadata_repair_resolved(repair, audit) do

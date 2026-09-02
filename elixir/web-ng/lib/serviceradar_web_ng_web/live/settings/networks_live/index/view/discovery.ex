@@ -2,7 +2,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
-  import ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.CommandStatus
 
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.MapperJobForm
@@ -11,12 +10,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
   attr :show_form, :any, default: nil
   attr :form, :any, default: nil
   attr :seeds_text, :string, default: ""
-  attr :agents, :list, default: []
+  attr :mapper_agents, :list, default: []
   attr :unifi_form, :any, default: nil
   attr :unifi_present, :boolean, default: false
   attr :mikrotik, :map, default: %{}
   attr :mapper_command_statuses, :map, default: %{}
   attr :can_manage_networks, :boolean, default: false
+  attr :timezone, :string, required: true
 
   def render(assigns) do
     ~H"""
@@ -47,7 +47,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
         <MapperJobForm.render
           form={@form}
           seeds_text={@seeds_text}
-          agents={@agents}
+          agents={@mapper_agents}
           unifi_form={@unifi_form}
           unifi_present={@unifi_present}
           mikrotik={@mikrotik}
@@ -94,7 +94,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery do
                   <td class="text-xs font-mono">Every {job.interval}</td>
                   <td class="text-xs capitalize">{job.discovery_type}</td>
                   <td class="text-xs">{job.partition}</td>
-                  <td class="text-xs text-sr-muted">{format_last_run(job.last_run_at)}</td>
+                  <td class="text-xs text-sr-muted">
+                    <.user_time
+                      id={"settings-discovery-job-#{job.id}-last-run-at"}
+                      value={job.last_run_at}
+                      timezone={@timezone}
+                      style={:compact}
+                      fallback="Never"
+                    />
+                  </td>
                   <td class="text-xs">
                     <%= if status = Map.get(@mapper_command_statuses, job.id) do %>
                       <.ui_badge variant={command_status_variant(status)} size="xs">

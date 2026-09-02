@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNGWeb.MetricSeries
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
   alias ServiceRadarWebNGWeb.Netflow.PrefixTagQuery
+  alias ServiceRadarWebNGWeb.Netflow.RangeSelection
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.LocalAnchor
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.MapMarkers
@@ -451,51 +452,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  def handle_event("netflow_bucket", %{"start" => start_raw, "end" => end_raw}, socket) do
-    base_path = socket.assigns.srql[:page_path] || "/observability"
-    query = socket.assigns.srql[:query] || ""
-    limit = socket.assigns.limit
-    compact? = Map.get(socket.assigns, :netflow_compact?, false)
-    talker_cidr = Map.get(socket.assigns, :netflow_talker_cidr)
-    compare_mode = Map.get(socket.assigns, :netflow_compare_mode, "off")
-    geo_side = Map.get(socket.assigns, :netflow_geo_side, "dst")
-    sankey_prefix = Map.get(socket.assigns, :netflow_sankey_prefix, 24)
-    stack_mode = Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
-    graph_mode = Map.get(socket.assigns, :netflow_graph_mode, "stacked")
-    view = Map.get(socket.assigns, :netflow_view, "overview")
-
+  def handle_event("netflow_range_selected", params, socket) do
     patch_opts =
-      netflow_patch_opts(
-        compact?,
-        talker_cidr,
-        compare_mode,
-        geo_side,
-        sankey_prefix,
-        stack_mode,
-        graph_mode,
-        view
-      )
+      socket.assigns
+      |> current_netflow_patch_opts()
+      |> Map.put(:view, "explorer")
 
-    with {:ok, start_dt, _} <- DateTime.from_iso8601(to_string(start_raw)),
-         {:ok, end_dt, _} <- DateTime.from_iso8601(to_string(end_raw)) do
-      # SRQL supports absolute ranges in bracket form.
-      value = "[#{DateTime.to_iso8601(start_dt)},#{DateTime.to_iso8601(end_dt)}]"
+    maybe_patch_netflow_range(
+      socket,
+      params,
+      netflow_range_selector_points(socket.assigns),
+      patch_opts
+    )
+  end
 
-      href =
-        netflow_filter_patch(
-          base_path,
-          query,
-          limit,
-          "time",
-          value,
-          patch_opts
-        )
-
-      {:noreply, push_patch(socket, to: href)}
-    else
-      _ ->
-        {:noreply, socket}
-    end
+  def handle_event("netflow_bucket", params, socket) do
+    maybe_patch_netflow_range(
+      socket,
+      params,
+      Enum.reject([netflow_bucket_selector_points(socket.assigns)], &(&1 == [])),
+      current_netflow_patch_opts(socket.assigns)
+    )
   end
 
   def handle_event("netflow_geo_click", %{"country" => country}, socket) do
@@ -729,6 +706,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      )}
   end
 
+  def handle_event("srql_reset", params, socket) do
+    default_query =
+      Map.get(maybe_default_netflows_query(%{}, socket.assigns.active_tab), "q")
+
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_reset", params,
+       fallback_path: "/observability",
+       extra_params: srql_submit_extra_params(socket),
+       default_query: default_query
+     )}
+  end
+
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: current_entity(socket))}
   end
@@ -812,6 +801,150 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       {:ok, seconds} -> run_alert_bulk(socket, :snooze, seconds: seconds)
       :error -> {:noreply, put_flash(socket, :error, AlertActions.describe_error(:invalid_duration))}
     end
+  end
+
+  defp maybe_patch_netflow_range(socket, params, selector_points, patch_opts) do
+    case validate_netflow_range(params, selector_points) do
+      {:ok, %{start: start_time, end: end_time}} ->
+        query = socket.assigns.srql[:query] || ""
+        limit = socket.assigns.limit
+        value = "[#{start_time},#{end_time}]"
+
+        href =
+          netflow_filter_patch(
+            socket.assigns.srql[:page_path],
+            query,
+            limit,
+            "time",
+            value,
+            patch_opts
+          )
+
+        {:noreply, push_patch(socket, to: href)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  defp validate_netflow_range(params, selector_points) when is_list(selector_points) do
+    Enum.find_value(selector_points, :error, fn points ->
+      case RangeSelection.validate(params, points) do
+        {:ok, _range} = valid -> valid
+        :error -> nil
+      end
+    end)
+  end
+
+  defp validate_netflow_range(_params, _selector_points), do: :error
+
+  defp current_netflow_patch_opts(assigns) do
+    netflow_patch_opts(
+      Map.get(assigns, :netflow_compact?, false),
+      Map.get(assigns, :netflow_talker_cidr),
+      Map.get(assigns, :netflow_compare_mode, "off"),
+      Map.get(assigns, :netflow_geo_side, "dst"),
+      Map.get(assigns, :netflow_sankey_prefix, 24),
+      Map.get(assigns, :netflow_stack_mode, @default_netflow_stack_mode),
+      Map.get(assigns, :netflow_graph_mode, "stacked"),
+      Map.get(assigns, :netflow_view, "overview")
+    )
+  end
+
+  defp netflow_range_selector_points(assigns) do
+    Enum.reject(
+      [
+        netflow_bucket_selector_points(assigns),
+        netflow_stacked_selector_points(assigns),
+        netflow_activity_selector_points(assigns, :netflow_protocol_activity),
+        netflow_activity_selector_points(assigns, :netflow_app_activity)
+      ],
+      &(&1 == [])
+    )
+  end
+
+  defp netflow_bucket_selector_points(assigns) do
+    if netflow_bucket_selector_rendered?(assigns), do: netflow_canonical_points(assigns), else: []
+  end
+
+  defp netflow_stacked_selector_points(assigns) do
+    if netflow_stacked_selector_rendered?(assigns) do
+      netflow_points_rendered_by_series(assigns, :netflow_timeseries_stacked)
+    else
+      []
+    end
+  end
+
+  defp netflow_activity_selector_points(assigns, key) do
+    if netflow_activity_selector_rendered?(assigns, key) do
+      netflow_points_rendered_by_series(assigns, key)
+    else
+      []
+    end
+  end
+
+  defp netflow_bucket_selector_rendered?(assigns) do
+    Map.get(assigns, :active_tab) == "netflows" and
+      Map.get(assigns, :netflow_view, "overview") in ["overview", "traffic"] and
+      Map.get(assigns, :netflow_graph_mode, "stacked") in ["lines", "grid"] and
+      netflow_canonical_points(assigns) != []
+  end
+
+  defp netflow_stacked_selector_rendered?(assigns) do
+    Map.get(assigns, :active_tab) == "netflows" and
+      Map.get(assigns, :netflow_view, "overview") in ["overview", "traffic"] and
+      Map.get(assigns, :netflow_graph_mode, "stacked") in ["stacked", "stacked100"] and
+      populated_netflow_series?(Map.get(assigns, :netflow_timeseries_stacked))
+  end
+
+  defp netflow_activity_selector_rendered?(assigns, key) do
+    Map.get(assigns, :active_tab) == "netflows" and
+      Map.get(assigns, :netflow_view, "overview") == "traffic" and
+      Map.get(assigns, :netflow_graph_mode, "stacked") != "sankey" and
+      populated_netflow_series?(Map.get(assigns, key))
+  end
+
+  defp populated_netflow_series?(%{points: [_ | _], keys: [_ | _]}), do: true
+  defp populated_netflow_series?(_series), do: false
+
+  defp netflow_canonical_points(assigns) do
+    assigns
+    |> Map.get(:netflow_timeseries, %{})
+    |> Map.get(:points, [])
+  end
+
+  defp netflow_points_rendered_by_series(assigns, series_key) do
+    rendered_times =
+      assigns
+      |> Map.get(series_key, %{})
+      |> Map.get(:points, [])
+      |> Enum.flat_map(fn
+        point when is_map(point) ->
+          case parse_srql_datetime(Map.get(point, "t") || Map.get(point, :t)) do
+            {:ok, timestamp} -> [DateTime.to_unix(timestamp, :millisecond)]
+            :error -> []
+          end
+
+        _point ->
+          []
+      end)
+      |> MapSet.new()
+
+    assigns
+    |> netflow_canonical_points()
+    |> Enum.filter(fn
+      point when is_map(point) ->
+        case parse_srql_datetime(Map.get(point, :bucket_start)) do
+          {:ok, bucket_start} ->
+            MapSet.member?(rendered_times, DateTime.to_unix(bucket_start, :millisecond))
+
+          :error ->
+            false
+        end
+
+      _point ->
+        false
+    end)
   end
 
   defp run_alert_bulk(socket, action, opts) do
@@ -1311,6 +1444,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <.metrics_summary :if={@active_tab == "metrics"} stats={@metrics_stats} />
           <.netflow_summary
             :if={@active_tab == "netflows"}
+            timezone={@current_scope.user.timezone}
             summary={@netflow_summary}
             top_talkers={@netflow_top_talkers}
             top_ports={@netflow_top_ports}
@@ -1383,6 +1517,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               id="logs"
               logs={@streams.logs}
               count={length(@logs)}
+              timezone={@current_scope.user.timezone}
             />
             <.traces_table
               :if={@active_tab == "traces"}
@@ -1390,6 +1525,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               traces={@traces}
               query={Map.get(@srql, :query) || ""}
               limit={@limit}
+              timezone={@current_scope.user.timezone}
             />
             <div :if={@active_tab == "metrics" and @metrics_view == "samples"}>
               <div
@@ -1398,7 +1534,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               >
                 Span samples (slow-span exemplars)
               </div>
-              <.metrics_table id="metrics" metrics={@metrics} sparklines={@sparklines} />
+              <.metrics_table
+                id="metrics"
+                metrics={@metrics}
+                sparklines={@sparklines}
+                timezone={@current_scope.user.timezone}
+              />
             </div>
             <div :if={@active_tab == "metrics" and @metrics_view == "points"}>
               <div
@@ -1420,6 +1561,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               id="events"
               events={@streams.events}
               count={length(@events)}
+              timezone={@current_scope.user.timezone}
             />
             <.alert_bulk_bar
               :if={@active_tab == "alerts" and @can_manage_alerts?}
@@ -1434,9 +1576,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               alerts={@alerts}
               selectable?={@can_manage_alerts?}
               selection={@alert_selection}
+              timezone={@current_scope.user.timezone}
             />
             <.netflows_table
               :if={@active_tab == "netflows" and @netflow_view in ["explorer", "all"]}
+              timezone={@current_scope.user.timezone}
               flows={@netflows}
               rdns_map={@netflow_rdns_map}
               threat_map={@netflow_threat_map}
@@ -1479,6 +1623,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
           <.netflow_details_modal
             :if={@active_tab == "netflows" and is_map(@selected_netflow)}
+            timezone={@current_scope.user.timezone}
             flow={@selected_netflow}
             context={@netflow_context}
             base_path={Map.get(@srql, :page_path) || "/observability"}
@@ -1799,6 +1944,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:compact?, :boolean, default: false)
   attr(:talker_cidr, :integer, default: nil)
   attr(:view, :string, default: "overview")
+  attr(:timezone, :string, required: true)
 
   defp netflow_summary(assigns) do
     # This function is sometimes called directly (not as a component) with a
@@ -2048,6 +2194,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             </div>
             <.netflow_timeseries_stacked_area_chart
               id="netflow-top-stacked"
+              timezone={@timezone}
               points={
                 if(
                   @graph_mode == "stacked100",
@@ -2061,9 +2208,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               }
               keys={Map.get(@timeseries_stacked, :keys, [])}
               mode={@stack_mode}
+              range_intervals={RangeSelection.canonical_intervals(@timeseries.points)}
+              range_event="netflow_range_selected"
             />
           <% else %>
             <.netflow_timeseries_chart
+              timezone={@timezone}
               points={@timeseries.points}
               compare_points={Map.get(@timeseries_compare, :points, [])}
               bucket_seconds={@timeseries.bucket_seconds}
@@ -2074,51 +2224,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </div>
       </.ui_panel>
 
-      <div :if={@view == "traffic"} class="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <.ui_panel class="p-0" body_class="p-0">
-          <div class="p-3 border-b border-sr-line bg-sr-subtle/30 flex items-center justify-between">
-            <div class="text-xs uppercase tracking-wider text-sr-muted">
-              Activity By Protocol
-            </div>
-            <div class="text-xs text-sr-muted font-mono">
-              bucket: {format_bucket(
-                Map.get(@protocol_activity, :bucket_seconds, @timeseries.bucket_seconds)
-              )}
-            </div>
-          </div>
-          <div class="p-3">
-            <.netflow_timeseries_stacked_area_chart
-              id="netflow-protocol-stacked"
-              points={Map.get(@protocol_activity, :points, [])}
-              keys={Map.get(@protocol_activity, :keys, [])}
-              colors={Map.get(@protocol_activity, :colors, %{})}
-              series_field="protocol_group"
-              mode="protocols"
-            />
-          </div>
-        </.ui_panel>
-
-        <.ui_panel class="p-0" body_class="p-0">
-          <div class="p-3 border-b border-sr-line bg-sr-subtle/30 flex items-center justify-between">
-            <div class="text-xs uppercase tracking-wider text-sr-muted">
-              Activity By Application
-            </div>
-            <div class="text-xs text-sr-muted font-mono">
-              top: {length(Map.get(@app_activity, :keys, []))}
-            </div>
-          </div>
-          <div class="p-3">
-            <.netflow_timeseries_stacked_area_chart
-              id="netflow-app-stacked"
-              points={Map.get(@app_activity, :points, [])}
-              keys={Map.get(@app_activity, :keys, [])}
-              colors={Map.get(@app_activity, :colors, %{})}
-              series_field="app"
-              mode="apps"
-            />
-          </div>
-        </.ui_panel>
-      </div>
+      <.netflow_activity_cards
+        :if={@view == "traffic"}
+        timezone={@timezone}
+        timeseries={@timeseries}
+        protocol_activity={@protocol_activity}
+        app_activity={@app_activity}
+        graph_mode={@graph_mode}
+      />
 
       <.ui_panel :if={@view == "talkers"} class="p-0" body_class="p-0">
         <div class="p-3 border-b border-sr-line bg-sr-subtle/30 flex items-center justify-between gap-3">
@@ -2932,9 +3045,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:bucket_seconds, :integer, required: true)
   attr(:compare_mode, :string, default: "off")
   attr(:mode, :string, default: "grid")
+  attr(:timezone, :string, required: true)
 
-  defp netflow_timeseries_chart(assigns) do
-    points = Enum.filter(assigns.points, &is_map/1)
+  def netflow_timeseries_chart(assigns) do
+    points =
+      Enum.filter(assigns.points, fn point ->
+        is_map(point) and RangeSelection.canonical_intervals([point]) != []
+      end)
+
     compare_points = Enum.filter(assigns.compare_points, &is_map/1)
 
     max_bytes =
@@ -2945,12 +3063,40 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     bucket_seconds = assigns.bucket_seconds
 
+    mode = if assigns.mode == "lines", do: :lines, else: :grid
+
+    range_points =
+      points
+      |> RangeSelection.intervals(mode, 1000)
+      |> Enum.zip_with(points, fn interval, point -> Map.put(interval, :point, point) end)
+
+    {axis_start, axis_middle, axis_end} =
+      case points do
+        [] ->
+          {nil, nil, nil}
+
+        [first_point | _] ->
+          middle_point = Enum.at(points, div(length(points), 2)) || first_point
+          last_point = List.last(points)
+
+          {
+            DateTime.to_iso8601(first_point.bucket_start),
+            DateTime.to_iso8601(middle_point.bucket_start),
+            DateTime.to_iso8601(last_point.bucket_end)
+          }
+      end
+
     assigns =
       assigns
       |> assign(:points, points)
       |> assign(:compare_points, compare_points)
       |> assign(:max_bytes, max_bytes)
       |> assign(:bucket_seconds, bucket_seconds)
+      |> assign(:range_points, range_points)
+      |> assign(:range_buckets, Enum.map(range_points, &Map.take(&1, [:x, :start, :end])))
+      |> assign(:axis_start, axis_start)
+      |> assign(:axis_middle, axis_middle)
+      |> assign(:axis_end, axis_end)
 
     ~H"""
     <div :if={@points == []} class="py-8 text-center text-sm text-sr-muted">
@@ -2960,17 +3106,31 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     <div
       :if={@points != []}
       id="netflow-traffic-timeseries"
-      class="w-full relative"
       phx-hook="NetflowTrafficTooltip"
-      data-points={netflow_timeseries_tooltip_points_json(@points, @bucket_seconds)}
+      data-timezone={@timezone}
+      data-points={netflow_timeseries_tooltip_points_json(@range_points, @bucket_seconds)}
       data-bucket-seconds={@bucket_seconds}
+      data-range-buckets={Jason.encode!(@range_buckets)}
+      data-range-event="netflow_range_selected"
+      data-chart-width="1000"
+      data-chart-height="160"
+      role="group"
+      tabindex="0"
+      aria-label="Select a Traffic Over Time range"
+      aria-describedby="netflow-traffic-range-instructions"
+      class="w-full relative touch-pan-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sr-brand/70"
     >
+      <p id="netflow-traffic-range-instructions" class="sr-only">
+        Use Left and Right Arrow to move through traffic buckets. Hold Shift to extend a range,
+        press Enter to apply it, or Escape to clear it.
+      </p>
       <svg
         viewBox="0 0 1000 160"
         class="w-full h-40"
         preserveAspectRatio="none"
         role="img"
         aria-label="NetFlow traffic over time"
+        data-range-svg
       >
         <defs>
           <linearGradient id="netflowArea" x1="0" y1="0" x2="0" y2="1">
@@ -3001,6 +3161,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           />
         <% end %>
 
+        <rect
+          data-range-surface
+          x="0"
+          y="10"
+          width="1000"
+          height="140"
+          fill="transparent"
+          pointer-events="all"
+        />
+
+        <rect
+          data-range-overlay
+          y="10"
+          height="140"
+          class="hidden fill-sr-brand/15 stroke-sr-brand/70"
+          stroke-width="1"
+          pointer-events="none"
+        />
+
         <text x="4" y="16" class="fill-sr-muted text-[10px] font-mono">
           {format_netflow_bytes(@max_bytes)}
         </text>
@@ -3008,31 +3187,45 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           {format_netflow_bytes(trunc(@max_bytes / 2))}
         </text>
         <text x="4" y="150" class="fill-sr-muted text-[10px] font-mono">0 B</text>
-        <text x="0" y="158" class="fill-sr-muted text-[10px] font-mono">
-          {format_netflow_timestamp(%{"time" => DateTime.to_iso8601(hd(@points).bucket_start)})}
+        <text
+          x="0"
+          y="158"
+          class="fill-sr-muted text-[10px] font-mono"
+          data-netflow-time="axis"
+          data-time-iso={@axis_start}
+          data-time-fallback={@axis_start}
+        >
+          {@axis_start}
         </text>
         <text
           x="500"
           y="158"
           text-anchor="middle"
           class="fill-sr-muted text-[10px] font-mono"
+          data-netflow-time="axis"
+          data-time-iso={@axis_middle}
+          data-time-fallback={@axis_middle}
         >
-          {format_netflow_timestamp(%{
-            "time" =>
-              DateTime.to_iso8601(
-                (Enum.at(@points, div(length(@points), 2)) || hd(@points)).bucket_start
-              )
-          })}
+          {@axis_middle}
         </text>
-        <text x="1000" y="158" text-anchor="end" class="fill-sr-muted text-[10px] font-mono">
-          {format_netflow_timestamp(%{"time" => DateTime.to_iso8601(List.last(@points).bucket_end)})}
+        <text
+          x="1000"
+          y="158"
+          text-anchor="end"
+          class="fill-sr-muted text-[10px] font-mono"
+          data-netflow-time="axis"
+          data-time-iso={@axis_end}
+          data-time-fallback={@axis_end}
+        >
+          {@axis_end}
         </text>
 
         <%= if @mode != "lines" do %>
-          <%= for {point, idx} <- Enum.with_index(@points) do %>
-            {x = netflow_chart_x(idx, length(@points), 1000)}
+          <%= for %{point: point, x: center_x, start: start_time, end: end_time} <- @range_points do %>
             {w = netflow_chart_bar_w(length(@points), 1000)}
+            {x = center_x - w / 2}
             {h = netflow_chart_h(Map.get(point, :bytes, 0), @max_bytes, 140)}
+            <% title = netflow_bucket_hover_title(point, @bucket_seconds, end_time) %>
             <rect
               x={x}
               y={150 - h}
@@ -3040,16 +3233,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               height={h}
               class="fill-sr-brand/20 hover:fill-sr-brand/35 transition-colors cursor-pointer"
               phx-click="netflow_bucket"
-              phx-value-start={DateTime.to_iso8601(Map.get(point, :bucket_start))}
-              phx-value-end={DateTime.to_iso8601(Map.get(point, :bucket_end))}
+              phx-value-start={start_time}
+              phx-value-end={end_time}
             >
-              <title>{netflow_bucket_hover_title(point, @bucket_seconds)}</title>
+              <title
+                data-netflow-time="range-title"
+                data-time-start={start_time}
+                data-time-end={end_time}
+                data-time-fallback={title}
+              >
+                {title}
+              </title>
             </rect>
           <% end %>
         <% end %>
 
         <polyline
-          points={netflow_timeseries_polyline(@points, @max_bytes, 1000, 140)}
+          points={netflow_timeseries_polyline(@points, @max_bytes, 1000, 140, @mode)}
           fill="none"
           class="stroke-sr-brand opacity-80"
           stroke-width="2"
@@ -3057,18 +3257,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
         <polyline
           :if={@compare_points != [] and @compare_mode in ["previous", "yesterday"]}
-          points={netflow_timeseries_polyline(@compare_points, @max_bytes, 1000, 140)}
+          points={netflow_timeseries_polyline(@compare_points, @max_bytes, 1000, 140, @mode)}
           fill="none"
           class="stroke-sr-muted/50"
           stroke-dasharray="4 4"
           stroke-width="2"
         />
 
-        <%= for {point, idx} <- Enum.with_index(@points) do %>
-          {cx =
-            netflow_chart_x(idx, length(@points), 1000) +
-              netflow_chart_bar_w(length(@points), 1000) / 2}
+        <%= for %{point: point, x: cx, start: start_time, end: end_time} <- @range_points do %>
           {cy = 150 - netflow_chart_h(Map.get(point, :bytes, 0), @max_bytes, 140)}
+          <% title = netflow_bucket_hover_title(point, @bucket_seconds, end_time) %>
           <circle
             cx={cx}
             cy={cy}
@@ -3076,17 +3274,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             class="fill-sr-brand/80 stroke-sr-surface cursor-pointer"
             stroke-width="1"
             phx-click="netflow_bucket"
-            phx-value-start={DateTime.to_iso8601(Map.get(point, :bucket_start))}
-            phx-value-end={DateTime.to_iso8601(Map.get(point, :bucket_end))}
+            phx-value-start={start_time}
+            phx-value-end={end_time}
           >
-            <title>{netflow_bucket_hover_title(point, @bucket_seconds)}</title>
+            <title
+              data-netflow-time="range-title"
+              data-time-start={start_time}
+              data-time-end={end_time}
+              data-time-fallback={title}
+            >
+              {title}
+            </title>
           </circle>
         <% end %>
       </svg>
 
+      <p data-range-status aria-live="polite" class="sr-only"></p>
+
       <div class="mt-2 flex items-center justify-between text-[10px] text-sr-muted font-mono">
         <div>
-          {format_netflow_timestamp(%{"time" => DateTime.to_iso8601(hd(@points).bucket_start)})}
+          <.user_time
+            id="netflow-chart-window-start"
+            value={@axis_start}
+            timezone={@timezone}
+            style={:compact}
+            fallback={@axis_start}
+          />
         </div>
         <div :if={@compare_points != [] and @compare_mode in ["previous", "yesterday"]}>
           compare: {@compare_mode}
@@ -3095,7 +3308,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           max: {format_netflow_bytes(@max_bytes)}
         </div>
         <div>
-          {format_netflow_timestamp(%{"time" => DateTime.to_iso8601(List.last(@points).bucket_end)})}
+          <.user_time
+            id="netflow-chart-window-end"
+            value={@axis_end}
+            timezone={@timezone}
+            style={:compact}
+            fallback={@axis_end}
+          />
         </div>
       </div>
     </div>
@@ -3108,8 +3327,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:mode, :string, default: @default_netflow_stack_mode)
   attr(:series_field, :string, default: nil)
   attr(:colors, :map, default: %{})
+  attr(:range_intervals, :list, default: [])
+  attr(:range_event, :string, default: nil)
+  attr(:range_accessible_name, :string, default: "Select a NetFlow Traffic Over Time range")
+  attr(:range_bucket_name, :string, default: "traffic")
+  attr(:timezone, :string, required: true)
 
-  defp netflow_timeseries_stacked_area_chart(assigns) do
+  def netflow_timeseries_stacked_area_chart(assigns) do
     points = Enum.filter(assigns.points, &is_map/1)
 
     assigns =
@@ -3125,15 +3349,104 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     <div :if={@points != [] and @keys != []} class="w-full">
       <div
         id={@id}
-        class="w-full h-56"
+        class={["w-full h-56", @range_event && "touch-pan-y"]}
         phx-hook="NetflowStackedAreaChart"
+        phx-update="ignore"
+        data-timezone={@timezone}
         data-keys={Jason.encode!(@keys)}
         data-points={Jason.encode!(@points)}
         data-series-field={@series_field || ""}
         data-colors={Jason.encode!(@colors || %{})}
+        data-range-intervals={@range_event && Jason.encode!(@range_intervals)}
+        data-range-event={@range_event}
+        role={@range_event && "group"}
+        tabindex={@range_event && "0"}
+        aria-label={@range_event && @range_accessible_name}
+        aria-describedby={@range_event && "#{@id}-range-instructions"}
       >
         <svg class="w-full h-full" role="img" aria-label={"NetFlow #{@mode} over time"}></svg>
+        <p :if={@range_event} id={"#{@id}-range-instructions"} class="sr-only">
+          Use Left and Right Arrow to move through {@range_bucket_name} buckets. Hold Shift to
+          extend a range, press Enter to apply it, or Escape to clear it.
+        </p>
+        <p :if={@range_event} data-range-status aria-live="polite" class="sr-only"></p>
       </div>
+    </div>
+    """
+  end
+
+  attr(:timeseries, :map, required: true)
+  attr(:protocol_activity, :map, required: true)
+  attr(:app_activity, :map, required: true)
+  attr(:graph_mode, :string, required: true)
+  attr(:timezone, :string, required: true)
+
+  def netflow_activity_cards(assigns) do
+    ~H"""
+    <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <.ui_panel class="p-0" body_class="p-0">
+        <div class="p-3 border-b border-sr-line bg-sr-subtle/30 flex items-center justify-between">
+          <div class="text-xs uppercase tracking-wider text-sr-muted">
+            Activity By Protocol
+          </div>
+          <div class="text-xs text-sr-muted font-mono">
+            bucket: {format_bucket(
+              Map.get(@protocol_activity, :bucket_seconds, @timeseries.bucket_seconds)
+            )}
+          </div>
+        </div>
+        <div class="p-3">
+          <.netflow_timeseries_stacked_area_chart
+            id="netflow-protocol-stacked"
+            timezone={@timezone}
+            points={Map.get(@protocol_activity, :points, [])}
+            keys={Map.get(@protocol_activity, :keys, [])}
+            colors={Map.get(@protocol_activity, :colors, %{})}
+            series_field="protocol_group"
+            mode="protocols"
+            range_intervals={
+              if(@graph_mode != "sankey",
+                do: RangeSelection.canonical_intervals(@timeseries.points),
+                else: []
+              )
+            }
+            range_event={@graph_mode != "sankey" && "netflow_range_selected"}
+            range_accessible_name="Select an Activity by Protocol time range"
+            range_bucket_name="protocol activity"
+          />
+        </div>
+      </.ui_panel>
+
+      <.ui_panel class="p-0" body_class="p-0">
+        <div class="p-3 border-b border-sr-line bg-sr-subtle/30 flex items-center justify-between">
+          <div class="text-xs uppercase tracking-wider text-sr-muted">
+            Activity By Application
+          </div>
+          <div class="text-xs text-sr-muted font-mono">
+            top: {length(Map.get(@app_activity, :keys, []))}
+          </div>
+        </div>
+        <div class="p-3">
+          <.netflow_timeseries_stacked_area_chart
+            id="netflow-app-stacked"
+            timezone={@timezone}
+            points={Map.get(@app_activity, :points, [])}
+            keys={Map.get(@app_activity, :keys, [])}
+            colors={Map.get(@app_activity, :colors, %{})}
+            series_field="app"
+            mode="apps"
+            range_intervals={
+              if(@graph_mode != "sankey",
+                do: RangeSelection.canonical_intervals(@timeseries.points),
+                else: []
+              )
+            }
+            range_event={@graph_mode != "sankey" && "netflow_range_selected"}
+            range_accessible_name="Select an Activity by Application time range"
+            range_bucket_name="application activity"
+          />
+        </div>
+      </.ui_panel>
     </div>
     """
   end
@@ -3163,10 +3476,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp netflow_bucket_hover_title(point, bucket_seconds) when is_map(point) do
+  defp netflow_bucket_hover_title(point, bucket_seconds, canonical_end) when is_map(point) do
     bytes = to_int(Map.get(point, :bytes, 0))
     start_dt = Map.get(point, :bucket_start)
-    end_dt = Map.get(point, :bucket_end)
     bucket = if is_integer(bucket_seconds) and bucket_seconds > 0, do: bucket_seconds, else: 1
     avg_bps = bytes * 8.0 / bucket
 
@@ -3176,11 +3488,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         _ -> "unknown"
       end
 
-    end_label =
-      case end_dt do
-        %DateTime{} = dt -> DateTime.to_iso8601(dt)
-        _ -> "unknown"
-      end
+    end_label = if is_binary(canonical_end), do: canonical_end, else: "unknown"
 
     "window: #{start_label} → #{end_label}\nbytes: #{format_netflow_bytes(bytes)}\navg rate: #{format_netflow_bps(avg_bps)}"
   end
@@ -3189,10 +3497,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
        when is_list(points) and is_integer(bucket_seconds) do
     points
     |> Enum.filter(&is_map/1)
-    |> Enum.map(fn point ->
+    |> Enum.map(fn %{point: point, start: start_time, end: end_time} ->
       %{
-        "start" => datetime_to_iso(Map.get(point, :bucket_start)),
-        "end" => datetime_to_iso(Map.get(point, :bucket_end)),
+        "start" => start_time,
+        "end" => end_time,
         "bytes" => to_int(Map.get(point, :bytes, 0)),
         "bucket_seconds" => bucket_seconds
       }
@@ -3203,10 +3511,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp netflow_timeseries_tooltip_points_json(_points, _bucket_seconds), do: "[]"
-
-  defp datetime_to_iso(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
-  defp datetime_to_iso(%NaiveDateTime{} = ndt), do: NaiveDateTime.to_iso8601(ndt)
-  defp datetime_to_iso(other), do: to_string(other || "")
 
   attr(:label, :string, required: true)
   attr(:count, :integer, required: true)
@@ -3846,10 +4150,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:id, :string, required: true)
   attr(:logs, :any, required: true)
   attr(:count, :integer, required: true)
+  attr(:timezone, :string, required: true)
 
   defp logs_table(assigns) do
     ~H"""
-    <div id={"#{@id}-local-time"} class="overflow-x-auto" phx-hook=".LocalTime">
+    <div class="overflow-x-auto">
       <table id={@id} class={ui_table_class(size: "sm", zebra: true, class: "w-full")}>
         <thead>
           <tr>
@@ -3882,13 +4187,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             >
               <td class="whitespace-nowrap text-xs font-mono">
                 <% time = timestamp_meta(log) %>
-                <%= if is_binary(time.iso) do %>
-                  <time data-iso={time.iso} data-utc={time.display} title={time.display}>
-                    {time.display}
-                  </time>
-                <% else %>
-                  {time.display}
-                <% end %>
+                <.user_time
+                  id={"log-time-#{dom_id}"}
+                  value={time.value}
+                  timezone={@timezone}
+                  style={:full}
+                  fallback={time.fallback}
+                />
               </td>
               <td class="whitespace-nowrap text-xs">
                 <.severity_badge value={Map.get(log, "severity_text")} />
@@ -3904,39 +4209,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </tbody>
       </table>
     </div>
-
-    <script :type={Phoenix.LiveView.ColocatedHook} name=".LocalTime">
-      export default {
-        mounted() {
-          this.format()
-        },
-        updated() {
-          this.format()
-        },
-        format() {
-          const nodes = this.el.querySelectorAll("time[data-iso]")
-          nodes.forEach((node) => {
-            const iso = node.dataset.iso
-            if (!iso) return
-            const date = new Date(iso)
-            if (Number.isNaN(date.getTime())) return
-            node.textContent = this.formatLocal(date)
-            const utc = node.dataset.utc
-            if (utc) node.title = utc
-          })
-        },
-        formatLocal(date) {
-          const pad = (value) => String(value).padStart(2, "0")
-          const year = date.getFullYear()
-          const month = pad(date.getMonth() + 1)
-          const day = pad(date.getDate())
-          const hours = pad(date.getHours())
-          const minutes = pad(date.getMinutes())
-          const seconds = pad(date.getSeconds())
-          return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
-        }
-      }
-    </script>
     """
   end
 
@@ -3944,6 +4216,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:traces, :list, default: [])
   attr(:query, :string, default: "")
   attr(:limit, :integer, default: @default_limit)
+  attr(:timezone, :string, required: true)
 
   defp traces_table(assigns) do
     {sort_field, sort_dir} = trace_sort_state(assigns.query)
@@ -4016,7 +4289,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               class={["hover:bg-sr-subtle/40 transition-colors", trace_path && "cursor-pointer"]}
               phx-click={trace_path && JS.navigate(trace_path)}
             >
-              <td class="whitespace-nowrap text-xs font-mono">{format_timestamp(trace)}</td>
+              <td class="whitespace-nowrap text-xs font-mono">
+                <% time = timestamp_meta(Map.get(trace, "timestamp")) %>
+                <.user_time
+                  id={
+                    "trace-time-#{@id}-row-#{signal_time_key(trace, ["trace_id", "span_id"], idx)}"
+                  }
+                  value={time.value}
+                  timezone={@timezone}
+                  style={:full}
+                  fallback={time.fallback}
+                />
+              </td>
               <td
                 class="whitespace-nowrap text-xs truncate max-w-[14rem]"
                 title={trace_service_name(trace)}
@@ -4136,6 +4420,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:id, :string, required: true)
   attr(:metrics, :list, default: [])
   attr(:sparklines, :map, default: %{})
+  attr(:timezone, :string, required: true)
 
   defp metrics_table(assigns) do
     values =
@@ -4192,7 +4477,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
           <%= for {metric, idx} <- Enum.with_index(@metrics) do %>
             <tr id={"#{@id}-row-#{idx}"} class="hover:bg-sr-subtle/40 transition-colors">
-              <td class="whitespace-nowrap text-xs font-mono">{format_timestamp(metric)}</td>
+              <td class="whitespace-nowrap text-xs font-mono">
+                <% time = timestamp_meta(Map.get(metric, "timestamp")) %>
+                <.user_time
+                  id={
+                    "metric-time-#{@id}-row-#{signal_time_key(metric, ["span_id", "trace_id"], idx)}"
+                  }
+                  value={time.value}
+                  timezone={@timezone}
+                  style={:full}
+                  fallback={time.fallback}
+                />
+              </td>
               <td
                 class="whitespace-nowrap text-xs truncate max-w-[14rem]"
                 title={Map.get(metric, "service_name")}
@@ -4457,6 +4753,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:id, :string, required: true)
   attr(:events, :any, required: true)
   attr(:count, :integer, required: true)
+  attr(:timezone, :string, required: true)
 
   defp events_table(assigns) do
     ~H"""
@@ -4492,7 +4789,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               phx-click={JS.navigate(~p"/events/#{event_id(event)}")}
             >
               <td class="whitespace-nowrap text-xs font-mono">
-                {format_event_timestamp(event)}
+                <% time = timestamp_meta(event_timestamp(event)) %>
+                <.user_time
+                  id={"event-time-#{dom_id}"}
+                  value={time.value}
+                  timezone={@timezone}
+                  style={:full}
+                  fallback={time.fallback}
+                />
               </td>
               <td class="whitespace-nowrap text-xs">
                 <.event_severity_badge value={Map.get(event, "severity")} />
@@ -4557,15 +4861,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp format_event_timestamp(event) do
-    ts =
-      Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> ts || "—"
-    end
-  end
+  defp event_timestamp(event),
+    do: Map.get(event, "time") || Map.get(event, "event_timestamp") || Map.get(event, "timestamp")
 
   defp event_source(event) do
     source =
@@ -4694,6 +4991,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:alerts, :list, default: [])
   attr(:selectable?, :boolean, default: false)
   attr(:selection, :any, default: nil)
+  attr(:timezone, :string, required: true)
 
   defp alerts_table(assigns) do
     assigns = assign(assigns, :colspan, if(assigns.selectable?, do: 5, else: 4))
@@ -4754,7 +5052,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 class="whitespace-nowrap text-xs font-mono cursor-pointer"
                 phx-click={JS.navigate(~p"/alerts/#{alert_id(alert)}")}
               >
-                {format_alert_timestamp(alert)}
+                <% time = timestamp_meta(alert_timestamp(alert)) %>
+                <.user_time
+                  id={
+                    "alert-time-#{@id}-row-#{signal_time_key(alert, ["alert_id", "id"], idx)}"
+                  }
+                  value={time.value}
+                  timezone={@timezone}
+                  style={:full}
+                  fallback={time.fallback}
+                />
               </td>
               <td class="whitespace-nowrap text-xs">
                 <.alert_severity_badge value={Map.get(alert, "severity")} />
@@ -4852,14 +5159,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     EventTitle.alert_title(alert)
   end
 
-  defp format_alert_timestamp(alert) do
-    ts = Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> ts || "—"
-    end
-  end
+  defp alert_timestamp(alert), do: Map.get(alert, "triggered_at") || Map.get(alert, "timestamp")
 
   attr(:flows, :list, default: [])
   attr(:rdns_map, :map, default: %{})
@@ -4875,6 +5175,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:stack_mode, :string, default: @default_netflow_stack_mode)
   attr(:graph_mode, :string, default: "stacked")
   attr(:view, :string, default: "overview")
+  attr(:timezone, :string, required: true)
 
   defp netflows_table(assigns) do
     ~H"""
@@ -4913,7 +5214,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <%= for {flow, idx} <- Enum.with_index(@flows) do %>
             <tr>
               <td class="whitespace-nowrap text-xs font-mono">
-                {format_netflow_timestamp(flow)}
+                <% timestamp = Map.get(flow, "time") || Map.get(flow, "timestamp") %>
+                <.user_time
+                  id={"netflow-row-time-#{idx}"}
+                  value={timestamp}
+                  timezone={@timezone}
+                  style={:compact}
+                  fallback={timestamp || "—"}
+                />
               </td>
               <td class="text-xs align-top">
                 <% src_ip = netflow_addr(flow, :src) %>
@@ -5373,6 +5681,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:graph_mode, :string, default: "stacked")
   attr(:view, :string, default: "overview")
   attr(:arin_lookup, :map, default: %{})
+  attr(:timezone, :string, required: true)
 
   defp netflow_details_modal(assigns) do
     ocsf =
@@ -5440,7 +5749,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <div class="min-w-0">
             <div class="text-sm font-semibold tracking-tight text-sr-ink">Flow details</div>
             <div class="text-xs text-sr-muted font-mono">
-              {format_netflow_timestamp(@flow)}
+              <% timestamp = Map.get(@flow, "time") || Map.get(@flow, "timestamp") %>
+              <.user_time
+                id="netflow-flow-detail-time"
+                value={timestamp}
+                timezone={@timezone}
+                style={:full}
+                fallback={timestamp || "—"}
+              />
             </div>
           </div>
           <.ui_icon_button variant="ghost" size="sm" phx-click="netflow_close" aria-label="Close">
@@ -6155,19 +6471,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp netflow_value(_flow, _keys), do: nil
 
-  defp format_netflow_timestamp(%{} = flow) do
-    ts = Map.get(flow, "time") || Map.get(flow, "timestamp")
-
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> ts || "—"
-    end
-  end
-
-  defp format_netflow_timestamp(nil), do: "—"
-  defp format_netflow_timestamp(ts) when is_binary(ts), do: String.slice(ts, 0..18)
-  defp format_netflow_timestamp(_), do: "—"
-
   defp netflow_present?(nil), do: false
   defp netflow_present?(""), do: false
 
@@ -6438,7 +6741,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ObservabilityPaths.path("netflows", netflow_params(query, limit, opts))
   end
 
-  defp netflow_params(query, _limit, %{} = opts) do
+  defp netflow_params(query, limit, %{} = opts) do
     compact? = Map.get(opts, :compact?, false)
     talker_cidr = Map.get(opts, :talker_cidr)
     compare_mode = Map.get(opts, :compare_mode, "off")
@@ -6451,6 +6754,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     # Intent URL path encodes tab; query holds q + view chrome only.
     %{}
     |> maybe_put_param(:q, query)
+    |> maybe_put_param(:limit, netflow_legacy_limit(query, limit))
     |> maybe_put_param(:compact, if(compact?, do: "1"))
     |> maybe_put_param(
       :talker_cidr,
@@ -6488,9 +6792,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp netflow_filter_patch(_base_path, query, limit, field, value, opts) do
     value = (value || "") |> to_string() |> String.trim()
     value = if value in ["—", "-"], do: "", else: value
-    params = netflow_params(upsert_query_filter(query || "", field, value), limit, opts)
+
+    query =
+      if String.downcase(field) == "time" do
+        replace_netflow_time(query || "", value)
+      else
+        upsert_query_filter(query || "", field, value)
+      end
+
+    params = netflow_params(query, limit, opts)
     ObservabilityPaths.path("netflows", params)
   end
+
+  defp netflow_legacy_limit(query, limit) when is_binary(query) and is_integer(limit) and limit > 0 do
+    if Regex.match?(~r/(?:^|\s)limit:\d+(?=\s|$)/i, query), do: nil, else: Integer.to_string(limit)
+  end
+
+  defp netflow_legacy_limit(_query, _limit), do: nil
 
   defp netflow_prefix_tags(flow, side) when side in [:src, :dst] do
     prefix = to_string(side)
@@ -6524,6 +6842,66 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       query
     else
       String.trim(query <> " " <> "#{field}:#{value}")
+    end
+  end
+
+  defp replace_netflow_time(query, value) when is_binary(query) and is_binary(value) do
+    query
+    |> split_srql_tokens()
+    |> Enum.reject(&(srql_token_key(&1) in ["time", "timeframe"]))
+    |> Kernel.++(["time:#{String.trim(value)}"])
+    |> Enum.join(" ")
+  end
+
+  defp split_srql_tokens(query) do
+    {tokens, current, _quote, _escaped?} =
+      query
+      |> String.graphemes()
+      |> Enum.reduce({[], "", nil, false}, &split_srql_token/2)
+
+    tokens = if current == "", do: tokens, else: [current | tokens]
+    Enum.reverse(tokens)
+  end
+
+  defp split_srql_token(char, {tokens, current, quote, true}) do
+    {tokens, current <> char, quote, false}
+  end
+
+  defp split_srql_token("\\", {tokens, current, quote, false}) when not is_nil(quote) do
+    {tokens, current <> "\\", quote, true}
+  end
+
+  defp split_srql_token(char, {tokens, current, quote, false}) when char == quote and not is_nil(quote) do
+    {tokens, current <> char, nil, false}
+  end
+
+  defp split_srql_token(char, {tokens, current, quote, false}) when not is_nil(quote) do
+    {tokens, current <> char, quote, false}
+  end
+
+  defp split_srql_token(char, {tokens, current, nil, false}) when char in ["\"", "'"] do
+    {tokens, current <> char, char, false}
+  end
+
+  defp split_srql_token(char, {tokens, current, nil, false}) when char in [" ", "\n", "\r", "\t"] do
+    if current == "" do
+      {tokens, "", nil, false}
+    else
+      {[current | tokens], "", nil, false}
+    end
+  end
+
+  defp split_srql_token(char, {tokens, current, quote, escaped?}) do
+    {tokens, current <> char, quote, escaped?}
+  end
+
+  defp srql_token_key(token) when is_binary(token) do
+    token
+    |> String.trim_leading("!")
+    |> String.split(":", parts: 2)
+    |> case do
+      [key, _value] -> String.downcase(key)
+      _token -> nil
     end
   end
 
@@ -7286,28 +7664,74 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp uuid_to_string(_), do: "unknown"
 
-  defp format_timestamp(log) do
-    ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
+  defp signal_time_key(row, identity_fields, index) when is_map(row) do
+    identity =
+      Enum.find_value(identity_fields, fn field ->
+        case Map.get(row, field) do
+          value when is_binary(value) ->
+            case String.trim(value) do
+              "" -> nil
+              trimmed -> trimmed
+            end
 
-    case parse_timestamp(ts) do
-      {:ok, dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-      _ -> ts || "—"
+          nil ->
+            nil
+
+          value ->
+            value
+        end
+      end)
+
+    case identity do
+      nil -> "i-#{index}"
+      value -> signal_dom_token(value)
     end
   end
 
-  defp timestamp_meta(log) do
-    ts = Map.get(log, "timestamp") || Map.get(log, "observed_timestamp")
+  defp signal_time_key(_row, _identity_fields, index), do: "i-#{index}"
 
-    case parse_timestamp(ts) do
+  defp signal_dom_token(value) do
+    value = to_string(value)
+
+    if Regex.match?(~r/\A[a-zA-Z0-9_-]+\z/, value) do
+      "s-#{value}"
+    else
+      "e-#{Base.url_encode64(value, padding: false)}"
+    end
+  end
+
+  defp timestamp_meta(%DateTime{} = value), do: timestamp_meta_value(value)
+  defp timestamp_meta(%NaiveDateTime{} = value), do: timestamp_meta_value(value)
+
+  defp timestamp_meta(%{} = log) do
+    log
+    |> effective_log_timestamp()
+    |> timestamp_meta_value()
+  end
+
+  defp timestamp_meta(value), do: timestamp_meta_value(value)
+
+  defp timestamp_meta_value(value) do
+    case parse_timestamp(value) do
       {:ok, dt} ->
+        iso = DateTime.to_iso8601(dt)
+
         %{
-          iso: DateTime.to_iso8601(dt),
-          display: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
+          iso: iso,
+          value: dt,
+          fallback: iso
         }
 
       _ ->
-        %{iso: nil, display: ts || "—"}
+        %{iso: nil, value: nil, fallback: value || "—"}
     end
+  end
+
+  # Syslog can retain an unzoned source wall-clock string in attributes. The
+  # observed timestamp is the already-selected canonical instant and must be
+  # displayed as-is, never reconstructed from that source wall clock.
+  defp effective_log_timestamp(log) do
+    Map.get(log, "observed_timestamp") || Map.get(log, "timestamp")
   end
 
   defp extract_time_from_query(""), do: nil
@@ -7384,6 +7808,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp parse_timestamp(nil), do: :error
   defp parse_timestamp(""), do: :error
+  defp parse_timestamp(%DateTime{} = value), do: {:ok, value}
+
+  # Typed NaiveDateTime values are a canonical DB representation. Source text must carry an offset.
+  defp parse_timestamp(%NaiveDateTime{} = value), do: {:ok, DateTime.from_naive!(value, "Etc/UTC")}
 
   defp parse_timestamp(value) when is_binary(value) do
     value = String.trim(value)
@@ -7393,10 +7821,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         {:ok, dt}
 
       {:error, _} ->
-        case NaiveDateTime.from_iso8601(value) do
-          {:ok, ndt} -> {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
-          {:error, _} -> :error
-        end
+        :error
     end
   end
 
@@ -9342,9 +9767,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp to_number(_), do: 0.0
 
-  defp netflow_chart_x(_idx, total, _width) when total <= 1, do: 0.0
-  defp netflow_chart_x(idx, total, width), do: idx / (total - 1) * width
-
   defp netflow_chart_bar_w(total, _width) when total <= 0, do: 1.0
   defp netflow_chart_bar_w(total, width), do: max(width / total, 1.0)
 
@@ -9355,11 +9777,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     max(scaled, 1.0)
   end
 
-  defp netflow_timeseries_polyline(points, max_bytes, width, height) do
+  defp netflow_timeseries_polyline(points, max_bytes, width, height, mode) do
+    chart_mode = if mode == "lines", do: :lines, else: :grid
+
     points
-    |> Enum.with_index()
-    |> Enum.map_join(" ", fn {p, idx} ->
-      x = netflow_chart_x(idx, length(points), width)
+    |> Enum.zip(RangeSelection.x_positions(length(points), chart_mode, width))
+    |> Enum.map_join(" ", fn {p, x} ->
       y = 150 - netflow_chart_h(Map.get(p, :bytes, 0), max_bytes, height)
       "#{Float.round(x, 1)},#{Float.round(y, 1)}"
     end)

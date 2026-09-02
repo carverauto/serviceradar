@@ -22,7 +22,9 @@ the next configuration push from the gateway overwrites local changes.
 - To onboard an agent, see [Edge Agent Onboarding](./edge-agent-onboarding.md).
 - To configure what an agent does, use the Web UI — see the check types below
   and [Network Sweeps](./network-sweeps.md), [SNMP](./snmp.md),
-  [Sysmon Profiles](./sysmon-profiles.md), and [Discovery](./discovery.md).
+  [Sysmon Profiles](./sysmon-profiles.md),
+  [Visibility Profiles](./visibility-profiles.md), and
+  [Discovery](./discovery.md).
 
 ## The bootstrap file
 

@@ -4,8 +4,9 @@ use super::{
     dashboard_service_views, dashboards, device_graph, devices, disk_metrics, downsample,
     endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages, events, field_survey,
     flows, gateways, graph_cypher, interfaces, is_full_profile_query, logs, memory_metrics,
-    otel_metric_points, otel_metrics, process_metrics, public_endpoints, services,
-    timeseries_metrics, trace_summaries, traces, virtualization, viz, wifi_map,
+    mtr_traces, otel_metric_points, otel_metrics, process_metrics, public_endpoints, services,
+    source_fact_disagreements, timeseries_metrics, trace_summaries, traces, virtualization, viz,
+    wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -55,6 +56,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             | Entity::ScanActivity
             | Entity::DnsActivity => events::to_sql_and_params(&plan)?,
             Entity::BmpEvents => bmp_events::to_sql_and_params(&plan)?,
+            Entity::MtrTraces => mtr_traces::to_sql_and_params(&plan)?,
             Entity::CapacityForecasts => capacity_forecasts::to_sql_and_params(&plan)?,
             Entity::CompositeResults => composite_results::to_sql_and_params(&plan)?,
             Entity::FieldSurveySessions
@@ -100,6 +102,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             | Entity::VirtualizationHostDisks
             | Entity::VirtualizationNetworkInterfaces
             | Entity::VirtualizationStorageSystems => virtualization::to_sql_and_params(&plan)?,
+            Entity::SourceFactDisagreements => source_fact_disagreements::to_sql_and_params(&plan)?,
         }
     };
 

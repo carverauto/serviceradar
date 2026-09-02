@@ -658,6 +658,17 @@ func (s *SNMPAgentService) GetConfigHash() string {
 	return s.configHash
 }
 
+func (s *SNMPAgentService) GetProfileID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.config == nil {
+		return ""
+	}
+
+	return s.config.ProfileID
+}
+
 // ApplyProtoConfig applies configuration from the protobuf SNMPConfig message.
 // This is used when receiving config from the control plane.
 func (s *SNMPAgentService) ApplyProtoConfig(ctx context.Context, protoConfig *proto.SNMPConfig) error {
@@ -745,12 +756,15 @@ func protoToSNMPConfig(p *proto.SNMPConfig) *snmp.SNMPConfig {
 	}
 
 	config := &snmp.SNMPConfig{
-		Enabled: p.Enabled,
-		Targets: make([]snmp.Target, 0, len(p.Targets)),
+		Enabled:     p.Enabled,
+		ProfileID:   p.ProfileId,
+		ProfileName: p.ProfileName,
+		Targets:     make([]snmp.Target, 0, len(p.Targets)),
 	}
 
 	for _, t := range p.Targets {
 		target := snmp.Target{
+			ID:        t.Id,
 			Name:      t.Name,
 			Host:      t.Host,
 			Port:      uint16(t.Port),
@@ -883,9 +897,9 @@ func protoToSNMPAuthProtocol(ap proto.SNMPAuthProtocol) snmp.AuthProtocol {
 	case proto.SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA512:
 		return snmp.AuthProtocolSHA512
 	case proto.SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_UNSPECIFIED:
-		return snmp.AuthProtocolMD5
+		return ""
 	}
-	return snmp.AuthProtocolMD5
+	return ""
 }
 
 // protoToSNMPPrivProtocol converts proto SNMPPrivProtocol to snmp.PrivProtocol.
@@ -902,7 +916,7 @@ func protoToSNMPPrivProtocol(pp proto.SNMPPrivProtocol) snmp.PrivProtocol {
 		proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES256C:
 		return snmp.PrivProtocolAES256
 	case proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_UNSPECIFIED:
-		return snmp.PrivProtocolDES
+		return ""
 	}
-	return snmp.PrivProtocolDES
+	return ""
 }

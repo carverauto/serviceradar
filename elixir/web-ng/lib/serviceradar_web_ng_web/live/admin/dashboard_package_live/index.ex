@@ -1,6 +1,14 @@
 defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   @moduledoc """
   LiveView for importing and enabling browser dashboard packages.
+
+  This settings surface stays gated on `plugins.view` / `plugins.stage` /
+  `plugins.approve` — those permissions cover catalog import, verification, and
+  package enablement. Binding a route creates a `DashboardInstance`, which Ash
+  authorizes with `dashboards.packages.enable` (aliased from
+  `cli.dashboard.enable`). Sharing a bound instance is a separate control on
+  the package dashboard itself, available to the instance owner and to
+  `dashboards.packages.share` holders.
   """
 
   use ServiceRadarWebNGWeb, :live_view

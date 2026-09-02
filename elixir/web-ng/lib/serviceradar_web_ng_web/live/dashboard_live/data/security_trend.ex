@@ -7,7 +7,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.SecurityTrend do
         time_window
         |> cutoff_for_time_window()
         |> ServiceRadarWebNGWeb.Stats.events_hourly_trend()
-        |> Enum.map(fn point -> Map.put(point, :label, format_bucket(point.bucket)) end)
       rescue
         _ -> []
       end

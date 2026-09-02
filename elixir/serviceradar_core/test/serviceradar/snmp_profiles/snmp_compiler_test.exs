@@ -203,7 +203,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
         )
         |> Ash.create(actor: actor)
 
-      expected_target_name = target.name
+      # Sanitized, not verbatim: the device name contains spaces and the agent
+      # admits only [A-Za-z0-9_-] in a target name.
+      expected_target_name = String.replace(target.name, ~r/[^A-Za-z0-9_-]/, "_")
 
       # Create an OID config
       {:ok, _oid} =
@@ -388,7 +390,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       assert length(config["targets"]) == 1
 
       [compiled_target] = config["targets"]
-      assert compiled_target["name"] == "Secure Router"
+      # "Secure Router" sanitized - a space is not a valid target-name character.
+      assert compiled_target["name"] == "Secure_Router"
       assert compiled_target["version"] == "v3"
 
       v3_auth = compiled_target["v3_auth"]
@@ -473,7 +476,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       {:ok, config} = SNMPCompiler.compile("default", nil, actor: actor)
 
       assert config["enabled"] == true
-      assert [%{"name" => "Brokered Router", "community" => "broker-public"}] = config["targets"]
+      assert [%{"name" => "Brokered_Router", "community" => "broker-public"}] = config["targets"]
     end
 
     @tag :integration
@@ -881,6 +884,115 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
       |> Ash.update(actor: actor)
 
     profile
+  end
+
+  describe "sanitize_target_names/1" do
+    # The agent admits only [A-Za-z0-9_-]. Device names in this fleet are
+    # FQDNs, so without this every ClearPass node compiled to an invalid target
+    # - and because ValidateForAgent used to reject the whole config on the
+    # first bad target, one such device disabled SNMP for every other profile
+    # on that agent.
+    test "replaces characters the agent rejects" do
+      [target] =
+        SNMPCompiler.sanitize_target_names([
+          %{"id" => "sr:device:1", "name" => "clearpass.example.test"}
+        ])
+
+      assert target["name"] == "clearpass_example_test"
+    end
+
+    test "accepts a name that is already valid, unchanged" do
+      [target] =
+        SNMPCompiler.sanitize_target_names([%{"id" => "sr:device:1", "name" => "edge-wlc_01"}])
+
+      assert target["name"] == "edge-wlc_01"
+    end
+
+    # The fallback triggers on a name with no alphanumeric character, not only
+    # on an empty one: "..." scrubs to "___", which the agent accepts but which
+    # identifies nothing, and every such device scrubs to the same string.
+    test "falls back to the id, then to a literal, when the name says nothing" do
+      [from_id, from_literal] =
+        SNMPCompiler.sanitize_target_names([
+          %{"id" => "sr:device:1", "name" => "..."},
+          %{"id" => nil, "name" => nil}
+        ])
+
+      assert from_id["name"] == "sr_device_1"
+      assert from_literal["name"] == "target"
+    end
+
+    # Sanitizing is many-to-one: `node.one` and `node_one` both become
+    # `node_one`. The agent keys collectors, aggregators, and status by target
+    # name, so a collision silently drops one device's polling rather than
+    # erroring. (`node-one` would NOT collide - hyphens are already valid.)
+    test "disambiguates names that collide only after sanitizing" do
+      [first, second] =
+        SNMPCompiler.sanitize_target_names([
+          %{"id" => "sr:device:1", "name" => "node.one"},
+          %{"id" => "sr:device:2", "name" => "node_one"}
+        ])
+
+      assert first["name"] == "node_one"
+      assert second["name"] != first["name"]
+      assert String.starts_with?(second["name"], "node_one_")
+    end
+
+    test "leaves a name that only looks like a collision alone" do
+      names =
+        [
+          %{"id" => "sr:device:1", "name" => "node.one"},
+          %{"id" => "sr:device:2", "name" => "node-one"}
+        ]
+        |> SNMPCompiler.sanitize_target_names()
+        |> Enum.map(& &1["name"])
+
+      assert names == ["node_one", "node-one"]
+    end
+
+    # A positional suffix would shift whenever the device set changed, renaming
+    # a target that did not change. The suffix is derived from the device uid so
+    # it is stable across compiles.
+    test "the disambiguating suffix is stable and derived from the device" do
+      targets = [
+        %{"id" => "sr:device:1", "name" => "node.one"},
+        %{"id" => "sr:device:2", "name" => "node_one"}
+      ]
+
+      assert SNMPCompiler.sanitize_target_names(targets) ==
+               SNMPCompiler.sanitize_target_names(targets)
+
+      [_first, second] = SNMPCompiler.sanitize_target_names(targets)
+
+      [_first_again, second_with_extra] =
+        SNMPCompiler.sanitize_target_names(targets)
+
+      assert second["name"] == second_with_extra["name"]
+    end
+
+    test "never exceeds the length the agent accepts" do
+      long = String.duplicate("a.", 200)
+
+      [target] =
+        SNMPCompiler.sanitize_target_names([%{"id" => "sr:device:1", "name" => long}])
+
+      assert String.length(target["name"]) <= 128
+    end
+
+    test "keeps a long name under the cap after disambiguating" do
+      long = String.duplicate("a.", 200)
+
+      names =
+        [
+          %{"id" => "sr:device:1", "name" => long},
+          %{"id" => "sr:device:2", "name" => long}
+        ]
+        |> SNMPCompiler.sanitize_target_names()
+        |> Enum.map(& &1["name"])
+
+      assert Enum.all?(names, &(String.length(&1) <= 128))
+      assert length(Enum.uniq(names)) == 2
+    end
   end
 
   defp unique_test_ip(a, b, value) do

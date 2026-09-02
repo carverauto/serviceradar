@@ -80,7 +80,6 @@ jobs:
           helm template serviceradar helm/serviceradar \
             --set global.imageTag="v1.0.0" \
             --set flowCollector.enabled=true \
-            --show-only templates/flow-collector-strategy-migration-job.yaml \
             --debug > /dev/null
 
       - name: Verify web-ng secret-backed environment values

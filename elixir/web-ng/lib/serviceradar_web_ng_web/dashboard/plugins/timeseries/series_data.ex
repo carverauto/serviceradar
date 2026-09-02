@@ -275,7 +275,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
 
   defp point_data(points, geometry) when is_list(points) do
     Enum.map(points, fn {dt, v} ->
-      %{dt: Points.dt_label(dt), v: v, x: Paths.datetime_to_x(dt, points, geometry)}
+      %{dt: canonical_time(dt), v: v, x: Paths.datetime_to_x(dt, points, geometry)}
     end)
   end
 
@@ -314,7 +314,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
           label: label,
           severity: severity,
           color: annotation_color(severity),
-          title: annotation_title(label, dt, window_position)
+          title: annotation_title(label, dt, window_position),
+          time_iso: canonical_time(dt)
         }
     end
   end
@@ -383,9 +384,11 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
 
   defp annotation_position(_dt, _points, _geometry), do: nil
 
-  defp annotation_title(label, dt, :before_window), do: "#{label} - #{Points.dt_label(dt)} (before chart window)"
-  defp annotation_title(label, dt, :after_window), do: "#{label} - #{Points.dt_label(dt)} (after chart window)"
-  defp annotation_title(label, dt, _position), do: "#{label} - #{Points.dt_label(dt)}"
+  defp annotation_title(label, dt, :before_window), do: "#{label} - #{canonical_time(dt)} (before chart window)"
+
+  defp annotation_title(label, dt, :after_window), do: "#{label} - #{canonical_time(dt)} (after chart window)"
+
+  defp annotation_title(label, dt, _position), do: "#{label} - #{canonical_time(dt)}"
 
   defp chart_left_pad(%{chart_left_pad: left}) when is_number(left), do: left
   defp chart_left_pad(_geometry), do: Paths.chart_left_pad()
@@ -434,7 +437,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
         severity: overlay.severity,
         selected: Map.get(overlay, :selected, false),
         color: annotation_color(overlay.severity),
-        title: anomaly_overlay_title(overlay, unit)
+        title: anomaly_overlay_title(overlay, unit),
+        time_iso: canonical_time(overlay.dt)
       }
     end
   end
@@ -453,7 +457,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
         label: overlay.label,
         severity: overlay.severity,
         color: reference_line_color(overlay.severity),
-        title: capacity_overlay_title(overlay, unit)
+        title: capacity_overlay_title(overlay, unit),
+        time_iso: canonical_time(overlay.dt)
       }
     end
   end
@@ -522,7 +527,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
         score_label(Map.get(overlay, :score)),
         Map.get(overlay, :disposition),
         Map.get(overlay, :reason),
-        Points.dt_label(overlay.dt)
+        canonical_time(overlay.dt)
       ]
       |> Enum.reject(&blank?/1)
       |> Enum.join(" - ")
@@ -535,7 +540,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       overlay.label,
       "projected #{overlay_value_label(Map.get(overlay, :projected_value), unit)}",
       "threshold #{overlay_value_label(Map.get(overlay, :threshold_value), unit)}",
-      Points.dt_label(overlay.dt)
+      canonical_time(overlay.dt)
     ]
     |> Enum.reject(&blank?/1)
     |> Enum.join(" - ")
@@ -550,6 +555,9 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   defp blank?(nil), do: true
   defp blank?(""), do: true
   defp blank?(_), do: false
+
+  defp canonical_time(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
+  defp canonical_time(_value), do: ""
 
   defp reference_points(values) when is_list(values), do: Enum.map(values, &{nil, &1})
 

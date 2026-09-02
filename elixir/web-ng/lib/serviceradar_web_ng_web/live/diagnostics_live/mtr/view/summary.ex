@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Summary do
   attr(:traces, :list, required: true)
   attr(:trace_coverage, :map, required: true)
   attr(:mtr_retention_status, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def render(assigns) do
     assigns = assign(assigns, :trace_dashboard, trace_history_dashboard(assigns.traces, assigns.trace_coverage))
@@ -18,8 +19,22 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Summary do
       <div class="sr-mtr-card p-4">
         <div class="sr-mtr-label">Retained Traces</div>
         <div class="sr-mtr-value mt-2 text-3xl">{@trace_coverage.trace_count}</div>
-        <div class="sr-mtr-muted text-sm">
-          {coverage_range_label(@trace_coverage)}
+        <div :if={Map.get(@trace_coverage, :earliest_time)} class="sr-mtr-muted text-sm">
+          <.user_time
+            id="mtr-coverage-earliest-time"
+            value={Map.get(@trace_coverage, :earliest_time)}
+            timezone={@timezone}
+            style={:date}
+          /> to
+          <.user_time
+            id="mtr-coverage-latest-time"
+            value={Map.get(@trace_coverage, :latest_time)}
+            timezone={@timezone}
+            style={:date}
+          />
+        </div>
+        <div :if={is_nil(Map.get(@trace_coverage, :earliest_time))} class="sr-mtr-muted text-sm">
+          no retained matches
         </div>
       </div>
       <div class="sr-mtr-card p-4">
@@ -67,14 +82,26 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Summary do
       </div>
       <div class="sr-mtr-outcome-strip mt-4" role="list" aria-label="Recent MTR trace outcomes">
         <span
-          :for={trace <- Enum.take(@traces, 24)}
+          :for={{trace, trace_index} <- Enum.with_index(Enum.take(@traces, 24))}
           role="listitem"
           class={[
-            "sr-mtr-outcome-dot",
+            "group relative sr-mtr-outcome-dot",
             if(trace["target_reached"], do: "is-reached", else: "is-failed")
           ]}
-          title={"#{format_time(trace["time"])} #{trace[Config.payload_target_key()]} #{trace_status_label(trace)}"}
-        />
+        >
+          <span
+            role="tooltip"
+            class="pointer-events-none absolute bottom-full left-1/2 z-40 mb-2 flex w-max -translate-x-1/2 items-center gap-1 rounded border border-sr-line bg-sr-raised px-2 py-1 text-xs text-sr-ink opacity-0 shadow-sr-raised transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          >
+            {trace[Config.payload_target_key()]} {trace_status_label(trace)} at
+            <.user_time
+              id={"mtr-timeline-trace-#{trace_identity(trace, trace_index)}-time"}
+              value={trace["time"]}
+              timezone={@timezone}
+              style={:compact}
+            />
+          </span>
+        </span>
       </div>
       <div class="mt-3 flex flex-wrap gap-3 text-xs">
         <span class="sr-mtr-muted">Page reached {@trace_dashboard.reached_count}</span>
@@ -131,5 +158,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Summary do
       </div>
     </div>
     """
+  end
+
+  defp trace_identity(trace, index) do
+    Enum.find(
+      [Map.get(trace, "id"), Map.get(trace, "trace_id"), Map.get(trace, :id), Map.get(trace, :trace_id)],
+      index,
+      &(&1 not in [nil, ""])
+    )
   end
 end

@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.UserSessionController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Identity.Constants
+  alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.Accounts
   alias ServiceRadarWebNG.Auth.TokenRevocation
   alias ServiceRadarWebNG.RBAC
@@ -28,6 +29,11 @@ defmodule ServiceRadarWebNGWeb.UserSessionController do
     sudo_at = sudo_at_unix && DateTime.from_unix!(sudo_at_unix)
 
     cond do
+      User.idp_managed_identity?(user) ->
+        conn
+        |> put_flash(:error, "Password for this account is managed by your identity provider.")
+        |> redirect(to: ~p"/settings/profile")
+
       not RBAC.can?(scope, @password_manage_permission) ->
         conn
         |> put_flash(:error, "You are not allowed to change the password for this account.")

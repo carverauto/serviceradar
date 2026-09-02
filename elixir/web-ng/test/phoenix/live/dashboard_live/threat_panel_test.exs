@@ -57,7 +57,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.ThreatPanelTest do
                   %{
                     ip: "198.51.100.#{n}",
                     match_count: n,
-                    looked_up_label: "16 Aug 2026 07:5#{n}",
+                    looked_up_at: ~U[2026-08-16 07:53:00Z],
                     device_uid: nil,
                     hostname: nil
                   }
@@ -86,7 +86,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.ThreatPanelTest do
                   match_count: 3,
                   max_severity: 5,
                   sources: ["alienvault_otx"],
-                  looked_up_label: "16 Aug 2026 07:53",
+                  looked_up_at: ~U[2026-08-16 07:53:00Z],
                   device_uid: "alma-test01",
                   hostname: "alma-test01"
                 }
@@ -98,7 +98,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.ThreatPanelTest do
     assert html =~ "198.51.100.23"
     assert html =~ "alma-test01"
     assert html =~ "3 hits"
-    assert html =~ "16 Aug 2026 07:53"
+    assert html =~ "2026-08-16T07:53:00Z"
     assert html =~ ~s(href="/devices/alma-test01")
     assert html =~ "in%3Anetflows+ip%3A%22198.51.100.23%22"
     assert html =~ "Device"
@@ -117,7 +117,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.ThreatPanelTest do
                 %{
                   ip: "203.0.113.77",
                   match_count: 1,
-                  looked_up_label: "15 Aug 2026 21:10",
+                  looked_up_at: ~U[2026-08-15 21:10:00Z],
                   device_uid: nil,
                   hostname: nil
                 }
@@ -135,6 +135,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.ThreatPanelTest do
   test "last success includes a calendar date" do
     html =
       render_component(&ThreatPanel.render/1,
+        timezone: "America/Chicago",
         dashboard: %{
           threat_intel_summary:
             summary(%{
@@ -144,9 +145,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.ThreatPanelTest do
         }
       )
 
-    assert html =~ "Last success 16 Aug 2026 07:53 UTC"
+    assert html =~ "Last success"
     assert html =~ "2026-08-16T07:53:00Z"
-    refute html =~ "Last success 07:53 UTC"
+    assert html =~ ~s(data-user-time-zone="America/Chicago")
   end
 
   test "device and netflow paths encode the matched IP" do

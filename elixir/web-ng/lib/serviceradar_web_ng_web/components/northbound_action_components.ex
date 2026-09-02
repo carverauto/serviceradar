@@ -132,6 +132,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   attr(:empty_message, :string, default: "No action invocations have been recorded yet.")
   attr(:error, :string, default: nil)
   attr(:notice, :map, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def northbound_action_history(assigns) do
     ~H"""
@@ -185,7 +186,9 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
       </div>
 
       <div :if={@entries != []} class="divide-y divide-sr-line">
-        <div :for={entry <- @entries} class="px-4 py-3">
+        <div :for={{entry, index} <- Enum.with_index(@entries)} class="px-4 py-3">
+          <% entry_time_key = action_history_time_key(entry, index) %>
+          <% summary = history_summary(entry) %>
           <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div class="min-w-0 space-y-1">
               <div class="flex flex-wrap items-center gap-2">
@@ -210,15 +213,38 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
 
               <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-sr-muted">
                 <span class="font-mono">{ActionForm.short_id(Map.get(entry, :invocation_id))}</span>
-                <span>{format_history_timestamp(Map.get(entry, :inserted_at))}</span>
+                <.user_time
+                  id={"northbound-action-#{entry_time_key}-inserted-at"}
+                  value={Map.get(entry, :inserted_at)}
+                  timezone={@timezone}
+                  style={:compact}
+                />
                 <span>{history_target_label(entry)}</span>
               </div>
 
               <p
-                :if={ActionForm.present_text?(history_summary(entry))}
+                :if={ActionForm.present_text?(summary)}
                 class="text-sm text-sr-muted"
               >
-                {history_summary(entry)}
+                {summary}
+                <span :if={
+                  progress_summary_active?(entry, summary) and
+                    not is_nil(Map.get(entry, :next_poll_at))
+                }>
+                  · next poll
+                  <.user_time
+                    id={"northbound-action-#{entry_time_key}-next-poll-at"}
+                    value={Map.get(entry, :next_poll_at)}
+                    timezone={@timezone}
+                    style={:compact}
+                  />
+                </span>
+                <span :if={
+                  progress_summary_active?(entry, summary) and
+                    ActionForm.present_text?(poll_attempt_text(Map.get(entry, :poll_attempt_count)))
+                }>
+                  · {poll_attempt_text(Map.get(entry, :poll_attempt_count))}
+                </span>
               </p>
             </div>
 
@@ -417,22 +443,20 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
     end
   end
 
-  defp progress_summary(:result_fetching, entry), do: poll_summary("Fetching external action results", entry)
+  defp progress_summary(:result_fetching, _entry), do: "Fetching external action results"
 
-  defp progress_summary(_status, entry), do: poll_summary("Waiting for external action", entry)
+  defp progress_summary(_status, _entry), do: "Waiting for external action"
 
-  defp poll_summary(prefix, entry) do
-    [
-      prefix,
-      next_poll_text(Map.get(entry, :next_poll_at)),
-      poll_attempt_text(Map.get(entry, :poll_attempt_count))
-    ]
-    |> Enum.filter(&ActionForm.present_text?/1)
-    |> Enum.join(" · ")
+  defp progress_summary_active?(entry, summary) when is_binary(summary) do
+    with nil <- summary_candidate(Map.get(entry, :error_message)),
+         progress when is_binary(progress) <- history_progress_summary(entry) do
+      progress == summary
+    else
+      _ -> false
+    end
   end
 
-  defp next_poll_text(nil), do: nil
-  defp next_poll_text(value), do: "next poll #{format_history_timestamp(value)}"
+  defp progress_summary_active?(_entry, _summary), do: false
 
   defp poll_attempt_text(count) when is_integer(count) and count > 0, do: "poll #{count}"
   defp poll_attempt_text(_count), do: nil
@@ -480,24 +504,18 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   defp compact_value(value) when is_list(value), do: "#{length(value)} values"
   defp compact_value(value), do: value |> to_string() |> String.slice(0, 48)
 
-  defp format_history_timestamp(nil), do: "—"
-
-  defp format_history_timestamp(%DateTime{} = datetime) do
-    Calendar.strftime(datetime, "%Y-%m-%d %H:%M:%S")
+  defp action_history_time_key(entry, index) do
+    [Map.get(entry, :invocation_id), Map.get(entry, :id)]
+    |> Enum.find_value(&dom_id_fragment/1)
+    |> Kernel.||(Integer.to_string(index))
   end
 
-  defp format_history_timestamp(%NaiveDateTime{} = datetime) do
-    datetime
-    |> DateTime.from_naive!("Etc/UTC")
-    |> format_history_timestamp()
-  end
+  defp dom_id_fragment(value) when value in [nil, ""], do: nil
 
-  defp format_history_timestamp(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> format_history_timestamp(datetime)
-      _ -> value
+  defp dom_id_fragment(value) do
+    case value |> to_string() |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-") |> String.trim("-") do
+      "" -> nil
+      fragment -> fragment
     end
   end
-
-  defp format_history_timestamp(_value), do: "—"
 end

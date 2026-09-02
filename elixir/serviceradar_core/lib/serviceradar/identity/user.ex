@@ -31,10 +31,12 @@ defmodule ServiceRadar.Identity.User do
   alias ServiceRadar.Identity.Changes.DisallowLastAdminLockout
   alias ServiceRadar.Identity.Changes.HashPassword
   alias ServiceRadar.Identity.Changes.InvalidateUserRbacCache
+  alias ServiceRadar.Identity.Changes.NormalizeTimezonePreference
   alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Identity.PasswordHash
   alias ServiceRadar.Identity.Validations.CurrentPassword
   alias ServiceRadar.Identity.Validations.PasswordConfirmationMatches
+  alias ServiceRadar.Identity.Validations.ProfileTimezone
   alias ServiceRadar.Policies.Checks.ActorHasPermission
   alias ServiceRadar.Policies.Checks.ActorIsNil
 
@@ -49,11 +51,10 @@ defmodule ServiceRadar.Identity.User do
   @display_name_fields [:display_name]
   @email_fields [:email]
   @role_fields [:role]
-  @role_profile_fields [:role_profile_id]
+  @role_profile_fields [:role_profile_id, :role_profile_source]
   @auth_lookup_actions [:by_email, :authenticate]
   @self_service_actions [
     :update,
-    :update_email,
     :record_authentication,
     :record_login
   ]
@@ -79,6 +80,7 @@ defmodule ServiceRadar.Identity.User do
     define :register_with_password
     define :provision_sso_user
     define :update
+    define :update_timezone_preference, action: :update_timezone_preference
     define :change_password
     define :record_authentication
     define :record_login
@@ -214,6 +216,13 @@ defmodule ServiceRadar.Identity.User do
 
     update :update do
       accept @display_name_fields
+    end
+
+    update :update_timezone_preference do
+      description "Update only the acting user's display timezone preference"
+      accept [:timezone]
+      change NormalizeTimezonePreference
+      validate ProfileTimezone
     end
 
     update :update_email do
@@ -370,8 +379,27 @@ defmodule ServiceRadar.Identity.User do
       authorize_if @auth_manage_check
     end
 
-    policy action(:change_password) do
+    # Email is IdP-owned once `external_id` is set. Admins use other actions
+    # if they need to repair an account; this path is self-service only.
+    policy action(:update_email) do
+      forbid_if expr(not is_nil(external_id))
       authorize_if expr(id == ^actor(:id))
+    end
+
+    policy action(:update_timezone_preference) do
+      authorize_if expr(id == ^actor(:id))
+    end
+
+    # Password is IdP-owned for SSO-linked accounts. Local accounts must both
+    # be changing their own password and hold settings.password.manage — the
+    # previous single policy ORed those, so a custom profile that omitted the
+    # key could still POST /users/update-password.
+    policy action(:change_password) do
+      forbid_if expr(not is_nil(external_id))
+      authorize_if expr(id == ^actor(:id))
+    end
+
+    policy action(:change_password) do
       authorize_if @password_manage_check
     end
 
@@ -415,6 +443,13 @@ defmodule ServiceRadar.Identity.User do
       description "User's display name"
     end
 
+    attribute :timezone, :string do
+      allow_nil? false
+      default "Etc/UTC"
+      public? true
+      description "IANA timezone used to display this user's local times"
+    end
+
     attribute :role, :atom do
       allow_nil? false
       default :viewer
@@ -427,6 +462,21 @@ defmodule ServiceRadar.Identity.User do
       allow_nil? true
       public? true
       description "Role profile assignment for RBAC"
+    end
+
+    attribute :role_profile_source, :atom do
+      allow_nil? false
+      public? true
+      default :manual
+      constraints one_of: [:manual, :idp]
+
+      description """
+      Who assigned `role_profile_id`. Removing a user from an identity-provider
+      group must revoke what that group granted, and that is only safe to do if
+      an IdP-granted profile can be told apart from one an operator assigned by
+      hand -- otherwise revocation would also wipe manual assignments from users
+      who have no mapping at all.
+      """
     end
 
     attribute :status, :atom do
@@ -496,6 +546,17 @@ defmodule ServiceRadar.Identity.User do
     # Email uniqueness is enforced per instance schema
     identity :email, [:email]
   end
+
+  @doc """
+  True when this account is linked to an identity provider.
+
+  SSO-provisioned users get `external_id` at JIT create time; pre-provisioned
+  users get it on first SSO sign-in. Email and password for those accounts are
+  owned by the IdP and cannot be changed in ServiceRadar.
+  """
+  @spec idp_managed_identity?(map() | nil) :: boolean()
+  def idp_managed_identity?(%{external_id: id}) when is_binary(id) and id != "", do: true
+  def idp_managed_identity?(_), do: false
 
   # Helper function for password verification
   defp verify_password(nil, _hash), do: false

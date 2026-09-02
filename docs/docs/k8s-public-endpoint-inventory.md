@@ -12,9 +12,9 @@ incident.
 Typical IR question:
 
 > We see NetFlow from Colombia to `23.138.124.7:22`. Is that a host shell,
-> Forgejo git-SSH, or something else?
+> a git SSH listener, or something else?
 
-With inventory enabled, the collector maps that VIP to the Forgejo Envoy
+With inventory enabled, the collector maps that VIP to the Envoy
 Gateway LoadBalancer, the `ssh` Gateway listener / TCPRoute, and backend
 pod sockets. Core joins those hints with NetFlow + netprobe so Attributed
 Flows can show process **and** Service/Gateway owner.
@@ -53,7 +53,7 @@ API and rebuilds a snapshot of *public edge ownership*.
 
 **Demo reality check:** with inventory enabled and no namespace filter, the
 collector sees public edges across the whole management cluster (platform
-namespaces such as `envoy-gateway-system`, `forgejo`, customer-ish namespaces,
+namespaces such as `envoy-gateway-system`, `harbor`, customer-ish namespaces,
 etc.). That is correct for *our* shared demo cluster; it is **not** the right
 default for every customer. Treat `clusterId` + optional `namespaces` as part of
 the security design review with the customer platform team.
@@ -438,10 +438,10 @@ helm upgrade --install serviceradar ./helm/serviceradar \
    - `exposure_class: LoadBalancer` + Service name → edge proxy / LB Service
      (demo: Envoy Gateway LB in `envoy-gateway-system`, MetalLB pool)
    - `exposure_class: Gateway` + `route_kind` / `route_name` → Gateway API path
-     (demo: `TCPRoute/forgejo-ssh` → Service `forgejo-ssh`)
+     (demo: `TCPRoute/git-ssh` → Service `git-ssh`)
    - `endpoint_targets` / correlation hints → post-DNAT pod IP:port
      (what netprobe attributes on the worker, e.g. `envoy` on `:10022`,
-     `gitea` on `:2222`)
+     `sshd` on `:2222`)
 
 4. **Attributed flows (auto-joined):** with inventory and netprobe both live,
    core’s flow correlator expands public VIP:port → backend pod sockets and
@@ -449,12 +449,12 @@ helm upgrade --install serviceradar ./helm/serviceradar \
 
    ```text
    in:attributed_flows dst_ip:23.138.124.7 dst_port:22 time:last_24h
-   in:attributed_flows service_name:forgejo-ssh time:last_24h
-   in:attributed_flows exposure_class:Gateway process:gitea time:last_24h
+   in:attributed_flows service_name:git-ssh time:last_24h
+   in:attributed_flows exposure_class:Gateway process:sshd time:last_24h
    ```
 
    Open **Observability → Attributed Flows**. Rows show process (e.g. `envoy`,
-   `gitea`) and public endpoint owner (`Gateway: forgejo-ssh`, route, namespace).
+   `sshd`) and public endpoint owner (`Gateway: git-ssh`, route, namespace).
    The payload field is `attribution.public_endpoint`.
 
    Inventory (`in:public_endpoints`) remains the control-plane source of truth
@@ -535,5 +535,4 @@ EndpointSlices, Gateway API). It does **not** require IPVS specifically.
 - [Workload Identity](./workload-identity.md) — pod/container metadata  
 - [Kubernetes External Ingestion](./kubernetes-ingestion.md) — exposing collectors  
 - Package notes: `go/pkg/k8sinventory/README.md`  
-- OpenSpec: `openspec/changes/add-k8s-public-endpoint-inventory/`  
-- Issue tracking: forgejo `#4849`
+- OpenSpec: `openspec/changes/add-k8s-public-endpoint-inventory/`

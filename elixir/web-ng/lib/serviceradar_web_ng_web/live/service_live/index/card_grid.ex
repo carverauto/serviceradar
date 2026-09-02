@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.CardGrid do
   alias ServiceRadarWebNGWeb.ServiceLive.Service
 
   attr :cards, :any, required: true
+  attr :timezone, :string, required: true
 
   def render(assigns) do
     ~H"""
@@ -14,13 +15,14 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.CardGrid do
       class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
     >
       <div :for={{id, card} <- @cards} id={id}>
-        <.card card={card} />
+        <.card card={card} timezone={@timezone} />
       </div>
     </div>
     """
   end
 
   attr :card, :map, required: true
+  attr :timezone, :string, required: true
 
   defp card(assigns) do
     ~H"""
@@ -47,7 +49,13 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.CardGrid do
       </div>
 
       <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-sr-muted">
-        <span>{@card.timestamp || "—"}</span>
+        <.user_time
+          id={"#{@card.id}-timestamp"}
+          value={@card.timestamp}
+          timezone={@timezone}
+          style={:full}
+          fallback={Map.get(@card, :timestamp_fallback, "—")}
+        />
         <span class="text-sr-ink/30">•</span>
         <span>Agent {@card.agent_id || "—"}</span>
       </div>

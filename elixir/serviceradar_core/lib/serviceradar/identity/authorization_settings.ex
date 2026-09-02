@@ -113,7 +113,7 @@ defmodule ServiceRadar.Identity.AuthorizationSettings do
 
     attribute :cli_allowed_scopes, {:array, :string} do
       allow_nil? false
-      default ["dashboard.publish"]
+      default ["dashboard.publish", "plugin.publish"]
       public? true
 
       description "Scopes the CLI device-code flow may request; out-of-list scopes 400 with invalid_scope"

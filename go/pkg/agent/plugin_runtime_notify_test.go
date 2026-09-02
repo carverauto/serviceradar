@@ -720,7 +720,7 @@ func TestNotificationEntrypointOverridesOnlyTheInvocation(t *testing.T) {
 // ServiceRadar.Plugins.Manifest.@allowed_credential_injection_modes. None of
 // them rewrites a URL path, which is the whole reason a Slack or Discord
 // incoming webhook cannot run on the edge route.
-func TestNotificationCredentialInjectionModesAreTheCanonicalSix(t *testing.T) {
+func TestNotificationCredentialInjectionModesAreTheCanonicalSet(t *testing.T) {
 	t.Parallel()
 
 	want := []string{
@@ -728,6 +728,7 @@ func TestNotificationCredentialInjectionModesAreTheCanonicalSix(t *testing.T) {
 		"bearer_token",
 		"form_urlencoded",
 		"http_header",
+		"oauth2_client_credentials",
 		"oauth2_password_bearer",
 		"query",
 	}

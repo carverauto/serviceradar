@@ -10,12 +10,7 @@ metadata:
   name: serviceradar-flow-collector-config
 data:
   flow-collector.json: |
-    {{- $readyPath := .Values.flowCollector.readyPath | default "/var/lib/serviceradar/flow-collector.ready" -}}
-    {{- $cfg := deepCopy (default (dict) .Values.flowCollector.config) -}}
-    {{- $rehomePath := index $cfg "rehome_state_path" | default "/var/lib/serviceradar/flow-collector-rehome.json" -}}
-    {{- $_ := set $cfg "ready_state_path" $readyPath -}}
-    {{- $_ := set $cfg "rehome_state_path" $rehomePath -}}
-    {{- toJson $cfg | nindent 4 }}
+    {{- include "serviceradar.flowCollectorConfigJSON" . | nindent 4 }}
 ---
 {{- if and $dataEnabled (not $data.existingClaim) }}
 apiVersion: v1
@@ -45,10 +40,16 @@ metadata:
     app.kubernetes.io/component: flow-collector
 spec:
   replicas: {{ .Values.flowCollector.replicaCount | default 1 }}
-  # Recreate: avoid dual-publisher cutover window (legacy + new both live while
-  # subjects rehome events → flows). RollingUpdate is unsafe for subject moves.
+  # RollingUpdate is safe now that the events->flows cutover runs in the
+  # pre-upgrade bootstrap Job: no pod performs a subject rehome, and every pod
+  # derives its subject list from config alone, so concurrent stream ensures
+  # converge rather than race. (Measured: 8 concurrent identical stream adds
+  # all succeed; 2 divergent ones conflict.)
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       app: serviceradar-flow-collector
@@ -66,6 +67,18 @@ spec:
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-flow-collector") | nindent 6 }}
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
       serviceAccountName: {{ .Values.spire.flowCollectorServiceAccount | default "serviceradar-flow-collector" }}
+      affinity:
+        podAntiAffinity:
+          # Soft, not required: spreading replicas across nodes is what makes
+          # BGP/ECMP hand different exporters to different pods. Left soft so a
+          # small cluster can still schedule every replica.
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: serviceradar-flow-collector
       # Allow publisher retry-queue drain on SIGTERM (see main.rs shutdown_signal).
       terminationGracePeriodSeconds: {{ .Values.flowCollector.terminationGracePeriodSeconds | default 45 }}
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
@@ -118,6 +131,26 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
+        {{- if (.Values.flowCollector.config).metrics_addr }}
+          # HTTP beats a bare ready-file exec check: it also fails a process
+          # that is running but wedged (deadlocked accept loop), which
+          # `test -f` cannot detect. /readyz (not /metrics) is what makes
+          # this reflect true publisher readiness: /metrics answers 200 as
+          # soon as the HTTP server binds, before the publisher has ever
+          # connected to NATS -- run_prometheus_server is spawned
+          # independently of the publisher (main.rs). /readyz instead
+          # checks the same publisher-ready marker file the old exec probe
+          # used (mark_publisher_ready/clear_publisher_ready), so a new pod
+          # under maxUnavailable:0 is not considered Ready until it can
+          # actually publish.
+          httpGet:
+            path: /readyz
+            port: {{ .Values.flowCollector.service.ports.metrics.targetPort | default 50046 }}
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 12
+        {{- else }}
           exec:
             command:
             - /bin/sh
@@ -127,6 +160,7 @@ spec:
           periodSeconds: 5
           timeoutSeconds: 3
           failureThreshold: 12
+        {{- end }}
         resources:
           {{- toYaml .Values.flowCollector.resources | nindent 10 }}
         volumeMounts:
@@ -196,15 +230,12 @@ spec:
         secret:
           secretName: serviceradar-nats-creds
       - name: flow-collector-data
-        {{- if $data.existingClaim }}
-        persistentVolumeClaim:
-          claimName: {{ $data.existingClaim | quote }}
-        {{- else if $dataEnabled }}
-        persistentVolumeClaim:
-          claimName: serviceradar-flow-collector-data
-        {{- else }}
+        # Pod-local scratch, deliberately NOT the PVC. The ready marker and the
+        # ownership inventory are per-pod and disposable; the durable cutover
+        # markers belong to the bootstrap Job, which is the single writer.
+        # Keeping the PVC here would also cap the Deployment at one replica,
+        # since it is ReadWriteOnce.
         emptyDir: {}
-        {{- end }}
       - name: logs
         emptyDir: {}
 ---

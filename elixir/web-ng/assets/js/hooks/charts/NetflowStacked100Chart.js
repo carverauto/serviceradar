@@ -9,12 +9,23 @@ import {
   ensureSVG as nfEnsureSVG,
   fmtNumber as nfFmtNumber,
   fmtPct as nfFmtPct,
+  netflowAxisTimeFormatter,
+  netflowDisplayTimeZone,
   parseSeriesData as nfParseSeriesData,
   renderYGrid as nfRenderYGrid,
   styleChartAxis as nfStyleChartAxis,
 } from "../../netflow_charts/util"
 import {nfFormatRateValue} from "../../utils/formatters"
 import {yGridTicks} from "../../utils/chart_axis_grid"
+
+export function stacked100TimePresentation(timeZone) {
+  const displayTimeZone = netflowDisplayTimeZone(timeZone)
+
+  return {
+    timeZone: displayTimeZone,
+    axisFormatter: netflowAxisTimeFormatter(displayTimeZone),
+  }
+}
 
 export function numberOrZero(value) {
   const number = Number(value || 0)
@@ -102,6 +113,8 @@ export default {
     const data = normalizeStacked100Rows(raw, visibleKeys)
 
     if (data.length === 0) return
+
+    const timePresentation = stacked100TimePresentation(el.dataset.timezone)
 
     const stack = d3.stack().keys(visibleKeys)
     const series = stack(data)
@@ -276,7 +289,7 @@ export default {
 
     g.append("g")
       .attr("transform", `translate(0,${ih})`)
-      .call(d3.axisBottom(x).ticks(5).tickSizeOuter(0))
+      .call(d3.axisBottom(x).ticks(5).tickFormat(timePresentation.axisFormatter).tickSizeOuter(0))
       .call(nfStyleChartAxis)
 
     g.append("g")
@@ -291,6 +304,7 @@ export default {
       keys: visibleKeys,
       x,
       xOffset: m.left,
+      timeZone: timePresentation.timeZone,
       valueAt: (row, k) => row?.[k] || 0,
       formatValue: (v) => nfFmtPct(v),
     })

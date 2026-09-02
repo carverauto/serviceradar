@@ -49,4 +49,4 @@ verifies the manifest digest matches the renderer artifact before uploading.
 ## Documentation
 
 - [Dashboard SDK reference](https://developer.serviceradar.cloud/docs/v2/dashboard-sdk)
-- Reference dashboard: `~/src/wifi-dashboard`
+- Reference dashboard: `~/src/example-dashboard`

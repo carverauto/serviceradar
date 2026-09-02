@@ -551,6 +551,9 @@ describe("lifecycle_stream_snapshot_methods", () => {
     expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
       reason: "render_error",
       message: "RangeError: camera infeasible",
+      // A production deck.gl build strips assertion text, so the message alone can name
+      // nothing. The stack is the only thing that identifies the layer that threw.
+      stack: expect.any(String),
     })
     expect(state.pushEvent).not.toHaveBeenCalledWith(
       "god_view_stream_error",

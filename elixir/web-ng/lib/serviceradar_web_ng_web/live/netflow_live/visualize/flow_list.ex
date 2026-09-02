@@ -44,7 +44,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowList do
         builder_available: true,
         builder_supported: builder_supported,
         builder_sync: builder_sync,
-        builder: builder_state
+        builder: builder_state,
+        builder_mode_notice: nil
       })
 
     socket
@@ -66,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowList do
       |> flows_list_base_query(fallback_time)
       |> ensure_sort_time_desc()
 
-    window_label = TimeWindow.flows_window_label_from_query(list_query, fallback_time)
+    display_window = TimeWindow.display_window_from_query(list_query, fallback_time)
 
     cursor = params |> Map.get("cursor") |> normalize_optional_string()
     limit = Map.get(socket.assigns, :limit, @default_limit)
@@ -88,7 +89,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowList do
     |> assign(:flows_pagination, pagination)
     |> assign(:rdns_map, rdns_map_for_flows(flows, scope))
     |> assign(:geo_iso2_map, geo_iso2_map_for_flows(flows, scope))
-    |> assign(:flows_window_label, window_label)
+    |> assign(:flows_window, display_window)
   rescue
     _ ->
       socket
@@ -96,7 +97,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowList do
       |> assign(:flows_pagination, %{})
       |> assign(:rdns_map, %{})
       |> assign(:geo_iso2_map, %{})
-      |> assign(:flows_window_label, nil)
+      |> assign(:flows_window, nil)
   end
 
   def ensure_sort_time_desc(query) when is_binary(query) do

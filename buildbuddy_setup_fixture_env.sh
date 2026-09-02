@@ -22,11 +22,11 @@
 #
 # RELATION TO scripts/ci/configure-srql-fixture.sh
 #
-# That script is the Forgejo-era equivalent and is NOT superseded by accident. It CONSUMES
+# That script is the GitHub Actions equivalent and is NOT superseded by accident. It CONSUMES
 # the same three secrets rather than sourcing them, and writes to $GITHUB_ENV / $RUNNER_TEMP,
 # neither of which exists in a BuildBuddy workflow. It also materialises the CA to a file and
 # exports four *_CA_CERT_FILE paths. The database TestRunner now executes locally by caller
-# strategy, while eligible compilation remains remote. It dies with the .forgejo tier.
+# strategy, while eligible compilation remains remote.
 #
 # This target sources DSNs from the srql-fixtures K8s secrets when RBAC exists, otherwise from
 # pre-set workflow DSN secrets. The CA is never taken from a stored CI secret: it comes from

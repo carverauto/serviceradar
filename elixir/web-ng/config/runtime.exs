@@ -740,6 +740,20 @@ remote_access_ssh_ca_signer_args =
       end
   end
 
+mcp_enabled =
+  "SERVICERADAR_MCP_ENABLED"
+  |> System.get_env("false")
+  |> String.downcase()
+  |> Kernel.in(["1", "true", "yes", "on"])
+
+mcp_client_credentials_enabled =
+  "SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED"
+  |> System.get_env("true")
+  |> to_bool.()
+  |> Kernel.!=(false)
+
+mcp_refresh_ttl_seconds = parse_int_env.("SERVICERADAR_MCP_REFRESH_TTL_SECONDS", 8 * 3600)
+
 config :serviceradar_core, ServiceRadar.NATS.Connection,
   host: nats_uri.host || "localhost",
   port: nats_uri.port || 4222,
@@ -764,6 +778,10 @@ config :serviceradar_web_ng, :god_view_enabled, god_view_enabled
 config :serviceradar_web_ng,
        :managed_device_limit,
        to_int.(System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT") || System.get_env("SERVICERADAR_MAX_DEVICES"))
+
+config :serviceradar_web_ng, :mcp_client_credentials_enabled, mcp_client_credentials_enabled
+config :serviceradar_web_ng, :mcp_enabled, mcp_enabled
+config :serviceradar_web_ng, :mcp_refresh_ttl_seconds, mcp_refresh_ttl_seconds
 
 # "Send your telemetry" onboarding surface (/settings/agents/telemetry-onboarding):
 # the deployment's externally reachable OTLP endpoints. gRPC is host:port
@@ -1856,6 +1874,36 @@ if config_env() == :prod do
       |> Keyword.put(:from_email, mail_from_email)
       |> maybe_put_mailer_credential.(:username, smtp_relay_username)
       |> maybe_put_mailer_credential.(:password, smtp_relay_password)
+    end
+
+  # OTP 26+ client TLS defaults to verify_peer. Without cacerts, SSL/STARTTLS
+  # SMTP to the platform relay fails while plain network probes still succeed.
+  mailer_config =
+    if mailer_adapter != Local and not is_nil(smtp_relay_host) and
+         (smtp_relay_ssl or smtp_relay_tls != :never) do
+      smtp_tls_server_name =
+        System.get_env("SMTP_RELAY_TLS_SERVER_NAME") || smtp_relay_host || host
+
+      smtp_cacerts =
+        CAStore.file_path()
+        |> File.read!()
+        |> :public_key.pem_decode()
+        |> Enum.map(fn {_type, der, _encryption} -> der end)
+
+      security_opts = [
+        verify: :verify_peer,
+        depth: 5,
+        cacerts: smtp_cacerts,
+        server_name_indication: String.to_charlist(smtp_tls_server_name),
+        customize_hostname_check: [
+          match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
+        ]
+      ]
+
+      security_key = if smtp_relay_ssl, do: :sockopts, else: :tls_options
+      Keyword.put(mailer_config, security_key, security_opts)
+    else
+      mailer_config
     end
 
   config :serviceradar_core, ServiceRadar.Mailer, mailer_config

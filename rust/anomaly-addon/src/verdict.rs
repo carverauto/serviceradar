@@ -662,7 +662,7 @@ pub(crate) fn anomaly_signal_schema_ref() -> SignalSchemaRef {
         schema_id: "com.carverauto.anomaly.detection_finding".to_string(),
         schema_version: "1.0.0".to_string(),
         display_contract_id: "com.carverauto.anomaly.detection_finding.display".to_string(),
-        display_contract_version: "1.0.0".to_string(),
+        display_contract_version: "1.1.0".to_string(),
         display_contract: "display/detection_finding.display.json".to_string(),
         signal_type: "event".to_string(),
         payload_kind: "ocsf_event".to_string(),

@@ -45,6 +45,10 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRepository do
     table "ansible_playbook_repositories"
     repo ServiceRadar.Repo
     schema "platform"
+
+    references do
+      reference :credential_secret, on_delete: :restrict
+    end
   end
 
   paper_trail do
@@ -210,6 +214,16 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRepository do
 
     create_timestamp :inserted_at
     update_timestamp :updated_at
+  end
+
+  relationships do
+    belongs_to :credential_secret, ServiceRadar.Credentials.NetworkCredentialSecret do
+      allow_nil? true
+      public? true
+      define_attribute? false
+      source_attribute :credential_secret_id
+      destination_attribute :id
+    end
   end
 
   identities do

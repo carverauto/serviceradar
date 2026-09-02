@@ -3,7 +3,9 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
   Context module for browser dashboard package import and enablement.
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.DashboardInstance
+  alias ServiceRadar.Dashboards.DashboardInstanceAccessGrant
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.Dashboards.PackageImport
   alias ServiceRadar.Plugins.ConfigSchema
@@ -181,7 +183,7 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
   def create_instance(package, attrs, opts \\ [])
 
   def create_instance(%DashboardPackage{} = package, attrs, opts) when is_map(attrs) do
-    scope = Keyword.get(opts, :scope)
+    ash_opts = ash_opts(Keyword.get(opts, :scope), Keyword.get(opts, :actor))
 
     with {:ok, settings} <- validate_instance_settings(package, attrs) do
       attrs =
@@ -191,10 +193,11 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
         |> Map.put_new(:dashboard_package_id, package.id)
         |> Map.put_new(:name, package.name)
         |> Map.put_new(:route_slug, default_route_slug(package))
+        |> maybe_put_owner_from_opts(ash_opts)
 
       DashboardInstance
       |> Ash.Changeset.for_create(:upsert, attrs)
-      |> create_resource(scope)
+      |> create_resource_with_opts(ash_opts)
     end
   end
 
@@ -213,11 +216,9 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
       |> Ash.Query.filter(id == ^id)
       |> Ash.Query.load(:dashboard_package)
 
-    case read_one(query, scope) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, instance} -> {:ok, instance}
-      {:error, error} -> {:error, error}
-    end
+    query
+    |> read_one(scope)
+    |> conceal_forbidden()
   end
 
   def get_instance(_id, _opts), do: {:error, :not_found}
@@ -280,14 +281,87 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
       |> Ash.Query.filter(route_slug == ^slug and enabled == true)
       |> Ash.Query.load(:dashboard_package)
 
+    query
+    |> read_one(scope)
+    |> conceal_forbidden()
+  end
+
+  def get_enabled_instance_by_slug(_slug, _opts), do: {:error, :not_found}
+
+  @spec package_has_viewable_instance?(String.t(), keyword()) :: boolean()
+  def package_has_viewable_instance?(package_id, opts \\ [])
+
+  def package_has_viewable_instance?(package_id, opts) when is_binary(package_id) do
+    scope = Keyword.get(opts, :scope)
+
+    query =
+      DashboardInstance
+      |> Ash.Query.for_read(:enabled)
+      |> Ash.Query.filter(dashboard_package_id == ^package_id)
+      |> Ash.Query.limit(1)
+
     case read_one(query, scope) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, instance} -> {:ok, instance}
+      {:ok, %DashboardInstance{}} -> true
+      _ -> false
+    end
+  end
+
+  def package_has_viewable_instance?(_package_id, _opts), do: false
+
+  @spec list_instance_access_grants(term(), String.t()) :: [DashboardInstanceAccessGrant.t()]
+  def list_instance_access_grants(scope, instance_id) when is_binary(instance_id) do
+    DashboardInstanceAccessGrant
+    |> Ash.Query.for_read(:for_instance, %{dashboard_instance_id: instance_id})
+    |> Ash.Query.load([:subject_user, :subject_group])
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> read(scope)
+  rescue
+    _ -> []
+  end
+
+  def list_instance_access_grants(_scope, _instance_id), do: []
+
+  @spec grant_instance_to_user(term(), map()) ::
+          {:ok, DashboardInstanceAccessGrant.t()} | {:error, term()}
+  def grant_instance_to_user(scope, attrs) when is_map(attrs) do
+    attrs =
+      attrs
+      |> instance_grant_attrs()
+      |> Map.put_new(:granted_by_id, owner_id_from(scope))
+
+    DashboardInstanceAccessGrant
+    |> Ash.Changeset.for_create(:create, attrs)
+    |> create_resource(scope)
+  end
+
+  def grant_instance_to_user(_scope, _attrs), do: {:error, :invalid_attributes}
+
+  @spec grant_instance_to_group(term(), map()) ::
+          {:ok, DashboardInstanceAccessGrant.t()} | {:error, term()}
+  def grant_instance_to_group(scope, attrs) when is_map(attrs) do
+    attrs =
+      attrs
+      |> instance_grant_attrs()
+      |> Map.put_new(:granted_by_id, owner_id_from(scope))
+
+    DashboardInstanceAccessGrant
+    |> Ash.Changeset.for_create(:create_group, attrs)
+    |> create_resource(scope)
+  end
+
+  def grant_instance_to_group(_scope, _attrs), do: {:error, :invalid_attributes}
+
+  @spec revoke_instance_access_grant(term(), DashboardInstanceAccessGrant.t()) ::
+          :ok | {:error, term()}
+  def revoke_instance_access_grant(scope, %DashboardInstanceAccessGrant{} = grant) do
+    case Ash.destroy(grant, destroy_opts(scope)) do
+      :ok -> :ok
+      {:ok, _result} -> :ok
       {:error, error} -> {:error, error}
     end
   end
 
-  def get_enabled_instance_by_slug(_slug, _opts), do: {:error, :not_found}
+  def revoke_instance_access_grant(_scope, _grant), do: {:error, :invalid_attributes}
 
   defp upsert_package(attrs, ash_opts) do
     DashboardPackage
@@ -396,17 +470,14 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
     end
   end
 
-  defp fetch_enabled_instance_for_slug(slug, ash_opts) do
+  defp fetch_enabled_instance_for_slug(slug, _ash_opts) do
     query =
       DashboardInstance
       |> Ash.Query.for_read(:read)
       |> Ash.Query.filter(route_slug == ^slug and enabled == true)
       |> Ash.Query.load(:dashboard_package)
 
-    case ash_opts do
-      [] -> Ash.read_one(query)
-      opts -> Ash.read_one(query, opts)
-    end
+    Ash.read_one(query, actor: package_system_actor())
   end
 
   defp finalize_publish(
@@ -448,13 +519,17 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
   end
 
   defp upsert_route_binding(%DashboardPackage{} = package, slug, enabled?, ash_opts) do
-    attrs = %{
-      dashboard_package_id: package.id,
-      route_slug: slug,
-      name: package.name || package.dashboard_id,
-      enabled: enabled? == true,
-      placement: :dashboard
-    }
+    attrs =
+      maybe_put_owner_from_opts(
+        %{
+          dashboard_package_id: package.id,
+          route_slug: slug,
+          name: package.name || package.dashboard_id,
+          enabled: enabled? == true,
+          placement: :dashboard
+        },
+        ash_opts
+      )
 
     DashboardInstance
     |> Ash.Changeset.for_create(:upsert, attrs)
@@ -499,18 +574,20 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
 
   defp instance_settings(attrs), do: Map.get(attrs, :settings) || Map.get(attrs, "settings") || %{}
 
-  defp unset_other_default_instances(%DashboardInstance{} = instance, scope) do
+  defp unset_other_default_instances(%DashboardInstance{} = instance, _scope) do
+    actor = package_system_actor()
+
     query =
       DashboardInstance
       |> Ash.Query.for_read(:read)
       |> Ash.Query.filter(placement == ^instance.placement and is_default == true and id != ^instance.id)
 
     query
-    |> read(scope)
+    |> Ash.read!(actor: actor)
     |> Enum.reduce_while(:ok, fn other, :ok ->
       case other
            |> Ash.Changeset.for_update(:update, %{is_default: false})
-           |> update_resource(scope) do
+           |> Ash.update(actor: actor) do
         {:ok, _updated} -> {:cont, :ok}
         {:error, error} -> {:halt, {:error, error}}
       end
@@ -580,7 +657,7 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
     |> import_options()
   end
 
-  defp read(query, nil), do: Ash.read!(query)
+  defp read(query, nil), do: Ash.read!(query, actor: package_system_actor())
   defp read(query, scope), do: Ash.read!(query, scope: scope)
 
   defp read_one_package(id, nil) do
@@ -597,16 +674,16 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
     |> Ash.read_one(scope: scope)
   end
 
-  defp read_one(query, nil), do: Ash.read_one(query)
+  defp read_one(query, nil), do: Ash.read_one(query, actor: package_system_actor())
   defp read_one(query, scope), do: Ash.read_one(query, scope: scope)
 
-  defp create_resource(changeset, nil), do: Ash.create(changeset)
+  defp create_resource(changeset, nil), do: Ash.create(changeset, actor: package_system_actor())
   defp create_resource(changeset, scope), do: Ash.create(changeset, scope: scope)
 
-  defp create_resource_with_opts(changeset, []), do: Ash.create(changeset)
+  defp create_resource_with_opts(changeset, []), do: Ash.create(changeset, actor: package_system_actor())
   defp create_resource_with_opts(changeset, ash_opts), do: Ash.create(changeset, ash_opts)
 
-  defp update_resource(changeset, nil), do: Ash.update(changeset)
+  defp update_resource(changeset, nil), do: Ash.update(changeset, actor: package_system_actor())
   defp update_resource(changeset, scope), do: Ash.update(changeset, scope: scope)
 
   defp update_resource_with_opts(changeset, opts) do
@@ -679,6 +756,56 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
   end
 
   defp fetch_value(_map, _keys), do: nil
+
+  defp package_system_actor, do: SystemActor.system(:dashboard_packages)
+
+  defp conceal_forbidden({:ok, nil}), do: {:error, :not_found}
+  defp conceal_forbidden({:ok, record}), do: {:ok, record}
+
+  defp conceal_forbidden({:error, error}) do
+    if forbidden_error?(error), do: {:error, :not_found}, else: {:error, error}
+  end
+
+  defp forbidden_error?(%Ash.Error.Forbidden{}), do: true
+  defp forbidden_error?(%{class: :forbidden}), do: true
+  defp forbidden_error?(_error), do: false
+
+  defp maybe_put_owner_from_opts(attrs, ash_opts) when is_list(ash_opts) do
+    owner_id =
+      owner_id_from(Keyword.get(ash_opts, :scope)) || owner_id_from(Keyword.get(ash_opts, :actor))
+
+    if owner_id, do: Map.put_new(attrs, :owner_id, owner_id), else: attrs
+  end
+
+  defp maybe_put_owner_from_opts(attrs, _ash_opts), do: attrs
+
+  defp owner_id_from(%{user: user}), do: owner_id_from(user)
+  defp owner_id_from(%{id: _id, role: :system}), do: nil
+  defp owner_id_from(%{id: id, role: role}) when role != :system and not is_nil(id), do: id
+  defp owner_id_from(%{id: id}) when not is_nil(id), do: id
+  defp owner_id_from(_), do: nil
+
+  defp instance_grant_attrs(attrs) do
+    attrs = stringify_or_atom_map(attrs)
+
+    %{}
+    |> maybe_put_grant(:dashboard_instance_id, attrs)
+    |> maybe_put_grant(:subject_user_id, attrs)
+    |> maybe_put_grant(:subject_group_id, attrs)
+    |> maybe_put_grant(:access, attrs)
+    |> maybe_put_grant(:granted_by_id, attrs)
+    |> maybe_put_grant(:metadata, attrs)
+  end
+
+  defp maybe_put_grant(acc, key, attrs) do
+    case Map.get(attrs, key) do
+      nil -> acc
+      value -> Map.put(acc, key, value)
+    end
+  end
+
+  defp destroy_opts(nil), do: [actor: package_system_actor()]
+  defp destroy_opts(scope), do: [scope: scope]
 
   defp default_route_slug(%DashboardPackage{} = package) do
     [package.dashboard_id, package.version]

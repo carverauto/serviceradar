@@ -476,6 +476,27 @@ func TestProcessLLDPManagementAddressAssignsMatchingLink(t *testing.T) {
 	assert.Empty(t, linkMap["100.25.8"].NeighborMgmtAddr)
 }
 
+func TestProcessLLDPManagementAddressReadsIPv4FromOIDIndex(t *testing.T) {
+	t.Parallel()
+
+	engine := &DiscoveryEngine{}
+	linkMap := map[string]*TopologyLink{
+		"100.78.2": {Metadata: map[string]string{}},
+		"100.79.1": {Metadata: map[string]string{}},
+	}
+
+	// lldpd AgentX: INTEGER ifSubtype, IPv4 lives in the INDEX.
+	pdu := gosnmp.SnmpPDU{
+		Name:  ".1.0.8802.1.1.2.1.4.2.1.3.100.78.2.1.4.10.99.0.12",
+		Type:  gosnmp.Integer,
+		Value: 2,
+	}
+
+	require.NoError(t, engine.processLLDPManagementAddress(pdu, linkMap))
+	assert.Equal(t, "10.99.0.12", linkMap["100.78.2"].NeighborMgmtAddr)
+	assert.Empty(t, linkMap["100.79.1"].NeighborMgmtAddr)
+}
+
 func TestIsMaxUint32(t *testing.T) {
 	tests := []struct {
 		name     string

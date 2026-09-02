@@ -551,6 +551,107 @@ func syncMetaFromStatusChunk(t *testing.T, chunk *proto.GatewayStatusChunk) map[
 	return meta
 }
 
+func TestBuildSyncResultsChunksPublishesBoundedPopulationOnlyOnRunFinal(t *testing.T) {
+	examples := make([]string, 120)
+	for i := range examples {
+		examples[i] = strconv.Itoa(i + 1)
+	}
+	population := &syncsources.PopulationStats{
+		RawRows: 130, ExcludedRows: 2, InvalidRows: 3, ValidOccurrences: 125,
+		DistinctSourceIDs: 120, DuplicateOccurrences: 5,
+		DuplicateSourceIDExamples: examples,
+		InvalidRowExamples:        examples,
+		ConflictingDuplicateIDs:   examples,
+	}
+	source := models.SourceConfig{SyncServiceID: "source-a"}
+	update := func() []map[string]interface{} {
+		return []map[string]interface{}{{"device_id": "default:10.0.0.1"}}
+	}
+
+	nonfinal, err := buildSyncResultsChunks(update(), source, "run-a", 1, 0, false, population)
+	if err != nil {
+		t.Fatalf("build non-final chunks: %v", err)
+	}
+	if _, exists := syncMetaFromResultsChunk(t, nonfinal[0])["population"]; exists {
+		t.Fatal("non-final chunk unexpectedly published population accounting")
+	}
+
+	final, err := buildSyncResultsChunks(update(), source, "run-a", 1, 0, true, population)
+	if err != nil {
+		t.Fatalf("build final chunks: %v", err)
+	}
+	got, ok := syncMetaFromResultsChunk(t, final[len(final)-1])["population"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("final chunk population = %#v", got)
+	}
+	if int(got["conflicting_duplicate_ids"].(float64)) != 120 {
+		t.Fatalf("conflicting duplicate count = %#v, want 120", got["conflicting_duplicate_ids"])
+	}
+	if int(got["excluded_rows"].(float64)) != 2 {
+		t.Fatalf("excluded row count = %#v, want 2", got["excluded_rows"])
+	}
+	if gotExamples, _ := got["conflicting_duplicate_examples"].([]interface{}); len(gotExamples) != 100 {
+		t.Fatalf("conflicting duplicate examples = %d, want bounded 100", len(gotExamples))
+	}
+	if gotExamples, _ := got["duplicate_source_id_examples"].([]interface{}); len(gotExamples) != 100 {
+		t.Fatalf("duplicate source-ID examples = %d, want bounded 100", len(gotExamples))
+	}
+	if gotExamples, _ := got["invalid_row_examples"].([]interface{}); len(gotExamples) != 100 {
+		t.Fatalf("invalid row examples = %d, want bounded 100", len(gotExamples))
+	}
+}
+
+func TestBuildSyncResultsChunksPublishesZeroDeviceCollectionFinal(t *testing.T) {
+	population := &syncsources.PopulationStats{
+		RawRows: 2, ExcludedRows: 2,
+	}
+	control := []map[string]interface{}{{
+		syncControlKey: syncCollectionFinal,
+		"timestamp":    "2026-09-01T08:00:00Z",
+	}}
+
+	chunks, err := buildSyncResultsChunks(
+		control,
+		models.SourceConfig{SyncServiceID: "source-a"},
+		"run-empty",
+		0,
+		0,
+		true,
+		population,
+	)
+	if err != nil {
+		t.Fatalf("build empty collection final: %v", err)
+	}
+	if len(chunks) != 1 {
+		t.Fatalf("chunks = %d, want 1", len(chunks))
+	}
+
+	meta := syncMetaFromResultsChunk(t, chunks[0])
+	if got := int(meta["total_devices"].(float64)); got != 0 {
+		t.Fatalf("total_devices = %d, want 0", got)
+	}
+	if got, _ := meta["is_final"].(bool); !got {
+		t.Fatal("empty collection marker is not final")
+	}
+	gotPopulation, _ := meta["population"].(map[string]interface{})
+	if got := int(gotPopulation["excluded_rows"].(float64)); got != 2 {
+		t.Fatalf("excluded_rows = %d, want 2", got)
+	}
+}
+
+func syncMetaFromResultsChunk(t *testing.T, chunk *proto.ResultsChunk) map[string]interface{} {
+	t.Helper()
+	var updates []map[string]interface{}
+	if err := json.Unmarshal(chunk.Data, &updates); err != nil {
+		t.Fatalf("decode results chunk: %v", err)
+	}
+	meta, ok := updates[len(updates)-1][syncMetaKey].(map[string]interface{})
+	if !ok {
+		t.Fatalf("update missing sync_meta: %#v", updates[len(updates)-1])
+	}
+	return meta
+}
+
 func TestScheduledSyncRunPrefersDiscoveryInterval(t *testing.T) {
 	interval, kind, ok := scheduledSyncRun(models.SourceConfig{
 		PollInterval:      models.Duration(5 * time.Minute),

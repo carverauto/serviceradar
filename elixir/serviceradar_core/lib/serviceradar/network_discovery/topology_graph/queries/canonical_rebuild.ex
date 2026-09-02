@@ -177,7 +177,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Queries.CanonicalRebuild d
     MATCH (ai:Interface)-[r]->(bi:Interface)
     WHERE r.ingestor = 'mapper_topology_v1'
       AND type(r) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON', 'INFERRED_TO', 'ATTACHED_TO']
-      AND (r.last_observed_at IS NULL OR r.last_observed_at >= '#{Graph.escape(stale_cutoff)}')
+      AND coalesce(r.last_observed_at, r.observed_at) >= '#{Graph.escape(stale_cutoff)}'
       AND ai.device_id IS NOT NULL
       AND bi.device_id IS NOT NULL
       AND toLower(trim(ai.device_id)) <> 'nil'

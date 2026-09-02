@@ -99,8 +99,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # device. It exists so AliasGuard can tell "another address of this chassis"
   # from "different hardware"; see Identity.InterfaceMacs.
   #
-  # Reuses primary_identity_interface?/1, so loopback, virtual, bridge and
-  # tunnel interfaces are excluded here exactly as they are for identity seeding.
+  # Reuses primary_identity_interface?/1, so loopback, virtual, bridge, tunnel
+  # and VRRP interfaces are excluded here exactly as they are for identity seeding.
   # InterfaceMacs additionally refuses locally-administered addresses and skips
   # values already registered, so a poll that discovers nothing new writes
   # nothing.
@@ -510,6 +510,29 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   def endpoint_identity_candidate?(_record), do: false
 
+  # Weak L2 pairings (cross-subnet ARP+FDB, observed joins across devices) may
+  # put one host's chassis MAC next to another host's IP. That is topology
+  # evidence, not identity: never register the MAC onto the IP's device.
+  @weak_l2_identity_reasons ~w(cross_subnet_arp_fdb_port_mapping cross_device_arp_fdb_join)
+
+  @doc false
+  def endpoint_ip_mac_bind_allowed?(metadata) when is_map(metadata) do
+    not weak_l2_neighbor_identity?(metadata)
+  end
+
+  def endpoint_ip_mac_bind_allowed?(_), do: true
+
+  @doc false
+  def weak_l2_neighbor_identity?(metadata) when is_map(metadata) do
+    reason =
+      metadata_value(metadata, "topology_last_seen_confidence_reason") ||
+        metadata_value(metadata, "confidence_reason")
+
+    reason in @weak_l2_identity_reasons
+  end
+
+  def weak_l2_neighbor_identity?(_), do: false
+
   @doc false
   def endpoint_identity_confidence_tier(evidence_class) do
     case normalize_topology_evidence_class(evidence_class) do
@@ -588,7 +611,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           {:ok, uid}
 
         is_binary(existing_uid = find_live_device_uid_by_ip(candidate_ip, partition, actor)) and
-            bindable_endpoint_ip_device?(existing_uid, mac, actor) ->
+          bindable_endpoint_ip_device?(existing_uid, mac, actor) and
+            endpoint_ip_mac_bind_allowed?(metadata) ->
           # The sighting's IP already belongs to a live device with no
           # conflicting MAC identity (e.g. an IP-only hypervisor record). DIRE
           # never consults the IP when a strong MAC is present, so bind here
@@ -598,6 +622,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           # or registered identifier), shared-IP evidence (DHCP churn, NAT/VIP
           # reuse) must never merge them, so the guard falls through to the
           # deterministic MAC-seeded mint below.
+          #
+          # Cross-subnet / observed-join FDB is excluded: that evidence can
+          # pair one chassis MAC with another host's IP, which is how a dead
+          # MikroTik CHR absorbed a live vJunos identity.
           register_mapper_mac_identifiers(existing_uid, [mac], candidate_ip, partition, actor)
           {:ok, existing_uid}
 
@@ -1881,9 +1909,9 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   # Deterministically ordered MAC evidence for a polled device: physical and
-  # aggregate interfaces only (loopback/virtual/bridge/tunnel interfaces are
-  # not identity evidence). The sorted-first entry is the primary identity
-  # seed, matching the historical deterministic-uid derivation.
+  # aggregate interfaces only (loopback/virtual/bridge/tunnel and VRRP
+  # interfaces are not identity evidence). The sorted-first entry is the primary
+  # identity seed, matching the historical deterministic-uid derivation.
   defp derive_identity_macs(device_ip, records) do
     records
     |> Enum.filter(&(&1.device_ip == device_ip))
@@ -1895,14 +1923,28 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp primary_identity_interface?(record) do
-    case String.downcase(to_string(record.interface_kind || "")) do
-      "loopback" -> false
-      "virtual" -> false
-      "bridge" -> false
-      "tunnel" -> false
-      _ -> true
-    end
+    not vrrp_interface?(record) and
+      case String.downcase(to_string(record.interface_kind || "")) do
+        "loopback" -> false
+        "virtual" -> false
+        "bridge" -> false
+        "tunnel" -> false
+        _ -> true
+      end
   end
+
+  defp vrrp_interface?(record) do
+    Enum.any?([record.if_name, record.if_descr], &vrrp_interface_label?/1)
+  end
+
+  defp vrrp_interface_label?(label) when is_binary(label) do
+    label
+    |> String.trim()
+    |> String.downcase()
+    |> String.starts_with?("vrrp")
+  end
+
+  defp vrrp_interface_label?(_label), do: false
 
   defp normalize_mac(nil), do: nil
   defp normalize_mac(mac), do: IdentityReconciler.normalize_mac(mac)
@@ -2568,7 +2610,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           record.neighbor_mgmt_addr,
           record.neighbor_system_name,
           record.neighbor_chassis_id,
-          device_index
+          device_index,
+          record
         )
 
       resolved_local_uid =
@@ -2591,20 +2634,50 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.reject(&is_nil/1)
   end
 
-  defp resolve_topology_uid(candidate_uid, candidate_ip, candidate_name, candidate_chassis, index) do
+  defp resolve_topology_uid(
+         candidate_uid,
+         candidate_ip,
+         candidate_name,
+         candidate_chassis,
+         index,
+         record \\ nil
+       ) do
     uid = normalize_string(candidate_uid)
+    chassis = normalize_mac(candidate_chassis)
+    mac_uid = resolve_topology_uid_match(index.mac_to_uid, chassis)
+    ip_uid = resolve_topology_uid_match(index.ip_to_uid, normalize_string(candidate_ip))
 
     Enum.find(
       [
         resolve_topology_uid_match(index.uid_to_uid, uid),
         canonical_topology_uid_or_nil(uid),
-        resolve_topology_uid_match(index.ip_to_uid, normalize_string(candidate_ip)),
-        resolve_topology_uid_match(index.mac_to_uid, normalize_mac(candidate_chassis)),
+        neighbor_mac_or_ip_uid(chassis, mac_uid, ip_uid, record),
         resolve_topology_name_match(candidate_name, index)
       ],
       &is_binary/1
     )
   end
+
+  # Chassis MAC is L2 identity. When it names a different device than the
+  # neighbor IP, the IP is hearsay (stale ARP, cross-subnet FDB) and must not
+  # win. When the MAC is unknown, weak L2 evidence also must not fall back to
+  # IP — that fallback is what drew a farm switch to a dead MikroTik.
+  defp neighbor_mac_or_ip_uid(chassis, mac_uid, ip_uid, record) do
+    cond do
+      is_binary(mac_uid) ->
+        mac_uid
+
+      is_binary(chassis) and weak_l2_neighbor_identity?(topology_record_metadata(record)) ->
+        nil
+
+      true ->
+        ip_uid
+    end
+  end
+
+  defp topology_record_metadata(%{metadata: metadata}) when is_map(metadata), do: metadata
+  defp topology_record_metadata(%{"metadata" => metadata}) when is_map(metadata), do: metadata
+  defp topology_record_metadata(_), do: %{}
 
   defp resolve_topology_uid_match(_index_map, nil), do: nil
 

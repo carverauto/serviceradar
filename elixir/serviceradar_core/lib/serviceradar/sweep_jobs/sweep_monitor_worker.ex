@@ -50,6 +50,11 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
   # How often to run the monitor (5 minutes)
   @monitor_interval_seconds 300
 
+  @last_run_at_meaning "last_run_at is the latest report received from any eligible agent " <>
+                         "in All mode or any selected agent in Selected mode. It is not proof " <>
+                         "that every member reported; use per-agent execution history to " <>
+                         "inspect coverage."
+
   @doc """
   Schedules sweep monitoring if not already scheduled.
 
@@ -175,16 +180,18 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
     DateTime.add(last_run_at, interval_seconds + grace_period_seconds, :second)
   end
 
-  defp emit_missed_sweep_log(group, now, expected_by) do
+  @doc false
+  @spec missed_sweep_payload(map(), DateTime.t(), DateTime.t()) :: map()
+  def missed_sweep_payload(group, now, expected_by) do
     overdue_seconds = DateTime.diff(now, expected_by, :second)
 
-    payload = %{
+    %{
       "event_type" => "sweep.missed",
       "severity" => "warning",
       "sweep_group_id" => group.id,
       "sweep_group_name" => group.name,
       "partition" => group.partition,
-      "agent_id" => group.agent_id,
+      "agent_ids" => group.agent_ids,
       "interval" => group.interval,
       "last_run_at" => DateTime.to_iso8601(group.last_run_at),
       "expected_by" => DateTime.to_iso8601(expected_by),
@@ -192,9 +199,15 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
       "message" => "Sweep group '#{group.name}' missed expected execution",
       "details" => %{
         "schedule_type" => to_string(group.schedule_type),
-        "cron_expression" => group.cron_expression
+        "cron_expression" => group.cron_expression,
+        "last_run_at_meaning" => @last_run_at_meaning
       }
     }
+  end
+
+  defp emit_missed_sweep_log(group, now, expected_by) do
+    payload = missed_sweep_payload(group, now, expected_by)
+    overdue_seconds = payload["overdue_seconds"]
 
     Logger.warning("Detected missed sweep",
       sweep_group_id: group.id,

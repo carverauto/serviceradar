@@ -35,7 +35,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
 
         <section class="sr-ops-grid-primary">
           <MapPanel.render dashboard={assigns} />
-          <ObservabilityPanel.render dashboard={assigns} />
+          <ObservabilityPanel.render
+            dashboard={assigns}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
+          />
         </section>
 
         <section class="sr-ops-grid-secondary">
@@ -45,14 +48,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
         <section class="sr-ops-grid-trio" aria-label="Asset and threat summary">
           <div class="sr-ops-grid-trio-stack">
             <VulnerableAssetsPanel.render dashboard={assigns} />
-            <ThreatPanel.render dashboard={assigns} />
+            <ThreatPanel.render
+              dashboard={assigns}
+              timezone={@current_scope.user.timezone || "Etc/UTC"}
+            />
           </div>
           <VirtualizationPanel.render dashboard={assigns} />
           <CameraPanel.render dashboard={assigns} />
         </section>
 
         <section class="sr-ops-grid-alerts">
-          <AlertsPanel.render dashboard={assigns} />
+          <AlertsPanel.render
+            dashboard={assigns}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
+          />
         </section>
       </div>
     </Layouts.app>

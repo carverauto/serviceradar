@@ -187,10 +187,20 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
                   <.ui_badge size="sm" variant="ghost">{operation_mode(operation)}</.ui_badge>
                 </td>
                 <td class="whitespace-nowrap">
-                  {AutomationHistoryComponents.format_timestamp(operation.started_at)}
+                  <.user_time
+                    id={"ansible-operation-#{operation.id}-started-at"}
+                    value={operation.started_at}
+                    timezone={@current_scope.user.timezone || "Etc/UTC"}
+                    style={:compact}
+                  />
                 </td>
                 <td class="whitespace-nowrap">
-                  {AutomationHistoryComponents.format_timestamp(operation.ended_at)}
+                  <.user_time
+                    id={"ansible-operation-#{operation.id}-ended-at"}
+                    value={operation.ended_at}
+                    timezone={@current_scope.user.timezone || "Etc/UTC"}
+                    style={:compact}
+                  />
                 </td>
                 <td><code class="text-xs">{short_id(operation.id)}</code></td>
                 <td>

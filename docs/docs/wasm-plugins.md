@@ -220,7 +220,54 @@ The plugin lifecycle is operator-facing and gated by an approval step:
 4. Approved packages can be assigned to agents.
 5. Agents download packages only from the ServiceRadar control plane — never directly from GitHub.
 
+**Scheduled inventory plugins are the exception to step 4.** A package that
+declares `producer_schedules` and a credential profile with
+`provisioning.mode: producer_schedule` (OpenText NOM today) is **not** enabled
+from **Assign to Agent**. Import and approve it, then create the service-account
+credential and rule under **Settings -> Networks -> Credential Rules**. The
+rule's Scope Value is the agent that runs the Wasm module; saving the rule
+creates the assignment. See [OpenText NOM Inventory](./opentext-nom.md).
+
 Plugin blob upload and download tokens are transported only in explicit headers or POST bodies. Query-string bearer tokens are not supported.
+
+### Publishing from the CLI
+
+A developer can push a build straight to an instance with
+`@carverauto/serviceradar-cli`, instead of uploading through the admin UI. The
+package still lands staged and still needs an administrator's approval -- the CLI
+replaces the upload step, not the review.
+
+```
+npx @carverauto/serviceradar-cli plugin init my-probe --template go
+cd my-probe
+tinygo build -target=wasi -no-debug -o plugin.wasm ./
+npx @carverauto/serviceradar-cli plugin validate
+npx @carverauto/serviceradar-cli auth login --instance https://serviceradar.example.com --scope plugin.publish
+npx @carverauto/serviceradar-cli plugin publish --instance https://serviceradar.example.com
+```
+
+`plugin init` scaffolds against the language SDKs: `--template go` builds with
+TinyGo against `serviceradar-sdk-go`, `--template rust` targets `wasm32-wasip1`
+against `serviceradar-sdk-rust`. `plugin validate` checks `plugin.yaml` against
+the same manifest contract the server enforces and makes no network calls.
+
+Publishing does three calls: it stages the package, requests a short-lived
+storage token, then uploads the `plugin.wasm` bytes with that token. Track the
+result with `plugin status --id <package-id>`, which reports the approval state
+and, once approved, the capabilities that were actually granted -- an
+administrator can approve a narrower set than the manifest requested.
+
+A direct upload needs no signing key. `allow_unsigned_uploads` is on by default,
+and the control on an uploaded package is the staged review with its
+requested-versus-approved capability diff.
+
+**Token scope.** `auth login --scope plugin.publish` mints a token that can reach
+the plugin publish endpoints and nothing else; a token minted for
+`dashboard.publish` is refused there, and vice versa. Request both with
+`--scope "dashboard.publish plugin.publish"` if you publish both kinds of
+package. The scope only makes an operation *requestable* -- the account still
+needs the `plugins.stage` permission, and an operator controls which scopes the
+CLI may request at all in Settings -> CLI auth policy.
 
 Assigned health-result plugins, including first-party plugins such as UniFi and AlienVault OTX, appear in `/services` with a stable `plugin` service identity. When an assignment is created, the control plane seeds a pending service row; the next agent-reported plugin result updates that row with the plugin status and summary.
 
@@ -285,6 +332,65 @@ actions so the historical row remains available for investigation.
 ### First-party plugin import
 
 ServiceRadar ships first-party Wasm plugins as signed artifacts published by release automation. The Plugins UI can sync a first-party plugin index, verify the referenced signed bundle, mirror the Wasm payload into ServiceRadar-managed plugin storage, and stage the package for normal capability review. Imported first-party packages are not assignable until an authorized operator approves them.
+
+### Third-party plugin repositories
+
+The Plugins UI imports from a **plugin repository**: a record naming a GitHub
+repository, the release asset holding its plugin index, and the ed25519 key its
+bundles must verify against. The built-in `carverauto/serviceradar` source is
+seeded as one of these records; it can be disabled but not edited or removed.
+
+Adding a repository requires the `plugins.repositories.manage` permission, which
+is separate from `plugins.stage` on purpose: staging imports from a source the
+platform already trusts, while adding a repository decides *which sources are
+trusted*. Every add, edit, enable, disable and removal is written to the audit
+log with the actor, the repository URL and its signing key id.
+
+#### What a repository must publish
+
+A release carries:
+
+- the plugin index asset (default `serviceradar-wasm-plugin-index.json`), whose
+  entries name each plugin's id, version, `bundle_url`, `bundle_digest` and
+  `upload_signature_url`;
+- the bundle zip for each entry;
+- an ed25519 upload-signature document per bundle.
+
+Bundles are signed with `build/wasm_plugins/upload_signature_tool.go`, a
+dependency-free Go binary that cross-compiles to macOS, Windows and Linux and
+reads its key from an environment variable or a file. **Cosign is not required**
+for a third-party repository. Cosign applies only to the first-party OCI artifact
+path, which additionally requires a public Rekor transparency-log entry.
+
+The repository record stores the matching `key_id` and base64 public key, and a
+bundle is verified against *that repository's* key -- so a bundle signed by one
+publisher cannot be imported through another's catalog. A repository cannot be
+saved without a key: a source with no trust anchor could never import anything,
+so the failure belongs where a human can fix it.
+
+#### Private repositories
+
+Attach a GitHub personal access token to the repository. A fine-grained token
+with read-only Contents access to that one repository is enough. The token is
+stored encrypted in the credential store, is never returned by any read of the
+repository, and never appears in an audit record -- the UI shows only whether one
+is attached.
+
+Two behaviours worth knowing:
+
+- GitHub answers **404, not 403**, for a private repository a token cannot see.
+  A missing or expired token therefore looks identical to a missing release, so
+  the error messages name both possibilities.
+- Private release assets download through the API endpoint, which redirects to a
+  short-lived pre-signed URL. ServiceRadar does not forward the token to that
+  redirect target: the pre-signed URL carries its own authorization, and sending
+  the token would disclose it to a host that has no need for it.
+
+#### Sync
+
+Each enabled repository syncs independently. One unreachable source -- an expired
+token, a repository that moved -- does not stop the others from importing; its
+error is recorded on the repository row.
 
 ### GitHub imports and verification
 

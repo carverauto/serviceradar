@@ -134,6 +134,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
     {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: @page_path)}
   end
 
+  def handle_event("srql_reset", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_reset", params, fallback_path: @page_path)}
+  end
+
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: socket.assigns.active_entity)}
   end
@@ -232,7 +236,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
                 <%= for {dom_id, row} <- @streams.wifi_rows do %>
                   <tr id={dom_id}>
                     <td :for={{field, _label} <- @columns} class="whitespace-nowrap">
-                      {format_value(Map.get(row, field))}
+                      <% timestamp = timestamp_value(field, Map.get(row, field)) %>
+                      <%= if timestamp do %>
+                        <.user_time
+                          id={"#{dom_id}-#{field}"}
+                          value={timestamp}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                        />
+                      <% else %>
+                        {format_value(Map.get(row, field))}
+                      <% end %>
                     </td>
                   </tr>
                 <% end %>
@@ -309,9 +323,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Wifi do
 
   defp format_value(nil), do: "—"
   defp format_value(""), do: "—"
-  defp format_value(%DateTime{} = value), do: Calendar.strftime(value, "%Y-%m-%d %H:%M:%S UTC")
-  defp format_value(%NaiveDateTime{} = value), do: Calendar.strftime(value, "%Y-%m-%d %H:%M:%S")
   defp format_value(value) when is_list(value), do: Enum.map_join(value, ", ", &format_value/1)
   defp format_value(value) when is_map(value), do: inspect(value)
   defp format_value(value), do: to_string(value)
+
+  defp timestamp_value(field, value) when field in ["collection_timestamp", "updated_at", "build_date"] do
+    case value do
+      %DateTime{} = datetime ->
+        datetime
+
+      %NaiveDateTime{} = naive ->
+        DateTime.from_naive!(naive, "Etc/UTC")
+
+      value when is_binary(value) ->
+        with {:error, _} <- DateTime.from_iso8601(value),
+             {:ok, naive} <- NaiveDateTime.from_iso8601(value) do
+          DateTime.from_naive!(naive, "Etc/UTC")
+        else
+          {:ok, datetime, _offset} -> datetime
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp timestamp_value(_field, _value), do: nil
 end

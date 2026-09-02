@@ -177,8 +177,24 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                   </div>
 
                   <div class="shrink-0 text-right text-xs text-sr-muted">
-                    <div>{format_datetime(alert.triggered_at)}</div>
-                    <div>{format_datetime(alert.last_notification_at)}</div>
+                    <div>
+                      <.user_time
+                        id={"camera-relay-alert-#{alert.id}-triggered-at"}
+                        value={alert.triggered_at}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="n/a"
+                      />
+                    </div>
+                    <div>
+                      <.user_time
+                        id={"camera-relay-alert-#{alert.id}-last-notification-at"}
+                        value={alert.last_notification_at}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="n/a"
+                      />
+                    </div>
                   </div>
                 </div>
 
@@ -236,7 +252,15 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                   </div>
 
                   <div class="shrink-0 text-right text-xs text-sr-muted">
-                    <div>{format_datetime(event.time)}</div>
+                    <div>
+                      <.user_time
+                        id={"camera-relay-event-#{event.id}-time"}
+                        value={event.time}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="n/a"
+                      />
+                    </div>
                     <div>{display_value(event.severity)}</div>
                   </div>
                 </div>
@@ -385,7 +409,13 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                       <.session_log_links session={session} />
                     </td>
                     <td class="text-xs text-sr-muted">
-                      {format_datetime(session.updated_at)}
+                      <.user_time
+                        id={"camera-relay-session-#{session.id}-updated-at"}
+                        value={session.updated_at}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="n/a"
+                      />
                     </td>
                   </tr>
                 </tbody>
@@ -477,7 +507,15 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
                     </div>
                   </div>
                   <div class="shrink-0 text-right text-xs text-sr-muted">
-                    <div>{format_datetime(session.closed_at || session.updated_at)}</div>
+                    <div>
+                      <.user_time
+                        id={"camera-relay-session-#{session.id}-closed-at"}
+                        value={session.closed_at || session.updated_at}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="n/a"
+                      />
+                    </div>
                     <div class="font-mono">{session.gateway_id}</div>
                   </div>
                 </div>
@@ -503,7 +541,13 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
 
         <div class="flex items-center gap-2 text-xs text-sr-ink/45">
           <span :if={is_struct(@refreshed_at, DateTime)} class="font-mono">
-            Updated {Calendar.strftime(@refreshed_at, "%H:%M:%S")}
+            Updated
+            <.user_time
+              id="camera-relay-refreshed-at"
+              value={@refreshed_at}
+              timezone={@current_scope.user.timezone || "Etc/UTC"}
+              style={:time}
+            />
           </span>
           <span :if={is_struct(@refreshed_at, DateTime)}>·</span>
           <span>Auto-refresh 5s</span>
@@ -956,10 +1000,6 @@ defmodule ServiceRadarWebNGWeb.CameraRelayLive.Index do
   defp normalize_status(status) when is_atom(status), do: Atom.to_string(status)
   defp normalize_status(status) when is_binary(status), do: status
   defp normalize_status(_status), do: "unknown"
-
-  defp format_datetime(%DateTime{} = datetime), do: Calendar.strftime(datetime, "%Y-%m-%d %H:%M:%S UTC")
-
-  defp format_datetime(_datetime), do: "n/a"
 
   defp display_value(value) when is_binary(value) do
     trimmed = String.trim(value)

@@ -2,11 +2,17 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance,
+    only: [provenance_badge: 1]
+
   import ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Targeting,
     only: [format_target_count: 1, target_count_title: 1]
 
+  alias ServiceRadar.SNMPProfiles.CredentialResolver
+
   attr :profiles, :list, required: true
   attr :profile_target_counts, :map, default: %{}
+  attr :profile_package_names, :map, default: %{}
 
   def profiles_panel(assigns) do
     ~H"""
@@ -66,6 +72,28 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
                       {profile.name}
                     </.link>
                     <.ui_badge :if={profile.is_default} variant="info" size="xs">Default</.ui_badge>
+                    <.provenance_badge
+                      id={"snmp-profile-#{profile.id}-provenance"}
+                      row={profile}
+                      package_names={@profile_package_names}
+                    />
+                    <!--
+                    Rendered inline and persistently rather than flashed on
+                    enable. A :warning flash would be silently dropped - only
+                    :info and :error are rendered (core_components.ex attr
+                    :kind) - and a transient message would also miss a profile
+                    that was already enabled without a credential, which is the
+                    state an operator most needs to see.
+                    -->
+                    <.ui_badge
+                      :if={profile.enabled and not CredentialResolver.record_has_credential?(profile)}
+                      id={"snmp-profile-#{profile.id}-no-credential"}
+                      variant="warning"
+                      size="xs"
+                      title="This profile has no credential bound, so it compiles to zero targets and collects nothing. Bind a credential rule to it."
+                    >
+                      No credential
+                    </.ui_badge>
                   </div>
                   <p :if={profile.description} class="text-xs text-sr-muted truncate max-w-xs">
                     {profile.description}

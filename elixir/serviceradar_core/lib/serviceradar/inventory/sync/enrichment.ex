@@ -102,14 +102,55 @@ defmodule ServiceRadar.Inventory.Sync.Enrichment do
   def infer_os(_metadata, _vendor_name, _classification), do: nil
 
   def infer_hw_info(metadata) when is_map(metadata) do
+    nested = Normalize.get_map(metadata, ["hw_info", :hw_info])
+
     %{}
     |> maybe_put_map_value(
       "serial_number",
-      Normalize.get_string(metadata, ["serial_number", "serial"])
+      Normalize.get_string(nested, ["serial_number", "serial"]) ||
+        Normalize.get_string(metadata, ["serial_number", "serial"])
     )
     |> maybe_put_map_value(
       "cpu_architecture",
       Normalize.get_string(metadata, ["cpu_architecture", "architecture_name", "architecture"])
+    )
+    |> maybe_put_map_value(
+      "processor",
+      Normalize.get_string(nested, ["processor"]) || Normalize.get_string(metadata, ["processor"])
+    )
+    |> maybe_put_map_value(
+      "memory_bytes",
+      Normalize.get_value(nested, ["memory_bytes", "memory"]) ||
+        Normalize.get_value(metadata, ["memory_bytes", "memory"])
+    )
+    |> maybe_put_map_value(
+      "total_ports",
+      Normalize.get_value(nested, ["total_ports"]) ||
+        Normalize.get_value(metadata, ["total_ports"])
+    )
+    |> maybe_put_map_value(
+      "free_ports",
+      Normalize.get_value(nested, ["free_ports"]) || Normalize.get_value(metadata, ["free_ports"])
+    )
+    |> maybe_put_map_value(
+      "driver_name",
+      Normalize.get_string(nested, ["driver_name"]) ||
+        Normalize.get_string(metadata, ["driver_name"])
+    )
+    |> maybe_put_map_value(
+      "firmware_version",
+      Normalize.get_string(nested, ["firmware_version"]) ||
+        Normalize.get_string(metadata, ["firmware_version"])
+    )
+    |> maybe_put_map_value(
+      "rom_version",
+      Normalize.get_string(nested, ["rom_version"]) ||
+        Normalize.get_string(metadata, ["rom_version"])
+    )
+    |> maybe_put_map_value(
+      "chassis_serials",
+      Normalize.get_value(nested, ["chassis_serials"]) ||
+        Normalize.get_value(metadata, ["chassis_serials"])
     )
     |> empty_map_to_nil()
   end

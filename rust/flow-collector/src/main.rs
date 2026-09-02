@@ -4,20 +4,27 @@ pub mod flowpb;
 mod host_slice;
 mod listener;
 mod metrics;
+mod nats_client;
 mod netflow;
 mod publisher;
 mod sflow;
+mod template_store;
 
 use anyhow::Result;
 use clap::Parser;
-use config::Config;
+use config::{Config, TemplateStoreConfig};
 use host_slice::HostSliceRouter;
 use listener::{Listener, build_handler};
-use metrics::{HostSliceMetricsRegistry, ListenerMetrics, MetricsReporter, SubjectDropRegistry};
-use publisher::{OutboundFlow, Publisher};
+use metrics::{
+    HostSliceMetricsRegistry, ListenerMetrics, MetricsReporter, SubjectDropRegistry,
+    run_prometheus_server,
+};
+use netflow_parser::TemplateStore;
+use publisher::{OutboundFlow, Publisher, ready_marker_path};
 use std::sync::Arc;
 use std::sync::Once;
 use std::time::{Duration, Instant};
+use template_store::NatsKvTemplateStore;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -28,6 +35,12 @@ struct Args {
     /// Path to configuration file
     #[arg(short, long, default_value = "flow-collector.json")]
     config: String,
+
+    /// Ensure the JetStream stream (including any pending events->flows
+    /// cutover) and exit. Used by the Helm bootstrap Job; no listeners are
+    /// started and no UDP ports are bound.
+    #[arg(long, default_value_t = false)]
+    bootstrap_stream: bool,
 }
 
 #[tokio::main]
@@ -61,6 +74,13 @@ async fn main() -> Result<()> {
         );
     }
 
+    if args.bootstrap_stream {
+        log::info!("Running in bootstrap-stream mode (no listeners will start)");
+        Publisher::bootstrap_stream(Arc::clone(&config)).await?;
+        log::info!("Bootstrap finished; exiting");
+        return Ok(());
+    }
+
     let host_slice_router = Arc::new(HostSliceRouter::from_config(&config));
     let host_slice_metrics = Arc::new(HostSliceMetricsRegistry::new(
         HostSliceRouter::metric_slices(&config),
@@ -82,6 +102,21 @@ async fn main() -> Result<()> {
     );
     let publisher_handle = tokio::spawn(async move { publisher.run().await });
 
+    // If a template store is configured, open a separate NATS connection
+    // for KV access and bootstrap the bucket. Kept independent of the
+    // publisher's connection so KV failures cannot stall publishing and
+    // vice versa.
+    let template_store = match config.template_store.as_ref() {
+        Some(ts_config) => {
+            log::info!(
+                "Template store enabled (NATS KV bucket: {})",
+                ts_config.kv_bucket
+            );
+            Some(bootstrap_template_store(&config, ts_config).await?)
+        }
+        None => None,
+    };
+
     // Spawn listeners
     let mut listener_handles: Vec<JoinHandle<()>> = Vec::new();
     let mut all_metrics: Vec<Arc<ListenerMetrics>> = Vec::new();
@@ -94,7 +129,7 @@ async fn main() -> Result<()> {
         ));
         all_metrics.push(Arc::clone(&metrics));
 
-        let handler = build_handler(listener_cfg, Arc::clone(&metrics));
+        let handler = build_handler(listener_cfg, template_store.clone(), Arc::clone(&metrics));
 
         let socket = UdpSocket::bind(listener_cfg.listen_addr()).await?;
         log::info!(
@@ -156,11 +191,33 @@ async fn main() -> Result<()> {
     // abort them on SIGTERM).
     drop(publisher_tx);
 
-    // Spawn metrics reporter
+    // Spawn metrics reporter (periodic stdout log)
     let subject_drops_for_reporter = Arc::clone(&subject_drops);
+    let reporter_metrics = all_metrics.clone();
     let metrics_handle = tokio::spawn(async move {
-        MetricsReporter::run(all_metrics, host_slice_metrics, subject_drops_for_reporter).await;
+        MetricsReporter::run(
+            reporter_metrics,
+            host_slice_metrics,
+            subject_drops_for_reporter,
+        )
+        .await;
     });
+
+    // Spawn the Prometheus exposition server if metrics_addr is set.
+    // Lives independently of the publisher so a scrape failure can never
+    // backpressure flow ingestion. Its /readyz handler reads the same
+    // marker path the publisher's mark_publisher_ready/clear_publisher_ready
+    // write, so the Helm readinessProbe reflects true publisher readiness
+    // rather than just "the metrics HTTP server has bound its socket".
+    if let Some(addr) = config.metrics_addr.clone() {
+        let prom_metrics = all_metrics.clone();
+        let ready_path = ready_marker_path(&config);
+        tokio::spawn(async move {
+            if let Err(e) = run_prometheus_server(addr, prom_metrics, ready_path).await {
+                log::error!("Prometheus metrics server error: {}", e);
+            }
+        });
+    }
 
     log::info!("Flow collector started successfully");
 
@@ -271,4 +328,54 @@ fn ensure_rustls_provider_installed() {
     INIT.call_once(|| {
         let _ = rustls::crypto::ring::default_provider().install_default();
     });
+}
+
+/// Connect to NATS, get-or-create the JetStream KV bucket, and wrap it in
+/// a [`NatsKvTemplateStore`]. The connection is independent of the
+/// publisher's connection so KV health and publish health can fail
+/// independently — but it shares the publisher's TLS/creds settings via
+/// `nats_client::connect_with_retry`, otherwise mTLS / creds-protected
+/// NATS clusters would silently fail at TLS handshake here.
+///
+/// The connection target is `cfg.nats_url` if set, otherwise the
+/// top-level `config.nats_url`, allowing template state to live on a
+/// different NATS cluster from publish traffic.
+async fn bootstrap_template_store(
+    config: &Config,
+    cfg: &TemplateStoreConfig,
+) -> Result<Arc<dyn TemplateStore>> {
+    Ok(Arc::new(NatsKvTemplateStore::connect(
+        config.clone(),
+        cfg.clone(),
+    )?))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The Helm bootstrap Job reaches `Publisher::bootstrap_stream` (and
+    /// skips every listener/UDP-socket setup below it in `main()`) only
+    /// through this flag. `bootstrap_stream` itself needs a live NATS server
+    /// to exercise end to end, but clap's parsing of the flag that gates it
+    /// is a real, unit-testable property: if `--bootstrap-stream` were
+    /// renamed, its destination field renamed out of step, or its default
+    /// flipped, the Job would silently fall through to starting listeners
+    /// instead of ensuring the stream and exiting.
+    #[test]
+    fn bootstrap_stream_flag_parses_to_true() {
+        let args = Args::parse_from([
+            "flow-collector",
+            "--config",
+            "/etc/serviceradar/flow-collector.json",
+            "--bootstrap-stream",
+        ]);
+        assert!(args.bootstrap_stream);
+    }
+
+    #[test]
+    fn bootstrap_stream_defaults_to_false_without_the_flag() {
+        let args = Args::parse_from(["flow-collector", "--config", "flow-collector.json"]);
+        assert!(!args.bootstrap_stream);
+    }
 }

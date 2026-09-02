@@ -86,6 +86,10 @@ defmodule ServiceRadarWebNGWeb.DashboardHubLive.Index do
     {:noreply, push_patch(socket, to: ~p"/dashboards?#{%{q: query}}")}
   end
 
+  def handle_event("srql_reset", _params, socket) do
+    {:noreply, push_patch(socket, to: ~p"/dashboards?#{%{q: @default_query}}")}
+  end
+
   def handle_event("srql_builder_toggle", _params, socket) do
     srql = socket.assigns.srql
     {:noreply, assign(socket, :srql, Map.put(srql, :builder_open, !srql[:builder_open]))}

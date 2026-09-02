@@ -11,12 +11,16 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     domain: ServiceRadar.Credentials,
     data_layer: AshPostgres.DataLayer,
     extensions: [AshCloak, AshStateMachine, AshPaperTrail.Resource],
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    # The primary read deliberately carries a select preparation; see `read :read`.
+    primary_read_warning?: false
 
+  alias ServiceRadar.Credentials.Changes.GuardCredentialDestroy
   alias ServiceRadar.Credentials.Changes.WriteSecretLifecycleEvent
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @credential_manage_check {ActorHasPermission, permission: "settings.credentials.manage"}
+  @credential_in_use_message "credential_in_use"
 
   @fields [
     :name,
@@ -48,6 +52,16 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     :last_rotation_failure_message
   ]
 
+  @editable_fields [:name, :description]
+  @lifecycle_actions [
+    :mark_rotation_due,
+    :start_rotation,
+    :complete_rotation,
+    :fail_rotation,
+    :disable_rotation,
+    :enable_rotation
+  ]
+
   @public_read_fields [:id, :inserted_at, :updated_at | @fields] ++ @rotation_read_fields
   @secret_read_fields [
     :id,
@@ -71,6 +85,28 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     table "network_credential_secrets"
     repo ServiceRadar.Repo
     schema "platform"
+
+    foreign_key_names [
+      {:id, "network_credential_rules_secret_id_fkey", @credential_in_use_message},
+      {:id, "snmp_profiles_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "snmp_targets_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "device_snmp_credentials_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "mapper_unifi_controllers_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "mapper_mikrotik_controllers_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "integration_sources_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "plugin_repositories_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "ansible_controllers_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "ansible_controllers_sync_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "ansible_controllers_execution_credential_secret_id_fkey",
+       @credential_in_use_message},
+      {:id, "ansible_controllers_callback_credential_secret_id_fkey", @credential_in_use_message},
+      {:id, "ansible_playbook_repositories_credential_secret_id_fkey",
+       @credential_in_use_message},
+      {:id, "outbound_mail_settings_password_secret_id_fkey", @credential_in_use_message},
+      {:id, "outbound_mail_settings_api_key_secret_id_fkey", @credential_in_use_message},
+      {:id, "credential_broker_grants_secret_id_fkey", @credential_in_use_message},
+      {:id, "network_credential_secret_bindings_secret_id_fkey", @credential_in_use_message}
+    ]
   end
 
   cloak do
@@ -100,10 +136,10 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
   paper_trail do
     primary_key_type :uuid_v7
     table_name "network_credential_secret_versions"
-    mixin {ServiceRadar.Credentials.PaperTrailMixin, :mixin, []}
+    mixin {ServiceRadar.Credentials.PaperTrailMixin, :cascade_versions, []}
     change_tracking_mode :changes_only
     store_action_name? true
-    store_action_inputs? true
+    store_action_inputs? false
     create_version_on_destroy? false
     ignore_attributes [:inserted_at, :updated_at, :secret_payload]
   end
@@ -114,16 +150,26 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     define :list_by_provider, action: :by_provider, args: [:provider]
     define :create_secret, action: :create
     define :update_secret, action: :update
-    define :mark_rotation_due, action: :mark_rotation_due
-    define :start_rotation, action: :start_rotation
-    define :complete_rotation, action: :complete_rotation
-    define :fail_rotation, action: :fail_rotation
-    define :disable_rotation, action: :disable_rotation
-    define :enable_rotation, action: :enable_rotation
+    define :edit_details, action: :edit_details
+    define :destroy_permanently, action: :destroy_permanently, args: [:confirm_secret_id]
   end
 
   actions do
+    # Primary because every update on this resource needs it. Without a primary
+    # read, `:update`, `:disable_rotation` and the rotation transitions all fail
+    # -- first with Ash.Error.Framework.MustBeAtomic, and then, once
+    # `atomic_upgrade_with` is configured, with `Required primary read action`
+    # raised from the `Ash.load/3` inside `Ash.Actions.Update.run/4`. No caller
+    # had ever updated this resource, so none of its update actions worked.
+    #
+    # The select preparation is why `use Ash.Resource` carries
+    # `primary_read_warning?: false`. Ash warns that a primary read with
+    # preparations also governs relationship loads and policy checks -- here that
+    # is the desired effect, not an accident: it means loading a repository's
+    # `credential_secret` yields the public fields and never the encrypted
+    # payload. `:by_id_with_secret` remains the only way to reach that.
     read :read do
+      primary? true
       prepare build(select: @public_read_fields)
     end
 
@@ -152,7 +198,11 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     end
 
     update :update do
-      accept [:secret_payload | @fields]
+      accept @editable_fields
+    end
+
+    update :edit_details do
+      accept @editable_fields
     end
 
     update :mark_rotation_due do
@@ -162,14 +212,21 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     end
 
     update :start_rotation do
-      accept [:metadata]
+      accept []
       change transition_state(:rotating)
       change set_attribute(:rotation_started_at, &DateTime.utc_now/0)
       change {WriteSecretLifecycleEvent, action: :start_rotation}
     end
 
     update :complete_rotation do
-      accept [:secret_payload, :public_fingerprint, :next_rotation_due_at, :metadata]
+      accept [
+        :secret_payload,
+        :username,
+        :public_fingerprint,
+        :next_rotation_due_at,
+        :metadata
+      ]
+
       change transition_state(:active)
       change set_attribute(:last_rotated_at, &DateTime.utc_now/0)
       change set_attribute(:rotation_started_at, nil)
@@ -198,6 +255,17 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
       change transition_state(:active)
       change {WriteSecretLifecycleEvent, action: :enable_rotation}
     end
+
+    destroy :destroy_permanently do
+      argument :confirm_secret_id, :uuid, allow_nil?: false
+
+      touches_resources [
+        ServiceRadar.Credentials.CredentialBrokerGrant,
+        ServiceRadar.Credentials.NetworkCredentialSecretDeletionAudit
+      ]
+
+      change GuardCredentialDestroy
+    end
   end
 
   policies do
@@ -205,7 +273,15 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
     system_bypass()
     action_with_permission([:read, :by_id, :by_provider], @credential_manage_check)
-    action_type_with_permission([:create, :update], @credential_manage_check)
+
+    action_with_permission(
+      [:create, :update, :edit_details, :destroy_permanently],
+      @credential_manage_check
+    )
+
+    policy action(@lifecycle_actions) do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
   end
 
   attributes do

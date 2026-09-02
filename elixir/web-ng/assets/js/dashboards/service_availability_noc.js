@@ -1,10 +1,12 @@
+import {dashboardUserTimeHtml} from "../utils/dashboard_user_time"
+
 const STATUS_ORDER = ["ok", "critical", "warning", "unknown"]
 
 export function mountServiceAvailabilityNoc(element, host, api) {
   const state = {host, api}
 
   const render = () => {
-    element.innerHTML = dashboardHtml(state.host)
+    element.innerHTML = dashboardHtml(state.host, element.dataset.timezone || "Etc/UTC")
     bindActions(element, api)
   }
 
@@ -26,7 +28,7 @@ export function mountServiceAvailabilityNoc(element, host, api) {
   }
 }
 
-function dashboardHtml(host) {
+function dashboardHtml(host, timeZone) {
   const frames = frameMap(host)
   const rollup = firstRow(frames.availability_rollup)
   const services = rows(frames.attention_services)
@@ -87,7 +89,7 @@ function dashboardHtml(host) {
           <div class="sr-pkg-incident-list">
             ${
               services.length
-                ? services.map(serviceRow).join("")
+                ? services.map((row) => serviceRow(row, timeZone)).join("")
                 : emptyState("No degraded services in the current window.")
             }
           </div>
@@ -118,7 +120,7 @@ function dashboardHtml(host) {
             <div class="sr-pkg-stack">
               ${
                 slos.length
-                  ? slos.slice(0, 6).map(sloRow).join("")
+                  ? slos.slice(0, 6).map((row) => sloRow(row, timeZone)).join("")
                   : emptyState("No SLO pressure returned by the current query.")
               }
             </div>
@@ -196,7 +198,7 @@ function metricCard({title, value, caption, status, query}) {
   `
 }
 
-function serviceRow(row) {
+function serviceRow(row, timeZone) {
   const name = row.service_name || row.display_name || row.service || row.service_key || "Unnamed service"
   const observed = row.timestamp || row.last_observed_at || row.observed_at || ""
   const summary = row.summary || row.service_key || row.agent_id || row.device_id || ""
@@ -212,7 +214,7 @@ function serviceRow(row) {
       <div class="sr-pkg-incident-meta">
         ${statusBadge(status)}
         <span class="sr-pkg-meta-line">${escapeHtml(latencyLabel)}</span>
-        <span class="sr-pkg-meta-line">${escapeHtml(formatTime(observed))}</span>
+        <span class="sr-pkg-meta-line">${dashboardUserTimeHtml(observed, {timeZone})}</span>
       </div>
     </article>
   `
@@ -235,7 +237,7 @@ function inventoryRow(row) {
   `
 }
 
-function sloRow(row) {
+function sloRow(row, timeZone) {
   const name = row.slo_name || row.slo_key || "Unnamed SLO"
   const status = normalizeStatus(row.severity || row.compliance_state)
   const caption = [
@@ -248,7 +250,7 @@ function sloRow(row) {
       <div class="sr-pkg-list-card-main">
         <strong>${escapeHtml(name)}</strong>
         <small>${escapeHtml(caption)}</small>
-        <small class="sr-pkg-muted">${escapeHtml(formatNullableTime(row.projected_exhaustion_at))}</small>
+        <small class="sr-pkg-muted">${formatNullableTime(row.projected_exhaustion_at, timeZone)}</small>
       </div>
       ${statusBadge(status)}
     </article>
@@ -362,16 +364,9 @@ function burnRate(value) {
   return `${Math.round(parsed * 100) / 100}x`
 }
 
-function formatNullableTime(value) {
+function formatNullableTime(value, timeZone) {
   if (!value) return "No projected exhaustion"
-  return `Exhausts ${formatTime(value)}`
-}
-
-function formatTime(value) {
-  if (!value) return "n/a"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value)
-  return date.toLocaleString()
+  return `Exhausts ${dashboardUserTimeHtml(value, {timeZone})}`
 }
 
 function escapeHtml(value) {

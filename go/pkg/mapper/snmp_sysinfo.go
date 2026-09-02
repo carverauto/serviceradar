@@ -25,7 +25,8 @@ import (
 )
 
 func (e *DiscoveryEngine) generateDeviceID(job *DiscoveryJob, device *DiscoveredDevice, target string) {
-	if existingID, existingMAC := e.resolveExistingDeviceIdentityByIP(job, target); existingID != "" {
+	if existingID, existingMAC := e.resolveExistingDeviceIdentityByIP(job, target); existingID != "" &&
+		!distinctHardwareMACs(device.MAC, existingMAC) {
 		device.DeviceID = existingID
 		if device.MAC == "" && existingMAC != "" {
 			device.MAC = existingMAC
@@ -34,9 +35,16 @@ func (e *DiscoveryEngine) generateDeviceID(job *DiscoveryJob, device *Discovered
 		return
 	}
 
-	if device.MAC != "" && device.DeviceID == "" {
-		device.DeviceID = GenerateDeviceID(device.MAC)
+	if device.DeviceID != "" {
+		return
 	}
+
+	if id := GenerateDeviceID(device.MAC); id != "" {
+		device.DeviceID = id
+		return
+	}
+
+	device.DeviceID = GenerateDeviceIDFromIP(target)
 }
 
 // querySysInfo queries basic system information via SNMP

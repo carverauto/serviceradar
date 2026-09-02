@@ -1,3 +1,5 @@
+import {dashboardUserTimeHtml} from "../utils/dashboard_user_time"
+
 const SEVERITY_ORDER = ["Critical", "High", "Medium", "Low", "Informational", "Unknown"]
 const CLASS_LABELS = {
   2002: "Vulnerability",
@@ -21,7 +23,7 @@ export function mountSecurityFindings(element, host, api) {
   const state = {host, api}
 
   const render = () => {
-    element.innerHTML = dashboardHtml(state.host)
+    element.innerHTML = dashboardHtml(state.host, element.dataset.timezone || "Etc/UTC")
     bindActions(element, api)
   }
 
@@ -43,7 +45,7 @@ export function mountSecurityFindings(element, host, api) {
   }
 }
 
-function dashboardHtml(host) {
+function dashboardHtml(host, timeZone) {
   const frames = frameMap(host)
   const findings = rows(frames.findings_recent)
   const scans = rows(frames.scan_activity_recent)
@@ -118,7 +120,7 @@ function dashboardHtml(host) {
           </div>
         </header>
         <div class="sr-pkg-signal-grid">
-          ${scannerSignals.map(scannerSignalCard).join("")}
+          ${scannerSignals.map((signal) => scannerSignalCard(signal, timeZone)).join("")}
         </div>
       </section>
 
@@ -171,7 +173,7 @@ function dashboardHtml(host) {
               frameLoading(frames.scan_activity_recent)
                 ? emptyState("Loading scan activity…")
                 : scans.length
-                  ? scans.slice(0, 12).map(scanRow).join("")
+                  ? scans.slice(0, 12).map((row) => scanRow(row, timeZone)).join("")
                   : emptyState("No scan activity returned.")
             }
           </div>
@@ -196,7 +198,7 @@ function dashboardHtml(host) {
               frameLoading(frames.dns_activity_recent)
                 ? emptyState("Loading DNS activity…")
                 : dns.length
-                  ? dns.slice(0, 12).map(dnsRow).join("")
+                  ? dns.slice(0, 12).map((row) => dnsRow(row, timeZone)).join("")
                   : emptyState("No DNS security activity returned.")
             }
           </div>
@@ -287,7 +289,7 @@ function signal(label, kind, query, frame) {
   }
 }
 
-function scannerSignalCard(signal) {
+function scannerSignalCard(signal, timeZone) {
   const row = signal.row
   const freshness = signalFreshness(signal)
   const actionAttr = row?.id
@@ -315,7 +317,7 @@ function scannerSignalCard(signal) {
                 <div class="sr-pkg-kv"><span>Source</span>${sourceBadge(sourceType(row))}</div>
                 <div class="sr-pkg-kv"><span>Entity</span><span class="sr-pkg-kv-value">${entityLink(row)}</span></div>
                 <div class="sr-pkg-kv"><span>Class</span><span class="sr-pkg-kv-value">${escapeHtml(classLabel(row))}</span></div>
-                <div class="sr-pkg-kv"><span>Time</span><span class="sr-pkg-kv-value">${escapeHtml(formatTime(row.time || row.event_timestamp))}</span></div>
+                <div class="sr-pkg-kv"><span>Time</span><span class="sr-pkg-kv-value">${dashboardUserTimeHtml(row.time || row.event_timestamp, {timeZone})}</span></div>
                 <div class="sr-pkg-kv"><span>Freshness</span><span class="sr-pkg-kv-value">${escapeHtml(freshness.caption)}</span></div>
                 <p class="sr-pkg-signal-msg">${escapeHtml(row.message || row.short_message || row.id || "Security signal")}</p>
               </div>`
@@ -326,7 +328,7 @@ function scannerSignalCard(signal) {
   `
 }
 
-function scanRow(row) {
+function scanRow(row, timeZone) {
   return `
     <article ${eventActionAttr(row)} class="sr-pkg-row sr-pkg-cols-scan-run ${row.id ? "is-clickable" : ""}">
       <div class="sr-pkg-cell-main">
@@ -336,12 +338,12 @@ function scanRow(row) {
       <div>${sourceBadge(sourceType(row))}</div>
       <div>${entityLink(row)}</div>
       <div>${statusBadge(row.status || row.status_detail)}</div>
-      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${escapeHtml(formatTime(row.time || row.event_timestamp))}</div>
+      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${dashboardUserTimeHtml(row.time || row.event_timestamp, {timeZone})}</div>
     </article>
   `
 }
 
-function dnsRow(row) {
+function dnsRow(row, timeZone) {
   return `
     <article ${eventActionAttr(row)} class="sr-pkg-row sr-pkg-cols-dns ${row.id ? "is-clickable" : ""}">
       <div class="sr-pkg-cell-main">
@@ -350,7 +352,7 @@ function dnsRow(row) {
       </div>
       <div>${entityLink(row)}</div>
       <div>${statusBadge(row.status || row.severity)}</div>
-      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${escapeHtml(formatTime(row.time || row.event_timestamp))}</div>
+      <div class="sr-pkg-cell-muted sr-pkg-nowrap">${dashboardUserTimeHtml(row.time || row.event_timestamp, {timeZone})}</div>
     </article>
   `
 }
@@ -816,13 +818,6 @@ function number(value) {
 function percent(value, total) {
   if (!total) return "0%"
   return `${Math.round((value / total) * 100)}%`
-}
-
-function formatTime(value) {
-  if (!value) return "n/a"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value)
-  return date.toLocaleString()
 }
 
 function escapeHtml(value) {

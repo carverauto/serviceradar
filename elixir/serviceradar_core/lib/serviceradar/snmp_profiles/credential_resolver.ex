@@ -1,13 +1,16 @@
 defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   @moduledoc """
-  Resolves SNMP credentials for devices using per-device overrides and profiles.
+  Resolves SNMP credentials for devices using per-device overrides,
+  credential rules, and profiles.
 
   Resolution order:
   1. Device-specific override
-  2. Profile credentials (SRQL targeting + default fallback)
-  3. None
+  2. Matching SNMP credential rule (provider snmp, purpose snmp_monitoring)
+  3. Profile credentials (SRQL targeting + default fallback)
+  4. None
   """
 
+  alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
@@ -15,6 +18,8 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   alias ServiceRadar.SNMPProfiles.ProtocolFormatter
   alias ServiceRadar.SNMPProfiles.SNMPProfile
   alias ServiceRadar.SNMPProfiles.SrqlTargetResolver
+  alias ServiceRadar.SRQLAst
+  alias ServiceRadar.SRQLDeviceMatcher
   alias ServiceRadar.Vault
 
   require Ash.Query
@@ -34,15 +39,17 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   @doc """
   Resolve credentials for a device UID.
   """
-  @spec resolve_for_device(String.t() | nil, map()) ::
+  @spec resolve_for_device(String.t() | nil, map(), keyword()) ::
           {:ok,
            %{credential: credential_map() | nil, profile: SNMPProfile.t() | nil, source: atom()}}
           | {:error, term()}
-  def resolve_for_device(nil, _actor) do
+  def resolve_for_device(device_uid, actor, opts \\ [])
+
+  def resolve_for_device(nil, _actor, _opts) do
     {:ok, %{credential: nil, profile: nil, source: :none}}
   end
 
-  def resolve_for_device(device_uid, actor) when is_binary(device_uid) do
+  def resolve_for_device(device_uid, actor, opts) when is_binary(device_uid) do
     case load_device_override(device_uid, actor) do
       {:ok, %DeviceSNMPCredential{} = override} ->
         credential =
@@ -58,26 +65,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
         end
 
       {:ok, nil} ->
-        profile = resolve_profile(device_uid, actor)
-
-        credential =
-          build_credential(profile, actor,
-            consumer_id: profile && "snmp_profile:#{profile.id}",
-            target_kind: "device",
-            target_id: device_uid
-          )
-
-        case credential do
-          {:error, reason} ->
-            {:error, reason}
-
-          credential ->
-            if credential_present?(credential) do
-              {:ok, %{credential: credential, profile: profile, source: :profile}}
-            else
-              {:ok, %{credential: nil, profile: profile, source: :none}}
-            end
-        end
+        resolve_rule_or_profile(device_uid, actor, opts)
 
       {:error, reason} ->
         {:error, reason}
@@ -90,29 +78,43 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
   Useful when no device UID is available but callers still need a concrete
   SNMP credential instead of an empty v2c fallback.
   """
-  @spec resolve_default(map()) ::
+  @spec resolve_default(map(), keyword()) ::
           {:ok,
            %{credential: credential_map() | nil, profile: SNMPProfile.t() | nil, source: atom()}}
           | {:error, term()}
-  def resolve_default(actor) do
-    profile = get_default_profile(actor)
+  def resolve_default(actor, opts \\ []) do
+    case resolve_rule_credential(opts, nil, actor) do
+      {:ok, credential} ->
+        {:ok,
+         %{
+           credential: credential,
+           profile: get_default_profile(actor),
+           source: :credential_rule
+         }}
 
-    credential =
-      build_credential(profile, actor,
-        consumer_id: profile && "snmp_profile:#{profile.id}",
-        target_kind: "snmp_profile",
-        target_id: profile && profile.id
-      )
-
-    case credential do
       {:error, reason} ->
         {:error, reason}
 
-      credential ->
-        if credential_present?(credential) do
-          {:ok, %{credential: credential, profile: profile, source: :default_profile}}
-        else
-          {:ok, %{credential: nil, profile: profile, source: :none}}
+      :none ->
+        profile = get_default_profile(actor)
+
+        credential =
+          build_credential(profile, actor,
+            consumer_id: profile && "snmp_profile:#{profile.id}",
+            target_kind: "snmp_profile",
+            target_id: profile && profile.id
+          )
+
+        case credential do
+          {:error, reason} ->
+            {:error, reason}
+
+          credential ->
+            if credential_present?(credential) do
+              {:ok, %{credential: credential, profile: profile, source: :default_profile}}
+            else
+              {:ok, %{credential: nil, profile: profile, source: :none}}
+            end
         end
     end
   end
@@ -124,12 +126,27 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
           {:ok,
            %{credential: credential_map() | nil, profile: SNMPProfile.t() | nil, source: atom()}}
           | {:error, term()}
-  def resolve_for_host(nil, _actor), do: {:ok, %{credential: nil, profile: nil, source: :none}}
+  def resolve_for_host(host, actor, opts \\ [])
 
-  def resolve_for_host(host, actor) when is_binary(host) do
+  def resolve_for_host(nil, _actor, _opts),
+    do: {:ok, %{credential: nil, profile: nil, source: :none}}
+
+  def resolve_for_host(host, actor, opts) when is_binary(host) do
     case lookup_device_uid(host, actor) do
-      {:ok, device_uid} -> resolve_for_device(device_uid, actor)
-      {:error, _} -> {:ok, %{credential: nil, profile: nil, source: :none}}
+      {:ok, device_uid} ->
+        resolve_for_device(device_uid, actor, opts)
+
+      {:error, _} ->
+        case resolve_rule_credential(opts, nil, actor) do
+          {:ok, credential} ->
+            {:ok, %{credential: credential, profile: nil, source: :credential_rule}}
+
+          {:error, reason} ->
+            {:error, reason}
+
+          :none ->
+            {:ok, %{credential: nil, profile: nil, source: :none}}
+        end
     end
   end
 
@@ -209,9 +226,24 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
     end
   end
 
-  defp record_has_credential?(nil), do: false
+  @doc """
+  Whether a profile or target record names any credential source at all.
 
-  defp record_has_credential?(record) do
+  This is the question an operator can act on: a profile with no bound
+  credential rule and no inline material compiles to zero targets, because
+  `SNMPCompiler` skips every device whose credential fails to resolve. It is
+  deliberately weaker than the compiler's `valid_credentials?/1`, which inspects
+  the *decrypted* credential - that answer needs secret material the interface
+  should never hold, and an operator cannot fix a missing password from a list
+  view anyway.
+
+  Public so the settings UI warns using the same predicate the resolver uses,
+  rather than a copy that can drift away from it.
+  """
+  @spec record_has_credential?(map() | nil) :: boolean()
+  def record_has_credential?(nil), do: false
+
+  def record_has_credential?(record) do
     present?(Map.get(record, :credential_secret_id)) or
       present?(Map.get(record, :community_encrypted)) or
       present?(Map.get(record, :username)) or
@@ -229,6 +261,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
       "version" => ProtocolFormatter.version(Map.get(credential, :version), allow_binary?: true),
       "community" => Map.get(credential, :community),
       "username" => Map.get(credential, :username),
+      "security_level" => ProtocolFormatter.security_level(Map.get(credential, :security_level)),
       "auth_protocol" =>
         ProtocolFormatter.auth_protocol(Map.get(credential, :auth_protocol),
           style: :compact,
@@ -265,7 +298,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
         build_broker_credential(record, secret_id, actor, opts)
 
       _ ->
-        build_legacy_credential(record, version)
+        finalize_credential(build_legacy_credential(record, version))
     end
   end
 
@@ -417,7 +450,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
     case SecretBroker.resolve_network_credential_secret(secret_id, broker_opts) do
       {:ok, %{value: payload, secret: secret}} ->
-        parse_broker_payload(payload, record, secret)
+        finalize_credential(parse_broker_payload(payload, record, secret))
 
       {:error, reason} ->
         Logger.warning(
@@ -606,5 +639,206 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
 
   defp compact_map(map) do
     Map.reject(map, fn {_key, value} -> value in [nil, ""] end)
+  end
+
+  defp resolve_rule_or_profile(device_uid, actor, opts) do
+    case resolve_rule_credential(opts, device_uid, actor) do
+      {:ok, credential} ->
+        {:ok,
+         %{
+           credential: credential,
+           profile: resolve_profile(device_uid, actor),
+           source: :credential_rule
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      :none ->
+        profile = resolve_profile(device_uid, actor)
+
+        credential =
+          build_credential(profile, actor,
+            consumer_id: profile && "snmp_profile:#{profile.id}",
+            target_kind: "device",
+            target_id: device_uid
+          )
+
+        case credential do
+          {:error, reason} ->
+            {:error, reason}
+
+          credential ->
+            if credential_present?(credential) do
+              {:ok, %{credential: credential, profile: profile, source: :profile}}
+            else
+              {:ok, %{credential: nil, profile: profile, source: :none}}
+            end
+        end
+    end
+  end
+
+  defp resolve_rule_credential(opts, device_uid, actor) do
+    scopes = snmp_rule_scopes(opts)
+
+    if scopes == [] do
+      :none
+    else
+      scopes
+      |> Enum.reduce_while([], fn {scope_type, scope_value}, acc ->
+        case NetworkCredentialRule.list_enabled_for_scope(
+               "snmp",
+               scope_type,
+               scope_value,
+               actor: actor
+             ) do
+          {:ok, rules} -> {:cont, acc ++ List.wrap(rules)}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+      |> case do
+        {:error, reason} ->
+          {:error, reason}
+
+        rules ->
+          rules
+          |> Enum.filter(&snmp_monitoring_rule?/1)
+          |> Enum.find(&snmp_rule_matches?(&1, device_uid, actor))
+          |> case do
+            nil ->
+              :none
+
+            rule ->
+              build_rule_credential(rule, actor)
+          end
+      end
+    end
+  end
+
+  defp snmp_rule_scopes(opts) do
+    Enum.reject(
+      [
+        {:agent, Keyword.get(opts, :agent_id)},
+        {:partition, Keyword.get(opts, :partition)}
+      ],
+      fn {_type, value} -> is_nil(value) or value == "" end
+    )
+  end
+
+  defp snmp_monitoring_rule?(rule) do
+    case to_string(Map.get(rule, :purpose) || "") do
+      "" -> true
+      "snmp_monitoring" -> true
+      _ -> false
+    end
+  end
+
+  defp snmp_rule_matches?(_rule, nil, _actor), do: true
+
+  defp snmp_rule_matches?(rule, device_uid, actor) when is_binary(device_uid) do
+    query = rule.target_query |> to_string() |> String.trim()
+
+    if query in ["", "in:devices"] do
+      true
+    else
+      case SRQLAst.parse(query) do
+        {:ok, ast} ->
+          filters = SRQLDeviceMatcher.extract_filters(ast)
+
+          Device
+          |> Ash.Query.for_read(:read, %{}, actor: actor)
+          |> Ash.Query.filter(uid == ^device_uid)
+          |> SRQLDeviceMatcher.apply_filters(filters, log_prefix: "SNMPCredentialResolver")
+          |> Ash.Query.limit(1)
+          |> Ash.read_one(actor: actor)
+          |> case do
+            {:ok, %Device{}} -> true
+            _ -> false
+          end
+
+        _ ->
+          false
+      end
+    end
+  end
+
+  defp build_rule_credential(rule, actor) do
+    secret_id = Map.get(rule, :secret_id)
+
+    if is_nil(secret_id) or secret_id == "" do
+      :none
+    else
+      record = %{
+        version: rule_version(rule),
+        credential_secret_id: secret_id,
+        id: Map.get(rule, :id)
+      }
+
+      case build_credential(record, actor,
+             consumer_id: "credential_rule:#{rule.id}",
+             target_kind: "credential_rule",
+             target_id: rule.id,
+             purpose: "snmp_monitoring"
+           ) do
+        {:error, reason} -> {:error, reason}
+        nil -> :none
+        credential -> {:ok, credential}
+      end
+    end
+  end
+
+  defp rule_version(rule) do
+    case to_string(Map.get(rule, :auth_method) || "") do
+      "v3" -> :v3
+      "community" -> :v2c
+      _ -> :v2c
+    end
+  end
+
+  defp finalize_credential(nil), do: nil
+
+  defp finalize_credential(credential) when is_map(credential) do
+    credential
+    |> infer_version()
+    |> copy_privacy_password()
+    |> infer_security_level()
+  end
+
+  defp infer_version(%{version: :v3} = credential), do: credential
+
+  defp infer_version(credential) do
+    if present?(Map.get(credential, :username)) or present?(Map.get(credential, :auth_password)) or
+         present?(Map.get(credential, :priv_password)) do
+      Map.put(credential, :version, :v3)
+    else
+      Map.put(credential, :version, Map.get(credential, :version) || :v2c)
+    end
+  end
+
+  defp copy_privacy_password(credential) do
+    if present?(Map.get(credential, :priv_protocol)) and
+         not present?(Map.get(credential, :priv_password)) and
+         present?(Map.get(credential, :auth_password)) do
+      Map.put(credential, :priv_password, Map.get(credential, :auth_password))
+    else
+      credential
+    end
+  end
+
+  defp infer_security_level(credential) do
+    case Map.get(credential, :security_level) do
+      level when level in [:no_auth_no_priv, :auth_no_priv, :auth_priv] ->
+        credential
+
+      _ ->
+        level =
+          cond do
+            present?(Map.get(credential, :priv_password)) -> :auth_priv
+            present?(Map.get(credential, :auth_password)) -> :auth_no_priv
+            true -> :no_auth_no_priv
+          end
+
+        Map.put(credential, :security_level, level)
+    end
   end
 end

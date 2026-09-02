@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
 
   attr(:sections, :list, default: [])
   attr(:device_uid, :string, required: true)
+  attr(:timezone, :string, required: true)
   attr(:chart_focus, :any, default: nil)
   attr(:time_range, :string, default: "last_24h")
 
@@ -29,12 +30,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
       </div>
     </div>
 
-    <%= for section <- @sections do %>
+    <%= for {section, section_index} <- Enum.with_index(@sections) do %>
       <div class="rounded-xl border border-sr-line bg-sr-surface">
         <div class="px-4 py-3 border-b border-sr-line flex items-center justify-between gap-3">
           <div class="flex items-center gap-3">
             <span class="text-sm font-semibold">{section.title}</span>
             <span class="text-xs text-sr-muted">{section.subtitle}</span>
+            <span
+              :if={Map.get(section, :subtitle_time)}
+              class="text-xs text-sr-muted"
+            >
+              · centered at
+              <.user_time
+                id={"device-#{@device_uid}-#{section.key}-#{section_index}-subtitle-time"}
+                value={Map.get(section, :subtitle_time)}
+                timezone={@timezone}
+                style={:compact}
+                fallback=""
+              />
+            </span>
           </div>
           <div class="flex items-center gap-3">
             <div
@@ -76,6 +90,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
               rows={Map.get(section, :rows, [])}
               columns={["process", "pid", "cpu_pct", "memory_pct"]}
               container={false}
+              timezone={@timezone}
               empty_message="No process metrics yet."
             />
           <% else %>
@@ -84,7 +99,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
                 module={panel.plugin}
                 id={"device-#{@device_uid}-#{section.key}-#{panel.id}-#{idx}"}
                 title={Map.get(panel, :title) || section.title}
-                panel_assigns={panel_assigns(panel, @chart_focus)}
+                panel_assigns={panel_assigns(panel, @chart_focus, @timezone)}
               />
             <% end %>
           <% end %>
@@ -139,9 +154,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetricSectionComponents do
 
   defp percent_width(_), do: 0
 
-  defp panel_assigns(panel, chart_focus) do
+  defp panel_assigns(panel, chart_focus, timezone) do
     panel.assigns
     |> Map.put(:compact, true)
+    |> Map.put(:timezone, timezone)
     |> maybe_put_chart_focus(chart_focus)
   end
 

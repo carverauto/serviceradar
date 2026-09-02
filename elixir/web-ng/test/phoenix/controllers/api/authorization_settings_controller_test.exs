@@ -48,6 +48,20 @@ defmodule ServiceRadarWebNGWeb.Api.AuthorizationSettingsControllerTest do
       assert body["default_role"] == "operator"
     end
 
+    test "returns 403 for non-admin", %{conn: conn} do
+      user = AshTestHelpers.viewer_user_fixture()
+
+      conn =
+        conn
+        |> log_in_user(user)
+        |> put(~p"/api/admin/authorization-settings", %{
+          "default_role" => "admin",
+          "role_mappings" => [%{"source" => "groups", "value" => "Admins", "role" => "admin"}]
+        })
+
+      assert conn.status == 403
+    end
+
     test "returns 422 for invalid role_mappings json", %{conn: conn} do
       admin = AshTestHelpers.admin_user_fixture()
 

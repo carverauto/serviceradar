@@ -13,6 +13,7 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   alias ServiceRadar.EventWriter.Processors.Telemetry
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.Identity.DeviceLookup
+  alias ServiceRadar.Inventory.DeviceSNMPFactWriter
   alias ServiceRadar.Observability.MetricEnvelope
 
   require Logger
@@ -28,11 +29,23 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
     rows = backfill_device_ids(rows)
     SignalTelemetry.emit(:metrics, :rejected, rejected)
 
+    # Runs AFTER device_id backfill, because a fact is keyed by the canonical
+    # device uid and an unresolved reading cannot be written at all. Deliberately
+    # before the timeseries insert and deliberately unable to fail it: losing a
+    # metric point is worse than losing a snapshot row the next poll rewrites.
+    DeviceSNMPFactWriter.write_rows(rows)
+
     if rejected > 0 do
       Logger.warning("Metrics processor rejected non-protobuf metric messages", count: rejected)
     end
 
-    with {:ok, count} <- Telemetry.insert_rows(rows) do
+    # A non-numeric reading carries value 0.0 only so the protobuf point has a
+    # shape at all. Writing it to timeseries_metrics would create a permanently
+    # flat series for a version string and feed that to anomaly detection, so
+    # the facts table above is the only place it lands.
+    numeric_rows = Enum.filter(rows, &numeric_row?/1)
+
+    with {:ok, count} <- Telemetry.insert_rows(numeric_rows) do
       SignalTelemetry.emit(:metrics, :written, count)
       {:ok, count}
     end
@@ -90,6 +103,14 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   # is strictly best-effort: an unknown IP or a lookup failure leaves device_id
   # nil rather than dropping the metric. The anomaly hot path is unaffected — it
   # never calls this; only the CNPG persistence path enriches device_id.
+  @doc """
+  Whether a decoded row carries a value the timeseries store can hold.
+
+  Public so the split is testable without a database or a metric envelope.
+  """
+  @spec numeric_row?(map()) :: boolean()
+  def numeric_row?(row), do: Map.get(row[:metadata] || %{}, "non_numeric") != "true"
+
   defp backfill_device_ids(rows) do
     ips =
       rows

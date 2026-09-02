@@ -62,7 +62,7 @@ mix serviceradar.validate_addon_params --execute
 Rows reported `invalid` stay undelivered (the delivery path refuses them)
 until an operator fixes the params. There is currently no per-assignment
 validation-status field to persist the refusal on — surfacing it on the
-assignment record in the UI is tracked as follow-up work (fj#4386b).
+assignment record in the UI is follow-up work.
 
 ## Compatibility forms (delivery-side coercion)
 

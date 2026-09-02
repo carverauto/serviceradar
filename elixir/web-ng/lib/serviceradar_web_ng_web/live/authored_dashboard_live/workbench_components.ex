@@ -84,6 +84,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.WorkbenchComponents do
               source_queries={SourceQueries.source_queries(@dashboard)}
               templates={SourceQueries.templates()}
               can_manage?={AccessControls.can_manage?(@dashboard, access_assigns(assigns))}
+              timezone={@current_scope.user.timezone || "Etc/UTC"}
             />
 
             <.dashboard_builder_canvas
@@ -92,6 +93,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.WorkbenchComponents do
               visual_options={CanvasState.visual_options()}
               selected_id={CanvasState.selected_panel_id(@editing_panel_id, @dashboard)}
               can_manage={AccessControls.can_manage?(@dashboard, access_assigns(assigns))}
+              timezone={@current_scope.user.timezone || "Etc/UTC"}
             />
           </div>
         </section>
@@ -111,6 +113,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.WorkbenchComponents do
           :if={AccessControls.can_schedule_dashboard?(@dashboard, access_assigns(assigns))}
           dashboard={@dashboard}
           report_schedule_form={@report_schedule_form}
+          timezone={@current_scope.user.timezone || "Etc/UTC"}
         />
       </div>
     </section>

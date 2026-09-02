@@ -207,3 +207,10 @@ LIMIT 20;
 Agents check for configuration updates every 5 minutes (with jitter). To force an update:
 1. Restart the agent
 2. Or wait for the next refresh cycle (up to ~5.5 minutes)
+
+## Related documentation
+
+Host CPU/memory/disk metrics are Sysmon. Passive packet observation, device
+fingerprints, and NetFlow-to-process joins are a different policy surface:
+[Visibility Profiles](./visibility-profiles.md) plus the
+[netprobe](./netprobe.md) add-on.

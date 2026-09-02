@@ -173,6 +173,15 @@ defmodule ServiceRadar.SNMPProfiles.SNMPOIDTemplate do
       description "Whether this is a built-in template (read-only)"
     end
 
+    # Provenance, so an operator can tell plugin-contributed configuration from
+    # their own. Nullable: every template authored before this existed keeps a
+    # NULL, and a template outlives the package that contributed it.
+    attribute :plugin_package_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Plugin package that contributed this template, when any"
+    end
+
     timestamps()
   end
 

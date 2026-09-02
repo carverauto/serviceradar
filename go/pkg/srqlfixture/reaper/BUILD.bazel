@@ -1,0 +1,21 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "reaper",
+    srcs = [
+        "errors.go",
+        "reaper.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/srqlfixture/reaper",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "reaper_test",
+    srcs = ["reaper_test.go"],
+    data = [
+        "//k8s/srql-fixtures:scratch-reaper.sql",
+        "//k8s/srql-fixtures:scratch-reaper.yaml",
+    ],
+    embed = [":reaper"],
+)

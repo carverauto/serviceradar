@@ -57,6 +57,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
           "BmpSettingsUpdate" => bmp_settings_update_schema(),
           "AuthorizationSettings" => authorization_settings_schema(),
           "AuthorizationSettingsUpdate" => authorization_settings_update_schema(),
+          "RoleMapping" => role_mapping_schema(),
           "Error" => %{
             "type" => "object",
             "properties" => %{
@@ -369,7 +370,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
         },
         "role_mappings" => %{
           "type" => "array",
-          "items" => %{"$ref" => "#/components/schemas/AnyObject"}
+          "items" => %{"$ref" => "#/components/schemas/RoleMapping"}
         }
       }
     }
@@ -385,10 +386,59 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
         },
         "role_mappings" => %{
           "type" => "array",
-          "items" => %{"$ref" => "#/components/schemas/AnyObject"}
+          "items" => %{"$ref" => "#/components/schemas/RoleMapping"}
         }
       },
       "additionalProperties" => false
+    }
+  end
+
+  # A mapping matches on a claim and grants any combination of a role, a role
+  # profile and a user group. Every matching mapping contributes: profiles and
+  # groups union and the highest role wins, so entry order does not affect the
+  # outcome.
+  defp role_mapping_schema do
+    %{
+      "type" => "object",
+      "required" => ["source", "value"],
+      "properties" => %{
+        "source" => %{
+          "type" => "string",
+          "enum" => ["groups", "email_domain", "claim"],
+          "description" => "What the mapping matches against."
+        },
+        "value" => %{
+          "type" => "string",
+          "description" =>
+            "The value to match. For source=groups against Microsoft Entra this is " <>
+              "normally the group object ID, not its display name."
+        },
+        "claim" => %{
+          "type" => "string",
+          "description" => "Claim to read, for source=claim. Dot-notation is supported for nested claims."
+        },
+        "role" => %{
+          "type" => "string",
+          "enum" => ["viewer", "helpdesk", "operator", "admin"],
+          "description" => "Built-in role to grant."
+        },
+        "role_profile_id" => %{
+          "type" => "string",
+          "format" => "uuid",
+          "description" =>
+            "Role profile to grant. Prefer this over a role when the intent is a single " <>
+              "capability rather than everything the role carries."
+        },
+        "user_group_id" => %{
+          "type" => "string",
+          "format" => "uuid",
+          "description" => "ServiceRadar user group to add the user to."
+        }
+      },
+      "additionalProperties" => false,
+      "description" =>
+        "At least one of role, role_profile_id or user_group_id must be present; " <>
+          "an entry that grants nothing is rejected."
     }
   end
 

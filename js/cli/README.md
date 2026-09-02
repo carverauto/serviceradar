@@ -10,14 +10,16 @@ React/JS surface customer dashboards depend on).
 ```text
 serviceradar-cli auth      <login|status|logout>
 serviceradar-cli dashboard <init|build|dev|validate|manifest|publish|import>
+serviceradar-cli plugin    <init|validate|publish|status>
 ```
 
-Help for either group:
+Help for any group:
 
 ```bash
 serviceradar-cli help
 serviceradar-cli auth help
 serviceradar-cli dashboard --help     # delegates through to the dashboard subgroup
+serviceradar-cli plugin --help
 ```
 
 ## Single install for developers
@@ -98,6 +100,38 @@ Behavior worth knowing about:
 The CLI surfaces structured server errors with actionable hints for each
 of these cases — the raw HTTP status and `error` code are also included so
 they can be parsed by automation.
+
+## Wasm plugins
+
+`serviceradar-cli plugin` publishes Wasm check plugins to an instance, so a
+developer can push a build from a workstation or CI instead of uploading through
+the admin UI.
+
+```bash
+serviceradar-cli plugin init my-probe --template go   # or --template rust
+cd my-probe
+tinygo build -target=wasi -no-debug -o plugin.wasm ./
+serviceradar-cli plugin validate
+serviceradar-cli auth login --instance https://serviceradar.example.com --scope plugin.publish
+serviceradar-cli plugin publish --instance https://serviceradar.example.com
+serviceradar-cli plugin status --instance https://serviceradar.example.com --id <package-id>
+```
+
+`init` scaffolds against the language SDKs — the Go template builds with TinyGo
+against `serviceradar-sdk-go`, the Rust template targets `wasm32-wasip1` against
+`serviceradar-sdk-rust`. Neither SDK needs a CLI of its own: publishing acts on
+the built `plugin.wasm` plus `plugin.yaml`, so it is not language-specific.
+
+`publish` stages the package and uploads its bundle. It does **not** activate the
+plugin — an administrator approves it in Settings -> Agents -> Plugins, where the
+capabilities the manifest requests are reviewed and can be approved more
+narrowly than requested. `status` reports that outcome.
+
+The token needs the `plugin.publish` scope, which is separate from
+`dashboard.publish`: a token minted for one cannot reach the other's endpoints.
+Request both with `--scope "dashboard.publish plugin.publish"`. The scope only
+makes the operation requestable; the account still needs the `plugins.stage`
+permission.
 
 ## Repository structure
 

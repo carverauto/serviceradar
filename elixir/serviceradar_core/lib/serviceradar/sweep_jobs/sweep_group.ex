@@ -26,8 +26,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
   ## Agent Assignment
 
-  - `partition`: Required partition for this sweep group
-  - `agent_id`: Optional specific agent (nil = any agent in partition)
+  - `partition`: Device-lookup partition for ingest. Partition-wide groups are
+    compiled onto agents that live in this same partition.
+  - `agent_ids`: Canonical scanner assignment. An empty list means every agent
+    in `partition`; a non-empty list means exactly the selected scanners. A
+    selected agent still receives and runs the group when it lives in another
+    partition, which is how isolation scans work: a scanner on a blocked subnet
+    probes devices in a different device partition.
   """
 
   use Ash.Resource,
@@ -36,14 +41,17 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.SweepJobs.Changes.NormalizeAgentAssignment
   alias ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
   alias ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
+  alias ServiceRadar.SweepJobs.Validations.AgentAssignment
 
   @group_fields [
     :name,
     :description,
     :partition,
     :agent_id,
+    :agent_ids,
     :enabled,
     :interval,
     :schedule_type,
@@ -68,6 +76,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       index [:agent_id],
         where: "agent_id IS NOT NULL",
         name: "sweep_groups_agent_idx"
+
+      index [:agent_ids], name: "sweep_groups_agent_ids_gin_idx", using: "gin"
     end
   end
 
@@ -77,6 +87,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     create :create do
       accept @group_fields
 
+      change NormalizeAgentAssignment
+      validate AgentAssignment
       change ScheduleSweepMonitor
       change ValidateSrqlQuery
     end
@@ -86,6 +98,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
       accept @group_fields
 
+      change NormalizeAgentAssignment
+      validate AgentAssignment
       change ScheduleSweepMonitor
       change ValidateSrqlQuery
     end
@@ -167,19 +181,29 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
       filter expr(
                enabled == true and
-                 (agent_id == ^arg(:agent_id) or is_nil(agent_id))
+                 (agent_ids == [] or
+                    (not is_nil(^arg(:agent_id)) and ^arg(:agent_id) != "" and
+                       ^arg(:agent_id) in agent_ids))
              )
     end
 
     read :for_agent_partition do
-      description "Get groups for a specific agent and partition"
+      description """
+      Groups this agent should run.
+
+      Includes (1) groups whose fixed subset contains this agent, including isolation scans
+      whose device partition differs from the agent's, and (2) partition-wide
+      groups whose partition matches the agent's.
+      """
+
       argument :agent_id, :string, allow_nil?: true
       argument :partition, :string, allow_nil?: false
 
       filter expr(
                enabled == true and
-                 partition == ^arg(:partition) and
-                 (is_nil(^arg(:agent_id)) or agent_id == ^arg(:agent_id) or is_nil(agent_id))
+                 ((not is_nil(^arg(:agent_id)) and ^arg(:agent_id) != "" and
+                     fragment("? @> ?", agent_ids, [^arg(:agent_id)])) or
+                    (agent_ids == [] and partition == ^arg(:partition)))
              )
     end
   end
@@ -212,13 +236,20 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       allow_nil? false
       public? true
       default "default"
-      description "Partition for this sweep group"
+      description "Device-lookup partition; partition-wide groups also compile onto agents here"
     end
 
     attribute :agent_id, :string do
       allow_nil? true
       public? true
-      description "Specific agent ID (nil = any agent in partition)"
+      description "Compatibility mirror of the first selected scanner agent ID"
+    end
+
+    attribute :agent_ids, {:array, :string} do
+      allow_nil? false
+      public? true
+      default []
+      description "Canonical scanner agent IDs (empty = all agents in the partition)"
     end
 
     attribute :enabled, :boolean do

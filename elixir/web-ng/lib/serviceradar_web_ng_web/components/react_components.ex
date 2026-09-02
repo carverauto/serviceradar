@@ -47,6 +47,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :visual_options, :list, default: []
   attr :selected_id, :string, default: ""
   attr :can_manage, :boolean, default: false
+  attr :timezone, :string, default: "Etc/UTC"
   attr :class, :string, default: ""
 
   def dashboard_builder_canvas(assigns) do
@@ -55,7 +56,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
         panels: assigns.panels,
         visualOptions: assigns.visual_options,
         selectedId: assigns.selected_id,
-        canManage: assigns.can_manage
+        canManage: assigns.can_manage,
+        timezone: assigns.timezone || "Etc/UTC"
       })
 
     ~H"""
@@ -79,6 +81,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :rows, :list, default: []
   attr :fields, :list, default: []
   attr :trend, :map, default: nil
+  attr :timezone, :string, default: "Etc/UTC"
   attr :class, :string, default: ""
 
   def dashboard_panel_chart(assigns) do
@@ -87,7 +90,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
         panel: dashboard_panel_chart_props(assigns.panel),
         rows: assigns.rows,
         fields: assigns.fields,
-        trend: assigns.trend
+        trend: assigns.trend,
+        timezone: assigns.timezone || "Etc/UTC"
       })
 
     ~H"""

@@ -75,6 +75,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
 
     references do
       reference :snmp_profile, on_delete: :delete
+      reference :credential_secret, on_delete: :restrict
     end
   end
 
@@ -139,6 +140,14 @@ defmodule ServiceRadar.SNMPProfiles.SNMPTarget do
   end
 
   relationships do
+    belongs_to :credential_secret, ServiceRadar.Credentials.NetworkCredentialSecret do
+      allow_nil? true
+      public? true
+      define_attribute? false
+      source_attribute :credential_secret_id
+      destination_attribute :id
+    end
+
     belongs_to :snmp_profile, ServiceRadar.SNMPProfiles.SNMPProfile do
       allow_nil? false
     end

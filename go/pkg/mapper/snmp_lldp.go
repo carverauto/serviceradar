@@ -115,57 +115,143 @@ const (
 	defaultByteLengthCheck = 5
 )
 
-// processLLDPManagementAddress processes LLDP management address entries
+// processLLDPManagementAddress processes LLDP management address entries.
+// IEEE 802.1AB puts the neighbor IPv4 in the table INDEX (length-prefixed
+// octets after AddressFamilyNumbers). lldpd/AgentX exposes that as INTEGER
+// lldpRemManAddrIfSubtype rows. Cisco-ish agents still send a typed
+// OctetString value; accept both.
 func (*DiscoveryEngine) processLLDPManagementAddress(pdu gosnmp.SnmpPDU, linkMap map[string]*TopologyLink) error {
-	if pdu.Type != gosnmp.OctetString {
-		return nil
-	}
-
 	key := lldpManagementAddressLinkKey(pdu.Name)
 	if key == "" {
 		key = lldpManagementAddressLinkKey(strings.TrimPrefix(pdu.Name, "."))
 	}
 
-	// Try to extract IP address from management address
-	bytes := pdu.Value.([]byte)
-	if len(bytes) >= defaultByteLengthCheck {
-		// First byte is usually the address type (1=IPv4)
-		if bytes[0] == 1 && len(bytes) >= 5 {
-			ip := net.IPv4(bytes[1], bytes[2], bytes[3], bytes[4])
-
-			if link, ok := linkMap[key]; ok && link.NeighborMgmtAddr == "" {
-				link.NeighborMgmtAddr = ip.String()
-				return nil
-			}
-
-			// Fallback for incomplete OIDs: assign to first unresolved link.
-			for _, link := range linkMap {
-				if link.NeighborMgmtAddr == "" {
-					link.NeighborMgmtAddr = ip.String()
-					return nil
-				}
-			}
-		}
+	ip := lldpManagementIPv4FromOID(pdu.Name)
+	if ip == "" {
+		ip = lldpManagementIPv4FromPDUValue(pdu)
 	}
+	if ip == "" {
+		return nil
+	}
+
+	assignLLDPManagementIP(linkMap, key, ip)
 
 	return nil
 }
 
-func lldpManagementAddressLinkKey(oid string) string {
-	base := strings.TrimPrefix(oidLLDPRemManAddr, ".")
-	trimmed := strings.TrimPrefix(oid, ".")
-	prefix := base + "."
-	if !strings.HasPrefix(trimmed, prefix) {
+func lldpManagementIPv4FromPDUValue(pdu gosnmp.SnmpPDU) string {
+	if pdu.Type != gosnmp.OctetString {
 		return ""
 	}
 
-	suffix := strings.TrimPrefix(trimmed, prefix)
-	parts := strings.Split(suffix, ".")
+	bytes, ok := pdu.Value.([]byte)
+	if !ok {
+		return ""
+	}
+
+	if len(bytes) >= defaultByteLengthCheck && bytes[0] == 1 {
+		return net.IPv4(bytes[1], bytes[2], bytes[3], bytes[4]).String()
+	}
+
+	if len(bytes) == 4 {
+		return net.IPv4(bytes[0], bytes[1], bytes[2], bytes[3]).String()
+	}
+
+	return ""
+}
+
+func assignLLDPManagementIP(linkMap map[string]*TopologyLink, key, ip string) {
+	if key != "" {
+		if link, ok := linkMap[key]; ok && link.NeighborMgmtAddr == "" {
+			link.NeighborMgmtAddr = ip
+			return
+		}
+	}
+
+	for _, link := range linkMap {
+		if link != nil && link.NeighborMgmtAddr == "" {
+			link.NeighborMgmtAddr = ip
+			return
+		}
+	}
+}
+
+func lldpManagementAddressLinkKey(oid string) string {
+	parts := lldpManagementAddressIndexParts(oid)
 	if len(parts) < 3 {
 		return ""
 	}
 
 	return fmt.Sprintf("%s.%s.%s", parts[0], parts[1], parts[2])
+}
+
+func lldpManagementAddressIndexParts(oid string) []string {
+	base := strings.TrimPrefix(oidLLDPRemManAddr, ".")
+	trimmed := strings.TrimPrefix(oid, ".")
+	prefix := base + "."
+	if !strings.HasPrefix(trimmed, prefix) {
+		return nil
+	}
+
+	return strings.Split(strings.TrimPrefix(trimmed, prefix), ".")
+}
+
+// lldpManagementIPv4FromOID reads the IPv4 management address from the
+// lldpRemManAddrTable INDEX. Encoding is:
+//
+//	timeMark.localPort.remIndex.addrSubtype.addr
+//
+// where addrSubtype 1 is IPv4 and addr is either length-prefixed
+// (`4.10.99.0.12`) as lldpd emits, or four raw octets.
+func lldpManagementIPv4FromOID(oid string) string {
+	parts := lldpManagementAddressIndexParts(oid)
+	if len(parts) < 5 {
+		return ""
+	}
+
+	if parts[3] != "1" {
+		return ""
+	}
+
+	return parseLLDPIPv4Index(parts[4:])
+}
+
+func parseLLDPIPv4Index(parts []string) string {
+	if len(parts) >= 5 && parts[0] == "4" {
+		if ip := ipv4FromOIDParts(parts[1:5]); ip != "" {
+			return ip
+		}
+	}
+
+	if len(parts) >= 4 {
+		return ipv4FromOIDParts(parts[:4])
+	}
+
+	return ""
+}
+
+func ipv4FromOIDParts(parts []string) string {
+	if len(parts) != 4 {
+		return ""
+	}
+
+	octets := make([]byte, 4)
+
+	for i, part := range parts {
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 || n > 255 {
+			return ""
+		}
+
+		octets[i] = byte(n)
+	}
+
+	ip := net.IPv4(octets[0], octets[1], octets[2], octets[3])
+	if ip.IsUnspecified() {
+		return ""
+	}
+
+	return ip.String()
 }
 
 // isValidLLDPLink checks if a link has at least one neighbor identifier
@@ -215,12 +301,14 @@ func (e *DiscoveryEngine) queryLLDP(client *gosnmp.GoSNMP, targetIP string, job 
 		return nil, fmt.Errorf("failed to walk LLDP table: %w", err)
 	}
 
-	// Walk LLDP management address table for neighbor IPs
-	err = client.BulkWalk(oidLLDPRemManAddr, func(pdu gosnmp.SnmpPDU) error {
+	// Walk LLDP management address table for neighbor IPs. A missing table
+	// must not discard remTable neighbors — recursion needs the links even
+	// when mgmt IPs are absent.
+	if err = client.BulkWalk(oidLLDPRemManAddr, func(pdu gosnmp.SnmpPDU) error {
 		return e.processLLDPManagementAddress(pdu, linkMap)
-	})
-	if err != nil {
-		return nil, err
+	}); err != nil && e.logger != nil {
+		e.logger.Debug().Str("job_id", job.ID).Str("target_ip", targetIP).Err(err).
+			Msg("LLDP management address walk failed")
 	}
 
 	return e.finalizeLLDPLinks(linkMap, job)

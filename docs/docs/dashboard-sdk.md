@@ -36,6 +36,22 @@ field, control-token, and operator metadata. Treat that catalog JSON as the
 canonical client-side reference rather than shipping a separate SRQL field map
 inside the package.
 
+## Stats frames and row paging
+
+`in:composite_results stats:count() as n by check,verdict` is a GROUP BY, not
+a truncated row dump. Do not page it, and do not treat a short result as a
+ceiling. Vantage rollups use `by input_key, input_value` (optional
+`input_stale`), which unnests `inputs` server-side.
+
+Row frames that can exceed the host page size should call `api.srql.page`
+(SDK 0.2.0: `useDashboardFramePagination`) with the signed cursor from
+`frame.pagination`. Do **not** put `cursor:` in the query string. Device
+labels for a paged results frame come from `in:devices uid:(…)` with at most
+200 uids, matching the SRQL IN-list cap.
+
+The host, examples, and React hook contract live on the
+[developer portal Dashboard SDK page](https://developer.serviceradar.cloud/docs/v2/dashboard-sdk).
+
 ## Related ServiceRadar Docs
 
 - [SRQL Reference](./srql-language-reference.md) — the query language that

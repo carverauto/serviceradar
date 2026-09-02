@@ -140,7 +140,15 @@ export const godViewLifecycleStreamSnapshotMethods = {
       } catch (error) {
         restoreLastGoodRender(this, previousAcceptanceState)
         this.state.summary.textContent = "topology render unavailable"
-        this.state.pushEvent("god_view_stream_error", {reason: "render_error", message: `${error}`})
+        // deck.gl strips assertion text in a production build, so `${error}` can arrive as a
+        // bare "deck.gl: assertion failed." naming nothing. The stack is the only thing that
+        // identifies which layer threw, and without it a render error is undiagnosable from
+        // the server logs -- which is the only place these are ever read.
+        this.state.pushEvent("god_view_stream_error", {
+          reason: "render_error",
+          message: `${error}`,
+          stack: String(error?.stack || ""),
+        })
         return
       }
       this.state.lastRevision = revision

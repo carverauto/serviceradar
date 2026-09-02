@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
   @repo_url "https://github.com/carverauto/serviceradar"
   @external_repo_url "https://github.com/carverauto/serviceradar-plugin-example-inventory"
+  @per_plugin_repo_url "https://github.com/carverauto/serviceradar-plugin-per-plugin-tags"
   @manifest_yaml """
   id: live-first-party-plugin
   name: Live First-party Plugin
@@ -77,6 +78,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
         ) ->
           {:ok, %Req.Response{status: 200, body: PluginPackageLiveTest.external_release()}}
 
+        String.contains?(
+          url,
+          "api.github.com/repos/carverauto/serviceradar-plugin-per-plugin-tags/releases?per_page="
+        ) ->
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: PluginPackageLiveTest.per_plugin_releases()
+           }}
+
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
           {:ok,
            %Req.Response{
@@ -95,6 +106,12 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
             cond do
               String.contains?(url, "serviceradar-plugin-example-inventory") ->
                 PluginPackageLiveTest.external_index()
+
+              String.contains?(url, "/alpha-sensor-v0.1.0/") ->
+                PluginPackageLiveTest.per_plugin_index("alpha-sensor", "Alpha Sensor", "0.1.0")
+
+              String.contains?(url, "/beta-sensor-v0.2.0/") ->
+                PluginPackageLiveTest.per_plugin_index("beta-sensor", "Beta Sensor", "0.2.0")
 
               String.contains?(url, "/v1.0.0/") ->
                 PluginPackageLiveTest.old_index()
@@ -231,10 +248,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert html =~ "Plugin catalog"
     refute html =~ "Live First-party Plugin"
 
-    html =
-      lv
-      |> element("button[phx-click='sync_first_party_catalog']")
-      |> render_click()
+    lv
+    |> element("button[phx-click='sync_first_party_catalog']")
+    |> render_click()
+
+    html = lv |> element("#plugin-catalog") |> render()
 
     assert html =~ "Live First-party Plugin"
     assert html =~ "live-first-party-plugin"
@@ -267,6 +285,57 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert package.source_release_tag == "v2.0.0"
   end
 
+  test "a repository tagging one release per plugin shows all of its plugins", %{conn: conn} do
+    # Every tag here is per-plugin (`alpha-sensor-v0.1.0`), so none matches the
+    # first-party `vX.Y.Z` shape. Filtering the release options by that shape
+    # discarded them all, the selector fell back to an imported package's tag
+    # from a different repository, and the catalog then filtered its own entries
+    # against that foreign tag and reported finding nothing.
+    repository = create_repository!("per-plugin", @per_plugin_repo_url)
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+
+    lv
+    |> form("#select-first-party-repository-form", %{"repository_id" => repository.id})
+    |> render_change()
+
+    html = lv |> element("#plugin-catalog") |> render()
+
+    refute html =~ "no import-ready plugin entries were found"
+    assert html =~ "Alpha Sensor"
+    assert html =~ "Beta Sensor"
+    assert html =~ "All releases"
+  end
+
+  test "a repository's catalog does not show packages imported from another repository", %{
+    conn: conn
+  } do
+    unique = System.unique_integer([:positive])
+    repository = create_repository!("per-plugin", @per_plugin_repo_url)
+
+    # Imported from the built-in ServiceRadar repository, not from the
+    # per-plugin one being browsed. With "All releases" selected, a release-tag
+    # comparison alone no longer excludes it -- only its origin does.
+    create_catalog_package!(
+      system_actor(),
+      "v2.0.0",
+      "foreign-imported-plugin-#{unique}",
+      "2.0.0",
+      @repo_url
+    )
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+
+    lv
+    |> form("#select-first-party-repository-form", %{"repository_id" => repository.id})
+    |> render_change()
+
+    html = lv |> element("#plugin-catalog") |> render()
+
+    assert html =~ "Alpha Sensor"
+    refute html =~ "foreign-imported-plugin-#{unique}"
+  end
+
   test "plugin catalog defaults to latest official release and can select older releases", %{
     conn: conn
   } do
@@ -282,10 +351,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
     {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
 
-    html =
-      lv
-      |> element("button[phx-click='sync_first_party_catalog']")
-      |> render_click()
+    lv
+    |> element("button[phx-click='sync_first_party_catalog']")
+    |> render_click()
+
+    html = lv |> element("#plugin-catalog") |> render()
 
     assert html =~ "Showing 1 first-party plugin entry(s) from release v2.0.0"
     assert html =~ "Live First-party Plugin"
@@ -295,15 +365,86 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     refute html =~ "sha-#{unique}"
     refute html =~ "non-release-plugin-#{unique}"
 
-    html =
-      lv
-      |> form("form[phx-change='select_first_party_release']", %{release_tag: "v1.0.0"})
-      |> render_change()
+    lv
+    |> form("form[phx-change='select_first_party_release']", %{release_tag: "v1.0.0"})
+    |> render_change()
+
+    html = lv |> element("#plugin-catalog") |> render()
 
     assert html =~ "Old First-party Plugin"
     assert html =~ "v1.0.0"
     refute html =~ "Live First-party Plugin"
     refute html =~ "Live live-imported-plugin-#{unique}"
+  end
+
+  test "keeps imported packages visible after the connected catalog load", %{
+    conn: conn,
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+
+    package =
+      create_catalog_package!(
+        actor,
+        "v1.0.0",
+        "connected-mount-import-#{unique}",
+        "1.0.0"
+      )
+
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+
+    assert has_element?(
+             lv,
+             "#select-plugin-release-form option[value='v2.0.0'][selected]"
+           )
+
+    assert has_element?(
+             lv,
+             "#imported-plugin-packages #imported-plugin-package-#{package.id}"
+           )
+  end
+
+  test "filtering imported packages does not change catalog import state", %{
+    conn: conn,
+    actor: actor
+  } do
+    package =
+      create_catalog_package!(actor, "v2.0.0", "live-first-party-plugin", "2.0.0")
+
+    package_path = ~p"/admin/plugins/#{package.id}"
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+
+    assert has_element?(
+             lv,
+             "#plugin-catalog a[href='#{package_path}']"
+           )
+
+    refute has_element?(
+             lv,
+             "#plugin-catalog button[phx-click='import_first_party_plugin'][phx-value-plugin-id='live-first-party-plugin']"
+           )
+
+    lv
+    |> form("#filter-imported-plugin-packages", %{
+      "status" => "approved",
+      "source_type" => ""
+    })
+    |> render_change()
+
+    refute has_element?(
+             lv,
+             "#imported-plugin-packages #imported-plugin-package-#{package.id}"
+           )
+
+    assert has_element?(
+             lv,
+             "#plugin-catalog a[href='#{package_path}']"
+           )
+
+    refute has_element?(
+             lv,
+             "#plugin-catalog button[phx-click='import_first_party_plugin'][phx-value-plugin-id='live-first-party-plugin']"
+           )
   end
 
   test "first-party repository plugins are paginated ten at a time", %{conn: conn} do
@@ -333,7 +474,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     refute html =~ "Catalog Plugin 01"
   end
 
-  test "plugin catalog paginates imported package rows ten at a time", %{conn: conn, actor: actor} do
+  test "catalog and imported package panels paginate independently", %{conn: conn, actor: actor} do
     unique = System.unique_integer([:positive])
 
     for index <- 1..12 do
@@ -347,7 +488,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
       )
     end
 
-    {:ok, lv, html} = live(conn, ~p"/admin/plugins")
+    {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
+
+    imported_html = lv |> element("#imported-plugin-packages") |> render()
+
+    assert imported_html =~ "Showing 1-10 of 12"
+    assert imported_html =~ "Live installed-plugin-#{unique}-12"
+    refute imported_html =~ "Live installed-plugin-#{unique}-01"
+
+    html = lv |> element("#plugin-catalog") |> render()
 
     assert html =~ "Showing 1-10 of 12"
     assert html =~ "Live installed-plugin-#{unique}-01"
@@ -355,15 +504,26 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     refute html =~ "Live installed-plugin-#{unique}-11"
     refute html =~ "Live installed-plugin-#{unique}-12"
 
-    html =
-      lv
-      |> element("#first-party-catalog-next-page")
-      |> render_click()
+    lv
+    |> element("#first-party-catalog-next-page")
+    |> render_click()
+
+    html = lv |> element("#plugin-catalog") |> render()
 
     assert html =~ "Showing 11-12 of 12"
     assert html =~ "Live installed-plugin-#{unique}-11"
     assert html =~ "Live installed-plugin-#{unique}-12"
     refute html =~ "Live installed-plugin-#{unique}-01"
+
+    lv
+    |> element("#plugin-packages-next-page")
+    |> render_click()
+
+    imported_html = lv |> element("#imported-plugin-packages") |> render()
+
+    assert imported_html =~ "Showing 11-12 of 12"
+    assert imported_html =~ "Live installed-plugin-#{unique}-01"
+    refute imported_html =~ "Live installed-plugin-#{unique}-12"
   end
 
   test "imports a first-party plugin from the catalog", %{conn: conn, actor: actor} do
@@ -992,6 +1152,42 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert html =~ "upgrade or version selector"
   end
 
+  test "does not offer manual assignment for producer-schedule plugins", %{
+    conn: conn,
+    actor: actor
+  } do
+    package =
+      create_approved_package_version!(actor, "live-schedule-defaults-plugin", "1.0.0",
+        producer_schedules: [
+          %{
+            "schedule_id" => "opentext-nom.inventory.refresh",
+            "default_cadence_seconds" => 86_400,
+            "min_cadence_seconds" => 3_600,
+            "max_cadence_seconds" => 2_592_000,
+            "timeout_seconds" => 900
+          }
+        ]
+      )
+
+    {:ok, lv, html} = live(conn, ~p"/admin/plugins/#{package.id}")
+
+    assert html =~ "Do not assign this plugin here"
+    assert html =~ "Settings → Networks → Credentials"
+    refute html =~ ~s(name="assignment[interval_seconds]")
+    refute has_element?(lv, "form[phx-submit='create_assignment']")
+
+    html =
+      render_click(lv, "create_assignment", %{
+        "assignment" => %{
+          "agent_uid" => "agent-ignored",
+          "interval_seconds" => "86400",
+          "timeout_seconds" => "900"
+        }
+      })
+
+    assert html =~ "assigned from a credential rule"
+  end
+
   test "shows first-party package provenance", %{conn: conn, actor: actor} do
     assert {:ok, %{failed: []}} =
              Packages.sync_first_party_plugins(
@@ -1090,6 +1286,54 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
             "https://github.com/carverauto/serviceradar/releases/download/v1.0.0/old-first-party-plugin.upload-signature.json",
           "bundle_digest" => Storage.sha256(bundle()),
           "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-old-first-party-plugin:v1.0.0"
+        }
+      ]
+    }
+  end
+
+  # A repository that publishes one release per plugin, which is the documented
+  # third-party pattern: the tag names the plugin, so it never matches the
+  # first-party `vX.Y.Z` shape.
+  def per_plugin_releases do
+    [
+      per_plugin_release("alpha-sensor", "0.1.0"),
+      per_plugin_release("beta-sensor", "0.2.0")
+    ]
+  end
+
+  def per_plugin_release(plugin_id, version) do
+    tag = "#{plugin_id}-v#{version}"
+
+    %{
+      "tag_name" => tag,
+      "name" => "#{plugin_id} #{version}",
+      "html_url" => "https://github.com/carverauto/serviceradar-plugin-per-plugin-tags/releases/tag/#{tag}",
+      "assets" => [
+        %{
+          "name" => "serviceradar-wasm-plugin-index.json",
+          "browser_download_url" =>
+            "https://github.com/carverauto/serviceradar-plugin-per-plugin-tags/releases/download/#{tag}/serviceradar-wasm-plugin-index.json"
+        }
+      ]
+    }
+  end
+
+  def per_plugin_index(plugin_id, name, version) do
+    tag = "#{plugin_id}-v#{version}"
+
+    %{
+      "schema_version" => 1,
+      "release_tag" => tag,
+      "plugins" => [
+        %{
+          "plugin_id" => plugin_id,
+          "name" => name,
+          "version" => version,
+          "bundle_url" =>
+            "https://github.com/carverauto/serviceradar-plugin-per-plugin-tags/releases/download/#{tag}/#{plugin_id}.zip",
+          "upload_signature_url" =>
+            "https://github.com/carverauto/serviceradar-plugin-per-plugin-tags/releases/download/#{tag}/#{plugin_id}.upload-signature.json",
+          "bundle_digest" => Storage.sha256(bundle())
         }
       ]
     }
@@ -1194,36 +1438,42 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     end
   end
 
-  defp create_approved_package_version!(actor, plugin_id, version) do
+  defp create_approved_package_version!(actor, plugin_id, version, opts \\ []) do
     ensure_plugin!(actor, plugin_id)
+
+    attrs =
+      maybe_put_create_attr(
+        %{
+          plugin_id: plugin_id,
+          name: "Live #{plugin_id}",
+          version: version,
+          entrypoint: "run_check",
+          runtime: "wasi-preview1",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: package_manifest(plugin_id, version),
+          config_schema: %{},
+          display_contract: %{},
+          signature: %{},
+          source_type: :github,
+          source_repo_url: @repo_url,
+          source_commit: "test-#{plugin_id}-#{version}",
+          content_hash: "sha256:#{plugin_id}-#{version}"
+        },
+        :producer_schedules,
+        Keyword.get(opts, :producer_schedules)
+      )
 
     assert package =
              PluginPackage
-             |> Ash.Changeset.for_create(
-               :create,
-               %{
-                 plugin_id: plugin_id,
-                 name: "Live #{plugin_id}",
-                 version: version,
-                 entrypoint: "run_check",
-                 runtime: "wasi-preview1",
-                 outputs: "serviceradar.plugin_result.v1",
-                 manifest: package_manifest(plugin_id, version),
-                 config_schema: %{},
-                 display_contract: %{},
-                 signature: %{},
-                 source_type: :github,
-                 source_repo_url: @repo_url,
-                 source_commit: "test-#{plugin_id}-#{version}",
-                 content_hash: "sha256:#{plugin_id}-#{version}"
-               },
-               actor: actor
-             )
+             |> Ash.Changeset.for_create(:create, attrs, actor: actor)
              |> Ash.create!()
 
     assert {:ok, approved} = Packages.approve(package.id, %{}, actor: actor)
     approved
   end
+
+  defp maybe_put_create_attr(attrs, _key, nil), do: attrs
+  defp maybe_put_create_attr(attrs, key, value), do: Map.put(attrs, key, value)
 
   defp ensure_plugin!(actor, plugin_id) do
     existing =
@@ -1428,7 +1678,33 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
-  defp create_catalog_package!(actor, release_tag, plugin_id, version) do
+  defp create_repository!(name, repo_url) do
+    {public_key, _private_key} = :crypto.generate_key(:eddsa, :ed25519)
+
+    ServiceRadar.Plugins.PluginRepository
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: name,
+        repo_url: repo_url,
+        index_asset_name: "serviceradar-wasm-plugin-index.json",
+        signing_key_id: "#{name}-signing-key",
+        signing_public_key: Base.encode64(public_key),
+        enabled: true
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+  end
+
+  # A real first-party import always records the repository it came from, and the
+  # catalog is scoped by that origin, so the default has to be the built-in repo
+  # rather than nil -- a nil-origin package cannot be attributed to any
+  # repository and is deliberately absent from every repository's catalog.
+  defp create_catalog_package!(actor, release_tag, plugin_id, version),
+    do: create_catalog_package!(actor, release_tag, plugin_id, version, @repo_url)
+
+  defp create_catalog_package!(actor, release_tag, plugin_id, version, source_repo_url) do
     ensure_plugin!(actor, plugin_id)
 
     assert package =
@@ -1447,6 +1723,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
                  display_contract: %{},
                  signature: %{},
                  source_type: :first_party,
+                 source_repo_url: source_repo_url,
                  source_release_tag: release_tag,
                  source_oci_ref: "registry.carverauto.dev/serviceradar/wasm-plugin-#{plugin_id}:#{release_tag}",
                  source_oci_digest: "sha256:#{plugin_id}-#{version}",

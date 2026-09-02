@@ -43,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
           data-units={@unit_mode}
           data-keys={@iface_chart_keys_json}
           data-points={@iface_chart_points_json}
+          data-timezone={@timezone}
           data-colors={Jason.encode!(%{"ingress" => "#3b82f6", "egress" => "#f59e0b"})}
           data-overlays="[]"
         >
@@ -108,7 +109,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard.View.Traffic do
           id="flow-rate-chart"
           phx-hook="FlowRateChart"
           data-points={@flow_rate_points_json}
+          data-timezone={@timezone}
           data-color="oklch(0.65 0.24 150)"
+          role="img"
+          aria-label={"Flow rate chart; display zone #{@timezone}"}
           class="h-[180px] w-full"
         >
           <canvas></canvas>

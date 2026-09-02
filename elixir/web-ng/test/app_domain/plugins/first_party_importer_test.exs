@@ -188,6 +188,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     )
 
     Process.put(:first_party_private_key, private_key)
+    Process.put(:first_party_public_key, public_key)
     Process.put(:first_party_bundle, nil)
     Process.put(:first_party_bundle_digest_override, nil)
     Process.put(:first_party_index_body, nil)
@@ -230,6 +231,33 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     assert plugin.import_ready?
   end
 
+  # A third-party repository publishes release assets and has NO oci_ref. The
+  # readiness rule required one, so such entries were fetchable but permanently
+  # filtered out, surfacing as "scanned N releases, but no import-ready plugin
+  # entries were found". Every other fixture here carries both bundle_url and
+  # oci_ref, which is why this went unnoticed.
+  test "a release-asset entry with no oci_ref is import-ready" do
+    Process.put(:first_party_index_body, Jason.encode!(release_asset_index()))
+
+    assert {:ok, [plugin]} = FirstPartyImporter.list_recent_plugins(%{"repo_url" => @repo_url}, 10)
+    assert plugin.plugin_id == "hello-wasm"
+    assert is_nil(plugin.oci_ref) or plugin.oci_ref == ""
+    assert plugin.import_ready?
+  end
+
+  # fetch_direct_artifact/2 fails without the signature URL, so treating such an
+  # entry as ready would move the failure from discovery to import, where it
+  # reads as a broken bundle rather than an incomplete index.
+  test "a release-asset entry missing its signature URL is not import-ready" do
+    index = release_asset_index()
+    [entry] = index["plugins"]
+    stripped = %{index | "plugins" => [Map.delete(entry, "upload_signature_url")]}
+    Process.put(:first_party_index_body, Jason.encode!(stripped))
+
+    assert {:ok, [plugin]} = FirstPartyImporter.list_recent_plugins(%{"repo_url" => @repo_url}, 10)
+    refute plugin.import_ready?
+  end
+
   test "summarizes recent releases without first-party plugin index assets" do
     Process.put(:first_party_releases_without_index, true)
 
@@ -257,6 +285,67 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     assert import.content_hash == Storage.sha256(@wasm)
     assert import.source_release_tag == "v1.2.3"
     assert import.verification_status == "verified"
+  end
+
+  describe "per-repository trusted signing keys" do
+    test "verifies against the repository's key even when the global config has none" do
+      # The point of repositories being records: trust travels with the source,
+      # not with a single deployment-wide map.
+      public_key = Process.get(:first_party_public_key)
+
+      Application.put_env(:serviceradar_web_ng, :plugin_verification,
+        require_gpg_for_github: false,
+        allow_unsigned_uploads: false,
+        trusted_upload_signing_keys: %{}
+      )
+
+      assert {:ok, import} =
+               FirstPartyImporter.import(%{
+                 "repo_url" => @repo_url,
+                 "release_tag" => "v1.2.3",
+                 "plugin_id" => "hello-wasm",
+                 "version" => "1.2.3",
+                 "trusted_upload_signing_keys" => %{"test-signer" => Base.encode64(public_key)}
+               })
+
+      assert import.verification_status == "verified"
+    end
+
+    test "rejects a bundle signed by another repository's key" do
+      # Repository B publishes a bundle that repository A signed. Before this
+      # change the global map made that indistinguishable from a legitimate
+      # import; now B's key is the only one that counts for B's catalog.
+      {other_public_key, _other_private_key} = :crypto.generate_key(:eddsa, :ed25519)
+
+      assert {:error, reason} =
+               FirstPartyImporter.import(%{
+                 "repo_url" => @repo_url,
+                 "release_tag" => "v1.2.3",
+                 "plugin_id" => "hello-wasm",
+                 "version" => "1.2.3",
+                 "trusted_upload_signing_keys" => %{"test-signer" => Base.encode64(other_public_key)}
+               })
+
+      assert reason in [:invalid_signature, :unknown_signing_key]
+    end
+
+    test "rejects when the repository's key id does not match the signature" do
+      public_key = Process.get(:first_party_public_key)
+
+      assert {:error, reason} =
+               FirstPartyImporter.import(%{
+                 "repo_url" => @repo_url,
+                 "release_tag" => "v1.2.3",
+                 "plugin_id" => "hello-wasm",
+                 "version" => "1.2.3",
+                 "trusted_upload_signing_keys" => %{"someone-else" => Base.encode64(public_key)}
+               })
+
+      # Distinct from :invalid_signature: the key id in the signature is not one
+      # this repository trusts, which is a different fault from a bad signature
+      # under a trusted key.
+      assert reason == :untrusted_signer
+    end
   end
 
   test "rejects mismatched bundle digests" do
@@ -425,6 +514,13 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
         }
       ]
     }
+  end
+
+  @doc "The index shape a third-party repository publishes: assets, no OCI."
+  def release_asset_index do
+    index = index()
+    [entry] = index["plugins"]
+    %{index | "plugins" => [Map.delete(entry, "oci_ref")]}
   end
 
   def oci_index do

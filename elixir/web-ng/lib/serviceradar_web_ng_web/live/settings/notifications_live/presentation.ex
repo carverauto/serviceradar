@@ -269,12 +269,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Presentation do
 
   def truncate(value, max), do: value |> to_string() |> truncate(max)
 
-  @doc "Renders a timestamp for the operator, or an em dash when absent."
-  @spec timestamp(term()) :: String.t()
-  def timestamp(%DateTime{} = at), do: at |> DateTime.truncate(:second) |> DateTime.to_string()
-  def timestamp(%NaiveDateTime{} = at), do: at |> NaiveDateTime.truncate(:second) |> to_string()
-  def timestamp(_at), do: "-"
-
   @doc "Turns an enum atom into title case for a label with no explicit entry."
   @spec humanize(term()) :: String.t()
   def humanize(nil), do: "-"

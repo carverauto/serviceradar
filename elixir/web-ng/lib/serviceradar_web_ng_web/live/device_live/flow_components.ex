@@ -38,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
   attr(:active_facets, :map, default: %{})
   attr(:active_topn, :map, default: nil)
   attr(:zoom_range, :map, default: nil)
+  attr(:timezone, :string, required: true)
 
   def flows_tab_content(assigns) do
     max_bytes =
@@ -121,6 +122,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
           class="w-full"
           style="height: 220px"
           phx-hook="NetflowStackedAreaChart"
+          data-timezone={@timezone}
           data-units="bytes"
           data-keys={@flow_chart_keys_json}
           data-points={@flow_chart_points_json}
@@ -228,11 +230,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
         <.icon name="hero-magnifying-glass-plus-solid" class="size-4 text-info" />
         <span class="text-sr-muted">Zoomed to</span>
         <.ui_badge size="sm" variant="info" class="font-mono">
-          {String.slice(@zoom_range.start, 0, 19)}
+          <.user_time
+            id="device-flow-zoom-start"
+            value={@zoom_range.start}
+            timezone={@timezone}
+            style={:compact}
+            fallback={@zoom_range.start}
+          />
         </.ui_badge>
         <span class="text-sr-muted">&rarr;</span>
         <.ui_badge size="sm" variant="info" class="font-mono">
-          {String.slice(@zoom_range.end, 0, 19)}
+          <.user_time
+            id="device-flow-zoom-end"
+            value={@zoom_range.end}
+            timezone={@timezone}
+            style={:compact}
+            fallback={@zoom_range.end}
+          />
         </.ui_badge>
         <.ui_button phx-click="clear_zoom" size="xs" variant="ghost" class="ml-auto text-error">
           <.icon name="hero-x-mark-mini" class="size-3.5" /> Reset
@@ -264,6 +278,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents do
         limit={@limit}
         max_bytes={@max_bytes}
         max_packets={@max_packets}
+        timezone={@timezone}
       />
     </div>
     """

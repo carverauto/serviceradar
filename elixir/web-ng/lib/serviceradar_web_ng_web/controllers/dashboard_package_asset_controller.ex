@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Dashboards.DashboardPackage
+  alias ServiceRadarWebNG.Audit.DashboardRendererEvents
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Plugins.Storage
 
@@ -12,14 +13,33 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetController do
 
     with {:ok, %DashboardPackage{} = package} <- Dashboards.get_package(id, scope: scope),
          :ok <- ensure_renderer_available(package),
+         true <- Dashboards.package_has_viewable_instance?(package.id, scope: scope),
          {:ok, blob} <- fetch_renderer_blob(package) do
+      DashboardRendererEvents.record(conn, package.id, :served, %{dashboard_id: package.dashboard_id})
       send_renderer_blob(conn, blob, package)
     else
+      {:error, :not_found} ->
+        DashboardRendererEvents.record(conn, id, :not_found, %{})
+        renderer_not_found(conn)
+
+      false ->
+        DashboardRendererEvents.record(conn, id, :forbidden, %{reason: "no_viewable_instance"})
+        renderer_not_found(conn)
+
+      {:error, :not_available} ->
+        DashboardRendererEvents.record(conn, id, :not_found, %{reason: "renderer_unavailable"})
+        renderer_not_found(conn)
+
       _ ->
-        conn
-        |> put_status(:not_found)
-        |> text("dashboard renderer not found")
+        DashboardRendererEvents.record(conn, id, :not_found, %{})
+        renderer_not_found(conn)
     end
+  end
+
+  defp renderer_not_found(conn) do
+    conn
+    |> put_status(:not_found)
+    |> text("dashboard renderer not found")
   end
 
   defp ensure_renderer_available(%DashboardPackage{

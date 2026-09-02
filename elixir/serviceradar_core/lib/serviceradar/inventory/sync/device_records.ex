@@ -49,6 +49,12 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
 
       record = %{
         uid: device_id,
+        # Scoped to the same partition its identifiers are scoped to
+        # (`Ids.identifier_partition/2`). Without this the row falls to the
+        # column default and every source writes the "default" copy, so an
+        # isolation sweep would overwrite the monitoring view of the same IP
+        # rather than keeping its own.
+        partition: update_partition(update),
         ip: update.ip,
         mac: update.mac,
         hostname: update.hostname,
@@ -66,7 +72,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
           Enrichment.merge_inferred_map(update.hw_info, Enrichment.infer_hw_info(metadata)),
         network_interfaces: update.network_interfaces || [],
         is_available: update.is_available,
-        is_managed: true,
+        is_managed: prefer_non_nil(Map.get(update, :is_managed), true),
         is_active: true,
         owner: owner,
         metadata: persisted_metadata,
@@ -127,6 +133,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
         os: merged_os,
         hw_info: merged_hw_info,
         is_available: prefer_non_nil(incoming.is_available, existing.is_available),
+        is_managed: prefer_non_nil(incoming.is_managed, existing.is_managed),
         network_interfaces: merged_network_interfaces,
         owner: prefer_non_nil(incoming.owner, existing.owner),
         metadata: merged_metadata,
@@ -158,6 +165,25 @@ defmodule ServiceRadar.Inventory.Sync.DeviceRecords do
 
   # Complete plugin inventories keep source identity in typed identifiers and
   # source observations. They must not replace another source's canonical identity.
+
+  # Mirrors `Ids.identifier_partition/2` so a device row and its identifiers are
+  # scoped to the same partition. Duplicated deliberately rather than reaching
+  # into Ids: this path builds the row from `update` and never constructs an
+  # `Ids` struct, and a wrong default here silently collapses every partition
+  # onto "default".
+  defp update_partition(update) do
+    case Map.get(update, :partition) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> "default"
+          trimmed -> trimmed
+        end
+
+      _ ->
+        "default"
+    end
+  end
+
   defp persisted_metadata(%{"plugin_inventory_snapshot" => true} = metadata, _source) do
     Map.drop(metadata, ["integration_id", "integration_type", "plugin_inventory_snapshot"])
   end

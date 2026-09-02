@@ -42,6 +42,10 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     table "network_credential_rules"
     repo ServiceRadar.Repo
     schema "platform"
+
+    references do
+      reference :secret, on_delete: :restrict
+    end
   end
 
   paper_trail do

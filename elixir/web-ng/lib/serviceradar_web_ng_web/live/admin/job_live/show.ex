@@ -213,8 +213,18 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
               <div class="grid gap-4 sm:grid-cols-2">
                 <.detail_item label="Schedule (Cron)" value={@job.cron || "Not scheduled"} mono />
                 <.detail_item label="Queue" value={to_string(@job.queue)} mono />
-                <.detail_item label="Last Run" value={format_datetime(@job.last_run_at)} />
-                <.detail_item label="Next Run" value={format_datetime(@job.next_run_at)} />
+                <.detail_item
+                  label="Last Run"
+                  time={@job.last_run_at}
+                  time_id={"admin-job-#{job_dom_id(@job)}-last-run-at"}
+                  timezone={@current_scope.user.timezone || "Etc/UTC"}
+                />
+                <.detail_item
+                  label="Next Run"
+                  time={@job.next_run_at}
+                  time_id={"admin-job-#{job_dom_id(@job)}-next-run-at"}
+                  timezone={@current_scope.user.timezone || "Etc/UTC"}
+                />
 
                 <%= if @job.worker do %>
                   <div class="sm:col-span-2">
@@ -264,7 +274,12 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
                     </p>
                   </div>
                 <% else %>
-                  <.execution_chart data={@chart_data} max_value={@chart_max} />
+                  <.execution_chart
+                    data={@chart_data}
+                    max_value={@chart_max}
+                    timezone={@current_scope.user.timezone || "Etc/UTC"}
+                    job_id={job_dom_id(@job)}
+                  />
                 <% end %>
               </.ui_panel>
             <% end %>
@@ -309,13 +324,28 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
                             </.ui_badge>
                           </td>
                           <td class="font-mono text-xs text-sr-muted">
-                            {format_datetime(run.inserted_at)}
+                            <.user_time
+                              id={"admin-job-run-#{run.id}-inserted-at"}
+                              value={run.inserted_at}
+                              timezone={@current_scope.user.timezone || "Etc/UTC"}
+                              style={:compact}
+                            />
                           </td>
                           <td class="font-mono text-xs text-sr-muted">
-                            {format_datetime(run.attempted_at)}
+                            <.user_time
+                              id={"admin-job-run-#{run.id}-attempted-at"}
+                              value={run.attempted_at}
+                              timezone={@current_scope.user.timezone || "Etc/UTC"}
+                              style={:compact}
+                            />
                           </td>
                           <td class="font-mono text-xs text-sr-muted">
-                            {format_datetime(run.completed_at)}
+                            <.user_time
+                              id={"admin-job-run-#{run.id}-completed-at"}
+                              value={run.completed_at}
+                              timezone={@current_scope.user.timezone || "Etc/UTC"}
+                              style={:compact}
+                            />
                           </td>
                           <td class="text-xs text-sr-muted">
                             {format_duration(run)}
@@ -449,6 +479,11 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
     """
   end
 
+  attr :data, :list, required: true
+  attr :max_value, :integer, required: true
+  attr :timezone, :string, required: true
+  attr :job_id, :string, required: true
+
   defp execution_chart(assigns) do
     # Calculate chart dimensions
     bar_width = 100 / max(length(assigns.data), 1)
@@ -540,23 +575,32 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
       <!-- Time axis -->
       <div class="flex justify-between text-[10px] text-sr-muted px-1">
         <%= if length(@data) > 0 do %>
-          <span>{format_chart_time(List.first(@data).hour)}</span>
-          <span>{format_chart_time(List.last(@data).hour)}</span>
+          <.user_time
+            id={"admin-job-#{@job_id}-chart-start"}
+            value={List.first(@data).hour}
+            timezone={@timezone}
+            style={:axis}
+          />
+          <.user_time
+            id={"admin-job-#{@job_id}-chart-end"}
+            value={List.last(@data).hour}
+            timezone={@timezone}
+            style={:axis}
+          />
         <% end %>
       </div>
     </div>
     """
   end
 
-  defp format_chart_time(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%m/%d %H:%M")
-  end
-
-  defp format_chart_time(_), do: ""
+  attr :label, :string, required: true
+  attr :value, :any, default: nil
+  attr :mono, :boolean, default: false
+  attr :time, :any, default: nil
+  attr :time_id, :string, default: nil
+  attr :timezone, :string, default: "Etc/UTC"
 
   defp detail_item(assigns) do
-    assigns = assign_new(assigns, :mono, fn -> false end)
-
     ~H"""
     <div>
       <div class="text-[11px] uppercase tracking-wide text-sr-muted">{@label}</div>
@@ -564,7 +608,16 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
         "mt-1 text-sm text-sr-ink",
         @mono && "font-mono text-xs"
       ]}>
-        {@value}
+        <%= if @time_id do %>
+          <.user_time
+            id={@time_id}
+            value={@time}
+            timezone={@timezone}
+            style={:compact}
+          />
+        <% else %>
+          {@value}
+        <% end %>
       </div>
     </div>
     """
@@ -706,16 +759,10 @@ defmodule ServiceRadarWebNGWeb.Admin.JobLive.Show do
   defp source_variant(:manual), do: "secondary"
   defp source_variant(_), do: "ghost"
 
-  defp format_datetime(nil), do: "—"
-
-  defp format_datetime(%NaiveDateTime{} = dt) do
-    dt
-    |> DateTime.from_naive!("Etc/UTC")
-    |> format_datetime()
-  end
-
-  defp format_datetime(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  defp job_dom_id(job) do
+    job.id
+    |> inspect()
+    |> String.replace(~r/[^A-Za-z0-9_-]/u, "-")
   end
 
   defp format_duration(%{completed_at: nil}), do: "—"

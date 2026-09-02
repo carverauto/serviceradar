@@ -804,6 +804,49 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
       assert query =~ "DELETE r"
     end
 
+    # The upsert and the evidence prune have to agree about a missing timestamp,
+    # or an edge can be permanently unprunable AND permanently projected. The
+    # upsert used to admit `last_observed_at IS NULL` unconditionally while the
+    # prune required `IS NOT NULL`, so an evidence edge with no last_observed_at
+    # was re-projected on every rebuild and could never be deleted. Both sides now
+    # use the same coalesce the projection already uses for the emitted value.
+    test "upsert query does not admit evidence with no usable timestamp" do
+      query = TopologyGraph.canonical_rebuild_upsert_query("2026-02-25T00:00:00Z")
+
+      assert query =~
+               "coalesce(r.last_observed_at, r.observed_at) >= '2026-02-25T00:00:00Z'"
+
+      refute query =~ "r.last_observed_at IS NULL OR"
+    end
+
+    test "evidence prune deletes edges that carry no usable timestamp" do
+      query = TopologyGraph.prune_stale_mapper_evidence_links_query("2026-02-25T00:00:00Z")
+
+      assert query =~ "coalesce(r.last_observed_at, r.observed_at) IS NULL"
+
+      assert query =~
+               "coalesce(r.last_observed_at, r.observed_at) < '2026-02-25T00:00:00Z'"
+
+      refute query =~ "r.last_observed_at IS NOT NULL"
+    end
+
+    test "upsert and evidence prune partition evidence with no overlap or gap" do
+      cutoff = "2026-02-25T00:00:00Z"
+      upsert = TopologyGraph.canonical_rebuild_upsert_query(cutoff)
+      prune = TopologyGraph.prune_stale_mapper_evidence_links_query(cutoff)
+
+      # Fresh evidence is projected and never pruned.
+      assert upsert =~ "coalesce(r.last_observed_at, r.observed_at) >= '#{cutoff}'"
+      assert prune =~ "coalesce(r.last_observed_at, r.observed_at) < '#{cutoff}'"
+
+      # Timestamp-less evidence is pruned rather than projected forever.
+      assert prune =~ "coalesce(r.last_observed_at, r.observed_at) IS NULL"
+
+      # Must stay scoped to the timestamp: the upsert legitimately contains an
+      # unrelated `cr.content_hash IS NULL OR ...` for the change-detection skip.
+      refute upsert =~ "r.last_observed_at IS NULL OR"
+    end
+
     test "legacy single-identifier attachment reconciliation converts ATTACHED_TO into OBSERVED_TO" do
       query = TopologyGraph.reconcile_legacy_single_identifier_attachment_links_query()
 

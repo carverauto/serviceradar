@@ -41,12 +41,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
             show_form={@show_mapper_form}
             form={@mapper_form}
             seeds_text={@mapper_seeds_text}
-            agents={@agents}
+            mapper_agents={@mapper_agents}
             unifi_form={@mapper_unifi_form}
             unifi_present={@mapper_unifi_present}
             mikrotik={@mapper_mikrotik}
             mapper_command_statuses={@mapper_command_statuses}
             can_manage_networks={@can_manage_networks}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
         <% else %>
           <%= if @show_form in [:new_group, :edit_group] do %>
@@ -54,7 +55,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
               form={@form}
               show_form={@show_form}
               profiles={@sweep_profiles}
-              agents={@agents}
+              agent_picker={@agent_picker}
+              agent_picker_open={@agent_picker_open}
+              agent_picker_selected_rows={@agent_picker_selected_rows}
+              agent_picker_summary_agent={@agent_picker_summary_agent}
               target_device_count={@target_device_count}
               builder_open={@builder_open}
               builder_sync={@builder_sync}
@@ -71,7 +75,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
               />
             <% else %>
               <%= if @show_form == :show_group do %>
-                <.group_detail group={@selected_group} />
+                <.group_detail
+                  group={@selected_group}
+                  summary_agents={@sweep_group_summary_agents}
+                  timezone={@current_scope.user.timezone || "Etc/UTC"}
+                />
               <% else %>
                 <Navigation.render
                   active_tab={@active_tab}
@@ -84,8 +92,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                   <% :groups -> %>
                     <SweepGroups.render
                       groups={@sweep_groups}
+                      summary_agents={@sweep_group_summary_agents}
                       sweep_command_statuses={@sweep_command_statuses}
                       can_manage_networks={@can_manage_networks}
+                      timezone={@current_scope.user.timezone || "Etc/UTC"}
                     />
                   <% :profiles -> %>
                     <Profiles.render profiles={@sweep_profiles} />
@@ -95,6 +105,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                       recent={@recent_executions}
                       groups={@sweep_groups}
                       execution_progress={@execution_progress}
+                      timezone={@current_scope.user.timezone || "Etc/UTC"}
                     />
                   <% :cleanup -> %>
                     <InventoryCleanup.render form={@cleanup_form} settings={@cleanup_settings} />

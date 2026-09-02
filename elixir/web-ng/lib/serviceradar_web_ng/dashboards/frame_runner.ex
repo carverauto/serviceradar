@@ -51,7 +51,9 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     query = normalize_string(frame["query"] || frame[:query])
     requested_encoding = normalize_string(frame["encoding"] || frame[:encoding]) || "json_rows"
     limit = frame_limit(frame["limit"] || frame[:limit], default_limit)
+    cursor = normalize_string(frame["cursor"] || frame[:cursor])
     fields = frame_fields(frame)
+    srql_opts = srql_query_opts(scope, limit, cursor)
 
     base = %{
       "id" => id,
@@ -67,10 +69,10 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
         Map.merge(base, %{"status" => "error", "error" => "missing query", "results" => []})
 
       requested_encoding == "arrow_ipc" ->
-        run_arrow_or_json_frame(base, query, scope, srql_module, device_resolver, limit, fields)
+        run_arrow_or_json_frame(base, query, srql_opts, srql_module, device_resolver, fields)
 
       true ->
-        run_json_frame(base, query, scope, srql_module, device_resolver, limit, fields)
+        run_json_frame(base, query, srql_opts, srql_module, device_resolver, fields)
     end
   end
 
@@ -88,22 +90,22 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     }
   end
 
-  defp run_arrow_or_json_frame(base, query, scope, srql_module, device_resolver, limit, fields) do
-    case run_arrow_frame(base, query, scope, srql_module, limit) do
+  defp run_arrow_or_json_frame(base, query, srql_opts, srql_module, device_resolver, fields) do
+    case run_arrow_frame(base, query, srql_opts, srql_module) do
       {:ok, frame} ->
         frame
 
       {:fallback, _reason} ->
-        run_json_frame(base, query, scope, srql_module, device_resolver, limit, fields)
+        run_json_frame(base, query, srql_opts, srql_module, device_resolver, fields)
 
       {:error, reason} ->
         error_frame(base, reason)
     end
   end
 
-  defp run_arrow_frame(base, query, scope, srql_module, limit) do
+  defp run_arrow_frame(base, query, srql_opts, srql_module) do
     if function_exported?(srql_module, :query_arrow, 2) do
-      case srql_module.query_arrow(query, %{scope: scope, limit: limit}) do
+      case srql_module.query_arrow(query, srql_opts) do
         {:ok, bytes} when is_binary(bytes) ->
           {:ok, arrow_frame(base, bytes, %{})}
 
@@ -141,8 +143,8 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     })
   end
 
-  defp run_json_frame(base, query, scope, srql_module, device_resolver, limit, fields) do
-    case srql_module.query(query, %{scope: scope, limit: limit}) do
+  defp run_json_frame(base, query, srql_opts, srql_module, device_resolver, fields) do
+    case srql_module.query(query, srql_opts) do
       {:ok, %{"results" => results} = response} when is_list(results) ->
         results =
           query
@@ -477,6 +479,15 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   defp normalize_field(field) when is_atom(field), do: field |> Atom.to_string() |> normalize_string()
   defp normalize_field(field) when is_binary(field), do: normalize_string(field)
   defp normalize_field(_field), do: nil
+
+  defp srql_query_opts(scope, limit, cursor) do
+    opts = %{scope: scope, limit: limit}
+
+    case cursor do
+      cursor when is_binary(cursor) and cursor != "" -> Map.put(opts, :cursor, cursor)
+      _ -> opts
+    end
+  end
 
   defp frame_limit(opts) when is_list(opts) do
     opts |> Keyword.get(:limit, @default_frame_limit) |> frame_limit(@default_frame_limit)

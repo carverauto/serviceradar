@@ -226,10 +226,24 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                       failures: {worker.consecutive_failures || 0}
                     </div>
                     <div class="text-xs text-sr-muted">
-                      last failure: {format_datetime(worker.last_failure_at)}
+                      last failure:
+                      <.user_time
+                        id={"camera-analysis-worker-#{worker.id}-last-failure-at"}
+                        value={worker.last_failure_at}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="never"
+                      />
                     </div>
                     <div class="text-xs text-sr-muted">
-                      last healthy: {format_datetime(worker.last_healthy_at)}
+                      last healthy:
+                      <.user_time
+                        id={"camera-analysis-worker-#{worker.id}-last-healthy-at"}
+                        value={worker.last_healthy_at}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="never"
+                      />
                     </div>
                     <div class="text-xs text-sr-muted">
                       {flapping_summary(worker)}
@@ -243,8 +257,28 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                     <div class="text-xs text-sr-muted">
                       {notification_policy_summary(worker)}
                     </div>
-                    <div class="text-xs text-sr-muted">
-                      {notification_audit_summary(worker)}
+                    <div
+                      :if={Map.get(worker, :notification_audit_active, false)}
+                      class="text-xs text-sr-muted"
+                    >
+                      notification audit: {Map.get(
+                        worker,
+                        :notification_audit_notification_count,
+                        0
+                      )} sent, last
+                      <.user_time
+                        id={"camera-analysis-worker-#{worker.id}-last-notification-at"}
+                        value={Map.get(worker, :notification_audit_last_notification_at)}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="never"
+                      />, alert {Map.get(worker, :notification_audit_alert_status, "unknown")}
+                    </div>
+                    <div
+                      :if={not Map.get(worker, :notification_audit_active, false)}
+                      class="text-xs text-sr-muted"
+                    >
+                      notification audit: none
                     </div>
                   </td>
                   <td>
@@ -293,10 +327,18 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
                     <div class="text-xs text-sr-muted">
                       interval: {worker.probe_interval_ms || "default"} ms
                     </div>
-                    <div :for={probe <- recent_probes(worker)} class="text-xs text-sr-muted">
-                      {probe_status_label(probe)} {probe_reason_suffix(probe)}at {probe_timestamp(
-                        probe
-                      )}
+                    <div
+                      :for={{probe, probe_idx} <- Enum.with_index(recent_probes(worker))}
+                      class="text-xs text-sr-muted"
+                    >
+                      {probe_status_label(probe)} {probe_reason_suffix(probe)}at
+                      <.user_time
+                        id={"camera-analysis-worker-#{worker.id}-probe-#{probe_identity(probe, probe_idx)}-checked-at"}
+                        value={probe_timestamp(probe)}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:compact}
+                        fallback="unknown"
+                      />
                     </div>
                   </td>
                   <td>
@@ -366,9 +408,6 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
   defp health_badge_variant("unhealthy"), do: "error"
   defp health_badge_variant(_), do: "ghost"
 
-  defp format_datetime(nil), do: "never"
-  defp format_datetime(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-
   defp recent_probes(worker) do
     worker
     |> Map.get(:recent_probe_results, [])
@@ -387,6 +426,20 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
 
   defp probe_timestamp(probe) do
     Map.get(probe, :checked_at) || Map.get(probe, "checked_at") || "unknown"
+  end
+
+  defp probe_identity(probe, index) do
+    identity =
+      Enum.find(
+        [Map.get(probe, :id), Map.get(probe, "id"), probe_timestamp(probe)],
+        &(&1 not in [nil, "", "unknown"])
+      )
+
+    case identity do
+      value when value in [nil, "", "unknown"] -> index
+      %DateTime{} = value -> DateTime.to_unix(value, :microsecond)
+      value -> value |> to_string() |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    end
   end
 
   defp probe_status_label(probe) do
@@ -435,20 +488,6 @@ defmodule ServiceRadarWebNGWeb.CameraAnalysisWorkerLive.Index do
       "notification policy: #{context.notification_policy_path} (#{context.notification_policy_source})"
     else
       "notification policy: inactive"
-    end
-  end
-
-  defp notification_audit_summary(worker) do
-    if Map.get(worker, :notification_audit_active, false) do
-      count = Map.get(worker, :notification_audit_notification_count, 0)
-
-      last_notification =
-        format_datetime(Map.get(worker, :notification_audit_last_notification_at))
-
-      status = Map.get(worker, :notification_audit_alert_status, "unknown")
-      "notification audit: #{count} sent, last #{last_notification}, alert #{status}"
-    else
-      "notification audit: none"
     end
   end
 

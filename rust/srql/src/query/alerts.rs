@@ -30,6 +30,27 @@ pub(super) async fn execute(
     plan: &QueryPlan,
 ) -> Result<Vec<serde_json::Value>> {
     ensure_entity(plan)?;
+
+    if let Some(stats) = &plan.stats {
+        let spec = parse_stats_spec(stats.as_raw())?;
+        let sql = build_stats_sql(plan, &spec)?;
+
+        let mut query = diesel::sql_query(sql).into_boxed();
+        for bind in stats_binds(plan)? {
+            query = apply_bind(query, bind)?;
+        }
+
+        let rows: Vec<AlertStatsPayload> = query
+            .load::<AlertStatsPayload>(conn)
+            .await
+            .map_err(|err| ServiceError::Internal(err.into()))?;
+
+        return Ok(rows
+            .into_iter()
+            .filter_map(|row| row.payload.map(serde_json::Value::from))
+            .collect());
+    }
+
     let query = build_query(plan)?;
     let rows: Vec<AlertRow> = query
         .select(AlertRow::as_select())
@@ -44,6 +65,14 @@ pub(super) async fn execute(
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+
+    if let Some(stats) = &plan.stats {
+        let spec = parse_stats_spec(stats.as_raw())?;
+        // No limit/offset reconciliation: the stats SQL interpolates its LIMIT
+        // and has no OFFSET, so the binds are exactly the inner query's.
+        return Ok((build_stats_sql(plan, &spec)?, stats_binds(plan)?));
+    }
+
     let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
     let sql = super::diesel_sql(&query)?;
 
@@ -258,4 +287,213 @@ fn apply_ordering<'a>(mut query: AlertsQuery<'a>, order: &[OrderClause]) -> Aler
     }
 
     query
+}
+
+
+/// A grouped `stats:` request against the alerts entity.
+///
+/// Only `count()` is supported. Alerts have no numeric measure worth averaging
+/// or summing -- `metric_value` is the value that tripped a threshold, and its
+/// mean across unrelated rules is meaningless -- so a request for one is
+/// rejected rather than answered with a number nobody should act on.
+#[derive(Debug, Clone)]
+struct AlertStatsSpec {
+    alias: String,
+    group_fields: Vec<&'static str>,
+}
+
+/// Columns an alert may be grouped by.
+///
+/// Deliberately narrow: these are the dimensions an operator triages along.
+/// Free-text columns (`title`, `description`) are excluded because grouping by
+/// them produces one group per alert, which is a row listing wearing an
+/// aggregate's clothes.
+fn alert_group_column(field: &str) -> Option<&'static str> {
+    match field {
+        "severity" => Some("severity"),
+        "status" => Some("status"),
+        "source_type" => Some("source_type"),
+        "device_uid" => Some("device_uid"),
+        "agent_uid" => Some("agent_uid"),
+        "metric_name" => Some("metric_name"),
+        "escalation_level" => Some("escalation_level"),
+        _ => None,
+    }
+}
+
+fn parse_stats_spec(raw: &str) -> Result<AlertStatsSpec> {
+    let trimmed = raw.trim();
+
+    let (agg_part, group_part) = match trimmed.split_once(" by ") {
+        Some((agg, group)) => (agg.trim(), group.trim()),
+        None => {
+            return Err(ServiceError::InvalidRequest(
+                "alerts stats requires a group: use `stats:count() as <alias> by <field>`".into(),
+            ));
+        }
+    };
+
+    let (func_part, alias) = match agg_part.split_once(" as ") {
+        Some((func, alias)) => (func.trim(), alias.trim()),
+        None => (agg_part, "count"),
+    };
+
+    let normalized = func_part.replace(char::is_whitespace, "").to_lowercase();
+    if normalized != "count()" && normalized != "count(*)" {
+        return Err(ServiceError::InvalidRequest(format!(
+            "unsupported alerts aggregation '{func_part}'; only count() is supported"
+        )));
+    }
+
+    let alias = sanitize_stats_alias(alias)?;
+
+    let mut group_fields = Vec::new();
+    for candidate in group_part.split(',') {
+        let field = candidate
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .to_lowercase();
+
+        match alert_group_column(&field) {
+            Some(column) => {
+                if !group_fields.contains(&column) {
+                    group_fields.push(column);
+                }
+            }
+            None => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "unsupported alerts stats group field '{field}'"
+                )));
+            }
+        }
+    }
+
+    if group_fields.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "alerts stats requires at least one group field".into(),
+        ));
+    }
+
+    Ok(AlertStatsSpec { alias, group_fields })
+}
+
+/// The alias becomes a JSON key and is interpolated into SQL, so it is
+/// restricted to identifier characters.
+fn sanitize_stats_alias(raw: &str) -> Result<String> {
+    let alias = raw.trim().trim_matches('"').trim_matches('\'').to_lowercase();
+
+    if alias.is_empty()
+        || alias.len() > 64
+        || !alias
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    {
+        return Err(ServiceError::InvalidRequest(format!(
+            "invalid alerts stats alias '{raw}'"
+        )));
+    }
+
+    Ok(alias)
+}
+
+/// Build the grouped-stats SQL by WRAPPING the row query rather than rebuilding
+/// its WHERE clause.
+///
+/// The row path already knows how to filter alerts, and duplicating that in raw
+/// SQL is how the two drift: a filter honoured when listing rows but ignored
+/// when counting them is precisely the silent-wrong-number failure this entity
+/// already had. Wrapping means there is exactly one filter implementation, and
+/// an unsupported filter still errors from the same place it always did.
+///
+/// LIMIT is interpolated rather than bound because the inner query owns the
+/// placeholder numbering; appending a bind would renumber nothing and be read
+/// as one of the inner query's own.
+fn build_stats_sql(plan: &QueryPlan, spec: &AlertStatsSpec) -> Result<String> {
+    let inner = super::diesel_sql(&build_query(plan)?)?;
+
+    let projection = spec
+        .group_fields
+        .iter()
+        .map(|column| format!("'{column}', src.{column}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let group_by = spec
+        .group_fields
+        .iter()
+        .map(|column| format!("src.{column}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let limit = plan.limit.clamp(1, 1000);
+
+    Ok([
+        format!("SELECT jsonb_build_object({projection}, '{}', COUNT(*)) AS payload", spec.alias),
+        format!("FROM ({inner}) src"),
+        format!("GROUP BY {group_by}"),
+        // Largest groups first: a truncated result then keeps the ones an
+        // operator is triaging, rather than an arbitrary slice.
+        "ORDER BY COUNT(*) DESC".to_string(),
+        format!("LIMIT {limit}"),
+    ]
+    .join("\n"))
+}
+
+
+#[derive(diesel::QueryableByName)]
+struct AlertStatsPayload {
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Jsonb>)]
+    payload: Option<crate::jsonb::DbJson>,
+}
+
+/// Binds for the stats SQL, in the order the inner query's placeholders expect.
+///
+/// Deliberately the same construction the row path uses -- time range first,
+/// then filters in plan order -- because the inner SQL *is* the row query. If
+/// these two ever disagree the placeholders silently bind the wrong values,
+/// which is why there is one function rather than two.
+fn stats_binds(plan: &QueryPlan) -> Result<Vec<BindParam>> {
+    let mut params = Vec::new();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        params.push(BindParam::timestamptz(*start));
+        params.push(BindParam::timestamptz(*end));
+    }
+
+    for filter in &plan.filters {
+        collect_filter_params(&mut params, filter)?;
+    }
+
+    Ok(params)
+}
+
+fn apply_bind<'a>(
+    query: diesel::query_builder::BoxedSqlQuery<'a, Pg, diesel::query_builder::SqlQuery>,
+    bind: BindParam,
+) -> Result<diesel::query_builder::BoxedSqlQuery<'a, Pg, diesel::query_builder::SqlQuery>> {
+    use diesel::sql_types::{Array, BigInt, Bool, Double, Text, Timestamptz, Uuid as SqlUuid};
+
+    let bound = match bind {
+        BindParam::Text(value) => query.bind::<Text, _>(value),
+        BindParam::TextArray(values) => query.bind::<Array<Text>, _>(values),
+        BindParam::IntArray(values) => query.bind::<Array<BigInt>, _>(values),
+        BindParam::Bool(value) => query.bind::<Bool, _>(value),
+        BindParam::Int(value) => query.bind::<BigInt, _>(value),
+        BindParam::Float(value) => query.bind::<Double, _>(value),
+        // Bound as a real timestamptz, not as text. The inner query compares
+        // against `triggered_at`, and handing Postgres a string there is a type
+        // error at execution -- which translation-only tests would never catch,
+        // because they never bind anything.
+        BindParam::Timestamptz(value) => {
+            let parsed = chrono::DateTime::parse_from_rfc3339(&value)
+                .map_err(|err| ServiceError::Internal(err.into()))?
+                .with_timezone(&chrono::Utc);
+
+            query.bind::<Timestamptz, _>(parsed)
+        }
+        BindParam::Uuid(value) => query.bind::<SqlUuid, _>(value),
+    };
+
+    Ok(bound)
 }

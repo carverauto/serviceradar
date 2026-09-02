@@ -22,6 +22,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
             Ok(Entity::DnsActivity)
         }
         "bmp_events" | "bmp_event" | "bmp_routing_events" => Ok(Entity::BmpEvents),
+        "mtr_traces" => Ok(Entity::MtrTraces),
         "field_survey_sessions" | "fieldsurvey_sessions" | "survey_sessions" => {
             Ok(Entity::FieldSurveySessions)
         }
@@ -141,6 +142,9 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         | "endpoint_software_package"
         | "package_catalog"
         | "package_catalogs" => Ok(Entity::EndpointPackageCatalog),
+        "source_fact_disagreements" | "source_fact_disagreement" | "fact_disagreements" => {
+            Ok(Entity::SourceFactDisagreements)
+        }
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),

@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
           phx-update="ignore"
           data-url={@snapshot_url}
           data-interval-ms="5000"
+          data-timezone={@timezone}
           class="h-[70vh] min-h-[480px] w-full rounded-lg border border-sr-line bg-sr-subtle/20"
         >
           loading topology surface...
@@ -341,7 +342,14 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewTemplateComponents do
         </div>
         <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
           <div class="text-xs uppercase tracking-wide text-sr-muted">Generated At</div>
-          <div class="text-sm font-mono mt-1">{@last_generated_at || "—"}</div>
+          <.user_time
+            id="god-view-stream-generated-at"
+            value={@last_generated_at}
+            timezone={@timezone}
+            style={:full}
+            fallback="—"
+            class="text-sm font-mono mt-1"
+          />
         </div>
         <div class="rounded-lg border border-sr-line bg-sr-subtle/30 p-3">
           <div class="text-xs uppercase tracking-wide text-sr-muted">Payload Bytes</div>

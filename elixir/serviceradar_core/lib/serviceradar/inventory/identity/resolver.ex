@@ -226,16 +226,16 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
           {:ok, device_id}
 
         _ ->
-          do_lookup_by_ip(ip, actor)
+          do_lookup_by_ip(ip, partition, actor)
       end
     end
   end
 
-  defp do_lookup_by_ip(ip, actor) do
+  defp do_lookup_by_ip(ip, partition, actor) do
     query_opts = if actor, do: [actor: actor], else: []
 
     Device
-    |> Ash.Query.for_read(:by_ip, %{ip: ip})
+    |> Ash.Query.for_read(:by_ip, %{ip: ip, partition: partition})
     |> Ash.read(query_opts)
     |> Page.unwrap()
     |> case do

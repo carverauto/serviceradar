@@ -45,6 +45,9 @@ defmodule ServiceRadar.Identity do
     resource ServiceRadar.Identity.DeviceAuthorization
     resource ServiceRadar.Identity.CliSession
     resource ServiceRadar.Identity.OAuthClient
+    resource ServiceRadar.Identity.McpOAuthGrant
+    resource ServiceRadar.Identity.McpOAuthCode
+    resource ServiceRadar.Identity.McpOAuthRefreshToken
     resource ServiceRadar.Identity.DeviceAliasState
     resource ServiceRadar.Identity.UserGroup
     resource ServiceRadar.Identity.UserGroupMembership

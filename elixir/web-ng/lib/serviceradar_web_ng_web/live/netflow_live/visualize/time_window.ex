@@ -1,21 +1,16 @@
 defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.TimeWindow do
   @moduledoc false
 
-  def flows_window_label_from_query(query, fallback_time) when is_binary(query) and is_binary(fallback_time) do
-    # Prefer explicit bracket range, otherwise show the state time token.
-    case parse_time_window_from_query(query) do
-      {:ok, {start_dt, end_dt}} ->
-        # Keep this short in the UI; full query is already visible in the SRQL bar.
-        "#{DateTime.to_iso8601(start_dt)} - #{DateTime.to_iso8601(end_dt)}"
-
-      _ ->
-        human_time_token(fallback_time)
+  def display_window_from_query(query, fallback_time) when is_binary(query) and is_binary(fallback_time) do
+    case time_token_from_query(query) do
+      {:ok, token} -> display_time_token(token, fallback_time)
+      {:error, _reason} -> relative_display(fallback_time)
     end
   rescue
-    _ -> human_time_token(fallback_time)
+    _ -> relative_display(fallback_time)
   end
 
-  def flows_window_label_from_query(_query, fallback_time), do: human_time_token(fallback_time)
+  def display_window_from_query(_query, fallback_time), do: relative_display(fallback_time)
 
   def human_time_token(token) when is_binary(token) do
     t = String.trim(token)
@@ -33,11 +28,22 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.TimeWindow do
   end
 
   def parse_time_window_from_query(query) when is_binary(query) do
-    case Regex.run(~r/(?:^|\s)time:(?:"([^"]+)"|(\[[^\]]+\])|(\S+))/, query) do
-      [_, quoted, _, _] when is_binary(quoted) and quoted != "" -> parse_time_token(quoted)
-      [_, _, bracket, _] when is_binary(bracket) and bracket != "" -> parse_time_token(bracket)
-      [_, _, _, token] when is_binary(token) and token != "" -> parse_time_token(token)
-      _ -> {:error, :no_time}
+    with {:ok, token} <- time_token_from_query(query) do
+      parse_time_token(token)
+    end
+  end
+
+  defp time_token_from_query(query) do
+    captures =
+      Regex.run(
+        ~r/(?:^|\s)time:(?:"([^"]+)"|(\[[^\]]+\])|(\S+))/,
+        query,
+        capture: :all_but_first
+      )
+
+    case Enum.find(captures || [], &(is_binary(&1) and &1 != "")) do
+      token when is_binary(token) -> {:ok, token}
+      nil -> {:error, :no_time}
     end
   end
 
@@ -115,4 +121,17 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.TimeWindow do
         {:error, :invalid_last}
     end
   end
+
+  defp display_time_token(token, fallback_time) do
+    if bracket_range?(token) do
+      case parse_time_token(token) do
+        {:ok, {start_dt, end_dt}} -> %{type: :absolute, start: start_dt, end: end_dt}
+        {:error, _reason} -> relative_display(fallback_time)
+      end
+    else
+      relative_display(token)
+    end
+  end
+
+  defp relative_display(token), do: %{type: :relative, label: human_time_token(token)}
 end

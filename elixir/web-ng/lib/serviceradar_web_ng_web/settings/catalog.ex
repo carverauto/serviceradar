@@ -319,6 +319,26 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       hidden_from_nav: false
     },
     %{
+      id: :authorization_mappings,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Users & Access",
+      title: "Authorization",
+      description: "Map identity provider groups to roles, permission sets, and user groups.",
+      icon: "hero-user-group",
+      route: "/settings/auth/authorization",
+      live_view: ServiceRadarWebNGWeb.Settings.AuthorizationLive,
+      permission: "settings.auth.manage",
+      order: 145,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["authorization", "groups", "claims", "mapping", "sso", "entra", "default role"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
       id: :policy_editor,
       category: :system,
       parent_group: :sys_security,
@@ -490,13 +510,33 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       icon: "hero-key",
       route: "/settings/api-credentials",
       live_view: ServiceRadarWebNGWeb.UserLive.ApiCredentials,
-      permission: nil,
+      permission: "settings.api_credentials.manage",
       order: 230,
       has_own_stats: false,
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
       keywords: ["api", "tokens", "keys", "credentials", "personal"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
+      id: :mcp_sessions,
+      category: :system,
+      parent_group: :sys_security,
+      subgroup: "Credentials",
+      title: "MCP Sessions",
+      description: "Review and revoke MCP OAuth grants issued to native clients.",
+      icon: "hero-cpu-chip",
+      route: "/settings/mcp-sessions",
+      live_view: ServiceRadarWebNGWeb.Settings.McpSessionsLive,
+      permission: "settings.mcp.manage",
+      order: 235,
+      has_own_stats: false,
+      feature_flag: :mcp,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["mcp", "oauth", "claude", "codex", "grok", "sessions"],
       badge: nil,
       hidden_from_nav: false
     },
@@ -552,7 +592,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       icon: "hero-funnel",
       route: "/settings/rules",
       live_view: ServiceRadarWebNGWeb.Settings.RulesLive.Index,
-      permission: "observability.rules.view",
+      permission: ["observability.rules.update", "observability.rules.create"],
       order: 320,
       has_own_stats: false,
       feature_flag: nil,
@@ -648,7 +688,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       parent_group: :net_discovery,
       subgroup: "Profiles",
       title: "Visibility Profiles",
-      description: "Manage network scanning visibility presets.",
+      description: "Scope passive fingerprinting and DPI per device.",
       icon: "hero-eye",
       route: "/settings/networks/visibility-profiles",
       live_view: ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Index,
@@ -658,7 +698,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       feature_flag: nil,
       capability: nil,
       match_prefixes: nil,
-      keywords: ["visibility", "profiles", "scope", "partition"],
+      keywords: ["visibility", "profiles", "fingerprint", "dpi", "netprobe", "capture", "scope", "partition"],
       badge: nil,
       hidden_from_nav: false
     },
@@ -789,8 +829,8 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       category: :network_services,
       parent_group: :net_discovery,
       subgroup: nil,
-      title: "Credential Rules",
-      description: "Define SSH, SNMP, and WinRM access profiles for scanners.",
+      title: "Credentials and Rules",
+      description: "Manage reusable credentials and scoped rules for SNMP, SSH, and integrations.",
       icon: "hero-key",
       route: "/settings/networks/credentials",
       live_view: ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive,
@@ -1585,6 +1625,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   defp feature_enabled?(:remote_access_app), do: FeatureFlags.remote_access_app_enabled?()
   defp feature_enabled?(:remote_access_tcp), do: FeatureFlags.remote_access_tcp_enabled?()
   defp feature_enabled?(:god_view), do: FeatureFlags.god_view_enabled?()
+  defp feature_enabled?(:mcp), do: FeatureFlags.mcp_enabled?()
   # Unknown flag atoms default to disabled so a mis-typed flag hides the view
   # rather than silently exposing it.
   defp feature_enabled?(_), do: false

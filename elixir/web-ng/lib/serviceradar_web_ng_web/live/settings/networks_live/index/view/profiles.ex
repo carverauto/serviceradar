@@ -51,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Profiles do
                   </p>
                 </td>
                 <td class="text-xs font-mono">
-                  {format_ports(profile.ports)}
+                  {format_ports_for_modes(profile.ports, profile.sweep_modes)}
                 </td>
                 <td>
                   <div class="flex flex-wrap gap-1">

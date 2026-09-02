@@ -50,6 +50,10 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/interfaces")}
   end
 
+  def handle_event("srql_reset", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_reset", params, fallback_path: "/interfaces")}
+  end
+
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "interfaces")}
   end
@@ -167,7 +171,7 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
                   </td>
                 </tr>
 
-                <%= for row <- Enum.filter(@interfaces, &is_map/1) do %>
+                <%= for {row, row_idx} <- @interfaces |> Enum.filter(&is_map/1) |> Enum.with_index() do %>
                   <% device_id = Map.get(row, "device_id") %>
                   <% interface_uid = Map.get(row, "interface_uid") %>
                   <tr class="hover:bg-sr-subtle/40">
@@ -223,7 +227,12 @@ defmodule ServiceRadarWebNGWeb.InterfaceLive.Index do
                       />
                     </td>
                     <td class="font-mono text-xs">
-                      <.srql_cell col="timestamp" value={Map.get(row, "timestamp")} />
+                      <.srql_cell
+                        id={"interface-timestamp-#{row_idx}"}
+                        col="timestamp"
+                        value={Map.get(row, "timestamp")}
+                        timezone={@current_scope.user.timezone}
+                      />
                     </td>
                   </tr>
                 <% end %>

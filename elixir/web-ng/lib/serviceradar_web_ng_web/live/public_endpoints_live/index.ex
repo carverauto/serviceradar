@@ -51,6 +51,10 @@ defmodule ServiceRadarWebNGWeb.PublicEndpointsLive.Index do
     {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: @page_path)}
   end
 
+  def handle_event("srql_reset", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_reset", params, fallback_path: @page_path)}
+  end
+
   def handle_event("srql_builder_toggle", _params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "public_endpoints")}
   end

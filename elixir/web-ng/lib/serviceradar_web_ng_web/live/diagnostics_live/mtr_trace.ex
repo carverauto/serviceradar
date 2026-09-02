@@ -125,7 +125,15 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
             </div>
             <div class="stat">
               <div class="sr-ui-stat-title">Time</div>
-              <div class="sr-ui-stat-value text-sm">{format_time(@trace["time"])}</div>
+              <div class="sr-ui-stat-value text-sm">
+                <.user_time
+                  id={"mtr-trace-#{trace_identity(@trace)}-detail-time"}
+                  value={@trace["time"]}
+                  timezone={@current_scope.user.timezone || "Etc/UTC"}
+                  style={:compact}
+                  fallback="-"
+                />
+              </div>
               <div class="sr-ui-stat-desc">Agent: {@trace["agent_id"]}</div>
             </div>
           </div>
@@ -214,18 +222,6 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
     """
   end
 
-  defp format_time(nil), do: "-"
-
-  defp format_time(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-  end
-
-  defp format_time(%NaiveDateTime{} = ndt) do
-    Calendar.strftime(ndt, "%Y-%m-%d %H:%M:%S")
-  end
-
-  defp format_time(_), do: "-"
-
   defp format_us(nil), do: "-"
   defp format_us(0), do: "-"
 
@@ -238,6 +234,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   end
 
   defp format_us(_), do: "-"
+
+  defp trace_identity(trace) do
+    Enum.find([Map.get(trace, "id"), Map.get(trace, "trace_id")], "unknown", &(&1 not in [nil, ""]))
+  end
 
   defp format_pct(nil), do: "-"
   defp format_pct(pct) when is_float(pct), do: "#{Float.round(pct, 1)}%"

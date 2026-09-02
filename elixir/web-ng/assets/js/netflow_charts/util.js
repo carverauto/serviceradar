@@ -1,6 +1,50 @@
 import * as d3 from "d3"
 
 import {hoverPosition} from "../utils/chart_hover_geometry"
+import {axisUserTimeFormatter, canonicalUtcInstant, formatUserTime} from "../utils/user_time"
+
+const DEFAULT_NETFLOW_TIME_ZONE = "Etc/UTC"
+
+export function netflowDisplayTimeZone(timeZone) {
+  return typeof timeZone === "string" && timeZone.trim() !== ""
+    ? timeZone
+    : DEFAULT_NETFLOW_TIME_ZONE
+}
+
+export function netflowAxisTimeFormatter(timeZone) {
+  return axisUserTimeFormatter({timeZone: netflowDisplayTimeZone(timeZone)})
+}
+
+export function netflowTooltipTimeLabel(canonical, timeZone) {
+  if (typeof canonical !== "string") return String(canonical || "")
+
+  return (
+    formatUserTime(canonical, {
+      timeZone: netflowDisplayTimeZone(timeZone),
+      style: "tooltip",
+    })?.text || canonical
+  )
+}
+
+export function netflowTooltipTimeHtml(value, timeZone) {
+  const canonical = canonicalUtcInstant(value)
+  if (!canonical) return escapeHtml(String(value || ""))
+
+  const displayZone = netflowDisplayTimeZone(timeZone)
+  const label = netflowTooltipTimeLabel(canonical, displayZone)
+  const title = `${canonical} (UTC); display zone ${displayZone}`
+  const ariaLabel = `${label}; display zone ${displayZone}; canonical UTC ${canonical}`
+
+  return `<time datetime="${escapeHtml(canonical)}" data-canonical-utc="${escapeHtml(
+    canonical,
+  )}" title="${escapeHtml(title)}" aria-label="${escapeHtml(ariaLabel)}">${escapeHtml(label)}</time>`
+}
+
+export function netflowRangeSelectionStatus({start, end}, timeZone) {
+  const displayZone = netflowDisplayTimeZone(timeZone)
+
+  return `Selected ${netflowTooltipTimeLabel(start, displayZone)} to ${netflowTooltipTimeLabel(end, displayZone)}; display zone ${displayZone}; canonical UTC ${start} to ${end}`
+}
 
 export function parseJSON(value, fallback) {
   try {
@@ -82,7 +126,7 @@ export function attachTimeTooltip(el, opts) {
     const row = data[idx]
     if (!row) return
 
-    const timeLabel = row.t instanceof Date ? row.t.toISOString() : String(row.t || "")
+    const timeHtml = netflowTooltipTimeHtml(row.t, opts.timeZone)
     const lines = keys
       .slice(0, 8)
       .map((k) => {
@@ -93,9 +137,7 @@ export function attachTimeTooltip(el, opts) {
       })
       .join("")
 
-    tooltip.innerHTML = `${lines}<div class="mt-1 text-[10px] text-base-content/60 font-mono">${escapeHtml(
-      timeLabel
-    )}</div>`
+    tooltip.innerHTML = `${lines}<div class="mt-1 text-[10px] text-base-content/60 font-mono">${timeHtml}</div>`
     tooltip.classList.remove("hidden")
 
     const pad = 8

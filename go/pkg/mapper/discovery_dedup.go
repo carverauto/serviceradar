@@ -117,12 +117,18 @@ func (e *DiscoveryEngine) buildDeviceGroups(job *DiscoveryJob) map[string]*devic
 // findMatchingGroup finds a matching device group based on shared attributes
 func (*DiscoveryEngine) findMatchingGroup(deviceGroups map[string]*deviceGroup, deviceEntry *DeviceInterfaceMap) string {
 	for groupID, group := range deviceGroups {
-		// Match by shared IP
+		// Match by shared IP only when it does not collide two distinct
+		// hardware MACs. A stale ARP/alias IP shared by a MikroTik CHR and a
+		// vJunos chassis is adjacency noise, not proof they are one device.
 		for ip := range deviceEntry.IPs {
 			if ip == "" {
 				continue
 			}
 			if _, exists := group.IPs[ip]; exists {
+				if distinctHardwareMACSets(group.MACs, deviceEntry.MACs) {
+					continue
+				}
+
 				return groupID
 			}
 		}

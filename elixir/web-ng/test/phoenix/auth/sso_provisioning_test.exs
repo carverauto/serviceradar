@@ -4,8 +4,12 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
   import ServiceRadarWebNG.AccountsFixtures
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.AuthSettings
+  alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
+  alias ServiceRadar.Identity.UserGroup
+  alias ServiceRadar.Identity.UserGroupMembership
   alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
 
   describe "record_successful_authentication/3" do
@@ -126,5 +130,185 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       assert user.external_id == "oidc|new-3"
       assert user.role == :viewer
     end
+  end
+
+  describe "group mappings grant and revoke access" do
+    setup do
+      %{actor: SystemActor.system(:idp_mapping_test)}
+    end
+
+    test "applies a role profile a group mapping grants", %{actor: actor} do
+      profile = role_profile!(actor)
+      settings!([mapping("plugin-authors", %{"role_profile_id" => profile.id})], actor)
+
+      {:ok, user} = sign_in("author@example.com", "oidc|author", ["plugin-authors"], actor)
+
+      assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
+      assert persisted.role_profile_id == profile.id
+      assert persisted.role_profile_source == :idp
+    end
+
+    test "revokes the profile once the user leaves the group", %{actor: actor} do
+      # The behaviour the whole change is for: access granted by group membership
+      # has to go away when the membership does, without an operator noticing.
+      profile = role_profile!(actor)
+      settings!([mapping("plugin-authors", %{"role_profile_id" => profile.id})], actor)
+
+      {:ok, user} = sign_in("leaver@example.com", "oidc|leaver", ["plugin-authors"], actor)
+      assert {:ok, granted} = Ash.get(User, user.id, actor: actor)
+      assert granted.role_profile_id == profile.id
+
+      {:ok, _user} = sign_in("leaver@example.com", "oidc|leaver", [], actor)
+
+      assert {:ok, revoked} = Ash.get(User, user.id, actor: actor)
+      assert is_nil(revoked.role_profile_id)
+      assert revoked.role_profile_source == :manual
+    end
+
+    test "leaves a profile an operator assigned by hand alone", %{actor: actor} do
+      # Clearing every unmatched profile would silently strip access from users
+      # who have no mapping at all -- which is most of them.
+      profile = role_profile!(actor)
+      settings!([mapping("plugin-authors", %{"role_profile_id" => profile.id})], actor)
+
+      {:ok, user} = sign_in("manual@example.com", "oidc|manual", [], actor)
+
+      {:ok, _assigned} =
+        User.update_role_profile(
+          user,
+          %{role_profile_id: profile.id, role_profile_source: :manual},
+          actor: actor
+        )
+
+      {:ok, _user} = sign_in("manual@example.com", "oidc|manual", [], actor)
+
+      assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
+      assert persisted.role_profile_id == profile.id
+      assert persisted.role_profile_source == :manual
+    end
+
+    test "adds a group membership the mapping names, then withdraws it", %{actor: actor} do
+      group = user_group!(actor)
+      settings!([mapping("ops", %{"user_group_id" => group.id})], actor)
+
+      {:ok, user} = sign_in("ops@example.com", "oidc|ops", ["ops"], actor)
+
+      assert [membership] = memberships(user.id, group.id, actor)
+      assert membership.source == :idp
+
+      {:ok, _user} = sign_in("ops@example.com", "oidc|ops", [], actor)
+
+      assert memberships(user.id, group.id, actor) == []
+    end
+
+    test "the highest role among several matching groups wins", %{actor: actor} do
+      settings!(
+        [
+          mapping("helpdesk-team", %{"role" => "helpdesk"}),
+          mapping("ops", %{"role" => "operator"})
+        ],
+        actor
+      )
+
+      {:ok, user} = sign_in("both@example.com", "oidc|both", ["helpdesk-team", "ops"], actor)
+
+      assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
+      assert persisted.role == :operator
+    end
+
+    test "upgrades an existing viewer's role when a group mapping grants a higher one", %{
+      actor: actor
+    } do
+      settings!([mapping("helpdesk-team", %{"role" => "helpdesk"})], actor)
+
+      {:ok, existing} =
+        User.provision_sso_user(
+          %{
+            email: "promoted@example.com",
+            display_name: "Mapped User",
+            external_id: "oidc|promoted",
+            role: :viewer,
+            provider: :oidc
+          },
+          actor: actor
+        )
+
+      assert existing.role == :viewer
+
+      {:ok, user} = sign_in("promoted@example.com", "oidc|promoted", ["helpdesk-team"], actor)
+
+      assert user.id == existing.id
+      assert {:ok, persisted} = Ash.get(User, user.id, actor: actor)
+      assert persisted.role == :helpdesk
+    end
+  end
+
+  defp mapping(value, grant) do
+    Map.merge(%{"source" => "groups", "value" => value, "claim" => "groups"}, grant)
+  end
+
+  defp settings!(mappings, actor) do
+    {:ok, settings} =
+      AuthorizationSettings.create_settings(
+        %{default_role: :viewer, role_mappings: mappings},
+        actor: actor
+      )
+
+    settings
+  end
+
+  defp role_profile!(actor) do
+    {:ok, profile} =
+      RoleProfile.create_profile(
+        %{
+          name: "plugin-authors-#{System.unique_integer([:positive])}",
+          permissions: ["settings.auth.manage"]
+        },
+        actor: actor
+      )
+
+    profile
+  end
+
+  defp user_group!(actor) do
+    {:ok, group} =
+      UserGroup.create_group(%{name: "ops-#{System.unique_integer([:positive])}"}, actor: actor)
+
+    group
+  end
+
+  defp sign_in(email, external_id, groups, actor) do
+    # Mapping tests are about what happens on an existing SSO user, not JIT.
+    # Pre-provision so a missing AuthSettings row (sso_auto_provision off)
+    # cannot hide a broken apply_role_mapping/3 behind {:error, :no_local_account}.
+    case SSOProvisioning.find_user_by_external_id(external_id, actor) do
+      {:ok, _user} ->
+        :ok
+
+      {:error, :not_found} ->
+        {:ok, _user} =
+          User.provision_sso_user(
+            %{
+              email: email,
+              display_name: "Mapped User",
+              external_id: external_id,
+              role: :viewer,
+              provider: :oidc
+            },
+            actor: actor
+          )
+    end
+
+    SSOProvisioning.find_or_create_user(
+      %{email: email, name: "Mapped User", external_id: external_id},
+      %{"sub" => external_id, "email" => email, "groups" => groups},
+      :oidc,
+      actor
+    )
+  end
+
+  defp memberships(user_id, group_id, actor) do
+    {:ok, memberships} = UserGroupMembership.list_by_user(user_id, actor: actor)
+    Enum.filter(memberships, &(&1.group_id == group_id))
   end
 end

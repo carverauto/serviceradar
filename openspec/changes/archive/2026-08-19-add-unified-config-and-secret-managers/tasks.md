@@ -8,7 +8,7 @@ ambient environment, a test asserting on `.bazelrc`, and a value read under a di
 
 - [x] Confirm the environment set — **kinds are `localhost`, `ci`, `saas`, `onprem`, but on-prem is
       multi-instance**, so identity is `(kind, instance)` encoded as `<kind>[:<instance>]`
-      (e.g. `onprem:united`). See design.md Decision 7
+      (e.g. `onprem:acme`). See design.md Decision 7
 - [x] Verify whether a mature CEL implementation exists for Elixir — **no** (2026-08-17).
       protovalidate supports Go/JS/TS/Java/Python/C++ only; the sole BEAM-reachable CEL is `cel`
       v0.3.1 (Gleam), last released 2024-12-19, 532 downloads all time, 0 in the last 7 days.

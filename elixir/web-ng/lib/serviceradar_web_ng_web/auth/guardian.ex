@@ -205,9 +205,9 @@ defmodule ServiceRadarWebNG.Auth.Guardian do
   def create_api_token(user, opts \\ []) do
     scopes = Keyword.get(opts, :scopes, [:read])
     ttl = Keyword.get(opts, :ttl, @default_api_token_ttl)
+    extra = Keyword.get(opts, :claims, %{})
 
-    opts = [token_type: "api", scopes: scopes, ttl: ttl]
-    encode_and_sign(user, %{}, opts)
+    encode_and_sign(user, extra, token_type: "api", scopes: scopes, ttl: ttl)
   end
 
   @doc """

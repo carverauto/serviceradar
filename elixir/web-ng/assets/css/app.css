@@ -4301,6 +4301,86 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
     radial-gradient(circle at 50% 10%, rgba(62, 207, 135, 0.06), transparent 62%);
 }
 
+.sr-ops-events-range-shell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.sr-ops-events-range-selector {
+  touch-action: pan-y;
+}
+
+.sr-ops-events-range-selector:focus-visible {
+  outline: 2px solid rgb(62 207 135 / 0.92);
+  outline-offset: 2px;
+}
+
+.sr-ops-events-range-overlay {
+  pointer-events: none;
+  fill: rgb(62 207 135 / 0.14);
+  stroke: rgb(62 207 135 / 0.92);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  opacity: 0;
+}
+
+.sr-ops-events-range-overlay.is-active,
+.sr-ops-events-range-overlay:not(.hidden) {
+  opacity: 1;
+}
+
+.sr-ops-events-range-footer {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.2rem 0.75rem;
+  color: var(--sr-color-muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.sr-ops-events-range-instructions {
+  min-width: min(100%, 22rem);
+  flex: 1 1 22rem;
+  margin: 0;
+}
+
+.sr-ops-events-range-status {
+  flex: 1 1 15rem;
+  color: var(--sr-color-ink);
+  text-align: right;
+}
+
+.sr-ops-events-range-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sr-ops-events-view-all {
+  color: rgb(62 207 135);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-decoration-line: underline;
+  text-decoration-color: rgb(62 207 135 / 0.52);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.sr-ops-events-view-all:hover {
+  color: rgb(134 239 172);
+  text-decoration-color: currentColor;
+}
+
+.sr-ops-events-view-all:focus-visible {
+  border-radius: 0.2rem;
+  outline: 2px solid rgb(62 207 135 / 0.92);
+  outline-offset: 2px;
+}
+
 .sr-ops-clickable-panel {
   color: inherit;
   transition: border-color 150ms ease, background-color 150ms ease;
@@ -6551,6 +6631,26 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
     radial-gradient(circle at 50% 10%, rgba(62, 207, 135, 0.1), transparent 62%);
 }
 
+[data-theme="light"] .sr-ops-events-range-selector:focus-visible,
+[data-theme="light"] .sr-ops-events-view-all:focus-visible {
+  outline-color: rgb(11 130 77 / 0.92);
+}
+
+[data-theme="light"] .sr-ops-events-range-overlay {
+  fill: rgb(11 130 77 / 0.12);
+  stroke: rgb(11 130 77 / 0.88);
+}
+
+[data-theme="light"] .sr-ops-events-view-all {
+  color: rgb(11 130 77);
+  text-decoration-color: rgb(11 130 77 / 0.48);
+}
+
+[data-theme="light"] .sr-ops-events-view-all:hover {
+  color: rgb(4 120 87);
+  text-decoration-color: currentColor;
+}
+
 [data-theme="light"] .sr-ops-clickable-panel:hover {
   border-color: rgba(11, 130, 77, 0.48);
   background: rgba(240, 253, 244, 0.72);
@@ -7247,6 +7347,16 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
 
   .sr-ops-observability-split .sr-ops-metric-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sr-ops-events-range-footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .sr-ops-events-range-status {
+    flex-basis: auto;
+    text-align: left;
   }
 
   .sr-netflow-map-topbar {

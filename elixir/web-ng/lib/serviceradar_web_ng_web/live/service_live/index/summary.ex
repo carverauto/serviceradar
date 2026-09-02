@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Summary do
 
   attr :summary, :map, required: true
   attr :has_filter, :boolean, default: false
+  attr :timezone, :string, required: true
 
   def render(assigns) do
     total = assigns.summary.total
@@ -27,7 +28,13 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Summary do
     <div class="flex items-center justify-between text-xs text-sr-muted">
       <div>Latest plugin check per service</div>
       <div :if={@last_updated}>
-        Last updated {format_last_updated(@last_updated)}
+        Last updated
+        <.user_time
+          id="service-summary-last-updated"
+          value={@last_updated}
+          timezone={@timezone}
+          style={:full}
+        />
       </div>
     </div>
 
@@ -128,10 +135,4 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Summary do
     </div>
     """
   end
-
-  defp format_last_updated(%DateTime{} = datetime) do
-    Calendar.strftime(datetime, "%Y-%m-%d %H:%M:%S")
-  end
-
-  defp format_last_updated(_datetime), do: "—"
 end

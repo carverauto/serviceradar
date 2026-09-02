@@ -31,7 +31,8 @@ function renderContext() {
   }
   const effective = {
     shape: "local",
-    _layoutMode: "elk-scene",
+    _layoutMode: "elk-scene-detail",
+    _topologySemanticLevel: "detail",
     _layoutCacheKey: "7:fixture:landscape:scene-key",
     _topologyScene: scene,
   }
@@ -42,15 +43,26 @@ function renderContext() {
     details: {},
     pps: 999_999,
   }))
-  const labelData = [{
-    ...nodeData[0],
-    labelAdmission: {
-      box: {left: 121, top: 201, right: 177, bottom: 217},
-      pixelOffset: [14, 0],
-      textAnchor: "start",
-      alignmentBaseline: "center",
+  const labelData = [
+    {
+      ...nodeData[0],
+      labelAdmission: {
+        box: {left: 121, top: 201, right: 177, bottom: 217},
+        pixelOffset: [14, 0],
+        textAnchor: "start",
+        alignmentBaseline: "center",
+      },
     },
-  }]
+    {
+      ...nodeData[1],
+      labelAdmission: {
+        box: {left: 181, top: 221, right: 237, bottom: 237},
+        pixelOffset: [14, 0],
+        textAnchor: "start",
+        alignmentBaseline: "center",
+      },
+    },
+  ]
   const viewport = {
     width: 1920,
     height: 1080,
@@ -145,10 +157,14 @@ describe("God-View acceptance-only geometry observer", () => {
         renderedPhysicalRoutes: 1,
         manifolds: 0,
         renderedGlyphs: 2,
-        admittedLabels: 1,
+        admittedLabels: 2,
       },
       safeRect: {left: 80, top: 48, right: 1870, bottom: 1012},
       viewState: {target: [60, 50, 0], zoom: 1.25, minZoom: -3, maxZoom: 5},
+      semanticLevel: "detail",
+      glyphIds: ["router-a", "router-b"],
+      labelIds: ["router-a", "router-b"],
+      unlabeledGlyphIds: [],
     })
     expect(snapshot.routes).toEqual([{
       id: "rendered:router-a|router-b",
@@ -176,10 +192,16 @@ describe("God-View acceptance-only geometry observer", () => {
       {nodeId: "router-a", left: 100, top: 220, right: 140, bottom: 260},
       {nodeId: "router-b", left: 180, top: 240, right: 220, bottom: 280},
     ])
-    expect(snapshot.labels).toEqual([{
-      nodeId: "router-a",
-      box: {left: 121, top: 201, right: 177, bottom: 217},
-    }])
+    expect(snapshot.labels).toEqual([
+      {
+        nodeId: "router-a",
+        box: {left: 121, top: 201, right: 177, bottom: 217},
+      },
+      {
+        nodeId: "router-b",
+        box: {left: 181, top: 221, right: 237, bottom: 237},
+      },
+    ])
     expect(JSON.stringify(snapshot)).not.toMatch(/pps|flow|protocol|credential|csrf|bearer|token|42_000|42000|999999/i)
     assertDeeplyFrozenPlainData(snapshot)
   })

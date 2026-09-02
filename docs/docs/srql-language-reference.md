@@ -187,6 +187,30 @@ in:cpu_metrics time:last_24h stats:avg(usage_percent) as avg_cpu
 in:flows time:last_1h stats:sum(bytes_total) as bytes by src_ip sort:bytes:desc
 ```
 
+### Composite-result stats
+
+`in:composite_results` now honours `stats:`. The previous ignore dumped
+matching rows, so a query that looked like a rollup still hit the
+2,000-row frame ceiling. Unsupported aggregations and group fields
+return `InvalidRequest` instead of that silent dump.
+
+Only `count()` is supported. Group fields: `check` (aliases
+`check_slug`, `slug`), `check_name`, `verdict`, `status`, `input_key`,
+`input_value`, `input_stale`. `input_*` fields unnest the `inputs`
+JSONB map with `jsonb_each` so a vantage rollup is a GROUP BY, not a
+client fold. Default limit 100, hard cap 500. Unquoted stats tokens
+cannot contain spaces; write `by check,verdict` or quote the
+expression.
+
+```srql
+in:composite_results stats:count() as n by check,verdict
+in:composite_results check:pci-isolation stats:count() as n by verdict
+in:composite_results check:pci-isolation stats:"count() as n by input_key, input_value, input_stale"
+```
+
+Do not group on `hostname`. Hostname is a second `in:devices uid:(…)`
+frame scoped to the current page of result uids.
+
 ### Grouping devices by a tag or metadata key
 
 `in:devices` can group on a JSONB sub-key as well as a column, which is how you
@@ -264,6 +288,7 @@ fields; using a field that the entity does not support returns an
 | `rperf_metrics` | `rperf` | rperf network performance metrics (shares the time-series schema) |
 | `otel_metrics` | `metrics` | OpenTelemetry span-derived metrics |
 | `traces` | `otel_traces`, `trace_spans` | OpenTelemetry trace spans |
+| `composite_results` | `composite_check_results`, `composite_verdicts` | Composite-check evaluations. Row queries return per-device verdicts; `stats:count()` groups by check / verdict / vantage (`input_*`). |
 
 > The engine also exposes specialized entities — device graph (`device_graph`),
 > device updates (`device_updates`), Wi-Fi site mapping (`wifi_sites`,
@@ -427,9 +452,9 @@ Examples:
 
 ```srql
 in:attributed_flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
-in:attributed_flows time:last_24h service_name:forgejo-http sort:time:desc limit:50
+in:attributed_flows time:last_24h service_name:serviceradar-web sort:time:desc limit:50
 in:attributed_flows time:last_24h port:22 sort:time:desc limit:50
-in:attributed_flows time:last_1h attribution_status:attributed process:gitea
+in:attributed_flows time:last_1h attribution_status:attributed process:sshd
 ```
 
 **Raw vs attributed:** `in:flows port:22` can return hundreds of SSH 5-tuples
@@ -713,6 +738,7 @@ Sortable fields: `timestamp`, `start_time_unix_nano`, `end_time_unix_nano`,
 | `time range cannot exceed 90 days` | Narrow the window, or use a metric entity with `stats:`/`bucket:` for longer ranges. |
 | `invalid limit` / `limit must be a positive integer` | `limit:` requires a positive integer. |
 | `expected scalar value` / `expected list value` | Operator/value mismatch — e.g. a list value where a scalar is expected. |
+| `InvalidRequest` on `in:composite_results stats:` | Unsupported aggregation (only `count()`) or group field. See [Composite-result stats](#composite-result-stats). |
 
 ## See also
 

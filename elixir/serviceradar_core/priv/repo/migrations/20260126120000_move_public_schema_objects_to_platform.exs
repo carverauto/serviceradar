@@ -1,7 +1,47 @@
 defmodule ServiceRadar.Repo.Migrations.MovePublicSchemaObjectsToPlatform do
+  @moduledoc """
+  Moves objects the application owns out of `public` and into `platform`.
+
+  Every relocation here needs ACCESS EXCLUSIVE on the object it moves, so any
+  other session holding even ACCESS SHARE on one of them blocks this migration.
+  Without a lock timeout that wait is unbounded, and under `MIX_ENV=test` the
+  Sandbox `ownership_timeout` fires first: the connection is killed mid-migration
+  and the run dies inside `do_lock_for_migrations/5` with
+  `{:error, :rollback}` -- an error that names neither the object nor the
+  blocker, and that reports the full ownership window as migration time (264s
+  for work measured at ~340ms).
+
+  `lock_timeout` bounds that wait so the migration fails in seconds and says
+  which object it could not lock and which sessions were holding it. See
+  issue #4151.
+  """
+
   use Ecto.Migration
 
+  # Deliberately short. Nothing here should ever wait on a lock in a healthy
+  # migration: the objects being moved belong to an application that is not
+  # supposed to be running yet. Waiting is the symptom, not something to be
+  # patient about. Override for environments where a brief overlap is expected.
+  @default_lock_timeout_ms 15_000
+
+  defp lock_timeout_ms do
+    case System.get_env("SERVICERADAR_MIGRATION_LOCK_TIMEOUT_MS") do
+      nil ->
+        @default_lock_timeout_ms
+
+      value ->
+        case Integer.parse(value) do
+          {parsed, ""} when parsed > 0 -> parsed
+          _ -> @default_lock_timeout_ms
+        end
+    end
+  end
+
   def up do
+    # SET LOCAL: scoped to this migration's transaction, so it cannot leak into
+    # later migrations or into the connection when it returns to the pool.
+    execute("SET LOCAL lock_timeout = '#{lock_timeout_ms()}ms'")
+
     execute("CREATE SCHEMA IF NOT EXISTS platform")
 
     execute("""
@@ -24,7 +64,37 @@ defmodule ServiceRadar.Repo.Migrations.MovePublicSchemaObjectsToPlatform do
           AND tablename <> 'schema_migrations'
       LOOP
         IF to_regclass(format('platform.%I', rec.tablename)) IS NULL THEN
-          EXECUTE format('ALTER TABLE public.%I SET SCHEMA platform', rec.tablename);
+          -- lock_timeout turns an unbounded wait into an error; this block turns
+          -- that error into a diagnosis. Postgres would otherwise report only
+          -- "canceling statement due to lock timeout", naming neither the table
+          -- nor the session responsible, which is what made #4151 take so long
+          -- to characterise.
+          BEGIN
+            EXECUTE format('ALTER TABLE public.%I SET SCHEMA platform', rec.tablename);
+          EXCEPTION WHEN lock_not_available THEN
+            RAISE EXCEPTION
+              'could not acquire ACCESS EXCLUSIVE on public.% within %',
+              rec.tablename, current_setting('lock_timeout')
+              USING
+                DETAIL = format(
+                  'conflicting lock holders: %s',
+                  coalesce(
+                    (SELECT string_agg(
+                       format('pid=%s state=%s query=%s', a.pid, a.state, left(a.query, 120)),
+                       '; ')
+                       FROM pg_locks l
+                       JOIN pg_stat_activity a ON a.pid = l.pid
+                      WHERE l.relation = format('public.%I', rec.tablename)::regclass
+                        AND l.pid <> pg_backend_pid()
+                        AND l.granted),
+                    'none still holding; the blocker released it after the timeout'
+                  )
+                ),
+                HINT =
+                  'Something is using this table while the migration tries to move it. '
+                  'Stop the application against this database before migrating, or raise '
+                  'SERVICERADAR_MIGRATION_LOCK_TIMEOUT_MS if a brief overlap is expected.';
+          END;
         ELSE
           EXECUTE format('SELECT EXISTS (SELECT 1 FROM public.%I LIMIT 1)', rec.tablename)
             INTO public_has_rows;

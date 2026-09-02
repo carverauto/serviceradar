@@ -3,6 +3,30 @@ defmodule ServiceRadarWebNGWeb.FeatureFlagsTest do
 
   alias ServiceRadarWebNGWeb.FeatureFlags
 
+  @moduletag :db_free
+
+  test "mcp_enabled?/0 is false unless explicitly enabled" do
+    original = Application.get_env(:serviceradar_web_ng, :mcp_enabled)
+    on_exit(fn -> Application.put_env(:serviceradar_web_ng, :mcp_enabled, original) end)
+
+    Application.put_env(:serviceradar_web_ng, :mcp_enabled, false)
+    refute FeatureFlags.mcp_enabled?()
+
+    Application.put_env(:serviceradar_web_ng, :mcp_enabled, true)
+    assert FeatureFlags.mcp_enabled?()
+  end
+
+  test "mcp_client_credentials_enabled?/0 defaults to true" do
+    original = Application.get_env(:serviceradar_web_ng, :mcp_client_credentials_enabled)
+    on_exit(fn -> Application.put_env(:serviceradar_web_ng, :mcp_client_credentials_enabled, original) end)
+
+    Application.put_env(:serviceradar_web_ng, :mcp_client_credentials_enabled, true)
+    assert FeatureFlags.mcp_client_credentials_enabled?()
+
+    Application.put_env(:serviceradar_web_ng, :mcp_client_credentials_enabled, false)
+    refute FeatureFlags.mcp_client_credentials_enabled?()
+  end
+
   test "god_view_enabled?/0 is false by default" do
     original = Application.get_env(:serviceradar_web_ng, :god_view_enabled)
     on_exit(fn -> Application.put_env(:serviceradar_web_ng, :god_view_enabled, original) end)

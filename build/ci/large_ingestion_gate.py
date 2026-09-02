@@ -28,6 +28,7 @@ INVOCATION_PATH = "/invocation/"
 TARGET_URL_PREFIX = "https://carverauto.buildbuddy.io/invocation/"
 HISTORICAL_NOT_APPLICABLE = "HISTORICAL_NOT_APPLICABLE"
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+FIRST_PARENT_WALK_LIMIT = 256
 
 
 def _starlark_tokens(source: bytes) -> tuple[tokenize.TokenInfo, ...] | None:
@@ -153,6 +154,8 @@ class GitEvidence(Protocol):
     def resolve(self, revision: str) -> str: ...
     def is_shallow(self) -> bool: ...
     def is_ancestor(self, ancestor: str, descendant: str) -> bool: ...
+    def tree_sha(self, commit: str) -> str: ...
+    def first_parent_history(self, base_ref: str, limit: int = FIRST_PARENT_WALK_LIMIT) -> Sequence[str]: ...
     def read_tree_file(self, commit: str, path: str) -> bytes | None: ...
     def marker_introductions(self, base_ref: str) -> Sequence[str]: ...
 
@@ -267,6 +270,39 @@ class GitRepository:
         if returncode == 1:
             return False
         raise PolicyError("git ancestry check returned an unexpected exit")
+
+    def tree_sha(self, commit: str) -> str:
+        result = self._run(
+            ["rev-parse", "--verify", f"{commit}^{{tree}}"], "tree resolution"
+        )
+        if getattr(result, "returncode", None) != 0:
+            raise PolicyError("git tree could not be resolved")
+        if self._stderr_bytes(result, "tree resolution"):
+            raise PolicyError("git tree resolution was ambiguous or emitted a warning")
+        value = self._decode(self._stdout_bytes(result, "tree resolution"), "tree resolution").strip()
+        if not FULL_SHA.fullmatch(value):
+            raise PolicyError("git tree resolution did not return one full SHA")
+        return value
+
+    def first_parent_history(
+        self, base_ref: str, limit: int = FIRST_PARENT_WALK_LIMIT
+    ) -> Sequence[str]:
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise PolicyError("first-parent history limit must be a positive integer")
+        result = self._run(
+            ["rev-list", "--first-parent", f"--max-count={limit}", base_ref],
+            "first-parent history",
+        )
+        if getattr(result, "returncode", None) != 0:
+            raise PolicyError("git first-parent history lookup failed")
+        output = self._decode(
+            self._stdout_bytes(result, "first-parent history"),
+            "first-parent history",
+        )
+        commits = [line.strip() for line in output.splitlines() if line.strip()]
+        if any(not FULL_SHA.fullmatch(commit) for commit in commits):
+            raise PolicyError("git first-parent history returned a malformed SHA")
+        return commits
 
     def read_tree_file(self, commit: str, path: str) -> bytes | None:
         listing = self._run(
@@ -457,6 +493,31 @@ def determine_applicability(
     raise PolicyError("release and marker introduction have divergent history")
 
 
+def qualification_commits(
+    git: GitEvidence, release_commit: str, base_ref: str
+) -> tuple[str, ...]:
+    """Release SHA plus same-tree first-parent descendants on the fetched base.
+
+    Ancestry-preserving merges of the chore commit onto staging keep the tree
+    and change the SHA. LargeIngestionGate runs on the staging push, not the
+    tag, so publication must accept the merge commit's status.
+    """
+    resolved_release = git.resolve(release_commit)
+    release_tree = git.tree_sha(resolved_release)
+    ordered = [resolved_release]
+    seen = {resolved_release}
+    for commit in git.first_parent_history(base_ref, FIRST_PARENT_WALK_LIMIT):
+        if commit in seen:
+            continue
+        if not git.is_ancestor(resolved_release, commit):
+            break
+        if git.tree_sha(commit) != release_tree:
+            continue
+        ordered.append(commit)
+        seen.add(commit)
+    return tuple(ordered)
+
+
 def latest_status(statuses: Sequence[CommitStatus]) -> CommitStatus | None:
     matching = [status for status in statuses if status.context == STATUS_CONTEXT]
     if not matching:
@@ -511,7 +572,7 @@ def validate_target_url(candidate: str, configured_prefix: str) -> str:
 
 def wait_for_gate(
     git: GitEvidence,
-    status_factory: Callable[[], StatusSource],
+    status_factory: Callable[[str], StatusSource],
     clock: Clock,
     release_commit: str,
     base_ref: str,
@@ -531,29 +592,53 @@ def wait_for_gate(
     if not applicable:
         return GateResult(HISTORICAL_NOT_APPLICABLE)
 
-    source = status_factory()
+    commits = qualification_commits(git, release_commit, base_ref)
+    sources = {sha: status_factory(sha) for sha in commits}
     deadline = clock.monotonic() + timeout_seconds
     while True:
         before_snapshot = clock.monotonic()
         if before_snapshot >= deadline:
             raise PolicyError("timed out waiting for LargeIngestionGate success")
-        snapshot = source.snapshot(deadline - before_snapshot)
-        after_snapshot = clock.monotonic()
-        if after_snapshot >= deadline:
-            raise PolicyError("timed out waiting for LargeIngestionGate success")
 
-        newest = latest_status(snapshot)
-        if newest is not None:
-            if newest.state == "success":
-                target_url = validate_target_url(newest.target_url, target_url_prefix)
-                return GateResult("QUALIFIED", target_url)
-            if newest.state in ("failure", "error"):
+        newest_by_sha: dict[str, CommitStatus | None] = {}
+        after_snapshot = before_snapshot
+        for sha, source in sources.items():
+            now = clock.monotonic()
+            if now >= deadline:
+                raise PolicyError("timed out waiting for LargeIngestionGate success")
+            snapshot = source.snapshot(deadline - now)
+            after_snapshot = clock.monotonic()
+            if after_snapshot >= deadline:
+                raise PolicyError("timed out waiting for LargeIngestionGate success")
+            newest_by_sha[sha] = latest_status(snapshot)
+
+        successes = [
+            newest
+            for newest in newest_by_sha.values()
+            if newest is not None and newest.state == "success"
+        ]
+        if successes:
+            target_url = validate_target_url(successes[0].target_url, target_url_prefix)
+            return GateResult("QUALIFIED", target_url)
+
+        terminals = [
+            newest
+            for newest in newest_by_sha.values()
+            if newest is not None and newest.state not in ("success", "pending")
+        ]
+        missing_or_pending = [
+            newest
+            for newest in newest_by_sha.values()
+            if newest is None or newest.state == "pending"
+        ]
+        if terminals and not missing_or_pending:
+            state_name = terminals[0].state
+            if state_name in ("failure", "error"):
                 raise PolicyError(
-                    f"newest LargeIngestionGate status is terminal {newest.state}"
+                    f"newest LargeIngestionGate status is terminal {state_name}"
                 )
-            if newest.state != "pending":
-                raise PolicyError(
-                    f"newest LargeIngestionGate status has unknown state {newest.state!r}"
-                )
+            raise PolicyError(
+                f"newest LargeIngestionGate status has unknown state {state_name!r}"
+            )
 
         clock.sleep(min(poll_seconds, deadline - after_snapshot))

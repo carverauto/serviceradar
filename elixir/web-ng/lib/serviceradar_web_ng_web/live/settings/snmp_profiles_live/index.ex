@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Data
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Infos
+  alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Provenance
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View
 
   @impl true
@@ -27,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         |> assign(:page_title, "SNMP Profiles")
         |> assign(:profiles, profiles)
         |> assign(:profile_target_counts, profile_target_counts)
+        |> assign(:profile_package_names, Provenance.load_package_names(scope, profiles))
         |> assign(:selected_profile, nil)
         |> assign(:show_form, nil)
         |> assign(:ash_form, nil)
@@ -51,7 +53,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index do
         |> assign(:custom_template_form, nil)
         |> assign(:custom_template_oids, [])
         |> assign(:editing_custom_template, nil)
-        |> assign(:custom_templates, Data.load_custom_templates(scope))
+        |> Data.assign_custom_templates(scope)
         |> assign(:snmp_credentials, Data.load_snmp_credentials(scope))
         |> assign(:available_templates, Data.load_all_templates(scope))
         |> assign(:selected_template_ids, [])

@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   `:first_party_plugin_import` (`:repo_url`, `:registry_docker_config_json/file`).
   """
 
+  alias ServiceRadar.Plugins.RepoUrl
   alias ServiceRadar.Policies.OutboundURLPolicy
   alias ServiceRadarWebNG.Plugins.CosignVerifier
   alias ServiceRadarWebNG.Plugins.Storage
@@ -46,42 +47,38 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   # --- repo parsing -------------------------------------------------------------
 
   def parse_repo_url(url) when is_binary(url) do
-    with %URI{scheme: "https", host: @github_host} = uri <- URI.parse(String.trim(url)),
-         {:ok, owner, repo} <- repo_owner_and_name(uri.path) do
-      {:ok,
-       %{
-         provider: "github",
-         repo_url: "https://#{host_port(uri)}/#{owner}/#{repo}",
-         api_base_url: "https://#{@github_api_host}",
-         owner: owner,
-         repo: repo
-       }}
-    else
-      _ -> {:error, "GitHub repository URL must look like https://github.com/<owner>/<repo>"}
+    # Parsing lives in `ServiceRadar.Plugins.RepoUrl` because `PluginRepository`
+    # validates the same URLs at write time and core cannot depend on web-ng.
+    # Two parsers would be two chances to disagree, and disagreeing in the
+    # permissive direction means a repository row that saves cleanly and then
+    # fails every import.
+    case RepoUrl.parse(url) do
+      {:ok, parsed} ->
+        {:ok,
+         %{
+           provider: parsed.provider,
+           repo_url: parsed.repo_url,
+           api_base_url: "https://#{@github_api_host}",
+           owner: parsed.owner,
+           repo: parsed.repo,
+           token: nil
+         }}
+
+      {:error, _reason} ->
+        {:error, "GitHub repository URL must look like https://github.com/<owner>/<repo>"}
     end
   end
 
   def parse_repo_url(_url), do: {:error, "GitHub repository URL is required"}
 
-  defp repo_owner_and_name(path) when is_binary(path) do
-    case path |> String.split("/", trim: true) |> Enum.take(2) do
-      [owner, repo] ->
-        repo = String.trim_trailing(repo, ".git")
+  @doc """
+  Binds a repository's access token to a parsed repo for this request.
 
-        if owner != "" and repo != "" do
-          {:ok, owner, repo}
-        else
-          {:error, :invalid_repo_path}
-        end
-
-      _ ->
-        {:error, :invalid_repo_path}
-    end
-  end
-
-  defp host_port(%URI{scheme: "https", host: host, port: 443}), do: host
-  defp host_port(%URI{host: host, port: nil}), do: host
-  defp host_port(%URI{host: host, port: port}), do: "#{host}:#{port}"
+  The token rides on the repo rather than being read from the environment so
+  two private repositories can be reachable at once; the global
+  `GITHUB_TOKEN` remains the fallback for the built-in source.
+  """
+  def with_token(repo, token) when is_map(repo), do: Map.put(repo, :token, token)
 
   # --- release + asset fetch ----------------------------------------------------
 
@@ -89,10 +86,11 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
     url = "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases/tags/#{URI.encode(tag)}"
 
     with {:ok, request_url} <- validate_provider_api_url(repo, url),
-         {:ok, response} <- request(request_url, headers: api_headers("github"), decode_body: true) do
+         {:ok, response} <- request(request_url, headers: api_headers(repo), decode_body: true) do
       case response do
         %Req.Response{status: 200, body: body} when is_map(body) -> {:ok, body}
-        %Req.Response{status: 404} -> {:error, "Release tag #{tag} was not found"}
+        %Req.Response{status: 404} -> {:error, not_found_reason(repo, "Release tag #{tag} was not found")}
+        %Req.Response{status: status} when status in [401, 403] -> {:error, credential_reason(repo, status)}
         %Req.Response{status: status} -> {:error, "Release import failed with HTTP #{status}"}
       end
     end
@@ -102,12 +100,36 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
     url = "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases?per_page=#{normalize_limit(limit)}"
 
     with {:ok, request_url} <- validate_provider_api_url(repo, url),
-         {:ok, response} <- request(request_url, headers: api_headers("github"), decode_body: true) do
+         {:ok, response} <- request(request_url, headers: api_headers(repo), decode_body: true) do
       case response do
         %Req.Response{status: 200, body: body} when is_list(body) -> {:ok, body}
         %Req.Response{status: 200} -> {:error, "Plugin release browser returned an unexpected payload"}
+        %Req.Response{status: 404} -> {:error, not_found_reason(repo, "Repository or releases not found")}
+        %Req.Response{status: status} when status in [401, 403] -> {:error, credential_reason(repo, status)}
         %Req.Response{status: status} -> {:error, "Recent plugin releases could not be loaded (HTTP #{status})"}
       end
+    end
+  end
+
+  defp not_found_reason(repo, fallback) do
+    if repo_token(repo) do
+      fallback <>
+        ". If this repository is private, its access token may lack access to it " <>
+        "(GitHub answers 404, not 403, for a repository the token cannot see)."
+    else
+      fallback <>
+        ". If this repository is private, attach a GitHub access token to it: " <>
+        "an unauthenticated request cannot see private repositories and GitHub " <>
+        "reports that as 404."
+    end
+  end
+
+  defp credential_reason(repo, status) do
+    if repo_token(repo) do
+      "Plugin repository rejected the configured access token (HTTP #{status}); " <>
+        "the token may be expired or missing repository read access."
+    else
+      "Plugin repository requires authentication (HTTP #{status}); attach a GitHub access token."
     end
   end
 
@@ -124,9 +146,20 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   end
 
   def fetch_binary_asset(repo, asset) do
-    with {:ok, url} <- require_value(Map.get(asset, "browser_download_url"), "Release asset URL is missing"),
-         {:ok, request_url} <- validate_provider_asset_url(repo, url) do
-      fetch_url_binary(repo, request_url)
+    if repo_token(repo) do
+      # A private repository's `browser_download_url` returns 404 for a PAT:
+      # private release assets are only reachable through the API endpoint, which
+      # 302s to a short-lived pre-signed URL.
+      with {:ok, url} <- require_value(Map.get(asset, "url"), "Release asset API URL is missing"),
+           {:ok, request_url} <- validate_provider_asset_url(repo, url) do
+        fetch_url_binary(repo, request_url, @max_asset_redirects, :api)
+      end
+    else
+      with {:ok, url} <-
+             require_value(Map.get(asset, "browser_download_url"), "Release asset URL is missing"),
+           {:ok, request_url} <- validate_provider_asset_url(repo, url) do
+        fetch_url_binary(repo, request_url)
+      end
     end
   end
 
@@ -183,7 +216,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
 
   def fetch_oci_manifest(repo, ref) do
     url = "https://#{ref.registry}/v2/#{ref.repository}/manifests/#{ref.reference}"
-    headers = [{"accept", "application/vnd.oci.image.manifest.v1+json"} | asset_headers("github", url)]
+    headers = [{"accept", "application/vnd.oci.image.manifest.v1+json"} | asset_headers(repo, url)]
 
     with {:ok, request_url} <- validate_provider_asset_url(repo, url),
          {:ok, response} <- request_oci(request_url, ref, headers: headers, decode_body: true) do
@@ -210,7 +243,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   end
 
   defp fetch_oci_blob_binary(repo, ref, url, remaining_redirects) do
-    case request_oci(url, ref, headers: asset_headers("github", url), decode_body: false) do
+    case request_oci(url, ref, headers: asset_headers(repo, url), decode_body: false) do
       {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
         {:ok, body}
 
@@ -220,7 +253,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
       {:ok, %Req.Response{status: status} = response} when status in [301, 302, 303, 307, 308] ->
         with {:ok, redirect_url} <- redirect_location(url, response),
              {:ok, request_url} <- validate_provider_asset_url(repo, redirect_url) do
-          fetch_url_binary(repo, request_url, remaining_redirects - 1)
+          # Always :asset from here: the pre-signed target must not receive the
+          # Authorization header, and auth_host?/1 is what enforces that.
+          fetch_url_binary(repo, request_url, remaining_redirects - 1, :asset)
         end
 
       {:ok, %Req.Response{status: status}} ->
@@ -437,14 +472,22 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
     |> then(&[{key, value} | &1])
   end
 
-  def fetch_url_binary(repo, url), do: fetch_url_binary(repo, url, @max_asset_redirects)
+  def fetch_url_binary(repo, url), do: fetch_url_binary(repo, url, @max_asset_redirects, :asset)
 
-  def fetch_url_binary(_repo, _url, remaining_redirects) when remaining_redirects < 0 do
+  def fetch_url_binary(repo, url, remaining_redirects), do: fetch_url_binary(repo, url, remaining_redirects, :asset)
+
+  def fetch_url_binary(_repo, _url, remaining_redirects, _mode) when remaining_redirects < 0 do
     {:error, "Plugin artifact download exceeded redirect limit"}
   end
 
-  def fetch_url_binary(repo, url, remaining_redirects) do
-    case request(url, headers: asset_headers(url), decode_body: false) do
+  def fetch_url_binary(repo, url, remaining_redirects, mode) do
+    headers =
+      case mode do
+        :api -> asset_api_headers(repo)
+        :asset -> asset_headers(repo, url)
+      end
+
+    case request(url, headers: headers, decode_body: false) do
       {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) ->
         {:ok, body}
 
@@ -489,29 +532,45 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
     [connect_options: [timeout: 5_000], receive_timeout: 10_000, redirect: false]
   end
 
-  defp api_headers("github") do
-    [{"user-agent", "serviceradar"}, {"accept", "application/vnd.github+json"} | auth_headers()]
+  defp api_headers(repo) do
+    [{"user-agent", "serviceradar"}, {"accept", "application/vnd.github+json"} | auth_headers(repo)]
   end
 
-  defp asset_headers("github", url), do: asset_headers(url)
-
-  defp asset_headers(url) do
+  defp asset_headers(repo, url) do
     headers = [{"user-agent", "serviceradar"}]
 
+    # Deliberately narrow. A release-asset download 302s to a pre-signed URL on
+    # objects.githubusercontent.com that carries its own authorization;
+    # forwarding the PAT there both breaks the request and discloses the token
+    # to a host with no business seeing it. Covered by a test so this stays a
+    # decision rather than an accident of the host list.
     if auth_host?(url) do
-      headers ++ auth_headers()
+      headers ++ auth_headers(repo)
     else
       headers
     end
   end
 
-  defp auth_headers do
-    case Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_github_token) ||
-           System.get_env("GITHUB_TOKEN") ||
-           System.get_env("GH_TOKEN") do
+  # Binary asset downloads through the API endpoint must ask for the bytes;
+  # without this GitHub returns the asset's JSON metadata instead.
+  defp asset_api_headers(repo) do
+    [{"user-agent", "serviceradar"}, {"accept", "application/octet-stream"} | auth_headers(repo)]
+  end
+
+  defp auth_headers(repo) do
+    case repo_token(repo) || configured_token() do
       nil -> []
       token -> [{"authorization", "Bearer #{token}"}]
     end
+  end
+
+  defp repo_token(%{token: token}) when is_binary(token) and token != "", do: token
+  defp repo_token(_repo), do: nil
+
+  defp configured_token do
+    Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_github_token) ||
+      System.get_env("GITHUB_TOKEN") ||
+      System.get_env("GH_TOKEN")
   end
 
   defp auth_host?(url) do

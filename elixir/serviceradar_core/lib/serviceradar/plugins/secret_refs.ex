@@ -209,13 +209,24 @@ defmodule ServiceRadar.Plugins.SecretRefs do
   def network_credential_ref_id(ref) when is_binary(ref) do
     cond do
       legacy_network_credential_ref?(ref) ->
-        legacy_network_credential_ref_id(ref)
+        network_credential_secret_ref_id(ref)
 
       network_credential_grant_ref?(ref) ->
         network_credential_grant_ref_id(ref)
 
       true ->
         {:error, "is not a network credential reference"}
+    end
+  end
+
+  @doc "Returns the credential ID from a canonical stored network-credential reference."
+  @spec network_credential_secret_ref_id(String.t()) ::
+          {:ok, String.t()} | {:error, String.t()}
+  def network_credential_secret_ref_id(ref) when is_binary(ref) do
+    if legacy_network_credential_ref?(ref) do
+      legacy_network_credential_ref_id(ref)
+    else
+      {:error, "is not a stored network credential reference"}
     end
   end
 

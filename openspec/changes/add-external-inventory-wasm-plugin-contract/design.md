@@ -126,13 +126,13 @@ The local host captures submitted results, telemetry, and logs and mediates HTTP
 This harness is development-only. It does not verify package signatures, emulate assignment admission, or authorize production execution, and it never changes the signed-package release or agent enforcement paths.
 
 ### First implementation
-The first-party OpenText Network Automation plugin owns its fixed `list device` protocol, bounded filters/pagination, source field mapping, product documentation, and fixtures. Its package declares the OAuth exchange contract, while the trusted agent host performs that exchange and bearer injection. Its stable integration ID is:
+The first-party OpenText NOM plugin owns its fixed Network Automation `list device` protocol, bounded filters/pagination, source field mapping, product documentation, and fixtures. Its package declares the OAuth exchange contract, while the trusted agent host performs that exchange and bearer injection. Its stable integration ID is:
 
 ```text
-opentext-network-automation:v1:<instance_id>:device:<device_id>
+opentext-nom:v1:<instance_id>:device:<device_id>
 ```
 
-Its package declares the `opentext-network-automation` provider/source and daily schedule. None of those identifiers appear in core logic or static catalogs.
+Its package declares the `opentext-nom` provider/source and daily schedule. None of those identifiers appear in core logic or static catalogs.
 
 ## Risks / Trade-offs
 - A malformed descriptor could affect operator configuration. Strict parsing, package approval, duplicate detection, and no dynamic code loading constrain this risk.

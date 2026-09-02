@@ -98,15 +98,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowComponents.Formatters do
     end
   end
 
-  def format_timestamp(nil), do: "—"
-
-  def format_timestamp(value) do
-    case parse_datetime(value) do
-      {:ok, %DateTime{} = dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> "—"
-    end
-  end
-
   def parse_datetime(%DateTime{} = dt), do: {:ok, dt}
 
   def parse_datetime(%NaiveDateTime{} = ndt) do

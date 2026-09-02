@@ -2,10 +2,14 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
   @moduledoc false
   use Phoenix.Component
 
-  import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
+  import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1, user_time: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
+  @nanoseconds_per_second 1_000_000_000
+
   attr(:widgets, :list, required: true)
+  attr(:id, :string, required: true)
+  attr(:timezone, :string, required: true)
 
   def signal_display_panel(assigns) do
     ~H"""
@@ -18,8 +22,12 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
       </:header>
 
       <div class="space-y-5">
-        <%= for widget <- @widgets do %>
-          <.signal_display_widget widget={widget} />
+        <%= for {widget, widget_index} <- Enum.with_index(@widgets) do %>
+          <.signal_display_widget
+            id={"#{@id}-widget-#{Map.get(widget, :contract_index, widget_index)}"}
+            widget={widget}
+            timezone={@timezone}
+          />
         <% end %>
       </div>
     </.ui_panel>
@@ -27,6 +35,8 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
   end
 
   attr(:widget, :map, required: true)
+  attr(:id, :string, required: true)
+  attr(:timezone, :string, required: true)
 
   def signal_display_widget(%{widget: %{type: :summary}} = assigns) do
     ~H"""
@@ -50,8 +60,21 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
   def signal_display_widget(%{widget: %{type: :badges}} = assigns) do
     ~H"""
     <div class="flex flex-wrap gap-2">
-      <.ui_badge :for={field <- @widget.fields} variant={signal_badge_variant(field)} size="sm">
-        {field.label}: {field.value}
+      <.ui_badge
+        :for={{field, field_index} <- Enum.with_index(@widget.fields)}
+        variant={signal_badge_variant(field)}
+        size="sm"
+      >
+        {field.label}:
+        <.user_time
+          :if={temporal_value(field)}
+          id={"#{@id}-field-#{field_index}-time"}
+          value={temporal_value(field)}
+          timezone={@timezone}
+          style={:full}
+          fallback={field.value}
+        />
+        <span :if={is_nil(temporal_value(field))}>{field.value}</span>
       </.ui_badge>
     </div>
     """
@@ -66,7 +89,10 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
         {@heading}
       </span>
       <div class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
-        <div :for={field <- @widget.fields} class="flex min-w-0 flex-col gap-0.5">
+        <div
+          :for={{field, field_index} <- Enum.with_index(@widget.fields)}
+          class="flex min-w-0 flex-col gap-0.5"
+        >
           <span class="text-[11px] text-sr-muted">{field.label}</span>
           <.link
             :if={Map.get(field, :href)}
@@ -74,9 +100,29 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
             class="break-words text-sm text-sr-brand underline-offset-2 hover:underline"
             aria-label={Map.get(field, :href_label) || "Open #{field.label} #{field.value}"}
           >
-            {field.value}
+            <.user_time
+              :if={temporal_value(field)}
+              id={"#{@id}-field-#{field_index}-time"}
+              value={temporal_value(field)}
+              timezone={@timezone}
+              style={:full}
+              fallback={field.value}
+            />
+            <span :if={is_nil(temporal_value(field))}>{field.value}</span>
           </.link>
-          <span :if={!Map.get(field, :href)} class="break-words text-sm text-sr-ink">
+          <.user_time
+            :if={!Map.get(field, :href) && temporal_value(field)}
+            id={"#{@id}-field-#{field_index}-time"}
+            value={temporal_value(field)}
+            timezone={@timezone}
+            style={:full}
+            fallback={field.value}
+            class="break-words text-sm text-sr-ink"
+          />
+          <span
+            :if={!Map.get(field, :href) && is_nil(temporal_value(field))}
+            class="break-words text-sm text-sr-ink"
+          >
             {field.value}
           </span>
         </div>
@@ -90,11 +136,17 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
     facts =
       assigns.widget
       |> Map.get(:sections, [])
-      |> Enum.flat_map(fn section ->
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {section, section_index} ->
         case Map.get(section, :value) do
-          %{} = map -> flatten_json_facts(map)
-          list when is_list(list) -> [%{label: "Items", value: "#{length(list)} entries"}]
-          _ -> []
+          %{} = map ->
+            flatten_json_facts(map, nil, Map.get(section, :path) || "section-#{section_index}")
+
+          list when is_list(list) ->
+            [%{label: "Items", value: "#{length(list)} entries"}]
+
+          _ ->
+            []
         end
       end)
       |> Enum.take(24)
@@ -110,9 +162,23 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
         {@title}
       </span>
       <div class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
-        <div :for={fact <- @facts} class="flex min-w-0 flex-col gap-0.5">
+        <div
+          :for={{fact, fact_index} <- Enum.with_index(@facts)}
+          class="flex min-w-0 flex-col gap-0.5"
+        >
           <span class="text-[11px] text-sr-muted">{fact.label}</span>
-          <span class="break-all text-sm text-sr-ink">{fact.value}</span>
+          <.user_time
+            :if={temporal_value(fact)}
+            id={"#{@id}-fact-#{fact_index}-#{dom_segment(fact.path)}-time"}
+            value={temporal_value(fact)}
+            timezone={@timezone}
+            style={:full}
+            fallback={fact.value}
+            class="break-all text-sm text-sr-ink"
+          />
+          <span :if={is_nil(temporal_value(fact))} class="break-all text-sm text-sr-ink">
+            {fact.value}
+          </span>
         </div>
       </div>
     </div>
@@ -133,9 +199,23 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
             </tr>
           </thead>
           <tbody>
-            <tr :for={row <- @widget.rows}>
-              <td :for={cell <- row.values} class="max-w-sm align-top">
-                <span class="line-clamp-3 break-words">{cell.value}</span>
+            <tr :for={{row, row_index} <- Enum.with_index(@widget.rows)}>
+              <td
+                :for={{cell, cell_index} <- Enum.with_index(row.values)}
+                class="max-w-sm align-top"
+              >
+                <.user_time
+                  :if={temporal_value(cell)}
+                  id={"#{@id}-row-#{row_index}-cell-#{cell_index}-time"}
+                  value={temporal_value(cell)}
+                  timezone={@timezone}
+                  style={:full}
+                  fallback={cell.value}
+                  class="line-clamp-3 break-words"
+                />
+                <span :if={is_nil(temporal_value(cell))} class="line-clamp-3 break-words">
+                  {cell.value}
+                </span>
               </td>
             </tr>
           </tbody>
@@ -147,7 +227,12 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
 
   def signal_display_widget(assigns), do: ~H""
 
-  defp flatten_json_facts(map, prefix \\ nil) when is_map(map) do
+  @json_timestamp_keys MapSet.new(
+                         ~w(time timestamp event_time logged_time observed_at created_at updated_at expires_at creationTimestamp updateTimestamp)
+                       )
+  @json_unix_nano_keys MapSet.new(~w(observed_time_unix_nano observed_at_unix_nano))
+
+  defp flatten_json_facts(map, prefix, path_prefix) when is_map(map) do
     map
     |> Enum.sort_by(fn {k, _} -> to_string(k) end)
     |> Enum.flat_map(fn {key, value} ->
@@ -158,7 +243,9 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
         |> String.split()
         |> Enum.map_join(" ", &String.capitalize/1)
 
+      key = to_string(key)
       label = if prefix, do: "#{prefix} · #{label}", else: label
+      path = "#{path_prefix}.#{key}"
 
       cond do
         value in [nil, "", []] ->
@@ -168,15 +255,73 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
           []
 
         is_map(value) and map_size(value) <= 6 and flat_map?(value) ->
-          flatten_json_facts(value, label)
+          flatten_json_facts(value, label, path)
 
         is_map(value) or is_list(value) ->
           []
 
         true ->
-          [%{label: label, value: to_string(value)}]
+          [
+            %{
+              label: label,
+              path: path,
+              value: to_string(value),
+              format: json_temporal_format(key)
+            }
+          ]
       end
     end)
+  end
+
+  defp temporal_value(%{format: "timestamp", value: value})
+       when is_binary(value) or is_struct(value, DateTime) or is_struct(value, NaiveDateTime), do: value
+
+  defp temporal_value(%{format: "unix_nano", value: value}) do
+    with {:ok, unix_nano} <- parse_unix_time(value),
+         seconds = Integer.floor_div(unix_nano, @nanoseconds_per_second),
+         nanoseconds = Integer.mod(unix_nano, @nanoseconds_per_second),
+         {:ok, datetime} <- DateTime.from_unix(seconds, :second) do
+      datetime
+      |> DateTime.to_iso8601()
+      |> String.replace_suffix(
+        "Z",
+        ".#{nanoseconds |> Integer.to_string() |> String.pad_leading(9, "0")}Z"
+      )
+    else
+      # Falco uses its top-level RFC3339 timestamp when evt.time is absent.
+      # Accept that producer fallback at the display boundary without rewriting
+      # the stored payload or weakening the unix-nanosecond precision path.
+      _ -> temporal_value(%{format: "timestamp", value: value})
+    end
+  end
+
+  defp temporal_value(_field), do: nil
+
+  defp parse_unix_time(value) when is_integer(value), do: {:ok, value}
+
+  defp parse_unix_time(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {unix_time, ""} -> {:ok, unix_time}
+      _ -> :error
+    end
+  end
+
+  defp parse_unix_time(_value), do: :error
+
+  defp json_temporal_format(key) do
+    cond do
+      MapSet.member?(@json_timestamp_keys, key) -> "timestamp"
+      MapSet.member?(@json_unix_nano_keys, key) -> "unix_nano"
+      true -> nil
+    end
+  end
+
+  defp dom_segment(value) do
+    value
+    |> to_string()
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9]+/, "-")
+    |> String.trim("-")
   end
 
   defp flat_map?(%{} = map) do

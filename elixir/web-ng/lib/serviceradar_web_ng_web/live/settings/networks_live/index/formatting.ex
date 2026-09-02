@@ -30,8 +30,37 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Formatting do
   end
 
   def format_ports([]), do: "—"
+  def format_ports(nil), do: "—"
   def format_ports(ports) when length(ports) <= 5, do: Enum.join(ports, ", ")
   def format_ports(ports), do: "#{length(ports)} ports"
+
+  @doc """
+  A profile's port list as it applies to that profile's sweep modes.
+
+  ICMP has no ports. A profile whose only mode is `icmp` still carries whatever
+  port list it was created with, and rendering it claims the sweep probes those
+  ports when it does not -- an operator comparing an icmp group against a tcp
+  group sees two identical port lists and no way to tell that only one is real.
+
+  Ports are shown when ANY mode uses them, so an `icmp,tcp` profile still
+  displays its list.
+  """
+  def format_ports_for_modes(ports, modes) do
+    if port_using_mode?(modes) do
+      format_ports(ports)
+    else
+      "n/a"
+    end
+  end
+
+  # An empty or unknown mode list falls through to showing ports rather than
+  # hiding them: suppressing a real port list because the modes could not be
+  # read would be a worse lie than the one this fixes.
+  defp port_using_mode?(modes) when is_list(modes) do
+    modes == [] or Enum.any?(modes, &(to_string(&1) != "icmp"))
+  end
+
+  defp port_using_mode?(_modes), do: true
 
   defp invalid_changes_message(%Ash.Error.Invalid{errors: errors}) when is_list(errors) do
     Enum.find_value(errors, &invalid_changes_message/1)
