@@ -38,6 +38,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   alias ServiceRadar.Inventory.AdvisoryFeeds.Staging
   alias ServiceRadar.Inventory.AdvisoryFeeds.StreamReader
   alias ServiceRadar.Inventory.VulnerabilityFeedDefinition
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Ash.Query
@@ -666,7 +667,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   defp schedule_next(feed) do
     if Config.feed_enabled?(feed) do
       seconds = Config.refresh_seconds(feed)
-      _ = ObanSupport.safe_insert(new(%{feed: feed}, schedule_in: seconds))
+
+      _ =
+        feed
+        |> then(&%{feed: &1})
+        |> then(&SelfScheduling.successor_changeset(__MODULE__, &1, seconds))
+        |> ObanSupport.safe_insert()
     end
 
     :ok
