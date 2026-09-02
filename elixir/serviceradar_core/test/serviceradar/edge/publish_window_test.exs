@@ -953,7 +953,15 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
     # A LIVE process that is not this one. It has to be alive: the window compares pids, and a
     # dead pid compares exactly the same, so spawning-and-letting-die would prove something
     # weaker than intended.
-    defp bystander, do: spawn_link(fn -> Process.sleep(:infinity) end)
+    defp bystander do
+      pid = spawn(fn -> Process.sleep(:infinity) end)
+
+      # NOT spawn_link. A process exiting NORMALLY does not kill what it is linked to, and an
+      # ExUnit test process exits normally on success -- so a linked infinite sleeper outlives
+      # the test that created it and accumulates across the suite.
+      on_exit(fn -> Process.exit(pid, :kill) end)
+      pid
+    end
 
     test "a process that did not admit the attempt cannot end it" do
       w = window(1, 100)
@@ -1003,7 +1011,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       # A sweep can SEE it...
       assert PublishWindow.expired(w, 101) === [res]
 
-      sweep = spawn_link(fn -> Process.sleep(:infinity) end)
+      sweep = bystander()
 
       # ...and that is the entire extent of what it can do with it.
       assert {:error, :not_outstanding} = PublishWindow.attempt_failed(w, res, sweep)
