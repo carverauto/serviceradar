@@ -24,7 +24,8 @@ HTTP_CLIENT_URLS = (
 def database_block():
     text = (ENVIRONMENTS / "ci.textproto").read_text()
     block = re.search(r"^database \{.*?^\}", text, re.S | re.M)
-    assert block, "ci.textproto has no database block"
+    if block is None:
+        raise AssertionError("ci.textproto has no database block")
     return block.group(0)
 
 

@@ -100,16 +100,11 @@ deploy() {
     -f "$values" \
     --wait --timeout 15m
 
-  # CI publishes ca.crt for live client fetches. The ClusterIP Service is the Envoy
-  # backend; the LAN HTTPRoute is what clients dial over HTTPS.
+  # CI publishes ca.crt as the Envoy backend. Same live-cluster exception as
+  # certificate.yaml above: this is not a build artifact. HTTPRoutes are owned
+  # by carverauto/gitops (Argo) and must not be applied from this script.
   if [[ -f "${here}/${env}/ca-bundle.yaml" ]]; then
     kubectl apply -f "${here}/${env}/ca-bundle.yaml"
-  fi
-  if [[ -f "${here}/${env}/httproute-ca.yaml" ]]; then
-    kubectl apply -f "${here}/${env}/httproute-ca.yaml"
-  fi
-  if [[ -f "${here}/${env}/httproute-redirect.yaml" ]]; then
-    kubectl apply -f "${here}/${env}/httproute-redirect.yaml"
   fi
 
   echo
