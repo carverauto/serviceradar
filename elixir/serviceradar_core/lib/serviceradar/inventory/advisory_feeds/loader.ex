@@ -430,13 +430,15 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   end
 
   defp flush_chunk_body(chunk, provider, feed_key, generation, now) do
+    hash_content? = comparison_for_feed(feed_key) == :content_hash
+
     advisory_rows =
       chunk
       |> Enum.map(fn %{advisory: advisory} = record ->
-        record
-        |> content_hash()
-        |> then(
-          &Map.put(advisory_row(advisory, provider, feed_key, generation, now), :content_hash, &1)
+        Map.put(
+          advisory_row(advisory, provider, feed_key, generation, now),
+          :content_hash,
+          if(hash_content?, do: content_hash(record))
         )
       end)
       |> dedupe_advisory_rows()

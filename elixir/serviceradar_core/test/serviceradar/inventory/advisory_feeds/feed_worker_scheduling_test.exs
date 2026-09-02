@@ -45,7 +45,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorkerSchedulingTest do
     executing = insert_executing_job!("nist-nvd2")
     put_advisory_feed_config(:advisory_feeds_nist_nvd2_enabled, false)
 
+    before_perform = DateTime.utc_now()
     assert :ok = FeedWorker.perform(%{executing | args: %{"feed" => "nist-nvd2"}})
+    after_perform = DateTime.utc_now()
 
     successors =
       Repo.all(
@@ -59,8 +61,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorkerSchedulingTest do
     assert [%Oban.Job{conflict?: false, args: %{"feed" => "nist-nvd2"}} = successor] =
              successors
 
-    delay = DateTime.diff(successor.scheduled_at, DateTime.utc_now())
-    assert delay in 7_195..7_200
+    scheduled_from = DateTime.add(successor.scheduled_at, -7_200, :second)
+
+    assert DateTime.compare(scheduled_from, before_perform) in [:eq, :gt]
+    assert DateTime.compare(scheduled_from, after_perform) in [:eq, :lt]
   end
 
   test "reconciliation keeps an existing future successor" do

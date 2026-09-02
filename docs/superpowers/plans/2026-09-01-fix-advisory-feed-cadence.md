@@ -269,7 +269,7 @@ Exclude `generation`, `current`, `inserted_at`, and `updated_at`. Include `raw`,
 
 Replace the timestamp-only live-row lookup used by `load_stream/2` with a schemaless query returning both `modified_at` (cast with `type(..., :utc_datetime_usec)`) and `content_hash`. Choose comparison mode from `feed_key`: `:content_hash` only for `cisa-kev` and `vulncheck-kev`; `:modified_at` for every other feed.
 
-Persist `content_hash(record)` in every advisory upsert and add `:content_hash` to the conflict replacement list. A null stored hash must return `false` from the content comparison so the row is rewritten once.
+Persist `content_hash(record)` only for `cisa-kev` and `vulncheck-kev`; keep the nullable key set to `nil` for timestamp-comparison feeds so large NVD loads do not hash payloads the guard will never read. Add `:content_hash` to the conflict replacement list. A null stored hash must return `false` from the content comparison so a legacy KEV row is rewritten once.
 
 - [ ] **Step 7: Make the inert guard capability-aware**
 

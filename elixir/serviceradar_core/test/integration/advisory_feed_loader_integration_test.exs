@@ -137,6 +137,24 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     assert live_count(feed_key) == 3
   end
 
+  test "timestamp feeds leave the unused content hash empty", %{feed_key: feed_key} do
+    {result, _gen} = load(feed_key, all_records())
+
+    assert result.advisories_upserted == 3
+
+    hashes =
+      Repo.all(
+        from(a in "vulnerability_advisories",
+          where: a.provider == ^@provider and a.feed_key == ^feed_key,
+          select: a.content_hash,
+          order_by: a.source_object_id
+        ),
+        prefix: @schema
+      )
+
+    assert hashes == [nil, nil, nil]
+  end
+
   test "existing_modified_at/2 returns values the guard can compare", %{feed_key: feed_key} do
     load(feed_key, all_records())
 
