@@ -9,7 +9,6 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
 
   @tick_ms 5_000
   @binary_magic "GVB1"
-  @default_expanded_cluster_limit 4
 
   @impl true
   def join("topology:god_view", _payload, socket) do
@@ -143,22 +142,15 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
   end
 
   @doc false
-  def expanded_cluster_limit do
-    Application.get_env(
-      :serviceradar_web_ng,
-      :god_view_expanded_cluster_limit,
-      @default_expanded_cluster_limit
-    )
-  end
-
-  @doc false
   def next_expanded_clusters(expanded_clusters, cluster_id, expanded)
       when is_list(expanded_clusters) and is_binary(cluster_id) do
     cond do
       expanded == true and not Enum.member?(expanded_clusters, cluster_id) ->
-        expanded_clusters
-        |> Enum.concat([cluster_id])
-        |> Enum.take(-expanded_cluster_limit())
+        # No cap. Expanding one cluster must never collapse another: the operator opened it
+        # deliberately, and evicting the oldest made a fifth expansion silently close the
+        # first on a deployment with five clusters. The payload stays bounded by the
+        # per-cluster visible-member limit in GodViewStream, not by how many are open.
+        Enum.concat(expanded_clusters, [cluster_id])
 
       expanded == true ->
         expanded_clusters

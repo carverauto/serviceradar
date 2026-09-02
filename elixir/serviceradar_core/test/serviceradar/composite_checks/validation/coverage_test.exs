@@ -3,6 +3,7 @@ defmodule ServiceRadar.CompositeChecks.Validation.CoverageTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.CompositeChecks.Validation.Coverage
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
@@ -14,14 +15,15 @@ defmodule ServiceRadar.CompositeChecks.Validation.CoverageTest do
     "10.#{rem(n, 250) + 1}.#{rem(div(n, 250), 250) + 1}.#{rem(div(n, 62_500), 253) + 1}"
   end
 
-  defp create_device!(ip) do
+  defp create_device!(ip, partition \\ "default") do
     Device
     |> Ash.Changeset.for_create(
       :create,
       %{
         uid: "sr:" <> Ecto.UUID.generate(),
         hostname: "cov-#{System.unique_integer([:positive])}",
-        ip: ip
+        ip: ip,
+        partition: partition
       },
       actor: actor()
     )
@@ -46,6 +48,10 @@ defmodule ServiceRadar.CompositeChecks.Validation.CoverageTest do
   end
 
   defp create_group!(attrs) do
+    attrs
+    |> assignment_agent_ids()
+    |> Enum.each(&register_agent!/1)
+
     SweepGroup
     |> Ash.Changeset.for_create(
       :create,
@@ -60,6 +66,27 @@ defmodule ServiceRadar.CompositeChecks.Validation.CoverageTest do
       actor: actor()
     )
     |> Ash.create!()
+  end
+
+  defp assignment_agent_ids(attrs) do
+    attrs
+    |> Map.get(:agent_ids, List.wrap(Map.get(attrs, :agent_id)))
+    |> List.wrap()
+    |> Enum.reject(&(&1 in [nil, ""]))
+  end
+
+  defp register_agent!(uid) do
+    case Agent.get_by_uid(uid, actor: actor()) do
+      {:ok, _agent} ->
+        :ok
+
+      {:error, _reason} ->
+        Agent
+        |> Ash.Changeset.for_create(:register, %{uid: uid}, actor: actor())
+        |> Ash.create!()
+
+        :ok
+    end
   end
 
   test "a device matching in:devices inherits the group's compiled profile settings" do
@@ -130,5 +157,49 @@ defmodule ServiceRadar.CompositeChecks.Validation.CoverageTest do
     assert {:ok, settings} = Coverage.cover(device.uid, ip, "default", "agent-x")
     assert settings.ports == [22]
     assert settings.modes == ["icmp"]
+  end
+
+  test "an isolation group covers a device from an agent in another partition" do
+    ip = unique_ip()
+    isolation_partition = "rids-#{System.unique_integer([:positive])}"
+    device = create_device!(ip, isolation_partition)
+    profile = create_profile!(%{ports: [], sweep_modes: ["icmp"]})
+
+    create_group!(%{
+      partition: isolation_partition,
+      agent_id: "k8s-agent",
+      static_targets: [ip],
+      profile_id: profile.id,
+      sweep_modes: ["icmp"]
+    })
+
+    assert {:ok, settings} =
+             Coverage.cover(device.uid, ip, isolation_partition, "k8s-agent")
+
+    assert settings.modes == ["icmp"]
+  end
+
+  test "coverage includes every selected agent but excludes nil and deselected requesters" do
+    ip = unique_ip()
+    device = create_device!(ip, "coverage-device-partition")
+    profile = create_profile!(%{ports: [443], sweep_modes: ["icmp", "tcp"]})
+
+    create_group!(%{
+      partition: "coverage-device-partition",
+      agent_ids: ["coverage-selected-a", "coverage-selected-b"],
+      static_targets: [ip],
+      profile_id: profile.id
+    })
+
+    assert {:ok, settings_a} =
+             Coverage.cover(device.uid, ip, "coverage-agent-partition", "coverage-selected-a")
+
+    assert {:ok, settings_b} =
+             Coverage.cover(device.uid, ip, "coverage-agent-partition", "coverage-selected-b")
+
+    assert settings_a == settings_b
+
+    assert {:error, :uncovered} =
+             Coverage.cover(device.uid, ip, "coverage-agent-partition", "coverage-deselected")
   end
 end

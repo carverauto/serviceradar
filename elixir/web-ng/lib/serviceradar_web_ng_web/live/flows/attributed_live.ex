@@ -66,6 +66,10 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/observability/flows/attributed")}
   end
 
+  def handle_event("srql_reset", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_reset", params, fallback_path: "/observability/flows/attributed")}
+  end
+
   def handle_event("srql_builder_toggle", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", params, entity: "attributed_flows")}
   end
@@ -382,7 +386,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
     %{
       id: flow_id(row, attribution),
-      timestamp: row |> map_value("time") |> format_ts(),
+      timestamp: map_value(row, "time"),
       source: row |> map_value("src_endpoint_ip") |> clean_string(),
       source_port: row |> map_value("src_endpoint_port") |> parse_int(),
       destination: row |> map_value("dst_endpoint_ip") |> clean_string(),
@@ -670,7 +674,13 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                     <.attribution_badge attributed?={row.attributed?} />
                     <.threat_badge threat={row.threat} />
                   </div>
-                  <div class="mt-1 truncate font-mono text-[11px] text-sr-muted">{row.timestamp}</div>
+                  <.user_time
+                    id={"attributed-flow-#{row.id}-row-time"}
+                    value={row.timestamp}
+                    timezone={@current_scope.user.timezone || "Etc/UTC"}
+                    style={:compact}
+                    class="mt-1 truncate font-mono text-[11px] text-sr-muted"
+                  />
                 </div>
               </button>
             <% end %>
@@ -696,7 +706,11 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
         </.ui_panel>
       </div>
 
-      <.flow_details_modal :if={@selected_flow} flow={@selected_flow} />
+      <.flow_details_modal
+        :if={@selected_flow}
+        flow={@selected_flow}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
+      />
     </Layouts.app>
     """
   end
@@ -823,6 +837,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   end
 
   attr :flow, :map, required: true
+  attr :timezone, :string, required: true
 
   defp flow_details_modal(assigns) do
     ~H"""
@@ -836,7 +851,13 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
         <div class="flex items-start justify-between gap-4 border-b border-sr-line pb-4">
           <div class="min-w-0">
             <h2 class="text-lg font-semibold tracking-tight text-sr-ink">Flow Details</h2>
-            <div class="mt-1 break-all font-mono text-xs text-sr-muted">{@flow.timestamp}</div>
+            <.user_time
+              id={"attributed-flow-#{@flow.id}-modal-time"}
+              value={@flow.timestamp}
+              timezone={@timezone}
+              style={:compact}
+              class="mt-1 break-all font-mono text-xs text-sr-muted"
+            />
           </div>
           <.ui_icon_button
             type="button"
@@ -1038,21 +1059,6 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp protocol_name(_protocol, 58), do: "ICMPv6"
   defp protocol_name(_protocol, num) when is_integer(num), do: "IP #{num}"
   defp protocol_name(_protocol, _num), do: "-"
-
-  defp iso(%DateTime{} = t), do: DateTime.to_iso8601(t)
-  defp iso(%NaiveDateTime{} = t), do: NaiveDateTime.to_iso8601(t)
-  defp iso(other), do: to_string(other)
-
-  defp format_ts(%DateTime{} = t), do: t |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-
-  defp format_ts(%NaiveDateTime{} = t) do
-    t
-    |> NaiveDateTime.truncate(:second)
-    |> NaiveDateTime.to_iso8601()
-    |> Kernel.<>("Z")
-  end
-
-  defp format_ts(other), do: iso(other)
 
   defp parse_int(nil), do: nil
   defp parse_int(v) when is_integer(v), do: v

@@ -1,4 +1,9 @@
 # gazelle:ignore
+#
+# This TinyGo plugin is compiled to wasip1 by //build/wasm_plugins. The focused
+# rules_go target below only guards the emitted signal-schema contract.
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
@@ -20,4 +25,17 @@ filegroup(
             "manifest.json",
         ],
     ),
+)
+
+go_test(
+    name = "signal_schema_test",
+    srcs = [
+        "signal_schema.go",
+        "signal_schema_test.go",
+    ],
+    data = [
+        "display/resource_event.display.json",
+        "plugin.yaml",
+    ],
+    deps = ["//build/wasm_plugins/testsdk:sdk"],
 )

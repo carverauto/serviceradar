@@ -227,6 +227,8 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   @impl true
   def render(assigns) do
+    assigns = assign(assigns, :timezone, user_timezone(assigns[:current_scope]))
+
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6 space-y-6">
@@ -356,7 +358,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
                   <.ui_badge size="sm" variant="success">{length(@connected_agents)}</.ui_badge>
                 </div>
               </:header>
-              <.agents_table agents={@connected_agents} />
+              <.agents_table agents={@connected_agents} timezone={@timezone} />
             </.ui_panel>
           </div>
         </div>
@@ -396,7 +398,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
                 <.ui_badge size="sm" variant="success">{length(@connected_agents)}</.ui_badge>
               </div>
             </:header>
-            <.agents_table agents={@connected_agents} expanded={true} />
+            <.agents_table agents={@connected_agents} expanded={true} timezone={@timezone} />
           </.ui_panel>
         </div>
       </div>
@@ -531,6 +533,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
 
   attr :agents, :list, required: true
   attr :expanded, :boolean, default: false
+  attr :timezone, :string, required: true
 
   defp agents_table(assigns) do
     ~H"""
@@ -565,7 +568,12 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
               </td>
               <td :if={@expanded}>
                 <.link navigate={~p"/agents/#{agent.agent_id}"} class="font-mono text-xs block">
-                  {format_time(agent.last_seen)}
+                  <.user_time
+                    id={"infrastructure-agent-#{agent.agent_id}-last-seen"}
+                    value={agent.last_seen}
+                    timezone={@timezone}
+                    style={:time}
+                  />
                 </.link>
               </td>
               <td :if={@expanded}>
@@ -967,7 +975,7 @@ defmodule ServiceRadarWebNGWeb.InfrastructureLive.Index do
     end
   end
 
-  defp format_time(nil), do: "—"
-  defp format_time(%DateTime{} = dt), do: Calendar.strftime(dt, "%H:%M:%S")
-  defp format_time(_), do: "—"
+  defp user_timezone(%{user: %{timezone: timezone}}) when is_binary(timezone) and timezone != "", do: timezone
+
+  defp user_timezone(_current_scope), do: "Etc/UTC"
 end

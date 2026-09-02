@@ -21,6 +21,14 @@ defmodule ServiceRadarWebNGWeb.ObservabilityPathsTest do
            }) == "/observability/logs?q=in%3Alogs"
   end
 
+  test "events_range_path emits the fixed Events query" do
+    assert ObservabilityPaths.events_range_path(
+             ~U[2026-08-27 10:00:00Z],
+             ~U[2026-08-27 12:59:59.999999Z]
+           ) ==
+             "/observability/events?q=in%3Aevents+time%3A%5B2026-08-27T10%3A00%3A00Z%2C2026-08-27T12%3A59%3A59.999999Z%5D+sort%3Atime%3Adesc+limit%3A20"
+  end
+
   test "tab_from_path reads path segments" do
     assert ObservabilityPaths.tab_from_path("/observability/events") == "events"
     assert ObservabilityPaths.tab_from_path("/observability/netflows?q=x") == "netflows"

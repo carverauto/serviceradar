@@ -1,5 +1,9 @@
 import {timeseriesClientXToPointIndex, timeseriesNearestPointIndexByX, timeseriesPointToLocalX} from "./geometry"
 import {hoverPosition, plotGeometryFromDataset} from "../../utils/chart_hover_geometry"
+import {dashboardUserTimeHtml} from "../../utils/dashboard_user_time"
+import {axisUserTimeFormatter, canonicalUtcInstant, formatUserTime} from "../../utils/user_time"
+
+const timeTitleFallbacks = new WeakMap()
 
 export default {
   mounted() {
@@ -20,6 +24,15 @@ export default {
     const hoverLine = el.querySelector("[data-hover-line]")
     const pointsData = JSON.parse(el.dataset.points || "[]")
     const unit = el.dataset.unit || "number"
+    const timezone = el.dataset.timezone || "Etc/UTC"
+    const axisFormatter = axisUserTimeFormatter({timeZone: timezone})
+
+    el.querySelectorAll?.("[data-time-axis-iso]").forEach((node) => {
+      const instant = node.dataset.timeAxisIso
+      node.textContent = axisFormatter(instant) || instant
+    })
+
+    localizeTimeseriesTimeTitles(el, timezone)
 
     if (!svg || !tooltip || !hoverLine || pointsData.length === 0) return
 
@@ -94,7 +107,8 @@ export default {
 
       if (point) {
         const value = formatValue(point.v)
-        tooltip.textContent = `${value} @ ${point.dt}`
+        const timeHtml = dashboardUserTimeHtml(point.dt, {timeZone: timezone, style: "tooltip"})
+        tooltip.innerHTML = `${escapeHtml(value)} @ ${timeHtml}`
         tooltip.classList.remove("hidden")
         hoverLine.classList.remove("hidden")
 
@@ -128,4 +142,44 @@ export default {
   destroyed() {
     if (this.cleanup) this.cleanup()
   },
+}
+
+export function localizeTimeseriesTimeTitles(root, timeZone) {
+  root.querySelectorAll?.("[data-time-title-iso]").forEach((node) => {
+    const instant = node.dataset.timeTitleIso || ""
+    const canonical = canonicalUtcInstant(instant)
+    const title = node.querySelector?.("title")
+    if (!title) return
+
+    const currentText = title.textContent || ""
+    const previous = timeTitleFallbacks.get(title)
+    const state =
+      !previous || previous.instant !== instant || currentText !== previous.rendered
+        ? {fallback: currentText, instant, rendered: currentText}
+        : previous
+
+    title.textContent = state.fallback
+    const localized = canonical
+      ? formatUserTime(canonical, {timeZone, style: "tooltip"})?.text
+      : null
+
+    if (localized) {
+      const accessible = `${localized}; display zone ${timeZone}; canonical UTC ${canonical}`
+      title.textContent = state.fallback.includes(instant)
+        ? state.fallback.replace(instant, accessible)
+        : `${state.fallback}; ${accessible}`
+    }
+
+    state.rendered = title.textContent
+    timeTitleFallbacks.set(title, state)
+  })
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
 }

@@ -51,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrRuntime do
     if is_nil(device_uid) and is_nil(device_ip) do
       socket
       |> assign(:mtr_traces, [])
+      |> assign(:mtr_recent_traces, [])
       |> assign(:mtr_pending_jobs, [])
       |> assign(:mtr_trends, %{hops: [], latency: []})
       |> assign(:mtr_total_count, 0)
@@ -67,6 +68,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrRuntime do
           limit: page_size,
           page: page
         )
+
+      recent_traces_result = MtrData.list_traces(device_uid: device_uid, device_ip: device_ip, limit: 50)
 
       coverage_result = MtrData.trace_coverage(device_uid: device_uid, device_ip: device_ip)
 
@@ -88,6 +91,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrRuntime do
           _ -> 0
         end
 
+      recent_traces =
+        case recent_traces_result do
+          {:ok, rows} -> rows
+          _ -> []
+        end
+
       coverage =
         case coverage_result do
           {:ok, value} -> value
@@ -100,15 +109,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrRuntime do
           _ -> []
         end
 
-      pending_jobs = MtrData.suppress_completed_pending_jobs(pending_jobs, traces)
+      pending_jobs = MtrData.suppress_completed_pending_jobs(pending_jobs, recent_traces)
 
       socket
       |> assign(:mtr_traces, traces)
+      |> assign(:mtr_recent_traces, recent_traces)
       |> assign(:mtr_total_count, total_count)
       |> assign(:mtr_coverage, coverage)
       |> assign(:mtr_retention_status, MtrData.retention_status(socket.assigns.current_scope))
       |> assign(:mtr_pending_jobs, pending_jobs)
-      |> assign(:mtr_trends, MtrData.build_trends(traces))
+      |> assign(:mtr_trends, MtrData.build_trends(recent_traces))
     end
   end
 

@@ -1,4 +1,5 @@
 import {topologyRelationId} from "./topology_relation_identity"
+import {hasManagedTopologyScene, isOverviewScene} from "./topology_layout_mode"
 
 function isEndpointCensusSummary(node) {
   return String(node?.details?.cluster_kind || "").trim() === "endpoint-summary"
@@ -130,7 +131,7 @@ function deterministicRelationPresentation(relations) {
 
 export function hasManagedTopologySceneRoutes(effective) {
   return (
-    effective?._layoutMode === "elk-scene" &&
+    hasManagedTopologyScene(effective) &&
     Array.isArray(effective?._topologyScene?.routes)
   )
 }
@@ -141,6 +142,9 @@ export const godViewRenderingGraphDataMethods = {
     const stateMask = this.visibilityMask(states)
     const mask = new Uint8Array(effective.nodes.length)
     const topologyLayers = this.state.topologyLayers || {}
+    const managedSceneNodeById = isOverviewScene(effective)
+      ? new Map((effective._topologyScene.nodes || []).map((node) => [String(node?.id || ""), node]))
+      : null
     const endpointIncidentFlags =
       effective.shape === "local"
         ? effective.nodes.map(() => ({endpoint: false, nonEndpoint: false}))
@@ -233,6 +237,13 @@ export const godViewRenderingGraphDataMethods = {
       const expandedMemberVisible =
         clusterKind === "endpoint-member" && isClusterExpanded(node)
       const endpointAnchorVisible = clusterKind === "endpoint-anchor"
+      const managedSceneNode = managedSceneNodeById?.get(String(node?.id || ""))
+      const managedSceneVisible = !managedSceneNodeById || (
+        Boolean(managedSceneNode) &&
+        managedSceneNode.render !== false &&
+        Number.isFinite(node?.x) &&
+        Number.isFinite(node?.y)
+      )
       const endpointLayerVisible =
         !expandedSummary &&
         (!endpointIncidentFlags ||
@@ -243,7 +254,7 @@ export const godViewRenderingGraphDataMethods = {
           endpointIncidentFlags[i].nonEndpoint ||
           !endpointIncidentFlags[i].endpoint)
 
-      mask[i] = stateVisible && endpointLayerVisible ? 1 : 0
+      mask[i] = stateVisible && endpointLayerVisible && managedSceneVisible ? 1 : 0
     }
 
     const visibleNodes = effective.nodes.map((node, index) => ({
@@ -270,9 +281,14 @@ export const godViewRenderingGraphDataMethods = {
       if (node?.visible) return true
       if (!node || !isEndpointCensusSummary(node) || !isClusterExpanded(node)) return false
 
+      // Deliberately no exception for the summary's own members: the overview projection
+      // re-parents them onto the anchor, so a member route that still terminates here is a
+      // route to a glyph that will not be drawn. Let it fail the test and be recorded in the
+      // route diagnostics rather than rendering a ring around an invisible hub.
+      const otherId = String(otherEndpointId || "")
       const anchorId = clusterAnchorId(node)
       const anchor = visibleByNormalizedId.get(anchorId)
-      if (!anchor?.visible || String(otherEndpointId || "") !== anchorId) return false
+      if (!anchor?.visible || otherId !== anchorId) return false
       const sceneNode = (effective?._topologyScene?.nodes || [])
         .find((candidate) => String(candidate?.id || "") === normalizedEndpointId)
       const group = (effective?._topologyScene?.groups || []).find((candidate) => (

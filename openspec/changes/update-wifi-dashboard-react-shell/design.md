@@ -1,14 +1,14 @@
-# Design: Example Dashboard React Shell Migration
+# Design: WiFi dashboard React shell migration
 
 ## Context
 
-`add-dashboard-sdk-query-state` shipped React primitives (`useDeckMap`, `useDeckLayers`, `useFilterState`, `useIndexedRows`, `useDashboardQueryState`, `useFrameRows`) and surgical perf fixes in UAL. The renderer subtree is still imperative: a `useDashboardController` factory creates a Mapbox map, a `MapboxOverlay`, a frame ingest pipeline, an event handler graph against `data-*` selectors, and an `innerHTML`-rewriting sidebar. The React shell is just a `<DashboardShell>` skeleton that renders empty containers for the imperative code to populate.
+`add-dashboard-sdk-query-state` shipped React primitives (`useDeckMap`, `useDeckLayers`, `useFilterState`, `useIndexedRows`, `useDashboardQueryState`, `useFrameRows`) and surgical perf fixes in the reference dashboard. The renderer subtree is still imperative: a `useDashboardController` factory creates a Mapbox map, a `MapboxOverlay`, a frame ingest pipeline, an event handler graph against `data-*` selectors, and an `innerHTML`-rewriting sidebar. The React shell is just a `<DashboardShell>` skeleton that renders empty containers for the imperative code to populate.
 
 This design covers the structural rewrite. The user-facing behavior, the data-frame contracts, the renderer artifact name (`renderer.js`), and the manifest entry (`mountDashboard`) do not change.
 
 ## Goals
 
-- Make the Example renderer the canonical example of a React-first dashboard package.
+- Make the customer renderer the canonical example of a React-first dashboard package.
 - Compose every non-WebGL visual element from React components keyed on stable props.
 - Drive every SDK roundtrip through SDK hooks rather than imperative `api.srql.update` calls in event listeners.
 - Keep the same on-screen pixels and the same parity test outcomes after the refactor.
@@ -17,19 +17,19 @@ This design covers the structural rewrite. The user-facing behavior, the data-fr
 ## Non-Goals
 
 - A visual redesign. Same colors, layout, controls, popups.
-- A new SDK UI library (chrome, sidebar primitives, chip primitives). Example builds these as internal React components for now. If a second customer dashboard appears and a clear pattern emerges, we extract them in a later proposal.
+- A new SDK UI library (chrome, sidebar primitives, chip primitives). The package builds these as internal React components for now. If a second customer dashboard appears and a clear pattern emerges, we extract them in a later proposal.
 - Migrating away from `mapboxgl` or `deck.gl`.
 - Changing the dashboard manifest, renderer artifact format, or host APIs.
 
 ## Removed Scope: WebGL fallback
 
-The original imperative renderer ships a static-map fallback (`staticMapFallback.js`, `staticProjection.js`, `staticTerritories.js`) that triggers when `supportsWebGL()` returns false or when a `webglcontextlost` event fires. This is dead weight: every supported browser ships WebGL, and a `webglcontextlost` event during normal operation should surface as a hard error so the underlying GPU/driver problem is investigated, not papered over with a hand-projected SVG of the United States. The fallback also forces every popup, territory, and click handler to be implemented twice. We delete it. If a client genuinely cannot render WebGL — which has not been observed in any Example telemetry — the dashboard fails the way any other map-dependent ServiceRadar feature fails.
+The original imperative renderer ships a static-map fallback (`staticMapFallback.js`, `staticProjection.js`, `staticTerritories.js`) that triggers when `supportsWebGL()` returns false or when a `webglcontextlost` event fires. This is dead weight: every supported browser ships WebGL, and a `webglcontextlost` event during normal operation should surface as a hard error so the underlying GPU/driver problem is investigated, not papered over with a hand-projected SVG of the United States. The fallback also forces every popup, territory, and click handler to be implemented twice. We delete it. If a client genuinely cannot render WebGL — which has not been observed in any customer telemetry — the dashboard fails the way any other map-dependent ServiceRadar feature fails.
 
 ## Decisions
 
-### Decision: Single React tree rooted at `UalNetworkMap`
+### Decision: Single React tree rooted at `NetworkMap`
 
-Today `UalNetworkMap.jsx` renders `<DashboardShell>` (just `<div>` skeletons) and uses `useDashboardController(createUalMapController, {clearRoot: false})` to attach the imperative controller to that DOM. After the rewrite, `UalNetworkMap` returns a real React tree. The imperative controller goes away. The renderer host still calls `mountDashboard` exactly as before; the change is internal to the package.
+Today `NetworkMap.jsx` renders `<DashboardShell>` (just `<div>` skeletons) and uses `useDashboardController(createMapController, {clearRoot: false})` to attach the imperative controller to that DOM. After the rewrite, `NetworkMap` returns a real React tree. The imperative controller goes away. The renderer host still calls `mountDashboard` exactly as before; the change is internal to the package.
 
 **Alternative considered**: keep the imperative controller and incrementally Reactify pieces (e.g. just the sidebar). Rejected because the imperative controller and React tree would both need to coordinate state during the transition, doubling complexity rather than removing it.
 
@@ -53,7 +53,7 @@ Signature:
 ```js
 const popup = useMapPopup(map, {
   closeOnClick: true,
-  className: "wifi-site-popup",
+  className: "site-popup",
   offset: 12,
   onClose: () => setFocused(null),
 })
@@ -65,18 +65,18 @@ popup.close()
 
 This avoids each dashboard package re-implementing the popup-React bridge. It lives in `serviceradar-sdk-dashboard/src/react.js` (or a new `popup.js` if the React.js file gets too large) and is the only SDK-level addition this proposal introduces.
 
-**Alternative considered**: build the popup bridge inside Example only. Rejected because every map dashboard will need this, and the SDK already provides the matching `useMapPopup`-shaped surfaces in its `DashboardPopupApi` contract — but that API is for in-page popups, not Mapbox-anchored ones.
+**Alternative considered**: build the popup bridge inside customer only. Rejected because every map dashboard will need this, and the SDK already provides the matching `useMapPopup`-shaped surfaces in its `DashboardPopupApi` contract — but that API is for in-page popups, not Mapbox-anchored ones.
 
 ### Decision: Component layout
 
 ```
 src/
-├── main.jsx                          # unchanged: mountReactDashboard(UalNetworkMap)
+├── main.jsx                          # unchanged: mountReactDashboard(NetworkMap)
 ├── app/
-│   ├── UalNetworkMap.jsx             # top-level: composes everything
+│   ├── NetworkMap.jsx             # top-level: composes everything
 │   ├── DashboardError.jsx            # unchanged
-│   ├── useUalState.js                # filter + query-state composition hook (Example-internal)
-│   ├── useUalFrames.js               # frame-shape projections (Example-internal)
+│   ├── useDashboardState.js                # filter + query-state composition hook (customer-internal)
+│   ├── useDashboardFrames.js               # frame-shape projections (customer-internal)
 │   └── components/
 │       ├── MapStage.jsx              # useDeckMap + useDeckLayers + useMapPopup
 │       ├── Sidebar.jsx               # search + filters + lists
@@ -99,7 +99,7 @@ src/
     └── constants.js                  # CLUSTER_ONLY_ZOOM, REGION_COLORS, etc.
 ```
 
-Files retired from `src/map/`: `chromeControls.js`, `createUalMapController.js`, `deckLayers.js`, `filterActions.js`, `filterCounts.js`, `frameData.js`, `mapInteractions.js`, `mapRenderer.js`, `mapState.js`, `mapStyles.js` (folded into `styles.js`), `popups.js`, `sidebarRenderers.js`, `siteActions.js`, `srqlFilters.js`, `srqlQuery.js`, `viewportFilters.js`, `staticMapFallback.js` (becomes `StaticFallback.jsx` component), `staticProjection.js`, `staticTerritories.js`. Roughly 18 imperative files collapse to about 8 utility modules plus the React component tree.
+Files retired from `src/map/`: `chromeControls.js`, `createMapController.js`, `deckLayers.js`, `filterActions.js`, `filterCounts.js`, `frameData.js`, `mapInteractions.js`, `mapRenderer.js`, `mapState.js`, `mapStyles.js` (folded into `styles.js`), `popups.js`, `sidebarRenderers.js`, `siteActions.js`, `srqlFilters.js`, `srqlQuery.js`, `viewportFilters.js`, `staticMapFallback.js` (becomes `StaticFallback.jsx` component), `staticProjection.js`, `staticTerritories.js`. Roughly 18 imperative files collapse to about 8 utility modules plus the React component tree.
 
 ### Decision: Frame data flows through shape projections
 
@@ -145,7 +145,7 @@ useEffect(() => queryState.apply(filters.debouncedState), [filters.debouncedStat
 
 ### Decision: Layer memoization comes from `useDeckLayers`, not custom caching
 
-The surgical change in the prior proposal added a manual layer cache in `createUalMapController.js`. After the rewrite that disappears: `useDeckLayers` already memoizes per-layer when `data`/`accessors`/`visualProps` references are stable. Components produce the spec via `useMemo` keyed on the things that actually changed.
+The surgical change in the prior proposal added a manual layer cache in `createMapController.js`. After the rewrite that disappears: `useDeckLayers` already memoizes per-layer when `data`/`accessors`/`visualProps` references are stable. Components produce the spec via `useMemo` keyed on the things that actually changed.
 
 ```js
 const data = useMemo(() => clusterIfZoomedOut(filteredSites, viewState), [filteredSites, viewState.zoom])
@@ -176,7 +176,7 @@ Site popups, cluster popups, and AP/WLC detail expansion all become React compon
 
 **Risk: Behavior drift during refactor.** The imperative shell has accumulated specific behaviors (suppress viewport query for 800ms after load, last-deck-click-at debounce against map-canvas clicks, theme-derived `usingStatic` flag transitions, AP/WLC list expansion mutual exclusion in popups). Each must be explicitly ported.
 
-*Mitigation*: enumerate the ported behaviors in `tasks.md` with one-line invariants and add unit/Playwright tests asserting each before deleting the original code. The existing 11 Example unit tests cover SRQL hydration, viewport sync, drill reset, and click radius — extend them, don't replace them.
+*Mitigation*: enumerate the ported behaviors in `tasks.md` with one-line invariants and add unit/Playwright tests asserting each before deleting the original code. The existing 11 customer unit tests cover SRQL hydration, viewport sync, drill reset, and click radius — extend them, don't replace them.
 
 **Risk: Memoization deps incorrectly written.** The whole point of `useDeckLayers` memoization is layer-instance stability. If a developer writes `useMemo(() => ..., [filteredSites, filters])` where `filters` is the whole state object that changes on every chip toggle, layers rebuild on every render and the perf win is lost.
 
@@ -197,7 +197,7 @@ Site popups, cluster popups, and AP/WLC detail expansion all become React compon
 ## Migration Plan
 
 1. SDK `useMapPopup` lands first (small, isolated, easy to review).
-2. Build the new component tree under `src/app/components/` while leaving `createUalMapController.js` running. UalNetworkMap renders one or the other based on a build-time flag.
+2. Build the new component tree under `src/app/components/` while leaving `createMapController.js` running. NetworkMap renders one or the other based on a build-time flag.
 3. Run both trees in parallel against the parity harness; fix gaps in the React tree.
 4. Flip the flag default to React. Run parity again.
 5. Delete the imperative files and the flag.
@@ -209,4 +209,4 @@ Rollback: keep the imperative tree behind the flag for one release; if a serious
 
 - **Sidebar virtualization library choice.** `react-window` is the obvious pick (small, stable, MIT). But it's a runtime dep on the dashboard package. Confirm the host accepts the bundle-size impact.
 - **CSS scoping.** Today `DASHBOARD_STYLES` injects via a `<style>` tag at the renderer root. Should we keep that, switch to CSS Modules, or use the host's design tokens directly? Recommend keeping the inline `<style>` for now since it's already shadow-DOM-friendly and matches the renderer artifact contract; revisit when the host design-token API stabilizes.
-- **Saved view hydration.** The current `hydrateFiltersFromSrql` parses the host's initial SRQL query string on mount to populate the filter state. After the rewrite, this still runs but lives in `useUalState` instead of `mapState.js`. Confirm the parser regexes survive the move unchanged — they're tested today.
+- **Saved view hydration.** The current `hydrateFiltersFromSrql` parses the host's initial SRQL query string on mount to populate the filter state. After the rewrite, this still runs but lives in `useDashboardState` instead of `mapState.js`. Confirm the parser regexes survive the move unchanged — they're tested today.

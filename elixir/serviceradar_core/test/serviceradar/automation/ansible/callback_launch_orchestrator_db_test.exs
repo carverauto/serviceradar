@@ -11,6 +11,7 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @moduletag :integration
   @encryption_key :binary.copy(<<91>>, 32)
@@ -456,7 +457,11 @@ defmodule ServiceRadar.Automation.Ansible.CallbackLaunchOrchestratorDbTest do
       VALUES (($1::text)::uuid, $2, 'https://awx.test.invalid', 'agent-gateway-demo',
               ($3::text)::uuid)
       """,
-      [fixture.ids.controller, "callback-outer-#{fixture.actor_id}", Ash.UUID.generate()]
+      [
+        fixture.ids.controller,
+        "callback-outer-#{fixture.actor_id}",
+        CredentialIntegrationFixtures.secret_id!()
+      ]
     )
 
     SQL.query!(

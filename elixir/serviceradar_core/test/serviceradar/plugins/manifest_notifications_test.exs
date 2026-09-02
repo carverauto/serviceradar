@@ -230,6 +230,20 @@ defmodule ServiceRadar.Plugins.ManifestNotificationsTest do
         "field_username" => "username",
         "field_password" => "password",
         "fixed_grant_type" => "password"
+      },
+      "oauth2_client_credentials" => %{
+        "injection_mode" => "oauth2_client_credentials",
+        "method" => "GET",
+        "host" => "clearpass.example.test",
+        "port" => 443,
+        "path" => "/api/session",
+        "token_method" => "POST",
+        "token_host" => "clearpass.example.test",
+        "token_port" => 443,
+        "token_path" => "/api/oauth",
+        "field_client_id" => "client_id",
+        "field_client_secret" => "client_secret",
+        "fixed_grant_type" => "client_credentials"
       }
     }
 
@@ -318,6 +332,61 @@ defmodule ServiceRadar.Plugins.ManifestNotificationsTest do
       assert Enum.any?(reported, &String.contains?(&1, "field mapping to username"))
       assert Enum.any?(reported, &String.contains?(&1, "field mapping to password"))
       assert Enum.any?(reported, &String.contains?(&1, "fixed_grant_type must equal password"))
+    end
+
+    test "oauth client-credentials injection requires its own grant fields, not the password grant's" do
+      entry =
+        notifier(%{
+          "credential_requirements" => %{
+            "token" => %{"injection_mode" => "oauth2_client_credentials"}
+          }
+        })
+
+      reported = errors(manifest(entry))
+
+      for field <- ~w(method host port path token_method token_host token_port token_path) do
+        assert Enum.any?(
+                 reported,
+                 &String.contains?(&1, "credential_requirements.token.#{field}")
+               )
+      end
+
+      assert Enum.any?(reported, &String.contains?(&1, "field mapping to client_id"))
+      assert Enum.any?(reported, &String.contains?(&1, "field mapping to client_secret"))
+
+      assert Enum.any?(
+               reported,
+               &String.contains?(&1, "fixed_grant_type must equal client_credentials")
+             )
+    end
+
+    # The two OAuth2 modes share an exchange, so the manifest is the only place
+    # that can stop one being declared with the other's credential fields. A
+    # client-credentials requirement carrying username/password mappings passes
+    # every generic check - the mappings are well-formed and the grant type is
+    # self-consistent - so only the per-mode required-field list refuses it.
+    test "an oauth mode does not accept the other oauth mode's credential fields" do
+      swapped = %{
+        "oauth2_client_credentials" =>
+          @valid_requirements["oauth2_client_credentials"]
+          |> Map.drop(~w(field_client_id field_client_secret))
+          |> Map.merge(%{"field_username" => "username", "field_password" => "password"}),
+        "oauth2_password_bearer" =>
+          @valid_requirements["oauth2_password_bearer"]
+          |> Map.drop(~w(field_username field_password))
+          |> Map.merge(%{
+            "field_client_id" => "client_id",
+            "field_client_secret" => "client_secret"
+          })
+      }
+
+      for {mode, requirement} <- swapped do
+        reported =
+          errors(manifest(notifier(%{"credential_requirements" => %{"token" => requirement}})))
+
+        assert Enum.any?(reported, &String.contains?(&1, "must declare a field mapping to")),
+               "#{mode} accepted the other grant's credential fields: #{inspect(reported)}"
+      end
     end
 
     test "ports and mapping values stay typed instead of being stringified implicitly" do

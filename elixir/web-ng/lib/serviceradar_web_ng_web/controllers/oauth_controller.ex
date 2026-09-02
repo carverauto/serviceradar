@@ -10,6 +10,9 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
 
   Accepts the following grant types:
   - `client_credentials` - Exchange client_id and client_secret for an access token
+  - `authorization_code` - MCP PKCE code exchange (`serviceradar-mcp`)
+  - `refresh_token` - Rotate an MCP refresh token while the IdP session is live
+  - `password` - Resource-owner password (not used for MCP)
 
   ## Request Format
 
@@ -54,12 +57,17 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Identity.OAuthClient
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Security.Lockouts
   alias ServiceRadar.Security.RateLimiter
   alias ServiceRadarWebNG.Auth.Guardian
+  alias ServiceRadarWebNG.Mcp.OAuth
+  alias ServiceRadarWebNG.Mcp.OAuth.Server
   alias ServiceRadarWebNGWeb.ClientIP
+  alias ServiceRadarWebNGWeb.FeatureFlags
 
   require Logger
 
@@ -85,6 +93,12 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
       "password" ->
         handle_password(conn, params)
 
+      "authorization_code" ->
+        handle_mcp_grant(conn, params, &handle_authorization_code/2)
+
+      "refresh_token" ->
+        handle_mcp_grant(conn, params, &handle_refresh_token/2)
+
       nil ->
         error_response(conn, 400, "invalid_request", "Missing grant_type parameter")
 
@@ -96,6 +110,76 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
           "Grant type '#{grant_type}' is not supported"
         )
     end
+  end
+
+  defp handle_mcp_grant(conn, params, fun) do
+    if FeatureFlags.mcp_enabled?() do
+      fun.(conn, params)
+    else
+      error_response(
+        conn,
+        400,
+        "unsupported_grant_type",
+        "Grant type '#{params["grant_type"]}' is not supported"
+      )
+    end
+  end
+
+  defp handle_authorization_code(conn, params) do
+    with :ok <- rate_limit(conn, :oauth_authorization_code),
+         {:ok, tokens} <- Server.exchange_code(params) do
+      token_json(conn, tokens)
+    else
+      {:error, retry_after} when is_integer(retry_after) ->
+        rate_limited_response(conn, retry_after)
+
+      {:error, reason} ->
+        oauth_grant_error(conn, reason)
+    end
+  end
+
+  defp handle_refresh_token(conn, params) do
+    with :ok <- rate_limit(conn, :oauth_authorization_code),
+         {:ok, tokens} <- Server.refresh(params) do
+      token_json(conn, tokens)
+    else
+      {:error, retry_after} when is_integer(retry_after) ->
+        rate_limited_response(conn, retry_after)
+
+      {:error, reason} ->
+        oauth_grant_error(conn, reason)
+    end
+  end
+
+  defp rate_limit(conn, bucket) do
+    case RateLimiter.check_and_record(bucket, get_client_ip(conn)) do
+      {:error, retry_after} -> {:error, retry_after}
+      :ok -> :ok
+    end
+  end
+
+  defp token_json(conn, tokens) do
+    conn
+    |> put_resp_content_type("application/json")
+    |> put_resp_header("cache-control", "no-store")
+    |> put_resp_header("pragma", "no-cache")
+    |> json(tokens)
+  end
+
+  defp oauth_grant_error(conn, :invalid_client) do
+    error_response(conn, 401, "invalid_client", "Invalid client")
+  end
+
+  defp oauth_grant_error(conn, :invalid_grant) do
+    error_response(conn, 400, "invalid_grant", "Invalid or expired authorization grant")
+  end
+
+  defp oauth_grant_error(conn, :unauthorized_client) do
+    error_response(conn, 400, "unauthorized_client", "This client is not allowed to use this grant")
+  end
+
+  defp oauth_grant_error(conn, _) do
+    error_response(conn, 400, "invalid_request", "Invalid token request")
   end
 
   defp handle_password(conn, params) do
@@ -239,12 +323,18 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
             requested_scopes = parse_scopes(params["scope"])
             granted_scopes = validate_scopes(requested_scopes, client.scopes)
 
-            # Record usage
-            ip = get_client_ip(conn)
-            OAuthClient.record_use(client, %{last_used_ip: ip}, actor: actor)
-
-            # Generate access token
-            issue_token(conn, client, granted_scopes)
+            if not OAuth.client_credentials_enabled?() and Enum.member?(granted_scopes, "mcp") do
+              error_response(
+                conn,
+                400,
+                "unauthorized_client",
+                "MCP client credentials are disabled"
+              )
+            else
+              ip = get_client_ip(conn)
+              OAuthClient.record_use(client, %{last_used_ip: ip}, actor: actor)
+              issue_token(conn, client, granted_scopes)
+            end
 
           {:error, _} ->
             Logger.warning("OAuth client authentication failed for client_id: #{client_id}")
@@ -266,9 +356,7 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
     Enum.filter(requested, &(&1 in client_scopes))
   end
 
-  defp scope_to_atom(scope) when is_atom(scope), do: scope
-  defp scope_to_atom(scope) when is_binary(scope), do: String.to_existing_atom(scope)
-  defp scope_to_atom(_), do: :read
+  defp scope_to_atom(scope), do: ServiceRadarWebNG.Api.OauthScopes.to_atom(scope)
 
   defp issue_token(conn, client, scopes) do
     # Load the user for the token
@@ -276,42 +364,62 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
 
     case User.get_by_id(client.user_id, actor: actor) do
       {:ok, user} ->
-        scopes_atoms = Enum.map(scopes, &scope_to_atom/1)
+        scopes = permitted_scopes(user, scopes)
 
-        extra_claims = %{
-          "client_id" => to_string(client.id),
-          # Keep OAuth-compatible scope string for convenience.
-          "scope" => Enum.join(scopes, " ")
-        }
-
-        case Guardian.create_api_token(user,
-               scopes: scopes_atoms,
-               claims: extra_claims,
-               ttl: {@default_ttl_seconds, :second}
-             ) do
-          {:ok, token, _full_claims} ->
-            conn
-            |> put_resp_content_type("application/json")
-            |> put_resp_header("cache-control", "no-store")
-            |> put_resp_header("pragma", "no-cache")
-            |> send_resp(
-              200,
-              Jason.encode!(%{
-                access_token: token,
-                token_type: "Bearer",
-                expires_in: @default_ttl_seconds,
-                scope: Enum.join(scopes, " ")
-              })
-            )
-
-          {:error, reason} ->
-            Logger.error("Failed to create access token: #{inspect(reason)}")
-            error_response(conn, 500, "server_error", "Failed to generate access token")
+        if scopes == [] do
+          error_response(
+            conn,
+            403,
+            "unauthorized_client",
+            "No permitted scopes for this account"
+          )
+        else
+          issue_token_for_user(conn, client, user, scopes)
         end
 
       {:error, _} ->
         Logger.error("OAuth client #{client.id} has invalid user_id #{client.user_id}")
         error_response(conn, 500, "server_error", "Client configuration error")
+    end
+  end
+
+  defp issue_token_for_user(conn, client, user, scopes) do
+    extra_claims = %{
+      "client_id" => to_string(client.id),
+      "scope" => Enum.join(scopes, " ")
+    }
+
+    case Guardian.create_api_token(user,
+           scopes: Enum.map(scopes, &scope_to_atom/1),
+           claims: extra_claims,
+           ttl: {@default_ttl_seconds, :second}
+         ) do
+      {:ok, token, _full_claims} ->
+        conn
+        |> put_resp_content_type("application/json")
+        |> put_resp_header("cache-control", "no-store")
+        |> put_resp_header("pragma", "no-cache")
+        |> send_resp(
+          200,
+          Jason.encode!(%{
+            access_token: token,
+            token_type: "Bearer",
+            expires_in: @default_ttl_seconds,
+            scope: Enum.join(scopes, " ")
+          })
+        )
+
+      {:error, reason} ->
+        Logger.error("Failed to create access token: #{inspect(reason)}")
+        error_response(conn, 500, "server_error", "Failed to generate access token")
+    end
+  end
+
+  defp permitted_scopes(user, scopes) do
+    if RBAC.has_permission?(user, Constants.mcp_manage_permission()) do
+      scopes
+    else
+      List.delete(scopes, "mcp")
     end
   end
 

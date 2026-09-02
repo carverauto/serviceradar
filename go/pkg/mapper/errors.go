@@ -32,6 +32,10 @@ var (
 	ErrInvalidWorkers           = errors.New("workers must be greater than 0")
 	ErrInvalidMaxActiveJobs     = errors.New("maxActiveJobs must be greater than 0")
 	ErrUnsupportedSNMPVersion   = errors.New("unsupported SNMP version")
+	ErrInvalidSNMPv3Config      = errors.New("invalid SNMPv3 configuration")
+	ErrUnknownSNMPAuthProtocol  = errors.New("unknown SNMPv3 auth protocol")
+	ErrUnknownSNMPPrivProtocol  = errors.New("unknown SNMPv3 privacy protocol")
+	ErrUnknownSNMPSecurityLevel = errors.New("unknown SNMPv3 security level")
 
 	ErrDatabaseServiceRequired = errors.New("database service is required")
 	ErrSNMPGetFailed           = errors.New("SNMP GET failed")

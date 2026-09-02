@@ -95,8 +95,20 @@ pub(super) fn build_grouped_device_type_clause(
             binds.push(DeviceSqlBindValue::TextArray(values));
             Ok(format!("NOT ({column} = ANY(?))"))
         }
+        FilterOp::Like => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!("{column} ILIKE ?"))
+        }
+        FilterOp::NotLike => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!("NOT ({column} ILIKE ?)"))
+        }
         _ => Err(ServiceError::InvalidRequest(
-            "device_type filter only supports equality and list filters".into(),
+            "device_type filter only supports equality, LIKE, and list filters".into(),
         )),
     }
 }

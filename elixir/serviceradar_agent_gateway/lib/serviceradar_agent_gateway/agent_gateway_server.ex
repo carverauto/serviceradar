@@ -421,6 +421,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       agent_id: agent_id,
       gateway_id: gateway_id(),
       partition: partition,
+      authenticated_partition: Map.get(identity, :partition_id),
       source_ip: get_peer_ip(stream),
       kv_store_id: request.kv_store_id,
       timestamp: System.os_time(:second),
@@ -570,15 +571,19 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp log_package_telemetry_status(_status), do: :ok
 
-  defp normalize_partition(partition) when is_binary(partition) do
-    partition = String.trim(partition)
+  defp canonical_partition(partition) when is_binary(partition) do
+    trimmed = String.trim(partition)
 
-    if byte_size(partition) > 0 and byte_size(partition) <= 128 and
+    if trimmed == partition and byte_size(partition) > 0 and byte_size(partition) <= 128 and
          not String.contains?(partition, ["\n", "\r", "\t"]) do
       partition
-    else
-      "default"
     end
+  end
+
+  defp canonical_partition(_partition), do: nil
+
+  defp normalize_partition(partition) when is_binary(partition) do
+    partition |> String.trim() |> canonical_partition() || "default"
   end
 
   defp normalize_partition(_partition), do: "default"
@@ -635,6 +640,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       agent_id: metadata.agent_id,
       gateway_id: metadata.gateway_id,
       partition: status_partition(service, metadata, source),
+      authenticated_partition: canonical_partition(Map.get(metadata, :authenticated_partition)),
       source: source,
       kv_store_id: service.kv_store_id || metadata.kv_store_id,
       timestamp: metadata.timestamp,
@@ -647,8 +653,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     }
   end
 
-  # Durable ingestion is stamped from the gateway-authenticated view, so the
-  # partition must come from mTLS-derived metadata, never from the payload.
+  # Source routing keeps its existing partition semantics. Authority checks use
+  # the separate authenticated_partition stamped from the raw mTLS identity.
   defp status_partition(service, metadata, source) do
     if mtls_partition_source?(source, metadata) do
       normalize_partition(metadata.partition)
@@ -1437,6 +1443,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       chunk_metadata(
         agent_id,
         partition,
+        Map.get(identity, :partition_id),
         peer_ip,
         chunk,
         chunk_index,
@@ -1648,11 +1655,21 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp ensure_stream_registration(true, _identity, _agent_id, _partition, _chunk, _stream), do: :ok
 
-  defp chunk_metadata(agent_id, partition, peer_ip, chunk, chunk_index, total_chunks, delivery_capabilities) do
+  defp chunk_metadata(
+         agent_id,
+         partition,
+         authenticated_partition,
+         peer_ip,
+         chunk,
+         chunk_index,
+         total_chunks,
+         delivery_capabilities
+       ) do
     %{
       agent_id: agent_id,
       gateway_id: gateway_id(),
       partition: partition,
+      authenticated_partition: authenticated_partition,
       source_ip: peer_ip,
       kv_store_id: chunk.kv_store_id,
       timestamp: System.os_time(:second),

@@ -265,3 +265,42 @@ func TestCompositeAvailability_PortResultsConsistency(t *testing.T) {
 	require.NotNil(t, h.ICMPStatus)
 	assert.False(t, h.ICMPStatus.Available, "ICMP should show as unavailable")
 }
+
+// TestSweepSummary_PreservesClosedTCPMode verifies that a TCP check remains
+// visible when every requested port is closed. Closed ports are intentionally
+// omitted from PortResults, so the mode marker is the only evidence that TCP
+// was attempted for an otherwise ICMP+TCP sweep.
+func TestSweepSummary_PreservesClosedTCPMode(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	results := []*models.Result{
+		{Target: models.Target{Host: testHost, Mode: models.ModeICMP}, Available: true, LastSeen: now},
+		{Target: models.Target{Host: testHost, Port: 3001, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+		{Target: models.Target{Host: testHost, Port: 443, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+		{Target: models.Target{Host: testHost, Port: 4502, Mode: models.ModeTCP}, Available: false, LastSeen: now},
+	}
+
+	for _, result := range results {
+		require.NoError(t, store.SaveResult(ctx, result))
+	}
+
+	summary, err := store.GetSweepSummary(ctx)
+	require.NoError(t, err)
+	require.Len(t, summary.Hosts, 1)
+
+	summaryHost := summary.Hosts[0]
+	assert.ElementsMatch(t, []models.SweepMode{models.ModeICMP, models.ModeTCP}, summaryHost.SweepModes)
+	assert.Empty(t, summaryHost.PortResults, "closed TCP ports should remain absent from open-port results")
+
+	memoryStore, ok := store.(*InMemoryStore)
+	require.True(t, ok)
+	hostResults, err := memoryStore.GetHostResults(ctx, nil)
+	require.NoError(t, err)
+	require.Len(t, hostResults, 1)
+	assert.ElementsMatch(t, []models.SweepMode{models.ModeICMP, models.ModeTCP}, hostResults[0].SweepModes)
+	assert.Empty(t, hostResults[0].PortResults, "closed TCP ports should remain absent from host results")
+}

@@ -51,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.CliAuthController do
   # (database unreachable during early request handling, etc). Matches
   # the migration default so the failure mode mirrors a freshly-installed
   # instance.
-  @fallback_allowed_scopes ["dashboard.publish"]
+  @fallback_allowed_scopes ["dashboard.publish", "plugin.publish"]
   @fallback_session_ttl_days 30
 
   # Per-device-row token-poll rate limit: drives the OAuth `slow_down`

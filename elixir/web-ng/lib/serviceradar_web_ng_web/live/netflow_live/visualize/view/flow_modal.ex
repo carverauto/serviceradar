@@ -10,6 +10,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.Endpoints
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal.SecurityPanel
 
+  attr(:flow, :map, required: true)
+  attr(:rdns_map, :map, default: %{})
+  attr(:context, :map, default: %{})
+  attr(:arin_lookup, :any, default: nil)
+  attr(:timezone, :string, default: "Etc/UTC")
+
   def render(assigns) do
     ~H"""
     <dialog
@@ -25,7 +31,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.View.FlowModal do
           <div class="min-w-0">
             <div class="text-sm font-semibold">Flow details</div>
             <div class="mt-1 text-[11px] text-sr-muted font-mono truncate">
-              {flow_get(@flow, ["time", "timestamp"]) || "—"}
+              <.user_time
+                id="netflow-flow-detail-time"
+                value={flow_get(@flow, ["time", "timestamp"])}
+                timezone={@timezone}
+                fallback="—"
+              />
             </div>
           </div>
           <.ui_button type="button" phx-click="netflow_close" size="sm" variant="ghost">

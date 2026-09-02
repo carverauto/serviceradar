@@ -98,9 +98,9 @@ def _run(
 
     result = wait_for_gate(
         git=git,
-        status_factory=lambda: GhStatusClient(
+        status_factory=lambda sha: GhStatusClient(
             repository=arguments.repository,
-            commit=arguments.commit,
+            commit=sha,
             token=token,
             runner=runner,
             environment=child_environment,

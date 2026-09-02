@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
   attr :users, :list, default: []
   attr :user_groups, :list, default: []
   attr :can_view_groups?, :boolean, default: false
+  attr :show_pickers?, :boolean, default: true
 
   def sharing_settings(assigns) do
     ~H"""
@@ -57,7 +58,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
           </div>
         </div>
 
-        <div class="space-y-4">
+        <div :if={@show_pickers?} class="space-y-4">
           <.form
             for={@user_grant_form}
             as={:grant}
@@ -116,6 +117,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
 
   attr :dashboard, :any, required: true
   attr :report_schedule_form, :any, required: true
+  attr :timezone, :string, default: "Etc/UTC"
 
   def report_schedule_settings(assigns) do
     ~H"""
@@ -176,7 +178,13 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
               </div>
             </div>
             <p class="mt-2 text-xs text-sr-muted">
-              Next due: {format_value(schedule.next_due_at)}
+              Next due:
+              <.user_time
+                id={"authored-dashboard-report-schedule-#{schedule.id}-next-due-at"}
+                value={schedule.next_due_at}
+                timezone={@timezone}
+                style={:compact}
+              />
             </p>
           </div>
         </div>
@@ -200,13 +208,4 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents do
     </section>
     """
   end
-
-  defp format_value(%DateTime{} = value), do: Calendar.strftime(value, "%Y-%m-%d %H:%M:%S")
-  defp format_value(%NaiveDateTime{} = value), do: Calendar.strftime(value, "%Y-%m-%d %H:%M:%S")
-  defp format_value(value) when is_binary(value), do: value
-  defp format_value(value) when is_integer(value), do: Integer.to_string(value)
-  defp format_value(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 2)
-  defp format_value(value) when is_boolean(value), do: to_string(value)
-  defp format_value(nil), do: ""
-  defp format_value(value), do: inspect(value)
 end

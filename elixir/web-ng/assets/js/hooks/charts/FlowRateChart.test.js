@@ -3,10 +3,40 @@ import {describe, expect, it} from "vitest"
 import {
   contiguousValidSegments,
   contiguousValueRuns,
+  flowRateAccessibility,
+  flowRateTimeLabel,
   parsePoints,
 } from "./FlowRateChart"
 
 describe("FlowRateChart gap handling", () => {
+  it("formats axis instants in the root's explicit saved timezone", () => {
+    expect(
+      flowRateTimeLabel("2026-08-30T18:00:00Z", {
+        timeZone: "Pacific/Honolulu",
+        locale: "en-US",
+      }),
+    ).toBe("08:00 AM")
+  })
+
+  it("exposes the canonical range and full-offset saved-zone context for the canvas", () => {
+    const metadata = flowRateAccessibility(
+      [
+        {t: "2026-08-30T18:00:00Z", v: 1},
+        {t: "2026-08-30T18:05:00Z", v: 2},
+      ],
+      {timeZone: "Pacific/Honolulu", locale: "en-US"},
+    )
+
+    expect(metadata).toMatchObject({
+      start: "2026-08-30T18:00:00Z",
+      end: "2026-08-30T18:05:00Z",
+      timeZone: "Pacific/Honolulu",
+    })
+    expect(metadata.ariaLabel).toContain("08:00:00 AM")
+    expect(metadata.ariaLabel).toMatch(/GMT-10(?::00)?/u)
+    expect(metadata.ariaLabel).toContain("2026-08-30T18:00:00Z")
+  })
+
   it("keeps null buckets in the time sequence", () => {
     const points = parsePoints(
       JSON.stringify([

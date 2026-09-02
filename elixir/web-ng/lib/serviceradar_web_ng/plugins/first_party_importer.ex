@@ -126,7 +126,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
          :ok <- verify_integration_resources(bundle, manifest_struct),
          {:ok, wasm} <- fetch_bundle_wasm(bundle),
          content_hash = Storage.sha256(wasm),
-         :ok <- verify_upload_signature(signature, manifest_map, content_hash),
+         :ok <- verify_upload_signature(signature, manifest_map, content_hash, repo),
          {:ok, display_contracts} <- bundle_display_contracts(bundle),
          :ok <- verify_entry_identity(entry, manifest_struct) do
       now = DateTime.truncate(DateTime.utc_now(), :second)
@@ -203,9 +203,25 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
     end
   end
 
+  # Mirrors fetch_artifact/2, which tries bundle_url BEFORE oci_ref. Requiring
+  # oci_ref here meant a third-party repository could never produce an
+  # import-ready entry: the release-asset path documented in wasm-plugins.md
+  # publishes bundle_url and upload_signature_url and has no OCI reference at
+  # all, so its entries were fetchable but permanently filtered out, reported as
+  # "scanned N releases, but no import-ready plugin entries were found".
+  #
+  # upload_signature_url is required for the direct path rather than optional,
+  # because fetch_direct_artifact/2 fails without it - treating such an entry as
+  # ready would move the failure from discovery to import, where it reads as a
+  # broken bundle instead of an incomplete index.
   defp import_ready_entry?(entry) do
-    entry_value(entry, "oci_ref") not in [nil, ""] and
-      entry_value(entry, "bundle_digest") not in [nil, ""]
+    entry_value(entry, "bundle_digest") not in [nil, ""] and
+      (direct_artifact_entry?(entry) or entry_value(entry, "oci_ref") not in [nil, ""])
+  end
+
+  defp direct_artifact_entry?(entry) do
+    entry_value(entry, "bundle_url") not in [nil, ""] and
+      entry_value(entry, "upload_signature_url") not in [nil, ""]
   end
 
   defp fetch_release_index(repo, release, attrs) do
@@ -510,13 +526,25 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
   defp decode_upload_signature(%{} = signature), do: {:ok, signature}
   defp decode_upload_signature(_payload), do: {:error, :invalid_upload_signature}
 
-  defp verify_upload_signature(signature, manifest, content_hash) do
-    policy = plugin_verification_policy()
+  # Verifies against the key of the repository this bundle came from, not a
+  # global map. That is the whole point of repositories being records: a bundle
+  # signed by one publisher must not verify when served from another's catalog.
+  # The configured map remains the fallback for callers that pass no repository
+  # keys -- the built-in source, and the importer's own unit tests.
+  defp verify_upload_signature(signature, manifest, content_hash, repo) do
+    keys =
+      case Map.get(repo, :trusted_upload_signing_keys) do
+        keys when is_map(keys) and map_size(keys) > 0 ->
+          UploadSignature.normalize_trusted_keys(keys)
 
-    if policy.trusted_upload_signing_keys == %{} do
+        _ ->
+          plugin_verification_policy().trusted_upload_signing_keys
+      end
+
+    if keys == %{} do
       {:error, :trusted_upload_signers_not_configured}
     else
-      UploadSignature.verify(signature, manifest, content_hash, policy.trusted_upload_signing_keys)
+      UploadSignature.verify(signature, manifest, content_hash, keys)
     end
   end
 
@@ -556,7 +584,15 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
       fetch_value(attrs, [:repo_url, "repo_url"]) ||
         configured_repo_url()
 
-    parse_repo_url(repo_url)
+    with {:ok, repo} <- parse_repo_url(repo_url) do
+      {:ok,
+       repo
+       |> Map.put(:token, fetch_value(attrs, [:github_token, "github_token"]))
+       |> Map.put(
+         :trusted_upload_signing_keys,
+         fetch_value(attrs, [:trusted_upload_signing_keys, "trusted_upload_signing_keys"]) || %{}
+       )}
+    end
   end
 
   defp configured_repo_url do

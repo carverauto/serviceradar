@@ -20,6 +20,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.PluginConfigForm
+  alias ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialInventoryComponents
+  alias ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive.CredentialManagement
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
@@ -34,10 +36,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     if can_manage?(scope) do
       {:ok,
        socket
-       |> assign(:page_title, "Credential Rules")
+       |> assign(:page_title, "Credentials and Rules")
        |> assign(:current_path, @current_path)
        |> assign(:rules, [])
        |> assign(:secrets, [])
+       |> assign(:focused_credential_id, nil)
+       |> assign(:credential_usage_by_id, %{})
+       |> assign(:credential_modal, nil)
+       |> assign(:credential_form, nil)
+       |> assign(:credential_descriptor, nil)
+       |> assign(:credential_modal_usage, :unavailable)
+       |> assign(:credential_action_error, nil)
        |> assign(:secret_options, [])
        |> assign(:secret_names, %{})
        |> assign(:integration_profiles, %{})
@@ -226,6 +235,117 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
+  def handle_event("edit_credential", %{"id" => id}, socket) do
+    open_credential_modal(socket, :edit, id)
+  end
+
+  def handle_event("rotate_credential", %{"id" => id}, socket) do
+    open_credential_modal(socket, :rotate, id)
+  end
+
+  def handle_event("delete_credential", %{"id" => id}, socket) do
+    open_credential_modal(socket, :delete, id)
+  end
+
+  def handle_event("close_credential_modal", _params, socket) do
+    {:noreply, clear_credential_modal(socket)}
+  end
+
+  def handle_event("save_credential_details", %{"credential_details" => params}, socket) do
+    id = Map.get(params, "id", "")
+
+    case CredentialManagement.edit_details(socket.assigns.current_scope, id, params) do
+      {:ok, _updated} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:info, "Credential details saved")
+         |> reload_page_data()}
+
+      {:error, :not_authorized} ->
+        {:noreply, credential_action_unauthorized(socket)}
+
+      {:error, :credential_not_found} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:error, "Credential not found")
+         |> reload_page_data()}
+
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> assign(
+           :credential_form,
+           credential_details_form(%{
+             "id" => id,
+             "name" => Map.get(params, "name", ""),
+             "description" => Map.get(params, "description", "")
+           })
+         )
+         |> assign(:credential_action_error, "Credential details could not be saved")}
+    end
+  end
+
+  def handle_event("save_credential_rotation", %{"credential_rotation" => params}, socket) do
+    id = if is_binary(params["id"]), do: params["id"], else: ""
+    save_credential_rotation(socket, id, Map.get(params, "fields", %{}))
+  end
+
+  def handle_event("confirm_delete_credential", %{"credential_delete" => params}, socket) do
+    id = Map.get(params, "id", "")
+    confirmation_id = Map.get(params, "confirmation_id", "")
+
+    case CredentialManagement.delete(
+           socket.assigns.current_scope,
+           id,
+           confirmation_id
+         ) do
+      {:ok, _deleted} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:info, "Credential permanently deleted")
+         |> push_patch(to: ~p"/settings/networks/credentials")}
+
+      {:error, :not_authorized} ->
+        {:noreply, credential_action_unauthorized(socket)}
+
+      {:error, :credential_not_found} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:error, "Credential not found")
+         |> reload_page_data()}
+
+      {:error, :credential_confirmation_mismatch} ->
+        {:noreply,
+         socket
+         |> assign(:credential_form, credential_delete_form(id))
+         |> assign(:credential_action_error, "Type the exact credential ID to confirm deletion")}
+
+      {:error, :credential_in_use, context} ->
+        {:noreply, show_delete_block(socket, context, "Credential is still in use")}
+
+      {:error, :credential_usage_unavailable, context} ->
+        {:noreply,
+         show_delete_block(
+           socket,
+           context,
+           "Usage is unavailable; the credential was not deleted"
+         )}
+
+      {:error, :credential_in_use} ->
+        reopen_delete_after_race(socket, id)
+
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> assign(:credential_form, credential_delete_form(id))
+         |> assign(:credential_action_error, "Credential could not be deleted")}
+    end
+  end
+
   @impl true
   def render(assigns) do
     assigns =
@@ -249,14 +369,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
         <section class="space-y-4">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h1 class="text-xl font-semibold">Credential Rules</h1>
+              <h1 class="text-xl font-semibold">Credentials and Rules</h1>
               <p class="mt-1 text-sm text-sr-muted">
-                Scoped rules bind encrypted credentials to eligible targets and consumers without
-                placing secret material in plugin assignment forms. Available providers and
-                credential fields come from approved integration descriptors and core-owned
-                protocols (SNMP, VulnCheck). For UniFi Protect, create the API key here, then
-                assign the camera plugin to a covered agent. For VulnCheck, create the API token
-                here, then select it on Vulnerability Feeds.
+                Reusable credentials hold encrypted authentication material. Credential rules
+                decide where that material may be applied. Profiles such as SNMP can reference a
+                reusable credential directly, so a credential may be in use even when it has no
+                credential rule.
               </p>
             </div>
             <div class="flex flex-wrap gap-2">
@@ -298,6 +416,21 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 </:item>
               </.ui_dropdown>
             </div>
+          </div>
+
+          <CredentialInventoryComponents.credential_inventory_table
+            loading?={@loading?}
+            secrets={@secrets}
+            focused_credential_id={@focused_credential_id}
+            integration_profiles={@integration_profiles}
+            usage_by_id={@credential_usage_by_id}
+          />
+
+          <div id="credential-rules" class="space-y-1 pt-2 scroll-mt-24">
+            <h2 class="text-base font-semibold">Credential Rules</h2>
+            <p class="text-sm text-sr-muted">
+              Scoped rules bind a reusable credential to eligible targets and consumers.
+            </p>
           </div>
 
           <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
@@ -352,7 +485,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                           {if rule.enabled, do: "Enabled", else: "Disabled"}
                         </span>
                       </td>
-                      <td>{runtime_status(rule, @integration_profiles, @integration_schedules)}</td>
+                      <td>
+                        <.runtime_status
+                          rule={rule}
+                          profiles={@integration_profiles}
+                          schedules={@integration_schedules}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        />
+                      </td>
                       <td>
                         <div class="flex justify-end gap-2">
                           <.ui_button
@@ -421,7 +561,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                     </tr>
                     <tr :if={@expanded_rule_id == to_string(rule.id)} class="bg-sr-subtle/40">
                       <td colspan="10">
-                        <.rule_consumers_panel consumers={@rule_consumers} />
+                        <.rule_consumers_panel
+                          consumers={@rule_consumers}
+                          rule_id={rule.id}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        />
                       </td>
                     </tr>
                   <% end %>
@@ -439,6 +583,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           provider_options={@provider_options}
           integration_profiles={@integration_profiles}
           agent_options={@agent_options}
+          editing_rule={@editing_rule}
         />
 
         <.rule_preview_modal :if={@rule_preview} rule_preview={@rule_preview} />
@@ -446,6 +591,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           :if={@secret_form}
           form={@secret_form}
           descriptor={@secret_descriptor}
+        />
+        <CredentialInventoryComponents.credential_action_modal
+          :if={@credential_modal}
+          modal={@credential_modal}
+          form={@credential_form}
+          descriptor={@credential_descriptor}
+          usage={@credential_modal_usage}
+          error={@credential_action_error}
         />
       </Shell.settings_chrome>
     </Layouts.app>
@@ -531,6 +684,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   attr :consumers, :map, default: nil
+  attr :rule_id, :any, required: true
+  attr :timezone, :string, required: true
 
   defp rule_consumers_panel(assigns) do
     ~H"""
@@ -548,7 +703,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           <p class="text-sr-muted">
             Materializes {@consumers.total} assignment(s)
             ({@consumers.enabled_count} enabled) across {length(@consumers.agent_uids)} agent(s).
-            Last materialized {format_timestamp(@consumers.last_materialized_at)}.
+            Last materialized
+            <.user_time
+              id={"settings-network-credential-rule-#{@rule_id}-last-materialized-at"}
+              value={@consumers.last_materialized_at}
+              timezone={@timezone}
+              style={:compact}
+              fallback="never"
+            />.
           </p>
           <div class="overflow-hidden rounded-lg border border-sr-line bg-sr-surface">
             <table class="table table-xs">
@@ -574,7 +736,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                       {if consumer.enabled, do: "enabled", else: "disabled"}
                     </span>
                   </td>
-                  <td>{format_timestamp(consumer.last_materialized_at)}</td>
+                  <td>
+                    <.user_time
+                      id={
+                        "settings-network-credential-rule-#{dom_id_segment(@rule_id)}-consumer-#{dom_id_segment(consumer.agent_uid)}-#{dom_id_segment(consumer.plugin_id)}-#{dom_id_segment(consumer.purpose)}-last-materialized-at"
+                      }
+                      value={consumer.last_materialized_at}
+                      timezone={@timezone}
+                      style={:compact}
+                      fallback="never"
+                    />
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -764,6 +936,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   attr :provider_options, :list, required: true
   attr :integration_profiles, :map, required: true
   attr :agent_options, :list, required: true
+  attr :editing_rule, :any, default: nil
 
   defp rule_form_modal(assigns) do
     assigns =
@@ -843,6 +1016,18 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           >
             {@integration_profile["description"] || @integration_profile["label"]} Credentials are
             resolved by the trusted host and delivered only through scoped runtime grants.
+          </div>
+          <div
+            :if={@plugin_integration?}
+            class="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-sr-ink/90 space-y-2"
+          >
+            <p class="font-medium">Do not assign this plugin from Admin → Plugin Packages.</p>
+            <p>
+              Pick the agent in <span class="font-medium">Scope Value</span> below. Saving this
+              rule creates the assignment and the inventory schedule. Put the service-account
+              username and password in a credential on this page, not in package approval and
+              not on Assign to Agent.
+            </p>
           </div>
           <div
             :if={@provider_value == "unifi-protect"}
@@ -1054,6 +1239,31 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 label="Enable recurring inventory refresh"
               />
             </div>
+            <div class="space-y-2">
+              <p class="text-sm font-medium text-sr-ink">
+                When sources disagree, this source wins for
+              </p>
+              <label class="flex items-center gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  name="credential_rule[fact_authority][]"
+                  value="switch_port_attachment"
+                  class={ui_toggle_class()}
+                  checked={"switch_port_attachment" in fact_authority_selected(@editing_rule)}
+                />
+                <span>Switch port</span>
+              </label>
+              <label class="flex items-center gap-3 text-sm">
+                <input
+                  type="checkbox"
+                  name="credential_rule[fact_authority][]"
+                  value="vlan_uid"
+                  class={ui_toggle_class()}
+                  checked={"vlan_uid" in fact_authority_selected(@editing_rule)}
+                />
+                <span>VLAN</span>
+              </label>
+            </div>
           </fieldset>
           <.input
             :if={@show_auto_discovery?}
@@ -1076,8 +1286,181 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
+  defp open_credential_modal(socket, operation, id) do
+    case CredentialManagement.open(operation, socket.assigns.current_scope, id) do
+      {:ok, context} ->
+        {:noreply, show_credential_modal(socket, operation, context)}
+
+      {:error, :not_authorized} ->
+        {:noreply, credential_action_unauthorized(socket)}
+
+      {:error, :credential_not_found} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:error, "Credential not found")
+         |> reload_page_data()}
+
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, credential_open_error(reason))}
+    end
+  end
+
+  defp show_credential_modal(socket, :edit, context) do
+    secret = context.secret
+
+    socket
+    |> assign(:current_scope, context.scope)
+    |> assign(:credential_modal, %{kind: :edit, secret: secret})
+    |> assign(
+      :credential_form,
+      credential_details_form(%{
+        "id" => to_string(secret.id),
+        "name" => secret.name,
+        "description" => secret.description || ""
+      })
+    )
+    |> assign(:credential_descriptor, nil)
+    |> assign(:credential_modal_usage, :unavailable)
+    |> assign(:credential_action_error, nil)
+  end
+
+  defp show_credential_modal(socket, :rotate, context) do
+    socket
+    |> assign(:current_scope, context.scope)
+    |> assign(:credential_modal, %{kind: :rotate, secret: context.secret})
+    |> assign(:credential_form, credential_rotation_form(context.secret.id))
+    |> assign(:credential_descriptor, context.descriptor)
+    |> assign(:credential_modal_usage, :unavailable)
+    |> assign(:credential_action_error, nil)
+  end
+
+  defp show_credential_modal(socket, :delete, context) do
+    socket
+    |> assign(:current_scope, context.scope)
+    |> assign(:credential_modal, %{kind: :delete, secret: context.secret})
+    |> assign(:credential_form, credential_delete_form(context.secret.id))
+    |> assign(:credential_descriptor, nil)
+    |> assign(:credential_modal_usage, context.usage)
+    |> assign(:credential_action_error, nil)
+  end
+
+  defp show_delete_block(socket, context, message) do
+    socket
+    |> show_credential_modal(:delete, context)
+    |> assign(:credential_action_error, message)
+  end
+
+  defp reopen_delete_after_race(socket, id) do
+    case CredentialManagement.open(:delete, socket.assigns.current_scope, id) do
+      {:ok, context} ->
+        {:noreply,
+         show_delete_block(
+           socket,
+           context,
+           "Credential became used before deletion completed"
+         )}
+
+      {:error, :not_authorized} ->
+        {:noreply, credential_action_unauthorized(socket)}
+
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:error, "Credential could not be deleted")
+         |> reload_page_data()}
+    end
+  end
+
+  defp clear_credential_modal(socket) do
+    socket
+    |> assign(:credential_modal, nil)
+    |> assign(:credential_form, nil)
+    |> assign(:credential_descriptor, nil)
+    |> assign(:credential_modal_usage, :unavailable)
+    |> assign(:credential_action_error, nil)
+  end
+
+  defp credential_action_unauthorized(socket) do
+    socket
+    |> clear_credential_modal()
+    |> put_flash(:error, "Not authorized to manage credentials")
+    |> redirect(to: ~p"/settings/profile")
+  end
+
+  defp credential_details_form(params), do: to_form(params, as: :credential_details)
+
+  defp credential_rotation_form(id), do: to_form(%{"id" => to_string(id)}, as: :credential_rotation)
+
+  defp credential_delete_form(id), do: to_form(%{"id" => to_string(id), "confirmation_id" => ""}, as: :credential_delete)
+
+  defp save_credential_rotation(socket, id, submitted_values) do
+    case CredentialManagement.rotate(
+           socket.assigns.current_scope,
+           id,
+           submitted_values,
+           credential_management_opts(socket)
+         ) do
+      {:ok, _rotated} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:info, "Credential rotated")
+         |> reload_page_data()}
+
+      {:error, :not_authorized} ->
+        {:noreply, credential_action_unauthorized(socket)}
+
+      {:error, :credential_not_found} ->
+        {:noreply,
+         socket
+         |> clear_credential_modal()
+         |> put_flash(:error, "Credential not found")
+         |> reload_page_data()}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:credential_form, credential_rotation_form(id))
+         |> assign(:credential_action_error, credential_rotation_error(reason))}
+    end
+  end
+
+  defp credential_management_opts(%Phoenix.LiveView.Socket{private: private}) do
+    Map.get(private, :credential_management_opts, [])
+  end
+
+  defp credential_open_error(:credential_rotation_not_supported), do: "This credential cannot be rotated"
+
+  defp credential_open_error(:credential_descriptor_unavailable),
+    do: "The approved credential descriptor is no longer available"
+
+  defp credential_open_error(_reason), do: "Credential action could not be opened"
+
+  defp credential_rotation_error({:missing_credential_field, field}), do: "#{credential_field_label(field)} is required"
+
+  defp credential_rotation_error({:invalid_credential_field, field}), do: "#{credential_field_label(field)} is invalid"
+
+  defp credential_rotation_error(:credential_descriptor_unavailable),
+    do: "The approved credential descriptor is no longer available"
+
+  defp credential_rotation_error(:credential_rotation_not_supported), do: "This credential cannot be rotated"
+
+  defp credential_rotation_error(_reason), do: "Credential rotation failed"
+
+  defp credential_field_label(field) do
+    field
+    |> to_string()
+    |> String.replace("_", " ")
+    |> String.capitalize()
+  end
+
   defp load_page(socket, params) do
-    socket = reload_page_data(socket)
+    socket =
+      socket
+      |> assign(:focused_credential_id, focused_credential_id(params["credential_id"]))
+      |> reload_page_data()
 
     case socket.assigns.form_mode do
       :new ->
@@ -1103,6 +1486,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     agents = load_agents(scope)
     integration_schedules = load_integration_schedules(scope, integration_profiles)
 
+    credential_usage_by_id =
+      case CredentialManagement.usage_for_secrets(scope, secrets) do
+        {:ok, usage_by_id} -> usage_by_id
+        {:error, :credential_usage_unavailable} -> :unavailable
+      end
+
     secret_names = Map.new(secrets, &{&1.id, secret_label(&1)})
 
     socket
@@ -1110,6 +1499,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> assign(:secrets, secrets)
     |> assign(:secret_options, Enum.map(secrets, &{secret_label(&1), &1.id}))
     |> assign(:secret_names, secret_names)
+    |> assign(:credential_usage_by_id, credential_usage_by_id)
     |> assign(:integration_profiles, integration_profiles)
     |> assign(:integration_schedules, integration_schedules)
     |> assign(:agent_options, agent_options(agents))
@@ -1134,7 +1524,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     case NetworkCredentialRule
          |> Ash.Changeset.for_create(:create, attrs, scope: socket.assigns.current_scope)
          |> Ash.create(scope: socket.assigns.current_scope) do
-      {:ok, _rule} ->
+      {:ok, rule} ->
+        _ = sync_fact_authority(rule, socket.assigns.current_scope)
+
         {:noreply,
          socket
          |> put_flash(:info, "Credential rule created")
@@ -1151,7 +1543,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     case rule
          |> Ash.Changeset.for_update(:update, attrs, scope: socket.assigns.current_scope)
          |> Ash.update(scope: socket.assigns.current_scope) do
-      {:ok, _rule} ->
+      {:ok, rule} ->
+        _ = sync_fact_authority(rule, socket.assigns.current_scope)
+
         {:noreply,
          socket
          |> put_flash(:info, "Credential rule saved")
@@ -1164,6 +1558,21 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp save_rule(socket, _attrs) do
     {:noreply, put_flash(socket, :error, "Credential rule form is not ready")}
+  end
+
+  defp sync_fact_authority(rule, scope) do
+    metadata = normalize_metadata(rule.metadata)
+    keys = fact_authority_selected(rule)
+    instance = get_in(metadata, ["plugin_config", "instance_id"])
+
+    ServiceRadar.Inventory.SourceFacts.Catalog.sync(
+      "plugin_assignment",
+      to_string(rule.id),
+      to_string(rule.provider),
+      instance,
+      keys,
+      actor: scope
+    )
   end
 
   defp save_secret(socket, attrs) do
@@ -1860,7 +2269,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             "plugin_config" => config,
             "purposes" => Enum.map(purposes, &to_string/1),
             "schedule_enabled" => boolean_param(params, "schedule_enabled"),
-            "cadence_seconds" => cadence_seconds
+            "cadence_seconds" => cadence_seconds,
+            "fact_authority" => fact_authority_param(params)
           },
           credential_use_policy
         )
@@ -2049,9 +2459,27 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "plugin_config",
       "schedule_enabled",
       "cadence_seconds",
-      "credential_use_policy"
+      "credential_use_policy",
+      "fact_authority"
     ]
   end
+
+  defp fact_authority_param(params) do
+    params
+    |> Map.get("fact_authority", [])
+    |> List.wrap()
+    |> Enum.map(&to_string/1)
+    |> Enum.filter(&(&1 in ["switch_port_attachment", "vlan_uid"]))
+  end
+
+  defp fact_authority_selected(%{metadata: metadata}) when is_map(metadata) do
+    metadata
+    |> Map.get("fact_authority", [])
+    |> List.wrap()
+    |> Enum.map(&to_string/1)
+  end
+
+  defp fact_authority_selected(_rule), do: []
 
   defp normalize_metadata(metadata) when is_map(metadata), do: metadata
   defp normalize_metadata(_metadata), do: %{}
@@ -2262,6 +2690,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> Enum.join(" / ")
   end
 
+  defp focused_credential_id(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      id -> id
+    end
+  end
+
+  defp focused_credential_id(_value), do: nil
+
   defp can_manage?(scope), do: RBAC.can?(scope, "settings.credentials.manage")
 
   defp format_scope(rule), do: "#{format_atom(rule.scope_type)}: #{rule.scope_value}"
@@ -2367,12 +2804,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp format_timestamp(%DateTime{} = timestamp) do
-    Calendar.strftime(timestamp, "%Y-%m-%d %H:%M:%S UTC")
-  end
-
-  defp format_timestamp(_timestamp), do: "never"
-
   defp format_last_test(%{last_test_status: nil}), do: "Not tested"
 
   defp format_last_test(rule) do
@@ -2405,18 +2836,40 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp runtime_status(rule, profiles, schedules) do
-    if scheduled_integration_provider?(rule.provider, profiles) do
-      case Map.get(schedules, to_string(rule.id)) do
-        %{last_status: status, last_run_at: last_run_at} ->
-          "#{status} / #{format_timestamp(last_run_at)}"
+  attr :rule, :map, required: true
+  attr :profiles, :list, required: true
+  attr :schedules, :map, required: true
+  attr :timezone, :string, required: true
 
-        nil ->
-          "Awaiting provisioning"
-      end
-    else
-      format_last_test(rule)
-    end
+  defp runtime_status(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :scheduled?,
+        scheduled_integration_provider?(assigns.rule.provider, assigns.profiles)
+      )
+
+    ~H"""
+    <%= if @scheduled? do %>
+      <%= case Map.get(@schedules, to_string(@rule.id)) do %>
+        <% %{last_status: status, last_run_at: last_run_at} -> %>
+          {status} /
+          <.user_time
+            id={
+              "settings-network-credential-rule-#{dom_id_segment(@rule.id)}-runtime-last-run-at"
+            }
+            value={last_run_at}
+            timezone={@timezone}
+            style={:compact}
+            fallback="never"
+          />
+        <% nil -> %>
+          Awaiting provisioning
+      <% end %>
+    <% else %>
+      {format_last_test(@rule)}
+    <% end %>
+    """
   end
 
   defp format_atom(nil), do: nil
@@ -2428,6 +2881,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   end
 
   defp format_atom(value), do: to_string(value)
+
+  defp dom_id_segment(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-")
+    |> String.trim("-")
+  end
 
   defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
   defp format_error(%Ash.Error.Forbidden{} = error), do: Exception.message(error)

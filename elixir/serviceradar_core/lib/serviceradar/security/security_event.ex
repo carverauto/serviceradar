@@ -25,6 +25,18 @@ defmodule ServiceRadar.Security.SecurityEvent do
     :csp_violation,
     :edge_onboarding_succeeded,
     :edge_onboarding_failed,
+    :mcp_auth_failed,
+    :mcp_session_initialized,
+    :mcp_tool_called,
+    :mcp_tool_denied,
+    :mcp_oauth_authorize_approved,
+    :mcp_oauth_authorize_denied,
+    :mcp_oauth_token_issued,
+    :mcp_oauth_refreshed,
+    :mcp_oauth_refresh_reuse,
+    :mcp_oauth_grant_revoked,
+    :mcp_oauth_idp_refresh_denied,
+    :mcp_oauth_slo_revoked,
     :other
   ]
 

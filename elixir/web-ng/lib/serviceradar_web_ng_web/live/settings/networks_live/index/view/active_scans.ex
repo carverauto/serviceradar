@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.ActiveScans do
   attr :recent, :list, required: true
   attr :groups, :list, required: true
   attr :execution_progress, :map, default: %{}
+  attr :timezone, :string, required: true
 
   def render(assigns) do
     # Build a map of group_id -> group for quick lookup
@@ -17,7 +18,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.ActiveScans do
     ~H"""
     <div class="space-y-4">
       <!-- Statistics Cards -->
-      <.scan_statistics running={@running} recent={@recent} />
+      <.scan_statistics
+        running={@running}
+        recent={@recent}
+        groups={@groups}
+        timezone={@timezone}
+      />
 
       <.ui_panel>
         <:header>
@@ -46,6 +52,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.ActiveScans do
               progress={
                 Map.get(@execution_progress, Map.get(execution, :execution_id) || execution.id)
               }
+              timezone={@timezone}
             />
           <% end %>
         </div>
@@ -82,6 +89,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.ActiveScans do
                 <.recent_execution_row
                   execution={execution}
                   group={Map.get(@groups_map, execution.sweep_group_id)}
+                  timezone={@timezone}
                 />
               <% end %>
             </tbody>

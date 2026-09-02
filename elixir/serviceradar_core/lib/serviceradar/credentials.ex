@@ -22,6 +22,8 @@ defmodule ServiceRadar.Credentials do
     resource ServiceRadar.Credentials.CredentialSecretProvider
     resource ServiceRadar.Credentials.CredentialSecretResolutionAudit
     resource ServiceRadar.Credentials.NetworkCredentialSecret
+    resource ServiceRadar.Credentials.NetworkCredentialSecretBinding
+    resource ServiceRadar.Credentials.NetworkCredentialSecretDeletionAudit
     resource ServiceRadar.Credentials.NetworkCredentialRule
   end
 

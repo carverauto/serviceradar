@@ -16,7 +16,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState do
       "name" => "",
       "description" => "",
       "scope_query" => "in:devices",
-      "evaluation_interval_seconds" => Integer.to_string(@default_interval)
+      "evaluation_interval_seconds" => Integer.to_string(@default_interval),
+      "write_canonical_availability" => "false"
     }
   end
 
@@ -26,11 +27,26 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState do
       "name" => check.name || "",
       "description" => check.description || "",
       "scope_query" => check.scope_query || "",
-      "evaluation_interval_seconds" => Integer.to_string(check.evaluation_interval_seconds || @default_interval)
+      "evaluation_interval_seconds" => Integer.to_string(check.evaluation_interval_seconds || @default_interval),
+      "write_canonical_availability" =>
+        if(Map.get(check, :write_canonical_availability, false), do: "true", else: "false")
     }
   end
 
-  @default_max_age 900
+  # A vantage point's freshness window must be at least as long as the sweep
+  # cadence that feeds it, or the resolver returns :unknown for the whole
+  # scope between runs. The old default was 900 seconds, which is shorter than
+  # every sweep interval this ships with except the 5-minute one -- on hourly
+  # sweeps it meant a check could only see one agent at a time, flipping to the
+  # other as each agent's run landed, and reporting "0 of N devices have
+  # results" for the rest of the hour.
+  #
+  # 3600 matches the common hourly group. It is deliberately biased long: an
+  # over-long window accepts stale evidence, which the readiness panel shows,
+  # while an over-short one silently produces no verdicts at all. The inline
+  # warning in the form is what catches the mismatch either way, since no single
+  # constant can be right for every sweep interval.
+  @default_max_age 3600
 
   @doc """
   A blank vantage point row.
@@ -239,7 +255,8 @@ defmodule ServiceRadarWebNGWeb.Settings.CompositeChecksLive.FormState do
       name: String.trim(form["name"] || ""),
       description: blank_to_nil(form["description"]),
       scope_query: String.trim(form["scope_query"] || ""),
-      evaluation_interval_seconds: parse_interval(form["evaluation_interval_seconds"])
+      evaluation_interval_seconds: parse_interval(form["evaluation_interval_seconds"]),
+      write_canonical_availability: form["write_canonical_availability"] in [true, "true"]
     }
   end
 

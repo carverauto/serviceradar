@@ -73,7 +73,7 @@ Administrators SHALL be able to configure the dashboard network asset map query 
 
 ### Requirement: Customer WiFi dashboard package POC parity interactions
 
-The Example WiFi dashboard package SHALL provide the core interactions present in the standalone proof of concept through the ServiceRadar dashboard package host.
+The customer WiFi dashboard package SHALL provide the core interactions present in the standalone proof of concept through the ServiceRadar dashboard package host.
 
 #### Scenario: User filters WiFi sites
 - **GIVEN** WiFi site map data includes regions, AP model families, WLC models, AOS versions, and RADIUS clusters

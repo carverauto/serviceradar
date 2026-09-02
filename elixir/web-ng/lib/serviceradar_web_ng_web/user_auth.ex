@@ -78,6 +78,7 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
          |> put_session(@session_started_key, session_started_at)
          |> put_session(@sudo_at_key, session_started_at)
          |> put_identity_claims_session(params)
+         |> put_mcp_idp_refresh_session(params)
          |> delete_session(:user_return_to)
          |> put_session(:live_socket_id, "users_sessions:#{user.id}")
          |> configure_session(renew: true, max_age: max_age_seconds)
@@ -507,6 +508,18 @@ defmodule ServiceRadarWebNGWeb.UserAuth do
   end
 
   defp params_identity_claims(_params), do: %{}
+
+  defp put_mcp_idp_refresh_session(conn, params) when is_map(params) do
+    case Map.get(params, "mcp_idp_refresh", Map.get(params, :mcp_idp_refresh)) do
+      token when is_binary(token) and token != "" ->
+        put_session(conn, "mcp_idp_refresh", token)
+
+      _ ->
+        conn
+    end
+  end
+
+  defp put_mcp_idp_refresh_session(conn, _params), do: conn
 
   defp get_session_identity_claims(conn) do
     conn

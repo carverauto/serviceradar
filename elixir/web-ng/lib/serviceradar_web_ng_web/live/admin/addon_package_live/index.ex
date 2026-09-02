@@ -633,7 +633,16 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
           <%= if @first_party_catalog_status do %>
             <div class="mb-3 text-xs text-sr-muted">
-              {@first_party_catalog_status}
+              <%= if @first_party_catalog_status.synced_at do %>
+                Last refresh
+                <.user_time
+                  id="admin-addon-catalog-last-refresh-at"
+                  value={@first_party_catalog_status.synced_at}
+                  timezone={@current_scope.user.timezone || "Etc/UTC"}
+                  style={:compact}
+                />.
+              <% end %>
+              {@first_party_catalog_status.summary}
             </div>
           <% end %>
 
@@ -1759,10 +1768,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     summary =
       "Loaded #{length(visible_addons)} first-party add-on entry(s), #{import_ready} import-ready, #{length(visible_packages)} imported package(s), from #{releases} release(s)."
 
-    case format_catalog_sync_time(synced_at) do
-      nil -> summary
-      stamp -> "Last refresh #{stamp} UTC. #{summary}"
-    end
+    %{synced_at: normalize_catalog_sync_time(synced_at), summary: summary}
   end
 
   defp catalog_sync_flash(socket, summary) do
@@ -1787,12 +1793,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     "Catalog refreshed from the registry (#{scanned} release(s) scanned, #{indexed} with add-on indexes). #{release_part} Nothing was imported."
   end
 
-  defp format_catalog_sync_time(%DateTime{} = value), do: Calendar.strftime(value, "%d %b %Y %H:%M")
-
-  defp format_catalog_sync_time(%NaiveDateTime{} = value),
-    do: value |> DateTime.from_naive!("Etc/UTC") |> format_catalog_sync_time()
-
-  defp format_catalog_sync_time(_), do: nil
+  defp normalize_catalog_sync_time(%DateTime{} = value), do: value
+  defp normalize_catalog_sync_time(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
+  defp normalize_catalog_sync_time(_), do: nil
 
   defp first_party_repo_url do
     config = Application.get_env(:serviceradar_web_ng, :native_addon_import, [])

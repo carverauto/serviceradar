@@ -10,6 +10,7 @@ defmodule ServiceRadar.Dashboards.Checks.ActorCanEditDashboardTarget do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.AuthoredDashboard
+  alias ServiceRadar.Dashboards.Checks.SubjectGrant
 
   require Ash.Query
 
@@ -46,21 +47,7 @@ defmodule ServiceRadar.Dashboards.Checks.ActorCanEditDashboardTarget do
   defp can_edit?(actor_id, dashboard) do
     (dashboard.owner_id && to_string(dashboard.owner_id) == actor_id) ||
       Enum.any?(dashboard.access_grants || [], fn grant ->
-        grant.access in [:edit, "edit"] and grant_matches_actor?(grant, actor_id)
+        grant.access in [:edit, "edit"] and SubjectGrant.matches_actor?(grant, actor_id)
       end)
   end
-
-  defp grant_matches_actor?(%{subject_type: type, subject_user_id: user_id}, actor_id)
-       when type in [:user, "user"] and not is_nil(user_id) do
-    to_string(user_id) == actor_id
-  end
-
-  defp grant_matches_actor?(%{subject_type: type, subject_group: group}, actor_id)
-       when type in [:group, "group"] do
-    group
-    |> Map.get(:memberships, [])
-    |> Enum.any?(&(to_string(&1.user_id) == actor_id))
-  end
-
-  defp grant_matches_actor?(_grant, _actor_id), do: false
 end

@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.AuthoredDashboardLive.SettingsComponents, only: [sharing_settings: 1]
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardPackage
@@ -9,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNGWeb.DashboardFrameChannel
+  alias ServiceRadarWebNGWeb.DashboardPackageLive.AccessControls
   alias ServiceRadarWebNGWeb.DashboardPackageLive.Preferences
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -33,6 +36,21 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign(:frame_query_overrides, %{})
       |> assign(:dashboard_catalog_limit, @dashboard_search_limit)
       |> assign(:host_payload_json, "{}")
+      |> assign(:can_share?, false)
+      |> assign(:sharing_open?, false)
+      |> assign(:access_grants, [])
+      |> assign(:users, [])
+      |> assign(:user_groups, [])
+      |> assign(:can_view_groups?, AccessControls.can_view_groups?(socket.assigns.current_scope))
+      |> assign(
+        :can_view_share_principals?,
+        AccessControls.can_view_share_principals?(socket.assigns.current_scope)
+      )
+      |> assign(:user_grant_params, AccessControls.default_user_grant_params())
+      |> assign(:group_grant_params, AccessControls.default_group_grant_params())
+      |> assign(:visibility_params, %{"visibility" => "public"})
+      |> assign_grant_forms()
+      |> assign_visibility_form()
       |> assign_dashboard_search_srql(dashboard_reference_query(route_slug))
 
     {:ok, socket}
@@ -40,7 +58,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
 
   @impl true
   def handle_params(%{"route_slug" => route_slug} = params, _uri, socket) do
-    overrides = frame_query_overrides(params)
+    overrides = authorized_frame_query_overrides(params, socket.assigns.current_scope)
 
     keep_host_mounted? =
       connected?(socket) and socket.assigns.load_state == :ready and
@@ -83,9 +101,20 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     {:noreply, push_dashboard_search(socket, query)}
   end
 
+  def handle_event("srql_reset", _params, socket) do
+    query = dashboard_reference_query(socket.assigns.route_slug)
+    path = socket.assigns.current_path || "/dashboards/#{socket.assigns.route_slug}"
+    {:noreply, push_patch(socket, to: path <> "?" <> URI.encode_query(%{"q" => query}))}
+  end
+
   def handle_event("dashboard_srql_query", params, socket) do
     query = params |> Map.get("q", "") |> to_string() |> String.trim()
-    frame_queries = params |> frame_query_overrides() |> Map.delete("__first__")
+
+    frame_queries =
+      params
+      |> authorized_frame_query_overrides(socket.assigns.current_scope)
+      |> Map.delete("__first__")
+
     {:noreply, push_dashboard_queries(socket, query, frame_queries)}
   end
 
@@ -138,6 +167,118 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     {:noreply, push_dashboard_search(socket, query)}
   end
 
+  def handle_event("toggle_sharing", _params, socket) do
+    {:noreply, assign(socket, :sharing_open?, !socket.assigns.sharing_open?)}
+  end
+
+  def handle_event("close_sharing", _params, socket) do
+    {:noreply, assign(socket, :sharing_open?, false)}
+  end
+
+  def handle_event("update_visibility", %{"instance" => params}, socket) do
+    params = stringify_map(params)
+
+    with :ok <- AccessControls.authorize_share(socket),
+         %DashboardInstance{} = instance <- socket.assigns.instance,
+         {:ok, updated} <-
+           Dashboards.update_instance(instance.id, %{visibility: params["visibility"]},
+             scope: socket.assigns.current_scope
+           ) do
+      {:noreply,
+       socket
+       |> assign(:instance, updated)
+       |> assign(:visibility_params, %{"visibility" => to_string(updated.visibility)})
+       |> assign_visibility_form()
+       |> put_flash(:info, "Visibility updated")}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Visibility update failed: #{format_share_error(reason)}")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Visibility update failed")}
+    end
+  end
+
+  def handle_event("validate_user_grant", %{"grant" => params}, socket) do
+    {:noreply,
+     socket
+     |> assign(:user_grant_params, merge_grant_params(socket.assigns.user_grant_params, params))
+     |> assign_grant_forms()}
+  end
+
+  def handle_event("validate_group_grant", %{"grant" => params}, socket) do
+    {:noreply,
+     socket
+     |> assign(:group_grant_params, merge_grant_params(socket.assigns.group_grant_params, params))
+     |> assign_grant_forms()}
+  end
+
+  def handle_event("grant_user", %{"grant" => params}, socket) do
+    params = merge_grant_params(socket.assigns.user_grant_params, params)
+
+    with :ok <- AccessControls.authorize_share(socket),
+         %DashboardInstance{} = instance <- socket.assigns.instance,
+         {:ok, _grant} <-
+           Dashboards.grant_instance_to_user(
+             socket.assigns.current_scope,
+             Map.put(params, "dashboard_instance_id", instance.id)
+           ) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "User access updated")
+       |> assign(:user_grant_params, AccessControls.default_user_grant_params())
+       |> reload_sharing()}
+    else
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:user_grant_params, params)
+         |> assign_grant_forms()
+         |> put_flash(:error, "User grant failed: #{format_share_error(reason)}")}
+    end
+  end
+
+  def handle_event("grant_group", %{"grant" => params}, socket) do
+    params = merge_grant_params(socket.assigns.group_grant_params, params)
+
+    with :ok <- AccessControls.authorize_share(socket),
+         %DashboardInstance{} = instance <- socket.assigns.instance,
+         {:ok, _grant} <-
+           Dashboards.grant_instance_to_group(
+             socket.assigns.current_scope,
+             Map.put(params, "dashboard_instance_id", instance.id)
+           ) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Group access updated")
+       |> assign(:group_grant_params, AccessControls.default_group_grant_params())
+       |> reload_sharing()}
+    else
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:group_grant_params, params)
+         |> assign_grant_forms()
+         |> put_flash(:error, "Group grant failed: #{format_share_error(reason)}")}
+    end
+  end
+
+  def handle_event("revoke_grant", %{"id" => id}, socket) do
+    grant = Enum.find(socket.assigns.access_grants, &(to_string(&1.id) == to_string(id)))
+
+    with :ok <- AccessControls.authorize_share(socket),
+         %{} = grant <- grant,
+         :ok <- Dashboards.revoke_instance_access_grant(socket.assigns.current_scope, grant) do
+      {:noreply, socket |> put_flash(:info, "Access revoked") |> reload_sharing()}
+    else
+      {:error, reason} ->
+        {:noreply, put_flash(socket, :error, "Revoke failed: #{format_share_error(reason)}")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Revoke failed")}
+    end
+  end
+
   @impl true
   def handle_async(
         :dashboard_package_load,
@@ -154,6 +295,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign(:page_title, instance.name)
       |> assign(:query_text, first_frame_query(data_frames))
       |> assign_dashboard_search_srql(dashboard_reference_query(instance.route_slug))
+      |> assign_sharing(instance)
       |> assign(
         :host_payload_json,
         Jason.encode!(
@@ -164,7 +306,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
             frames,
             mapbox,
             socket.assigns.frame_query_overrides,
-            stored_preferences(socket, instance.route_slug)
+            stored_preferences(socket, instance.route_slug),
+            current_user_id(socket)
           )
         )
       )
@@ -173,7 +316,17 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   end
 
   def handle_async(:dashboard_package_load, {:ok, {:error, :not_found}}, socket) do
-    {:noreply, assign(socket, :load_state, :not_found)}
+    if default_package_slug?(socket, socket.assigns.route_slug) do
+      {:noreply,
+       socket
+       |> put_flash(
+         :info,
+         "Your default dashboard is no longer available. Choose another from the library."
+       )
+       |> push_navigate(to: ~p"/dashboards")}
+    else
+      {:noreply, assign(socket, :load_state, :not_found)}
+    end
   end
 
   def handle_async(:dashboard_package_load, {:ok, {:error, reason}}, socket) do
@@ -196,6 +349,60 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       hide_breadcrumb
       srql={@srql}
     >
+      <%!-- Package dashboards fill the page; overlay chrome blocked renderer controls. --%>
+      <:topbar_actions :if={@can_share?}>
+        <.ui_button
+          type="button"
+          id="dashboard-package-share-button"
+          phx-click="toggle_sharing"
+          size="sm"
+          variant="neutral"
+          active={@sharing_open?}
+          aria-expanded={to_string(@sharing_open?)}
+          aria-controls="dashboard-package-share-modal"
+        >
+          <.icon name="hero-share" class="size-4" /> Share
+        </.ui_button>
+      </:topbar_actions>
+
+      <.ui_modal
+        :if={@can_share?}
+        id="dashboard-package-share-modal"
+        open={@sharing_open?}
+        size="xl"
+        on_cancel="close_sharing"
+      >
+        <:title>Share dashboard</:title>
+        <.form
+          for={@visibility_form}
+          as={:instance}
+          phx-submit="update_visibility"
+          class="mb-4 space-y-3"
+        >
+          <.input
+            field={@visibility_form[:visibility]}
+            type="select"
+            label="Visibility"
+            options={AccessControls.visibility_options()}
+          />
+          <p class="text-xs text-sr-muted">
+            Grants apply when visibility is Shared. Private is owner-only; Public is every signed-in user.
+          </p>
+          <.ui_button type="submit" size="sm" variant="primary">Save visibility</.ui_button>
+        </.form>
+
+        <.sharing_settings
+          dashboard={@instance}
+          access_grants={@access_grants}
+          user_grant_form={@user_grant_form}
+          group_grant_form={@group_grant_form}
+          users={@users}
+          user_groups={@user_groups}
+          can_view_groups?={@can_view_groups?}
+          show_pickers?={@can_view_share_principals?}
+        />
+      </.ui_modal>
+
       <div class="min-h-[calc(100vh-5rem)] bg-sr-surface">
         <div :if={@load_state == :loading} class="flex min-h-[28rem] items-center justify-center">
           <.ui_spinner size="lg" />
@@ -231,6 +438,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
             phx-hook="DashboardWasmHost"
             phx-update="ignore"
             data-host={@host_payload_json}
+            data-timezone={@current_scope.user.timezone || "Etc/UTC"}
             class="relative min-h-[calc(100vh-5rem)] flex-1 bg-sr-surface px-3 py-3 sm:px-5 sm:py-4"
           >
             <div class="absolute inset-0 flex items-center justify-center">
@@ -473,7 +681,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
          frames,
          mapbox,
          overrides,
-         preferences
+         preferences,
+         user_id
        ) do
     %{
       "host" => %{
@@ -488,6 +697,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
           DashboardFrameChannel.stream_token(
             instance.route_slug,
             data_frames,
+            user_id,
             active_optional_frame_ids(data_frames, overrides)
           ),
         "refresh_interval_ms" => 15_000
@@ -523,6 +733,14 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
         "wasm_url" => ~p"/dashboard-packages/#{package.id}/renderer.wasm?v=#{package.content_hash}"
       }
     }
+  end
+
+  defp authorized_frame_query_overrides(params, scope) do
+    if AccessControls.can_manage_queries?(scope) do
+      frame_query_overrides(params)
+    else
+      %{}
+    end
   end
 
   defp frame_query_overrides(params) do
@@ -638,4 +856,84 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   end
 
   defp mapbox_style_dark(_), do: "mapbox://styles/mapbox/dark-v11"
+
+  defp assign_sharing(socket, %DashboardInstance{} = instance) do
+    scope = socket.assigns.current_scope
+    can_share? = AccessControls.can_share_instance?(instance, scope)
+
+    loaded =
+      AccessControls.load(scope, instance, %{
+        can_view_groups?: socket.assigns.can_view_groups?,
+        can_view_share_principals?: socket.assigns.can_view_share_principals?
+      })
+
+    socket
+    |> assign(:can_share?, can_share?)
+    |> assign(:access_grants, loaded.access_grants)
+    |> assign(:users, loaded.users)
+    |> assign(:user_groups, loaded.user_groups)
+    |> assign(:visibility_params, %{"visibility" => to_string(instance.visibility)})
+    |> assign_grant_forms()
+    |> assign_visibility_form()
+  end
+
+  defp reload_sharing(socket) do
+    case socket.assigns.instance do
+      %DashboardInstance{} = instance -> assign_sharing(socket, instance)
+      _ -> socket
+    end
+  end
+
+  defp assign_grant_forms(socket) do
+    socket
+    |> assign(:user_grant_form, to_form(socket.assigns.user_grant_params, as: :grant))
+    |> assign(:group_grant_form, to_form(socket.assigns.group_grant_params, as: :grant))
+  end
+
+  defp assign_visibility_form(socket) do
+    assign(socket, :visibility_form, to_form(socket.assigns.visibility_params, as: :instance))
+  end
+
+  defp merge_grant_params(current, incoming) when is_map(current) and is_map(incoming) do
+    Map.merge(stringify_map(current), stringify_map(incoming))
+  end
+
+  defp stringify_map(map) when is_map(map) do
+    Map.new(map, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp current_user_id(socket) do
+    case current_user(socket) do
+      %{id: id} -> id
+      _ -> nil
+    end
+  end
+
+  defp default_package_slug?(socket, route_slug) when is_binary(route_slug) do
+    user = current_user(socket)
+
+    if is_nil(user) do
+      false
+    else
+      case DashboardUserPreference.for_user(user.id, actor: user) do
+        {:ok, preferences} ->
+          Enum.any?(preferences, fn preference ->
+            preference.is_default == true and
+              preference.target_type in [:package, "package"] and
+              preference.target_id == route_slug
+          end)
+
+        _ ->
+          false
+      end
+    end
+  end
+
+  defp default_package_slug?(_socket, _route_slug), do: false
+
+  defp format_share_error(%Ash.Error.Forbidden{}), do: "forbidden"
+  defp format_share_error(%{message: message}) when is_binary(message), do: message
+  defp format_share_error(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp format_share_error(reason) when is_binary(reason), do: reason
+  defp format_share_error(reason), do: inspect(reason)
 end

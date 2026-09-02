@@ -1,4 +1,5 @@
 import {runRecoverableManagedCameraUpdate} from "./lifecycle_managed_camera_recovery"
+import {hasManagedTopologyScene} from "./topology_layout_mode"
 
 export const godViewLifecycleBootstrapEventResetViewMethods = {
   registerResetViewEvent() {
@@ -25,7 +26,7 @@ export const godViewLifecycleBootstrapEventResetViewMethods = {
         this.deps.autoFitViewState(this.state.lastGraph)
       }
 
-      const managedScene = this.state.lastGraph?._layoutMode === "elk-scene" && this.state.lastGraph?._topologyScene
+      const managedScene = hasManagedTopologyScene(this.state.lastGraph)
       if (managedScene) {
         runRecoverableManagedCameraUpdate(this, resetCamera)
       } else {

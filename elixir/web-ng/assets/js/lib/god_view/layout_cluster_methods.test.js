@@ -196,15 +196,21 @@ describe("layout_cluster_methods", () => {
   })
 
   it.each([
-    {zoomMode: "global", zoomTier: "local"},
-    {zoomMode: "regional", zoomTier: "local"},
-    {zoomMode: "auto", zoomTier: "global"},
-    {zoomMode: "auto", zoomTier: "regional"},
-  ])("keeps an accepted ELK scene authoritative in $zoomMode/$zoomTier", ({zoomMode, zoomTier}) => {
+    {layoutMode: "elk-radial-overview", zoomMode: "global", zoomTier: "local"},
+    {layoutMode: "elk-radial-overview", zoomMode: "auto", zoomTier: "regional"},
+    {layoutMode: "elk-scene-detail", zoomMode: "regional", zoomTier: "local"},
+    {layoutMode: "elk-scene-detail", zoomMode: "auto", zoomTier: "global"},
+  ])("keeps an accepted $layoutMode scene authoritative in $zoomMode/$zoomTier", ({layoutMode, zoomMode, zoomTier}) => {
     const graph = {
       shape: "global",
-      _layoutMode: "elk-scene",
-      _topologyScene: {key: "accepted-scene", routes: [], groups: []},
+      _layoutMode: layoutMode,
+      _topologyScene: {
+        key: "accepted-scene",
+        nodes: [],
+        routes: [],
+        groups: [],
+        bounds: {minX: 0, minY: 0, maxX: 0, maxY: 0},
+      },
       nodes: [{id: "node-a", x: 120, y: 80}],
       edges: [],
     }
@@ -224,8 +230,14 @@ describe("layout_cluster_methods", () => {
   it("keeps accepted ELK semantic shape local across visual-density changes", () => {
     const graph = {
       shape: "regional",
-      _layoutMode: "elk-scene",
-      _topologyScene: {key: "accepted-scene", routes: [], groups: []},
+      _layoutMode: "elk-scene-detail",
+      _topologyScene: {
+        key: "accepted-scene",
+        nodes: [],
+        routes: [],
+        groups: [],
+        bounds: {minX: 0, minY: 0, maxX: 0, maxY: 0},
+      },
       nodes: [{id: "node-a", x: 120, y: 80}],
       edges: [],
     }

@@ -6,16 +6,17 @@ defmodule ServiceRadarWebNGWeb.Observability.DetailStreamComponents do
   Entries are maps with the keys:
 
   * `:id` - stable entry id (used for selection + DOM id)
+  * `:dom_id` - stable unique DOM identity supplied by the stream caller
   * `:href` - navigate path for the entry
   * `:severity` - raw severity value for the status dot / filters
   * `:secondary` - right-hand meta (service name, host, provider, …)
-  * `:time_short` - compact timestamp string
+  * `:timestamp` - canonical absolute instant
   * `:preview` - one-line body preview
   """
 
   use Phoenix.Component
 
-  import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
+  import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1, user_time: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
   @severity_chip_labels %{
@@ -34,6 +35,7 @@ defmodule ServiceRadarWebNGWeb.Observability.DetailStreamComponents do
   attr :id, :string, default: "detail-stream"
   attr :title, :string, required: true
   attr :entries, :list, required: true
+  attr :timezone, :string, required: true
   attr :page, :integer, required: true
   attr :page_count, :integer, required: true
   attr :selected_id, :string, required: true
@@ -99,7 +101,7 @@ defmodule ServiceRadarWebNGWeb.Observability.DetailStreamComponents do
         <.link
           :for={entry <- @entries}
           navigate={entry.href}
-          id={"stream-" <> entry.id}
+          id={"stream-" <> entry.dom_id}
           class={[
             "group relative block min-w-0 border-b border-sr-line/70 px-2.5 py-2 transition-colors duration-150 ease-sr-out",
             entry.id == @selected_id && "bg-sr-subtle",
@@ -118,7 +120,14 @@ defmodule ServiceRadarWebNGWeb.Observability.DetailStreamComponents do
             ]}></span>
             <div class="min-w-0 flex-1 overflow-hidden">
               <div class="flex min-w-0 items-baseline justify-between gap-2">
-                <span class="shrink-0 font-mono text-[11px] text-sr-muted">{entry.time_short}</span>
+                <.user_time
+                  id={"#{@id}-#{entry.dom_id}-time"}
+                  value={entry.timestamp}
+                  timezone={@timezone}
+                  style={:compact}
+                  fallback="—"
+                  class="shrink-0 font-mono text-[11px] text-sr-muted"
+                />
                 <span class="truncate font-mono text-[10px] text-sr-muted">{entry.secondary}</span>
               </div>
               <p class="mt-0.5 truncate text-xs leading-snug text-sr-ink">{entry.preview}</p>

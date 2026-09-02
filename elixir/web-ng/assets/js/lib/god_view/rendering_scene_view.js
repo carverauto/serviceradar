@@ -2,6 +2,7 @@ const SAFE_CHROME_GAP_PX = 8
 const BROWSER_TOLERANCE_PX = 1
 const DEFAULT_MIN_ZOOM = -3
 const DEFAULT_MAX_ZOOM = 5
+const ABSOLUTE_MIN_ZOOM = -24
 const CONSERVATIVE_ROUTE_STROKE_PX = 38
 const GOD_VIEW_SAFE_AREA_SELECTOR = "[data-god-view-safe-area], .sr-god-view-map-controls"
 const GOD_VIEW_SAFE_ROOT_SELECTOR = "[data-god-view-safe-root]"
@@ -156,42 +157,6 @@ function glyphVisualSpecs(scene, glyphBoxes) {
   })
 }
 
-function pairAxisSeparationScale(left, right, axis) {
-  const worldKey = axis === "x" ? "worldX" : "worldY"
-  const lowerPad = axis === "x" ? "leftPad" : "topPad"
-  const upperPad = axis === "x" ? "rightPad" : "bottomPad"
-  const delta = finiteNumber(right[worldKey]) - finiteNumber(left[worldKey])
-  const distance = Math.abs(delta)
-  const requiredPixels = delta >= 0
-    ? finiteNumber(left[upperPad]) + finiteNumber(right[lowerPad])
-    : finiteNumber(right[upperPad]) + finiteNumber(left[lowerPad])
-  if (requiredPixels <= 0) return 0
-  return distance > 0 ? requiredPixels / distance : Number.POSITIVE_INFINITY
-}
-
-function glyphSeparationConstraint(glyphSpecs) {
-  let constraint = {scale: 0, leftId: "", rightId: "", axis: "x"}
-  for (let leftIndex = 0; leftIndex < glyphSpecs.length; leftIndex += 1) {
-    for (let rightIndex = leftIndex + 1; rightIndex < glyphSpecs.length; rightIndex += 1) {
-      const left = glyphSpecs[leftIndex]
-      const right = glyphSpecs[rightIndex]
-      const xScale = pairAxisSeparationScale(left, right, "x")
-      const yScale = pairAxisSeparationScale(left, right, "y")
-      const axis = xScale <= yScale ? "x" : "y"
-      const pairScale = Math.min(xScale, yScale)
-      if (pairScale > constraint.scale) {
-        constraint = {
-          scale: pairScale,
-          leftId: String(left.nodeId || ""),
-          rightId: String(right.nodeId || ""),
-          axis,
-        }
-      }
-    }
-  }
-  return constraint
-}
-
 function baseVisualSpecs(scene, glyphBoxes, routeStrokeWidth) {
   const bounds = completeSceneBounds(scene)
   const routeSpecs = (scene?.physicalRoutes || scene?.routes || []).flatMap((route) => {
@@ -230,20 +195,19 @@ function axisExtents(specs, scale, axis) {
   }
 }
 
-function fitVisualSpecs(specs, glyphSpecs, viewport, safeRect, previousViewState = {}, minimumScale = 0) {
+function fitVisualSpecs(specs, viewport, safeRect, previousViewState = {}) {
   const width = Math.max(1, finiteNumber(viewport?.width, 1))
   const height = Math.max(1, finiteNumber(viewport?.height, 1))
   const safe = normalizeGodViewSafeRect(safeRect, {width, height})
   const requestedMinZoom = finiteNumber(viewport?.minZoom ?? viewport?.viewState?.minZoom ?? previousViewState?.minZoom, DEFAULT_MIN_ZOOM)
-  const maxZoom = Math.max(requestedMinZoom, finiteNumber(viewport?.maxZoom ?? viewport?.viewState?.maxZoom ?? previousViewState?.maxZoom, DEFAULT_MAX_ZOOM))
+  const maxZoom = Math.max(
+    ABSOLUTE_MIN_ZOOM,
+    finiteNumber(viewport?.maxZoom ?? viewport?.viewState?.maxZoom ?? previousViewState?.maxZoom, DEFAULT_MAX_ZOOM),
+  )
+  const absoluteMinScale = 2 ** ABSOLUTE_MIN_ZOOM
   const maxScale = 2 ** maxZoom
   const safeWidth = safe.right - safe.left
   const safeHeight = safe.bottom - safe.top
-  const separation = glyphSeparationConstraint(glyphSpecs)
-  const declaredMinimumScale = Number(minimumScale)
-  if (!Number.isFinite(declaredMinimumScale) || declaredMinimumScale < 0) {
-    throw new RangeError(`topology visual minimum scale must be finite and non-negative; scale=${String(minimumScale)}`)
-  }
   const fits = (scale) => {
     const x = axisExtents(specs, scale, "x")
     const y = axisExtents(specs, scale, "y")
@@ -263,16 +227,16 @@ function fitVisualSpecs(specs, glyphSpecs, viewport, safeRect, previousViewState
 
   let scale = maxScale
   if (!fits(maxScale)) {
-    if (!fits(0)) {
-      throw new RangeError("topology scene cannot fit fixed-pixel visuals inside the safe rectangle")
+    if (!fits(absoluteMinScale)) {
+      throw new RangeError("topology scene cannot fit fixed-pixel visuals above the absolute Deck camera floor")
     }
-    let lower = Math.min(
+    let lower = Math.max(absoluteMinScale, Math.min(
       maxScale,
       guaranteedScale("x", safeWidth),
       guaranteedScale("y", safeHeight),
-    )
+    ))
     if (!(lower > 0) || !fits(lower)) {
-      throw new RangeError("topology scene cannot fit at a positive Deck camera scale")
+      lower = absoluteMinScale
     }
     let upper = maxScale
     for (let pass = 0; pass < 56; pass += 1) {
@@ -283,19 +247,6 @@ function fitVisualSpecs(specs, glyphSpecs, viewport, safeRect, previousViewState
     scale = lower
   }
 
-  if (!Number.isFinite(separation.scale) || scale + 1e-9 < separation.scale) {
-    throw new RangeError(
-      `topology glyph separation for ${separation.leftId} and ${separation.rightId} on axis=${separation.axis} ` +
-      `requires scale=${separation.scale}, but available containment scale=${scale} inside the safe rectangle`,
-    )
-  }
-  if (scale + 1e-9 < declaredMinimumScale) {
-    throw new RangeError(
-      `topology fixed-pixel clearance requires scale=${declaredMinimumScale}, ` +
-      `but available containment scale=${scale} inside the safe rectangle`,
-    )
-  }
-
   const x = axisExtents(specs, scale, "x")
   const y = axisExtents(specs, scale, "y")
   const safeCenterX = (safe.left + safe.right) / 2
@@ -303,7 +254,7 @@ function fitVisualSpecs(specs, glyphSpecs, viewport, safeRect, previousViewState
   const targetX = ((width / 2) + ((x.min + x.max) / 2) - safeCenterX) / scale
   const targetY = ((height / 2) + ((y.min + y.max) / 2) - safeCenterY) / scale
   const zoom = Math.log2(scale)
-  const minZoom = Math.min(requestedMinZoom, zoom)
+  const minZoom = Math.max(ABSOLUTE_MIN_ZOOM, Math.min(requestedMinZoom, zoom))
   return {
     ...previousViewState,
     target: [targetX, targetY, 0],
@@ -334,9 +285,15 @@ function projectGlyphSpecs(specs, viewState, viewport) {
   })
 }
 
-function admittedArray(result) {
-  if (Array.isArray(result)) return result
-  return Array.isArray(result?.admitted) ? result.admitted : []
+function normalizedAdmission(result) {
+  const admitted = Array.isArray(result)
+    ? result
+    : (Array.isArray(result?.admitted) ? result.admitted : [])
+  const missingRequiredLabelIds = Array.isArray(result?.missingRequiredLabelIds)
+    ? [...new Set(result.missingRequiredLabelIds.map((nodeId) => String(nodeId || "")).filter(Boolean))]
+      .sort((left, right) => left.localeCompare(right))
+    : []
+  return {admitted, missingRequiredLabelIds}
 }
 
 function boxInside(box, safeRect) {
@@ -374,8 +331,8 @@ function labelVisualSpecs(scene, labels, viewState, viewport) {
 }
 
 function runAdmission(admitLabels, scene, viewport, safeRect, glyphSpecs, viewState) {
-  if (typeof admitLabels !== "function") return []
-  return admittedArray(admitLabels({
+  if (typeof admitLabels !== "function") return {admitted: [], missingRequiredLabelIds: []}
+  return normalizedAdmission(admitLabels({
     scene,
     viewport,
     safeRect,
@@ -395,7 +352,6 @@ export function fitTopologyScene({
   safeRect,
   glyphBoxes = [],
   routeStrokeWidth,
-  minimumScale = 0,
   admitLabels,
 } = {}) {
   const safe = normalizeGodViewSafeRect(safeRect, viewport)
@@ -407,30 +363,31 @@ export function fitTopologyScene({
   const baseSpecs = baseVisualSpecs(scene, glyphBoxes, routeStrokeWidth)
   let viewState = fitVisualSpecs(
     baseSpecs,
-    glyphSpecs,
     viewport,
     safe,
     viewport?.viewState || {},
-    minimumScale,
   )
-  let labels = runAdmission(admitLabels, scene, viewport, canvas, glyphSpecs, viewState)
+  let admission = runAdmission(admitLabels, scene, viewport, canvas, glyphSpecs, viewState)
 
-  if (labels.some((label) => !boxInside(label?.box, safe))) {
-    const labelSpecs = labelVisualSpecs(scene, labels, viewState, viewport)
+  if (admission.admitted.some((label) => !boxInside(label?.box, safe))) {
+    const labelSpecs = labelVisualSpecs(scene, admission.admitted, viewState, viewport)
     viewState = fitVisualSpecs(
       [...baseSpecs, ...labelSpecs],
-      glyphSpecs,
       viewport,
       safe,
       viewState,
-      minimumScale,
     )
-    labels = runAdmission(admitLabels, scene, viewport, safe, glyphSpecs, viewState)
+    admission = runAdmission(admitLabels, scene, viewport, safe, glyphSpecs, viewState)
   }
 
+  const admittedLabels = admission.admitted.filter((label) => boxInside(label?.box, safe))
+  const missingRequiredLabelIds = [...admission.missingRequiredLabelIds]
   return {
+    ok: missingRequiredLabelIds.length === 0,
     viewState,
-    admittedLabels: labels.filter((label) => boxInside(label?.box, safe)),
+    fitZoom: viewState.zoom,
+    admittedLabels,
+    missingRequiredLabelIds,
   }
 }
 
@@ -475,10 +432,18 @@ function focusScene(scene, group) {
   return {...neighborhood, bounds: completeSceneBounds(neighborhood)}
 }
 
-export function topologyGroupFocusScene(scene, groupId) {
+export function topologyGroupFocusScene(scene, groupId, fallbackGroup = null) {
   const normalizedId = String(groupId || "").trim()
   const group = (scene?.groups || []).find((candidate) => String(candidate?.id || "") === normalizedId)
-  return group ? focusScene(scene, group) : null
+  if (group) return focusScene(scene, group)
+
+  // The radial atlas has no compound groups -- expanding elaborates it in place -- so the only
+  // lookup here found nothing and focus failed closed for every cluster in the overview. A
+  // caller that knows the membership supplies it instead; focusScene is purely id-driven, so a
+  // synthesized group frames the same neighborhood a compound group would have.
+  const memberIds = (fallbackGroup?.memberIds || []).map(String).filter((id) => id !== "")
+  if (memberIds.length === 0) return null
+  return focusScene(scene, {...fallbackGroup, id: normalizedId, memberIds})
 }
 
 export function focusTopologyGroup({
@@ -488,11 +453,16 @@ export function focusTopologyGroup({
   safeRect,
   glyphBoxForNode,
   routeStrokeWidth,
-  minimumScale = 0,
   admitLabels,
+  // Focus normally fails closed: the caller framed this set deliberately, so a label that
+  // will not fit means the frame is wrong. A neighborhood built by expanding a cluster is
+  // the exception -- its size is whatever the operator expanded, and no viewport labels 24
+  // members -- so the caller marks it and takes the fit with its unplaced ids instead.
+  degradeUnplaceableLabels = false,
+  fallbackGroup = null,
 } = {}) {
   const normalizedId = String(groupId || "").trim()
-  const neighborhood = topologyGroupFocusScene(scene, normalizedId)
+  const neighborhood = topologyGroupFocusScene(scene, normalizedId, fallbackGroup)
   if (!neighborhood) return null
   if (typeof glyphBoxForNode !== "function") {
     throw new TypeError("topology focus requires a renderer-derived glyph box resolver")
@@ -504,13 +474,18 @@ export function focusTopologyGroup({
     }
     return {nodeId: node.id, ...measured}
   })
-  return fitTopologyScene({
+  const fit = fitTopologyScene({
     scene: neighborhood,
     viewport,
     safeRect,
     glyphBoxes,
     routeStrokeWidth,
-    minimumScale,
     admitLabels,
-  }).viewState
+  })
+  if (!fit.ok && !degradeUnplaceableLabels) {
+    throw new RangeError(
+      `topology focus is missing required labels: ${fit.missingRequiredLabelIds.join(", ")}`,
+    )
+  }
+  return fit
 }

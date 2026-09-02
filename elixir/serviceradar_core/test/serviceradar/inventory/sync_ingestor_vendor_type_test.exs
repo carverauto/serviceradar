@@ -607,6 +607,233 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     end
   end
 
+  test "an integration does not overwrite a manually set device type", %{actor: actor} do
+    ip = unique_ip()
+    integration_id = "armis-manual-type-#{System.unique_integer([:positive])}"
+
+    # Seeded the way the CSV importer seeds it: source "manual", operator-chosen
+    # type. A "Router" is used rather than "rids" so type_id carries a known,
+    # non-catch-all value and the assertion below can tell the two apart.
+    manual = %{
+      "ip" => ip,
+      "hostname" => "manual-type-test",
+      "source" => "manual",
+      "type" => "Router"
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([manual], actor: actor)
+
+    seeded = fetch_device_by_ip!(actor, ip)
+    assert seeded.type == "Router"
+    assert "manual" in seeded.discovery_sources
+
+    # Armis then reports its own inventory category for the same address. This
+    # is the exact shape that relabelled 280 hand-imported RIDS displays as
+    # "Interactive Kiosks": an unrecognised vendor category passed through
+    # verbatim with the type_id 99 catch-all.
+    armis = %{
+      "ip" => ip,
+      "hostname" => "manual-type-test",
+      "source" => "armis",
+      "metadata" => %{
+        "integration_id" => integration_id,
+        "integration_type" => "armis",
+        "armis_category" => "Interactive Kiosks"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([armis], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert device.type == "Router"
+    assert device.type_id == seeded.type_id
+    # The sync still landed -- it is the type alone that is refused.
+    assert "armis" in device.discovery_sources
+  end
+
+  test "a manually typed device keeps a type the type table does not know", %{actor: actor} do
+    ip = unique_ip()
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => "rids-type-test",
+                   "source" => "manual",
+                   "type" => "rids"
+                 }
+               ],
+               actor: actor
+             )
+
+    assert fetch_device_by_ip!(actor, ip).type == "rids"
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => "rids-type-test",
+                   "source" => "armis",
+                   "metadata" => %{
+                     "integration_id" => "armis-rids-#{System.unique_integer([:positive])}",
+                     "integration_type" => "armis",
+                     "armis_category" => "Interactive Kiosks"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    # The whole point: `in:devices type:rids` has to keep matching this row.
+    assert fetch_device_by_ip!(actor, ip).type == "rids"
+  end
+
+  test "one integration still reclassifies a type another integration inferred", %{actor: actor} do
+    ip = unique_ip()
+
+    # No "manual" anywhere in this device's history, so the guard must not fire.
+    # Without this the change would silently become "first writer wins", which
+    # freezes every integration-discovered device at its first classification.
+    #
+    # ORDER IS LOAD-BEARING, and not incidentally. `integration_id` is a strong
+    # identifier for netbox but explicitly NOT for armis
+    # (`SourcePolicy.identifier_types/2`). So armis resolves this address by IP
+    # and merges onto whatever already holds it, while netbox arrives with a
+    # strong identity of its own.
+    #
+    # Two DIFFERENT strong identities claiming one IP do not converge, by
+    # design: the later one keeps its identity, loses the address, and a
+    # SourceIdentityConflict is recorded instead
+    # (`sync/device_writes.ex:556-581`, pinned by
+    # `sync_batch_resolution_test.exs:161`). Writing this armis-first would
+    # therefore assert the opposite of a deliberate, separately-tested
+    # invariant -- and it would fail by minting a second, IP-less device rather
+    # than by refusing the reclassification, which is a confusing way to learn
+    # that.
+    #
+    # netbox-first is the ordering that actually exercises what this test is
+    # named for: one integration reclassifying a type another integration
+    # inferred, on one device.
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => "integration-type-test",
+                   "source" => "netbox",
+                   "metadata" => %{
+                     "integration_id" => "netbox-reclass-#{System.unique_integer([:positive])}",
+                     "integration_type" => "netbox",
+                     "netbox_device_type" => "Switch"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    assert fetch_device_by_ip!(actor, ip).type == "Switch"
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => "integration-type-test",
+                   "source" => "armis",
+                   "metadata" => %{
+                     "integration_id" => "armis-reclass-#{System.unique_integer([:positive])}",
+                     "integration_type" => "armis",
+                     "armis_type" => "Tablet"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    reclassified = fetch_device_by_ip!(actor, ip)
+    assert reclassified.type == "Tablet"
+
+    # One device, not two: the reclassification landed on the netbox row rather
+    # than forking. This is what regresses if the exemption above is dropped.
+    assert "netbox" in reclassified.discovery_sources
+    assert "armis" in reclassified.discovery_sources
+  end
+
+  test "an integration still fills a blank type on a manually created device", %{actor: actor} do
+    ip = unique_ip()
+
+    # Manual origin, but no type was ever chosen. There is no human answer to
+    # protect here, so the integration's guess is strictly better than nothing.
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [%{"ip" => ip, "hostname" => "blank-type-test", "source" => "manual"}],
+               actor: actor
+             )
+
+    seeded = fetch_device_by_ip!(actor, ip)
+    assert seeded.type in [nil, "", "Unknown"]
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => "blank-type-test",
+                   "source" => "armis",
+                   "metadata" => %{
+                     "integration_id" => "armis-blank-#{System.unique_integer([:positive])}",
+                     "integration_type" => "armis",
+                     "armis_type" => "Tablet"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    assert fetch_device_by_ip!(actor, ip).type == "Tablet"
+  end
+
+  test "a manual placeholder type of Unknown is still upgraded by an integration", %{actor: actor} do
+    ip = unique_ip()
+
+    # "Unknown" is the absence of an answer, not an answer. Both Enrichment and
+    # SRQL already treat it as the no-type sentinel, so there is nothing here
+    # worth protecting from a better guess.
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => "unknown-type-test",
+                   "source" => "manual",
+                   "type" => "Unknown"
+                 }
+               ],
+               actor: actor
+             )
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => "unknown-type-test",
+                   "source" => "armis",
+                   "metadata" => %{
+                     "integration_id" => "armis-unknown-#{System.unique_integer([:positive])}",
+                     "integration_type" => "armis",
+                     "armis_type" => "Tablet"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    assert fetch_device_by_ip!(actor, ip).type == "Tablet"
+  end
+
   test "does not re-enable devices manually marked unmanaged", %{actor: actor} do
     ip = unique_ip()
 

@@ -314,8 +314,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
                     </svg>
                     <span>
                       Any user who authenticates via your IdP will have a local account
-                      created automatically on first login. Only enable this if every IdP
-                      identity should be granted access.
+                      created automatically on first login. They receive the default role
+                      from
+                      <.link
+                        navigate={~p"/settings/auth/authorization"}
+                        class="text-sr-brand hover:underline"
+                      >
+                        Authorization
+                      </.link>
+                      unless a mapping grants more. Only enable this if every IdP identity
+                      that can sign in should be granted access.
                     </span>
                   </div>
                 <% else %>
@@ -511,10 +519,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             name="settings[oidc_scopes]"
             value={@form[:oidc_scopes].value}
             class={ui_field_class(class: "w-full")}
-            placeholder="openid profile email"
+            placeholder="openid profile email offline_access"
           />
           <label class="flex items-center justify-between gap-2">
-            <span class="text-xs text-sr-muted">Space-separated list of OAuth scopes</span>
+            <span class="text-xs text-sr-muted">
+              Space-separated list of OAuth scopes. Include
+              <code class="font-mono">offline_access</code>
+              so MCP refresh can confirm the IdP session is still alive.
+            </span>
           </label>
         </div>
 
@@ -920,7 +932,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
 
   defp idp_preset_overrides("authentik") do
     %{
-      "oidc_scopes" => "openid email profile",
+      "oidc_scopes" => "openid email profile offline_access",
       "claim_mappings" => %{"email" => "email", "name" => "name", "sub" => "sub"}
     }
   end

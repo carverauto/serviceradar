@@ -130,6 +130,9 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
 
     # Full ingest with SweepHostResult records
     # DB connection's search_path determines the schema
+    # JetStream payloads do not carry the gateway's mTLS principal. Keep the
+    # body agent_id as forensic attribution only; never promote it into either
+    # authenticated identity option here.
     opts = [
       sweep_group_id: sweep_group_id,
       agent_id: agent_id,
@@ -157,34 +160,40 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
     alias ServiceRadar.Identity.DeviceLookup
 
     # DB connection's search_path determines the schema
+    actor = SystemActor.system(:sweep_processor)
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
 
-    # Extract IPs
-    ips =
-      results
-      |> Enum.map(fn r -> r["host_ip"] || r["hostIp"] || r["ip"] end)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
+    results
+    |> Enum.group_by(&sweep_result_partition/1)
+    |> Enum.each(fn {partition, grouped} ->
+      ips =
+        grouped
+        |> Enum.map(fn r -> r["host_ip"] || r["hostIp"] || r["ip"] end)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
 
-    if Enum.empty?(ips) do
-      :ok
-    else
-      # Lookup existing devices
-      actor = SystemActor.system(:sweep_processor)
+      if ips != [] do
+        device_map =
+          DeviceLookup.batch_lookup_by_ip(ips,
+            actor: actor,
+            include_deleted: true,
+            use_cache: false,
+            partition: partition
+          )
 
-      device_map =
-        DeviceLookup.batch_lookup_by_ip(ips,
-          actor: actor,
-          include_deleted: true,
-          use_cache: false
-        )
-
-      timestamp = DateTime.truncate(DateTime.utc_now(), :second)
-
-      update_availability(results, device_map, timestamp, actor)
-    end
+        update_availability(grouped, device_map, timestamp, actor)
+      end
+    end)
   rescue
     e ->
       Logger.warning("Device availability update failed: #{inspect(e)}")
+  end
+
+  defp sweep_result_partition(result) do
+    case result["partition"] || result["Partition"] do
+      value when is_binary(value) and value != "" -> value
+      _ -> "default"
+    end
   end
 
   defp update_availability(results, device_map, timestamp, actor) do

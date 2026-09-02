@@ -58,6 +58,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperControllerResource do
         custom_indexes do
           index [:mapper_job_id], name: unquote(index_name)
         end
+
+        references do
+          reference :credential_secret, on_delete: :restrict
+        end
       end
 
       cloak do

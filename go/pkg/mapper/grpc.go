@@ -480,6 +480,7 @@ func protoToSNMPCredentials(creds *proto.SNMPCredentials) *SNMPCredentials {
 	result := SNMPCredentials{
 		Community:       creds.Community,
 		Username:        creds.Username,
+		SecurityLevel:   creds.GetSecurityLevel(),
 		AuthProtocol:    creds.AuthProtocol,
 		AuthPassword:    creds.AuthPassword,
 		PrivacyProtocol: creds.PrivacyProtocol,

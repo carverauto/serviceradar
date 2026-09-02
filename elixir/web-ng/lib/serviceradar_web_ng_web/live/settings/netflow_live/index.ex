@@ -432,7 +432,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                           <div>
                             Last success:
                             <span class="font-mono">
-                              {format_dt(@settings && @settings.geolite_mmdb_last_success_at)}
+                              <.user_time
+                                id="settings-netflow-geolite-mmdb-last-success-at"
+                                value={@settings && @settings.geolite_mmdb_last_success_at}
+                                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                                style={:compact}
+                                fallback="—"
+                              />
                             </span>
                           </div>
                           <div class="truncate">
@@ -448,7 +454,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                           <div>
                             Last success:
                             <span class="font-mono">
-                              {format_dt(@settings && @settings.ip_enrichment_last_success_at)}
+                              <.user_time
+                                id="settings-netflow-ip-enrichment-last-success-at"
+                                value={@settings && @settings.ip_enrichment_last_success_at}
+                                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                                style={:compact}
+                                fallback="—"
+                              />
                             </span>
                           </div>
                           <div class="truncate">
@@ -1103,11 +1115,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
   end
 
   defp format_ash_error(_), do: "Unexpected error"
-
-  defp format_dt(nil), do: "—"
-  defp format_dt(%NaiveDateTime{} = ndt), do: NaiveDateTime.to_iso8601(ndt)
-  defp format_dt(%DateTime{} = dt), do: DateTime.to_iso8601(dt)
-  defp format_dt(_), do: "—"
 
   defp load_mapbox(scope) do
     user = scope && Map.get(scope, :user)

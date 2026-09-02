@@ -6,6 +6,7 @@ import {
   managedVisualDensityContract,
   normalizeManagedVisualDensity,
 } from "./rendering_managed_visual_density"
+import {hasExpandedCluster, hasManagedTopologyScene, topologySemanticLevel} from "./topology_layout_mode"
 
 export const godViewRenderingGraphLayerNodeMethods = {
   visualClusterCount(node) {
@@ -178,6 +179,11 @@ export const godViewRenderingGraphLayerNodeMethods = {
   },
   selectNodeLabels(nodeData, shape, options = {}) {
     if (!Array.isArray(nodeData) || nodeData.length === 0) return []
+    if (options.managedVisualDensity) {
+      return nodeData
+        .filter((node) => String(node?.id || "") !== "")
+        .sort((left, right) => this.compareNodeLabelPriority(left, right))
+    }
     const attended = nodeData.filter((node) => node?.selected === true || this.focusedNodeLabel(node))
     const candidates = nodeData.filter((node) => this.nodeLabelCandidate(node))
     const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
@@ -224,35 +230,25 @@ export const godViewRenderingGraphLayerNodeMethods = {
 
     return picked
   },
-  nodeLabelAdmissionPool(nodeData, selectedCandidates, options = {}) {
-    if (options.managedVisualDensity !== "overview") return selectedCandidates
-
-    const selectedSummaryIds = new Set(
-      selectedCandidates
-        .filter((node) => this.endpointSummaryLabel(node))
-        .map((node) => String(node?.id || "")),
-    )
-    const orderedFallbacks = nodeData
-      .filter((node) => this.nodeLabelCandidate(node))
-      .sort((left, right) => this.compareNodeLabelPriority(left, right))
-      .filter((node) => (
-        this.backboneLabelCandidate(node) || selectedSummaryIds.has(String(node?.id || ""))
-      ))
-    const pool = []
-    const seen = new Set()
-
-    for (const node of [...selectedCandidates, ...orderedFallbacks]) {
-      const id = String(node?.id || "")
-      if (id === "" || seen.has(id)) continue
-      seen.add(id)
-      pool.push(node)
-    }
-
-    return pool
+  nodeLabelAdmissionPool(_nodeData, selectedCandidates, _options = {}) {
+    return selectedCandidates
   },
   activeTopologyLabelViewport() {
     if (typeof this.state?.deck?.getViewports !== "function") return null
-    const [viewport] = this.state.deck.getViewports()
+    // getViewports() itself throws: deck asserts on its own view state, and an unmeasured
+    // container gives it a 0-sized one, so a hard refresh reaches here before layout has
+    // settled and the assertion escapes as "deck.gl: assertion failed" -- with the message
+    // stripped in a production build, naming nothing. It surfaced as "topology render
+    // unavailable" for the whole surface. Having no usable viewport is already an expected
+    // state for the caller, which degrades label admission rather than failing, so route the
+    // throw into that path instead of letting it take down the render.
+    let viewports = null
+    try {
+      viewports = this.state.deck.getViewports()
+    } catch {
+      return null
+    }
+    const [viewport] = viewports || []
     return viewport && typeof viewport.project === "function" ? viewport : null
   },
   topologyLabelSafeRect(viewport, measured = this.state?.topologyLabelSafeRect) {
@@ -290,6 +286,12 @@ export const godViewRenderingGraphLayerNodeMethods = {
   admitNodeLabelsForViewport(effective, labelCandidates, protectedNodes = labelCandidates, options = {}) {
     const viewport = options.viewport || this.activeTopologyLabelViewport()
     if (!viewport) {
+      const missingRequiredLabelIds = (options.requiredLabelIds || (
+        options.managedVisualDensity ? (labelCandidates || []).map((node) => node?.id) : []
+      ))
+        .map((nodeId) => String(nodeId || ""))
+        .filter(Boolean)
+        .sort()
       return {
         admitted: [],
         detailsFallbackIds: (labelCandidates || [])
@@ -297,6 +299,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
           .map((node) => String(node?.id || ""))
           .filter(Boolean)
           .sort(),
+        missingRequiredLabelIds,
       }
     }
 
@@ -350,7 +353,12 @@ export const godViewRenderingGraphLayerNodeMethods = {
         return Number.isFinite(x) && Number.isFinite(y) ? [[x, y]] : []
       })
       if (points.length < 2) return []
-      return [{points, strokeWidth: this.topologyRouteStrokeWidth(route, options)}]
+      return [{
+        sourceId: String(route?.sourceId || ""),
+        targetId: String(route?.targetId || ""),
+        points,
+        strokeWidth: this.topologyRouteStrokeWidth(route, options),
+      }]
     })
     const suppliedMeasureText = options.measureText || this.state?.topologyLabelMeasureText
     const measureText = typeof suppliedMeasureText === "function"
@@ -363,12 +371,15 @@ export const godViewRenderingGraphLayerNodeMethods = {
       routeCorridors,
       safeRect: this.topologyLabelSafeRect(viewport, options.safeRect),
       maximumCount: options.maximumLabelCount,
+      requiredLabelIds: options.requiredLabelIds || (
+        options.managedVisualDensity ? candidates.map((candidate) => candidate.nodeId) : undefined
+      ),
       measureText,
     })
   },
   buildNodeAndLabelLayers(effective, nodeData, edgeLabelData) {
-    const managedTopologyOverview = effective?._layoutMode === "elk-scene"
-    const managedVisualDensity = managedTopologyOverview
+    const managedTopologyScene = hasManagedTopologyScene(effective)
+    const managedVisualDensity = managedTopologyScene
       ? normalizeManagedVisualDensity(this.state.managedTopologyVisualDensity)
       : null
     const densityOptions = managedVisualDensity ? {managedVisualDensity} : {}
@@ -376,13 +387,37 @@ export const godViewRenderingGraphLayerNodeMethods = {
       ? managedVisualDensityContract(managedVisualDensity).labelShape
       : effective.shape
     const selectedLabelCandidates = this.selectNodeLabels(nodeData, effective.shape, densityOptions)
-    const backfillOverviewLabels = managedVisualDensity === "overview"
     const labelCandidates = this.nodeLabelAdmissionPool(nodeData, selectedLabelCandidates, densityOptions)
     const labelAdmission = this.admitNodeLabelsForViewport(effective, labelCandidates, nodeData, {
       ...densityOptions,
-      maximumLabelCount: backfillOverviewLabels ? selectedLabelCandidates.length : undefined,
-      preserveCandidateOrder: backfillOverviewLabels,
+      requiredLabelIds: managedTopologyScene
+        ? nodeData.map((node) => String(node?.id || "")).filter(Boolean)
+        : undefined,
     })
+    if (managedTopologyScene && labelAdmission.missingRequiredLabelIds.length > 0) {
+      const semanticLevel = topologySemanticLevel(effective)
+      // Fail closed only for a bounded, deliberately framed scene, where a label that
+      // cannot be placed means the frame itself is wrong.
+      //
+      // The unbounded case is expansion -- it can add arbitrarily many member nodes to a
+      // scene sized for a handful. That property belongs to the expansion, not to the
+      // overview mode it was originally attached to: while the semantic level had no
+      // writer every scene read as "overview", so gating on the level alone happened to
+      // cover expansion. Now that expanding promotes a graph to detail, gating on the
+      // level would fail closed on precisely the scene that needs to degrade.
+      //
+      // The focus path in rendering_scene_view.js is a deliberate frame and still fails
+      // closed. Dropped ids stay observable for diagnostics.
+      if (semanticLevel === "detail" && !hasExpandedCluster(effective)) {
+        throw new RangeError(
+          `managed topology ${semanticLevel} is missing required labels: ` +
+          labelAdmission.missingRequiredLabelIds.join(", "),
+        )
+      }
+      this.state.topologyDroppedLabelIds = [...labelAdmission.missingRequiredLabelIds]
+    } else if (managedTopologyScene) {
+      this.state.topologyDroppedLabelIds = []
+    }
     const nodeById = new Map(nodeData.map((node) => [String(node?.id || ""), node]))
     const labelData = labelAdmission.admitted.flatMap((admitted) => {
       const node = nodeById.get(admitted.nodeId)
@@ -495,7 +530,10 @@ export const godViewRenderingGraphLayerNodeMethods = {
           getRadius: managedVisualDensity,
         },
       }),
-      ...(this.state.layers.mantle && (effective.shape === "local" || effective.shape === "regional" || effective.shape === "global")
+      ...(managedTopologyScene || (
+        this.state.layers.mantle &&
+        (effective.shape === "local" || effective.shape === "regional" || effective.shape === "global")
+      )
         ? [
             new TextLayer({
               id: "god-view-node-labels",
@@ -522,7 +560,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
             }),
           ]
         : []),
-      ...(this.state.layers.mantle && !managedTopologyOverview && (effective.shape === "local" || effective.shape === "regional")
+      ...(this.state.layers.mantle && !managedTopologyScene && (effective.shape === "local" || effective.shape === "regional")
         ? [
             new TextLayer({
               id: "god-view-edge-labels",

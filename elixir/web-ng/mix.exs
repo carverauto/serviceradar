@@ -164,6 +164,9 @@ defmodule ServiceRadarWebNG.MixProject do
       # Ash Framework - Phoenix integration (UI components)
       {:ash_phoenix, "~> 2.0"},
 
+      # MCP server (AshAi.Mcp.Router). Do not add hermes_mcp.
+      {:ash_ai, "~> 0.8"},
+
       # Guardian - JWT token management (replacing AshAuthentication tokens)
       {:guardian, "~> 2.3"},
 

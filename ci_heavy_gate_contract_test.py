@@ -484,6 +484,52 @@ def normalized_cpu_diagnostic_action(action: str) -> str:
     return re.sub(r'^      cpu: "(?:2|12)"\n', "", action, count=1, flags=re.MULTILINE)
 
 
+def declared_test_output_modes(action: str) -> tuple[str, ...]:
+    """Every --test_output mode an action declares, in source order."""
+    return tuple(re.findall(r"--test_output=(\S+)", action))
+
+
+def with_test_output_mode(action: str, index: int, mode: str) -> str:
+    """Rewrite exactly one --test_output site, so a drift can be simulated."""
+    sites = list(re.finditer(r"--test_output=\S+", action))
+    if index >= len(sites):
+        raise AssertionError(f"action declares no --test_output site {index}")
+    site = sites[index]
+    return f"{action[: site.start()]}--test_output={mode}{action[site.end() :]}"
+
+
+def assert_test_output_mode(action: str, expected: str) -> None:
+    """Pin EVERY --test_output site in an action to one mode.
+
+    `all` prints the log of every test that RUNS, not just the ones that fail.
+    Measured on two green BazelCI runs either side of #4119, which restored the
+    INFO events these logs ride on: 592 console lines became 17318, of which
+    16726 were eight passing integration lanes narrating themselves. `errors`
+    keeps the failing test's full ExUnit block -- the output the console exists
+    for -- and drops the rest.
+
+    The two lanes that run on pull requests and staging therefore pin `errors`,
+    and the branch-only IntegrationBenchmark harness keeps `all`: it never runs
+    on a PR, so it contributes none of that noise, and its command block is
+    hashed verbatim by //:integration_benchmark_harness_hash. Editing it for
+    consistency alone would invalidate published benchmark evidence for a
+    console nobody reads. See the mode-drift test below.
+
+    Asserted over EVERY site rather than one, because each action carries the
+    mode in several blocks: a change that flips a single block still leaves an
+    `assertIn` anchored on another block passing.
+    """
+    modes = declared_test_output_modes(action)
+    if not modes:
+        raise AssertionError("action declares no --test_output mode")
+    unexpected = sorted(set(modes) - {expected})
+    if unexpected:
+        raise AssertionError(
+            f"expected every site to be --test_output={expected}, found "
+            + ", ".join(f"--test_output={mode}" for mode in unexpected)
+        )
+
+
 def cpu_diagnostic_input_hash() -> str:
     """Hash CPU-arm actions plus the complete checked-in measured workload."""
     digest = hashlib.sha256()
@@ -620,6 +666,10 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         ):
             self.assertIn(required, self.action)
 
+        # The measured harness keeps --test_output=all. It is branch-only, so it
+        # prints nothing on a PR, and its command block is hashed verbatim.
+        assert_test_output_mode(self.action, "all")
+
         # ExUnit's built-in slowest report implicitly enables trace, which forces
         # max_cases=1 and disables test timeouts. Authoritative benchmark runs must
         # exercise the checked-in integration concurrency cap instead.
@@ -736,6 +786,7 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
             with self.subTest(phase=phase):
                 self.assertEqual(1, block.count("--nocache_test_results"))
                 self.assertEqual(1, block.count("--noremote_upload_local_results"))
+                self.assertEqual(1, block.count("--test_output=all"))
 
     def test_clock_and_observer_markers_cannot_drift(self):
         self.assertIn("mktemp -d", self.action)
@@ -804,6 +855,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
         "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //..."
     )
+    web_db_suite = "bazel test $FLAGS //elixir/web-ng:networks_live_db_test"
     playwright_acceptance = (
         "bazel test -c opt --config=ci "
         "//elixir/web-ng/test/playwright:god_view_elk_scene_acceptance "
@@ -854,6 +906,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 for flag in (
                     "--nocache_test_results",
                     "--noremote_upload_local_results",
+                    "--test_output=errors",
                 )
                 if block.count(flag) != 1
             }
@@ -924,6 +977,30 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         for action_name in ("BazelCI", "LargeIngestionGate"):
             with self.subTest(action=action_name):
                 self.assert_cache_flags(action_name)
+
+    def test_test_output_mode_cannot_drift_in_either_direction(self):
+        """Every site is pinned, and flipping any single one is rejected.
+
+        Both directions matter. The lanes must not drift back to `all` and
+        restore the 17318-line console; the benchmark harness must not be
+        "made consistent" with them, because that rewrites a command block
+        hashed verbatim as published benchmark evidence.
+        """
+        for action_name, expected, drift in (
+            ("BazelCI", "errors", "all"),
+            ("LargeIngestionGate", "errors", "all"),
+            ("IntegrationBenchmark", "all", "errors"),
+        ):
+            action = named_action(action_name)
+            sites = len(declared_test_output_modes(action))
+            self.assertGreater(sites, 0)
+            assert_test_output_mode(action, expected)
+            for site in range(sites):
+                with self.subTest(action=action_name, site=site):
+                    drifted = with_test_output_mode(action, site, drift)
+                    self.assertNotEqual(action, drifted)
+                    with self.assertRaises(AssertionError):
+                        assert_test_output_mode(drifted, expected)
 
     def test_guarded_elixir_suites_cannot_bypass_the_typed_ci_fixture(self):
         preload = INTEGRATION_ENV.read_text(encoding="utf-8")
@@ -1029,7 +1106,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             "--//build:enable_integration_tests",
             "--//build:run_id=$RUN_ID",
             "--flaky_test_attempts=1",
-            "--test_output=all",
+            "--test_output=errors",
             "od -An -tx1 -N4 /dev/urandom",
             "export RUN_ID",
             "//:buildbuddy_setup_fixture_env",
@@ -1044,6 +1121,8 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             suite_command,
         ):
             self.assertIn(required, action)
+
+        assert_test_output_mode(action, "errors")
 
         environment_bindings = re.findall(
             r"\bSERVICERADAR_ENV=([A-Za-z0-9_-]+)", action
@@ -1064,7 +1143,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             "--//build:run_id=$RUN_ID",
             "--test_env=SERVICERADAR_ENV=ci",
             "--flaky_test_attempts=1",
-            "--test_output=all",
+            "--test_output=errors",
         ):
             self.assertIn(measured_flag, measured[flags:cleanup])
         for secret in (
@@ -1258,9 +1337,11 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 self.sweep,
                 "bazel test $FLAGS //rust/integration-db:provision_db",
                 self.ordinary_suite,
+                self.web_db_suite,
             ),
             commands,
         )
+        self.assertLess(action.index(self.ordinary_suite), action.index(self.web_db_suite))
         self.assertEqual(
             (self.ordinary_suite,),
             tuple(
@@ -1308,18 +1389,14 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             '      push:\n'
             '        branches:\n'
             '          - "staging"\n'
-            '        tags:\n'
-            '          - "v*"\n'
             '      schedule:\n'
             '        crons:\n'
             '          - "0 2 * * *"\n',
             header,
         )
         self.assertNotIn("pull_request:", header)
-        branches = header[header.index("branches:") : header.index("tags:")]
-        tags = header[header.index("tags:") : header.index("schedule:")]
-        self.assertNotIn('"v*"', branches)
-        self.assertIn('"v*"', tags)
+        self.assertNotIn("tags:", header)
+        self.assertNotIn('"v*"', header)
 
     def test_large_ingestion_gate_copies_runner_fixture_and_credential_scope(self):
         action = named_action("LargeIngestionGate")
@@ -1565,16 +1642,27 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         selected = [row for row in rows if row["mode"] in SELECTED_MODES]
         load_only = [row for row in rows if row["mode"] == "load_only"]
 
-        self.assertEqual(286, len(selected))
-        # +43 load_only: the unify-sweep-results-proto edge suites. All are database-free -- none
-        # carries an :integration or :requires_app identity -- so they load and never select,
-        # and the SELECTED count is deliberately unchanged.
-        self.assertEqual(551, len(load_only))
-        self.assertEqual(837, len(rows))
+        # Relations, not three pinned totals. These were 286 / 508 / 794 -- and
+        # 286 + 508 == 794, so the only invariant was that selected and load_only
+        # partition the inventory. Pinning the absolutes meant every added or
+        # removed test file failed this gate even when the inventory was correct,
+        # and made two concurrent PRs invalidate each other, since CI tests the
+        # MERGE of a branch with its base. The set equality below is the real
+        # exhaustiveness check and is not affected by how many tests exist.
+        self.assertEqual(
+            len(selected) + len(load_only),
+            len(rows),
+            "selected and load_only must partition the disposition inventory",
+        )
         self.assertEqual(
             set(ordinary_core_test_sources()),
             {row["source"] for row in rows},
         )
+
+        # Floors, as a tripwire against a truncated inventory. Deliberately far
+        # below the real figures -- these are not counts to maintain.
+        self.assertGreater(len(selected), 100, "selected inventory looks truncated")
+        self.assertGreater(len(load_only), 100, "load_only inventory looks truncated")
 
         keys = [(row["source"], row["module"]) for row in rows]
         self.assertEqual(len(keys), len(set(keys)), "duplicate disposition key")
@@ -2011,7 +2099,7 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
             --commit "${RELEASE_COMMIT}" \\
             --base-ref origin/staging \\
             --token-env GH_TOKEN \\
-            --timeout-seconds 1800 \\
+            --timeout-seconds 5400 \\
             --poll-seconds 15 \\
             --target-url-prefix https://carverauto.buildbuddy.io/invocation/
 
@@ -2073,6 +2161,9 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
             "test_exact_argv_slurp_shape_token_isolation_and_shell_false",
             "test_home_local_bin_is_prepended_when_home_is_set",
             "test_missing_and_pending_timeout_at_fake_1800_second_deadline",
+            "test_same_tree_merge_success_qualifies_while_tag_sha_is_still_pending",
+            "test_tag_sha_failure_does_not_fail_while_merge_sha_is_pending",
+            "test_later_different_tree_descendant_is_ignored",
         ):
             self.assertIn(evidence, tests)
 
@@ -2083,6 +2174,10 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
 
         self.assertIn("has_large_ingestion_target(target)", library)
         self.assertIn("has_large_ingestion_action(action)", library)
+        self.assertIn("def qualification_commits(", library)
+        self.assertIn("def tree_sha(self, commit: str) -> str:", library)
+        self.assertIn("def first_parent_history(", library)
+        self.assertIn("status_factory=lambda sha: GhStatusClient(", cli)
         self.assertIn("tokenize.tokenize", library)
         self.assertNotIn("TARGET_DECLARATION", library)
         self.assertNotIn("ACTION_DECLARATION", library)
@@ -2106,6 +2201,7 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
             "test_successful_ambiguous_revision_warning_fails_closed",
             "test_url_rejects_raw_whitespace_or_controls_before_parsing",
             "test_nonfinite_timeout_and_poll_are_rejected_with_sanitized_cli_errors",
+            "test_tree_sha_and_first_parent_history_argv",
         ):
             self.assertIn(regression, tests)
 
@@ -2147,7 +2243,7 @@ class ReleaseLargeIngestionQualificationContractTest(unittest.TestCase):
             '--commit "${RELEASE_COMMIT}"',
             "--base-ref origin/staging",
             "--token-env GH_TOKEN",
-            "--timeout-seconds 1800",
+            "--timeout-seconds 5400",
             "--poll-seconds 15",
             "--target-url-prefix https://carverauto.buildbuddy.io/invocation/",
         )

@@ -28,6 +28,9 @@ Every API request must be authenticated. There are two supported methods:
 Treat API tokens like passwords: store them in a secret manager or
 environment variable, never in source control.
 
+To let an IDE or agent use those credentials over the Model Context
+Protocol, add the `mcp` scope and see [MCP Integration](./mcp-integration.md).
+
 ## Run an SRQL query — `POST /api/query`
 
 The `/api/query` endpoint executes a [ServiceRadar Query Language
@@ -129,6 +132,9 @@ endpoints, including:
 - `GET /api/devices` and `GET /api/devices/{uid}` — browse the device
   inventory.
 - `GET /api/devices/ocsf/export` — export devices as OCSF Device objects.
+- `GET` and `POST /api/v1/identity/resolve` — turn an address into a device
+  UID without probing it. See [Resolve a Device
+  Identity](./identity-resolve.md).
 - `GET /api/v1/source-inventory` — read a collection-consistent, cursor-paginated
   snapshot emitted by an approved inventory plugin. The `source` and `instance`
   query parameters are required.

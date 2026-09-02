@@ -1,3 +1,5 @@
+import {dashboardUserTimeHtml} from "../../utils/dashboard_user_time"
+
 export const godViewRenderingSelectionMethods = {
   forceDeckRedraw() {
     if (typeof this.state?.deck?.redraw === "function") {
@@ -170,6 +172,12 @@ export const godViewRenderingSelectionMethods = {
             return `<div class="pt-2 space-y-1"><div class="text-[10px] uppercase tracking-wide text-base-content/60">Cluster Cameras</div><button type="button" class="btn btn-xs btn-accent" data-camera-cluster-id="${this.escapeHtml(clusterId)}" data-camera-cluster-label="${this.escapeHtml(node.label || d.cluster_anchor_label || "Camera cluster")}" data-camera-cluster-tiles="${serializedTiles}">Open Camera Tile Set${suffix}</button></div>`
           })()
         : ""
+    const lastSeen = d.last_seen
+      ? dashboardUserTimeHtml(d.last_seen, {
+          timeZone: this.state.el?.dataset?.timezone || "Etc/UTC",
+          style: "full",
+        })
+      : "unknown"
     const detailLines = [
       `<div class="font-semibold text-sm mb-1 flex items-center justify-between gap-2"><span>${this.escapeHtml(node.label || "node")}</span><span class="inline-flex items-center justify-end gap-1 min-w-4">${typeIcon ? `<span class="${this.escapeHtml(typeIcon)} size-4 text-base-content/70" title="${this.escapeHtml(typeLabel || "unknown")}"></span>` : ""}<button type="button" class="btn btn-ghost btn-xs btn-square" data-close-details aria-label="Close details">×</button></span></div>`,
       idLine,
@@ -186,7 +194,7 @@ export const godViewRenderingSelectionMethods = {
       rootRef,
       parentRef,
       `<div>Vendor/Model: ${this.escapeHtml(`${d.vendor || "—"} ${d.model || ""}`.trim())}</div>`,
-      `<div>Last Seen: ${this.escapeHtml(d.last_seen || "unknown")}</div>`,
+      `<div>Last Seen: ${lastSeen}</div>`,
       `<div>ASN: ${this.escapeHtml(d.asn || "unknown")}</div>`,
       `<div>Geo: ${this.escapeHtml([d.geo_city, d.geo_country].filter(Boolean).join(", ") || "unknown")}</div>`,
       cameraAvailability ? `<div>Camera Availability: ${this.escapeHtml(cameraAvailability)}</div>` : "",

@@ -10,7 +10,92 @@ use super::support::entry;
 use crate::config::ADDON_VERSION;
 use crate::engine::{AnomalyEpisode, AnomalyTransition, CusumDirection, CusumDrift};
 use crate::identity::{safe_component, series_key_for};
-use crate::verdict::{cusum_drift_record, verdict_record};
+use crate::verdict::{anomaly_signal_schema_ref, cusum_drift_record, verdict_record};
+
+fn manifest_root_value<'a>(manifest: &'a str, key: &str) -> &'a str {
+    let prefix = format!("{key}:");
+
+    manifest
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix(&prefix)
+                .map(|value| value.trim().trim_matches('"'))
+        })
+        .unwrap_or_else(|| panic!("manifest is missing root key {key}"))
+}
+
+fn manifest_signal_value<'a>(manifest: &'a str, schema_id: &str, key: &str) -> &'a str {
+    let schema_prefix = format!("  - id: {schema_id}");
+    let value_prefix = format!("{key}:");
+    let mut selected = false;
+
+    for line in manifest.lines() {
+        if line.starts_with("  - id:") {
+            selected = line == schema_prefix;
+            continue;
+        }
+
+        if selected {
+            if !line.starts_with("    ") {
+                break;
+            }
+
+            if let Some(value) = line.trim().strip_prefix(&value_prefix) {
+                return value.trim().trim_matches('"');
+            }
+        }
+    }
+
+    panic!("manifest schema {schema_id} is missing key {key}")
+}
+
+#[test]
+fn emitted_detection_ref_matches_the_shipped_manifest_and_contract() {
+    let manifest = include_str!("../../../../addons/anomaly-addon/addon.yaml");
+    let contract: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../addons/anomaly-addon/display/detection_finding.display.json"
+    ))
+    .expect("detection display contract json");
+    let signal_ref = anomaly_signal_schema_ref();
+
+    assert_eq!(signal_ref.producer_id, manifest_root_value(manifest, "id"));
+    assert_eq!(
+        signal_ref.producer_version,
+        manifest_root_value(manifest, "version")
+    );
+    assert_eq!(
+        signal_ref.schema_version,
+        manifest_signal_value(manifest, &signal_ref.schema_id, "version")
+    );
+    assert_eq!(
+        signal_ref.display_contract,
+        manifest_signal_value(manifest, &signal_ref.schema_id, "display_contract")
+    );
+    assert_eq!(
+        signal_ref.display_contract_id,
+        manifest_signal_value(manifest, &signal_ref.schema_id, "display_contract_id")
+    );
+    assert_eq!(
+        signal_ref.display_contract_version,
+        manifest_signal_value(manifest, &signal_ref.schema_id, "display_contract_version")
+    );
+    assert_eq!(
+        contract["schema_id"].as_str(),
+        Some(signal_ref.schema_id.as_str())
+    );
+    assert_eq!(
+        contract["schema_version"].as_str(),
+        Some(signal_ref.schema_version.as_str())
+    );
+    assert_eq!(
+        contract["id"].as_str(),
+        Some(signal_ref.display_contract_id.as_str())
+    );
+    assert_eq!(
+        contract["version"].as_str(),
+        Some(signal_ref.display_contract_version.as_str())
+    );
+}
 
 #[test]
 fn snmp_remote_target_drives_edge_verdict_identity() {

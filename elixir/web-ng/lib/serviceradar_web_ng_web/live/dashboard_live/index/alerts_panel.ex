@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.AlertsPanel do
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Common
 
   attr(:dashboard, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def render(%{dashboard: dashboard} = assigns) do
     assigns = Map.merge(assigns, dashboard)
@@ -52,7 +53,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.AlertsPanel do
           </span>
           <span class="sr-ops-alert-meta">
             <em>{alert_status_label(alert.status)}</em>
-            <small>{alert.observed_label}</small>
+            <.user_time
+              id={"dashboard-alert-#{alert.id}-observed-at"}
+              value={alert.observed_at}
+              timezone={@timezone}
+              style={:time}
+            />
           </span>
         </.link>
       </div>

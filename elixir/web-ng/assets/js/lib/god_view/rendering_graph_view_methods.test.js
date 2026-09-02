@@ -269,7 +269,7 @@ describe("rendering_graph_view_methods", () => {
     )
 
     ctx.autoFitViewState({
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: [
         {id: "left", x: -144, y: 0, details: {}},
@@ -287,6 +287,67 @@ describe("rendering_graph_view_methods", () => {
     expect(state.viewState.minZoom).toBeCloseTo(state.viewState.zoom, 12)
     expect(deps.setZoomTier).toHaveBeenCalledWith("local", true)
     expect(scene.bounds).toEqual({minX: -200, minY: -100, maxX: 9800, maxY: 700})
+  })
+
+  it("fits the live wide-scene ratio twice without raising minZoom above containment", () => {
+    const containmentScale = 0.019548
+    const worldSpan = (1000 - 20) / containmentScale
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: worldSpan, maxY: 100},
+      nodes: [
+        {id: "left", center: {x: 0, y: 50}, width: 0, height: 0, render: true},
+        {id: "right", center: {x: worldSpan, y: 50}, width: 0, height: 0, render: true},
+      ],
+      groups: [],
+      routes: [],
+    }
+    const graph = {
+      shape: "local",
+      _layoutMode: "elk-radial-overview",
+      _topologySemanticLevel: "overview",
+      _layoutCacheKey: "live-wide-fit-ratio",
+      _topologyScene: scene,
+      nodes: [
+        {id: "left", x: 0, y: 50, label: "Left", details: {}},
+        {id: "right", x: worldSpan, y: 50, label: "Right", details: {}},
+      ],
+    }
+    const state = {
+      animationPhase: 0,
+      deck: {setProps: vi.fn()},
+      hasAutoFit: false,
+      userCameraLocked: false,
+      zoomMode: "auto",
+      layers: {mantle: true, crust: true},
+      managedTopologyCameraBaseMinZoom: -12,
+      viewState: {minZoom: -12, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
+      el: {clientWidth: 1000, clientHeight: 300},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 1000, bottom: 300},
+      topologyLabelMeasureText: () => ({width: 24, height: 12}),
+    }
+    const ctx = createStateBackedContext(state, {
+      setZoomTier: vi.fn(),
+      resolveZoomTier: vi.fn(() => "local"),
+    })
+    Object.assign(
+      ctx,
+      bindApi(ctx, godViewRenderingGraphLayerNodeMethods),
+      bindApi(ctx, godViewRenderingGraphViewMethods),
+    )
+
+    ctx.autoFitViewState(graph)
+    const first = structuredClone(state.viewState)
+    ctx.autoFitViewState(graph, {force: true})
+    const second = structuredClone(state.viewState)
+
+    expect(2 ** first.zoom).toBeCloseTo(containmentScale, 6)
+    expect(first.zoom).toBeLessThan(Math.log2(0.089285))
+    expect(first.minZoom).toBeLessThanOrEqual(first.zoom)
+    expect(second.zoom).toBeCloseTo(first.zoom, 12)
+    expect(second.target[0]).toBeCloseTo(first.target[0], 12)
+    expect(second.target[1]).toBeCloseTo(first.target[1], 12)
+    expect(state.managedTopologyVisualDensity).toBe("overview")
+    expect(state.deck.setProps).toHaveBeenCalledTimes(2)
   })
 
   it("fails managed fitting when renderer-derived glyph extents are unavailable", () => {
@@ -309,7 +370,7 @@ describe("rendering_graph_view_methods", () => {
     Object.assign(ctx, bindApi(ctx, godViewRenderingGraphViewMethods))
 
     expect(() => ctx.autoFitViewState({
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: [{id: "visible", x: 50, y: 50, details: {}}],
     })).toThrow(/renderer-derived glyph extents/i)
@@ -332,8 +393,8 @@ describe("rendering_graph_view_methods", () => {
       userCameraLocked: false,
       zoomMode: "auto",
       viewState: {minZoom: -8, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
-      el: {clientWidth: 300, clientHeight: 180},
-      topologyLabelSafeRect: {left: 20, top: 20, right: 280, bottom: 160},
+      el: {clientWidth: 500, clientHeight: 180},
+      topologyLabelSafeRect: {left: 20, top: 20, right: 480, bottom: 160},
     }
     const ctx = createStateBackedContext(state, {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "local")})
     Object.assign(
@@ -342,19 +403,20 @@ describe("rendering_graph_view_methods", () => {
       bindApi(ctx, godViewRenderingGraphViewMethods),
     )
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-radial-overview",
+      _topologySemanticLevel: "overview",
       _topologyScene: scene,
       nodes: [
-        {id: "visible-left", x: 100, y: 50, details: {}},
+        {id: "visible-left", x: 100, y: 50, label: "L", details: {}},
         {id: "hidden", x: 100, y: 50, clusterCount: 100, details: {cluster_kind: "endpoint-summary"}},
-        {id: "visible-right", x: 900, y: 50, details: {}},
+        {id: "visible-right", x: 900, y: 50, label: "R", details: {}},
       ],
     }
 
     expect(() => ctx.autoFitViewState(graph)).not.toThrow()
   })
 
-  it("tries detail first, selects a feasible overview contract, and preserves graph shape", () => {
+  it("uses the overview contract at the radial semantic boundary and preserves graph shape", () => {
     const scene = {
       bounds: {minX: 0, minY: 0, maxX: 192, maxY: 1},
       nodes: [
@@ -371,8 +433,8 @@ describe("rendering_graph_view_methods", () => {
       zoomMode: "auto",
       layers: {mantle: true, crust: true},
       viewState: {minZoom: -8, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
-      el: {clientWidth: 50, clientHeight: 200},
-      topologyLabelSafeRect: {left: 0, top: 0, right: 50, bottom: 200},
+      el: {clientWidth: 300, clientHeight: 200},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 300, bottom: 200},
     }
     const deps = {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "regional")}
     const ctx = createStateBackedContext(state, deps)
@@ -385,7 +447,8 @@ describe("rendering_graph_view_methods", () => {
     ctx.selectNodeLabels = vi.fn((...args) => originalSelect(...args))
     const graph = {
       shape: "regional",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-radial-overview",
+      _topologySemanticLevel: "overview",
       _topologyScene: scene,
       nodes: [
         {id: "left", x: 0, y: 0, label: "Left", details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
@@ -403,7 +466,7 @@ describe("rendering_graph_view_methods", () => {
     )
   })
 
-  it("keeps overview when a single detail glyph cannot fit the safe rectangle", () => {
+  it("keeps radial overview density for a single endpoint summary", () => {
     const scene = {
       bounds: {minX: 0, minY: 0, maxX: 1, maxY: 1},
       nodes: [{id: "summary", center: {x: 0.5, y: 0.5}, width: 1, height: 1, render: true}],
@@ -418,8 +481,8 @@ describe("rendering_graph_view_methods", () => {
       layers: {mantle: true, crust: true},
       managedTopologyCameraBaseMinZoom: -8,
       viewState: {minZoom: -8, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
-      el: {clientWidth: 50, clientHeight: 200},
-      topologyLabelSafeRect: {left: 0, top: 0, right: 50, bottom: 200},
+      el: {clientWidth: 180, clientHeight: 200},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 180, bottom: 200},
     }
     const ctx = createStateBackedContext(state, {
       setZoomTier: vi.fn(),
@@ -433,7 +496,8 @@ describe("rendering_graph_view_methods", () => {
 
     ctx.autoFitViewState({
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-radial-overview",
+      _topologySemanticLevel: "overview",
       _layoutCacheKey: "single-summary",
       _topologyScene: scene,
       nodes: [{
@@ -457,7 +521,8 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-radial-overview",
+      _topologySemanticLevel: "overview",
       _layoutCacheKey: "single-node-narrow-safe-width",
       _topologyScene: scene,
       nodes: [{id: "node", x: 0.5, y: 0.5, details: {}}],
@@ -498,14 +563,12 @@ describe("rendering_graph_view_methods", () => {
 
     const acceptedViewState = state.viewState
     state.topologyLabelSafeRect = {left: 0, top: 0, right: 15, bottom: 260}
-    expect(() => ctx.autoFitViewState(graph, {force: true})).toThrow(
-      /no feasible managed visual density.*safe=20x20.*available=15x260/i,
-    )
+    expect(() => ctx.autoFitViewState(graph, {force: true})).not.toThrow()
     expect(state.viewState).toBe(acceptedViewState)
     expect(state.managedTopologyVisualDensity).toBe("overview")
   })
 
-  it("keeps overview when a detail route cap cannot fit the safe height", () => {
+  it("uses the overview semantic route cap without probing detail density", () => {
     const scene = {
       bounds: {minX: 0, minY: 0, maxX: 100, maxY: 0},
       nodes: [],
@@ -519,7 +582,8 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-radial-overview",
+      _topologySemanticLevel: "overview",
       _layoutCacheKey: "single-route-narrow-safe-height",
       _topologyScene: scene,
       nodes: [],
@@ -571,7 +635,7 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "route-glyph-clearance",
       _topologyScene: scene,
       nodes: [
@@ -647,7 +711,7 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "route-route-clearance",
       _topologyScene: scene,
       nodes: [],
@@ -698,7 +762,7 @@ describe("rendering_graph_view_methods", () => {
     },
   ])("still constrains noncontact route portions when routes $name", ({route}) => {
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: `contact-then-parallel:${route.sourceId}`,
       _topologyScene: {
         bounds: {minX: 0, minY: -100, maxX: 1000, maxY: 100},
@@ -731,7 +795,9 @@ describe("rendering_graph_view_methods", () => {
       limitingKind: "route-route",
       limitingRolePair: ["route", "route"],
     })
-    expect(() => ctx.managedVisualDensityForViewScale(graph, 9)).toThrow(/no feasible managed visual density/i)
+    // The ladder degrades rather than failing closed: a scale too tight for overview now
+    // selects the compact tier instead of leaving the scene with no feasible density at all.
+    expect(ctx.managedVisualDensityForViewScale(graph, 9).managedVisualDensity).toBe("compact")
   })
 
   it.each([
@@ -747,7 +813,7 @@ describe("rendering_graph_view_methods", () => {
     },
   ])("does not exempt the complete $name short-route pair at a shared endpoint", ({baseline, sibling}) => {
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: `short-shared-endpoint:${baseline.length}:${sibling[1].y}`,
       _topologyScene: {
         bounds: {minX: 0, minY: 0, maxX: 1000, maxY: 100},
@@ -775,12 +841,14 @@ describe("rendering_graph_view_methods", () => {
       limitingRolePair: ["route", "route"],
     })
     expect(selection.constraints.overview.scale).toBeGreaterThan(9)
-    expect(() => ctx.managedVisualDensityForViewScale(graph, 9)).toThrow(/no feasible managed visual density/i)
+    // The ladder degrades rather than failing closed: a scale too tight for overview now
+    // selects the compact tier instead of leaving the scene with no feasible density at all.
+    expect(ctx.managedVisualDensityForViewScale(graph, 9).managedVisualDensity).toBe("compact")
   })
 
   it("bounds a shared endpoint funnel to endpoint chrome when long terminal legs nearly overlap", () => {
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "long-shared-endpoint-funnel",
       _topologyScene: {
         bounds: {minX: 0, minY: -100, maxX: 1000, maxY: 100},
@@ -818,6 +886,9 @@ describe("rendering_graph_view_methods", () => {
       limitingRolePair: ["route", "route"],
     })
     expect(selection.constraints.overview.scale).toBeGreaterThan(10)
+    // Still genuinely infeasible: overview alone needs scale ~93.75 here, so the compact tier
+    // cannot reach scale 10 either and the ladder is exhausted. This is the case that must
+    // still throw -- degrading is not the same as always succeeding.
     expect(() => ctx.managedVisualDensityForViewScale(graph, 10)).toThrow(/no feasible managed visual density/i)
   })
 
@@ -826,7 +897,7 @@ describe("rendering_graph_view_methods", () => {
     {name: "long coordinates", length: 20_000, gap: 5, feasibleScale: 2},
   ])("normalizes route contact math for $name", ({name, length, gap, feasibleScale}) => {
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: `near-parallel:${name}`,
       _topologyScene: {
         bounds: {minX: 0, minY: 0, maxX: length, maxY: gap},
@@ -853,14 +924,14 @@ describe("rendering_graph_view_methods", () => {
       scale: feasibleScale,
       limitingKind: "route-route",
     })
-    expect(() => ctx.managedVisualDensityForViewScale(graph, feasibleScale * 0.9)).toThrow(
-      /no feasible managed visual density/i,
-    )
+    expect(
+      ctx.managedVisualDensityForViewScale(graph, feasibleScale * 0.9).managedVisualDensity,
+    ).toBe("compact")
   })
 
   it("leaves an accepted proper route crossing under the route validator contract", () => {
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "accepted-proper-crossing",
       _topologyScene: {
         bounds: {minX: 0, minY: 0, maxX: 100, maxY: 100},
@@ -904,8 +975,8 @@ describe("rendering_graph_view_methods", () => {
       zoomMode: "auto",
       layers: {mantle: true, crust: true},
       viewState: {minZoom: -8, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
-      el: {clientWidth: 100, clientHeight: 200},
-      topologyLabelSafeRect: {left: 0, top: 0, right: 100, bottom: 200},
+      el: {clientWidth: 300, clientHeight: 200},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 300, bottom: 200},
     }
     const ctx = createStateBackedContext(state, {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "local")})
     Object.assign(
@@ -916,7 +987,8 @@ describe("rendering_graph_view_methods", () => {
 
     ctx.autoFitViewState({
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
       _topologyScene: scene,
       nodes: [
         {id: "left", x: 0, y: 0, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
@@ -940,7 +1012,7 @@ describe("rendering_graph_view_methods", () => {
       routes: [],
     }
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: [
         {id: "member-left", clusterCount: 1, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
@@ -980,7 +1052,7 @@ describe("rendering_graph_view_methods", () => {
       },
     })
     const hydratedGraph = (onRead) => ({
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _layoutCacheKey: "stable-hydrated-layout",
       _topologyScene: {
         key: "stable-scene",
@@ -1015,7 +1087,7 @@ describe("rendering_graph_view_methods", () => {
     expect(hydratedRouteReads).toBe(0)
   })
 
-  it("clamps a managed camera to the overview separation minimum before selecting density", () => {
+  it("does not promote the overview separation constraint into a camera minimum", () => {
     const scene = {
       bounds: {minX: 0, minY: 0, maxX: 192, maxY: 1},
       nodes: [
@@ -1027,7 +1099,8 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "overview",
       _topologyScene: scene,
       nodes: [
         {id: "left", details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
@@ -1052,12 +1125,13 @@ describe("rendering_graph_view_methods", () => {
       target: [96, 0, 0],
     })
 
-    expect(selected.viewState.minZoom).toBeCloseTo(-3.263034405833794, 12)
-    expect(selected.viewState.zoom).toBeCloseTo(-3.263034405833794, 12)
+    expect(selected.viewState.minZoom).toBe(-8)
+    expect(selected.viewState.zoom).toBe(-8)
+    expect(selected.viewState.minZoom).toBeLessThanOrEqual(selected.viewState.zoom)
     expect(selected.managedVisualDensity).toBe("overview")
   })
 
-  it("derives each managed scene floor from the stable base instead of ratcheting the prior scene", () => {
+  it("does not ratchet scene camera floors from glyph-separation constraints", () => {
     const managedPairGraph = (distance) => {
       const scene = {
         bounds: {minX: 0, minY: 0, maxX: distance, maxY: 1},
@@ -1070,7 +1144,8 @@ describe("rendering_graph_view_methods", () => {
       }
       return {
         shape: "local",
-        _layoutMode: "elk-scene",
+        _layoutMode: "elk-radial-overview",
+        _topologySemanticLevel: "overview",
         _topologyScene: scene,
         nodes: [
           {id: "left", x: 0, y: 0, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
@@ -1099,7 +1174,8 @@ describe("rendering_graph_view_methods", () => {
     )
 
     ctx.autoFitViewState(managedPairGraph(32))
-    expect(state.viewState.minZoom).toBeCloseTo(-0.6780719051126377, 12)
+    expect(state.viewState.minZoom).toBe(-2)
+    expect(state.viewState.minZoom).toBeLessThanOrEqual(state.viewState.zoom)
 
     state.hasAutoFit = false
     const looseGraph = managedPairGraph(192)
@@ -1112,7 +1188,8 @@ describe("rendering_graph_view_methods", () => {
   it("retains a fitted scene floor across immutable cache hydration with the same layout key", () => {
     const managedGraph = () => ({
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
       _layoutCacheKey: "portrait-layout",
       _topologyScene: {
         bounds: {minX: 0, minY: 0, maxX: 1000, maxY: 1},
@@ -1175,7 +1252,7 @@ describe("rendering_graph_view_methods", () => {
     )
 
     ctx.autoFitViewState({
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: expandedSceneForViewTest(),
       nodes: [{id: "node", x: 0, y: 0}],
     }, {force: true})
@@ -1196,7 +1273,7 @@ describe("rendering_graph_view_methods", () => {
       routes: [],
     }
     const graph = {
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
       _topologyScene: scene,
       nodes: [
         {id: "left", x: 0, y: 0, details: {}},
@@ -1332,7 +1409,7 @@ describe("rendering_graph_view_methods", () => {
     expect(state.viewState.target[1]).toBeLessThan(320)
   })
 
-  it("falls back to overview when detail focus cannot fit a narrow managed viewport", () => {
+  it("fails detail focus closed instead of retrying missing labels at overview density", () => {
     const group = {
       id: "g",
       bounds: {minX: 0, minY: 0, maxX: 192, maxY: 1},
@@ -1349,12 +1426,16 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
       _layoutCacheKey: "narrow-focus",
       _topologyScene: scene,
+      // Nothing expanded: this is a bounded frame, which is the case that still fails
+      // closed. The subject here is that focus does not silently retry at overview
+      // density, not how the scene became bounded.
       nodes: [
-        {id: "left", x: 0, y: 0, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
-        {id: "right", x: 192, y: 0, details: {cluster_kind: "endpoint-member", cluster_expanded: true}},
+        {id: "left", x: 0, y: 0, details: {}},
+        {id: "right", x: 192, y: 0, details: {}},
       ],
     }
     const state = {
@@ -1364,6 +1445,7 @@ describe("rendering_graph_view_methods", () => {
       isProgrammaticViewUpdate: false,
       zoomMode: "auto",
       layers: {mantle: true, crust: true},
+      managedTopologyVisualDensity: "detail",
       managedTopologyCameraBaseMinZoom: -8,
       viewState: {minZoom: -8, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
       el: {clientWidth: 50, clientHeight: 200},
@@ -1376,10 +1458,59 @@ describe("rendering_graph_view_methods", () => {
       bindApi(ctx, godViewRenderingGraphLayerNodeMethods),
       bindApi(ctx, godViewRenderingGraphViewMethods),
     )
+    ctx.admitNodeLabelsForViewport = vi.fn((_effective, _candidates, _protectedNodes, options) => ({
+      admitted: [],
+      detailsFallbackIds: [],
+      missingRequiredLabelIds: options.managedVisualDensity === "detail" ? ["zeta", "alpha"] : [],
+    }))
 
-    expect(() => ctx.focusClusterNeighborhood(graph, "g")).not.toThrow()
+    expect(() => ctx.focusClusterNeighborhood(graph, "g")).toThrow(
+      /topology focus.*missing required labels.*alpha, zeta/i,
+    )
+    expect(state.managedTopologyVisualDensity).toBe("detail")
+    expect(state.deck.setProps).not.toHaveBeenCalled()
+    expect(ctx.admitNodeLabelsForViewport.mock.calls.map((call) => call[3].managedVisualDensity)).toEqual(["detail"])
+  })
+
+  it("uses overview density directly for overview-semantic focus", () => {
+    const group = {id: "g", bounds: {minX: 0, minY: 0, maxX: 100, maxY: 1}, memberIds: ["member"]}
+    const scene = {
+      bounds: {minX: 0, minY: 0, maxX: 100, maxY: 1},
+      nodes: [{id: "member", center: {x: 50, y: 0}, width: 1, height: 1, groupId: "g", render: true}],
+      groups: [group],
+      routes: [],
+    }
+    const graph = {
+      shape: "local",
+      _layoutMode: "elk-radial-overview",
+      _topologySemanticLevel: "overview",
+      _layoutCacheKey: "overview-focus-density",
+      _topologyScene: scene,
+      nodes: [{id: "member", x: 50, y: 0, label: "Member", details: {cluster_kind: "endpoint-member"}}],
+    }
+    const state = {
+      animationPhase: 0,
+      deck: {setProps: vi.fn()},
+      userCameraLocked: false,
+      zoomMode: "auto",
+      layers: {mantle: true, crust: true},
+      managedTopologyVisualDensity: "overview",
+      viewState: {minZoom: -8, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
+      el: {clientWidth: 300, clientHeight: 200},
+      topologyLabelSafeRect: {left: 0, top: 0, right: 300, bottom: 200},
+    }
+    const ctx = createStateBackedContext(state, {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "local")})
+    Object.assign(
+      ctx,
+      bindApi(ctx, godViewRenderingGraphLayerNodeMethods),
+      bindApi(ctx, godViewRenderingGraphViewMethods),
+    )
+    const originalAdmission = ctx.admitNodeLabelsForViewport
+    ctx.admitNodeLabelsForViewport = vi.fn((...args) => originalAdmission(...args))
+
+    expect(ctx.focusClusterNeighborhood(graph, "g")).toBe(true)
     expect(state.managedTopologyVisualDensity).toBe("overview")
-    expect(state.deck.setProps).toHaveBeenCalledTimes(1)
+    expect(ctx.admitNodeLabelsForViewport.mock.calls.map((call) => call[3].managedVisualDensity)).toEqual(["overview"])
   })
 
   it("lets a complete managed focus fit below the configured base zoom without clipping it", () => {
@@ -1407,7 +1538,8 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
       _layoutCacheKey: "wide-focus",
       _topologyScene: scene,
       nodes: [
@@ -1426,6 +1558,7 @@ describe("rendering_graph_view_methods", () => {
       viewState: {minZoom: -2, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
       el: {clientWidth: 1000, clientHeight: 400},
       topologyLabelSafeRect: {left: 0, top: 0, right: 1000, bottom: 400},
+      topologyLabelMeasureText: () => ({width: 6, height: 12}),
     }
     const ctx = createStateBackedContext(state, {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "local")})
     Object.assign(
@@ -1444,7 +1577,7 @@ describe("rendering_graph_view_methods", () => {
     expect(right).toBeLessThanOrEqual(state.topologyLabelSafeRect.right + 1)
   })
 
-  it("scopes managed focus density floors to the selected ELK neighborhood", () => {
+  it("contains managed detail focus to the selected ELK neighborhood without a density floor", () => {
     const selectedGroup = {
       id: "selected",
       bounds: {minX: 944, minY: 0, maxX: 20_056, maxY: 112},
@@ -1477,7 +1610,8 @@ describe("rendering_graph_view_methods", () => {
     }
     const graph = {
       shape: "local",
-      _layoutMode: "elk-scene",
+      _layoutMode: "elk-scene-detail",
+      _topologySemanticLevel: "detail",
       _layoutCacheKey: "focus-neighborhood-density",
       _topologyScene: scene,
       nodes: [
@@ -1568,9 +1702,9 @@ describe("rendering_graph_view_methods", () => {
       zoomMode: "auto",
       layers: {mantle: true, crust: true},
       viewState: {minZoom: -4, maxZoom: 5, zoom: 0, target: [0, 0, 0]},
-      el: {clientWidth: 1000, clientHeight: 700},
-      topologyLabelSafeRect: {left: 40, top: 30, right: 820, bottom: 610},
-      topologyLabelMeasureText: () => ({width: 180, height: 18}),
+      el: {clientWidth: 1400, clientHeight: 700},
+      topologyLabelSafeRect: {left: 40, top: 30, right: 1300, bottom: 610},
+      topologyLabelMeasureText: () => ({width: 60, height: 12}),
     }
     const deps = {setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "local")}
     const ctx = createStateBackedContext(state, deps)
@@ -1584,7 +1718,13 @@ describe("rendering_graph_view_methods", () => {
     const originalGroups = scene.groups.map((group) => ({...group, memberIds: [...group.memberIds]}))
 
     const focused = ctx.focusClusterNeighborhood(
-      {_layoutMode: "elk-scene", _topologyScene: scene, shape: "local", nodes},
+      {
+        _layoutMode: "elk-scene-detail",
+        _topologySemanticLevel: "detail",
+        _topologyScene: scene,
+        shape: "local",
+        nodes,
+      },
       selectedGroup.id,
     )
 

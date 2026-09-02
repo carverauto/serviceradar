@@ -144,6 +144,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:ip_alias_error, nil)
     |> assign(:show_stale_aliases, false)
     |> assign(:mtr_traces, [])
+    |> assign(:mtr_recent_traces, [])
     |> assign(:mtr_pending_jobs, [])
     |> assign(:mtr_trends, %{hops: [], latency: []})
     |> assign(:mtr_page, 1)

@@ -17,11 +17,6 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers do
     end
   end
 
-  def format_time(nil), do: "-"
-  def format_time(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S UTC")
-  def format_time(%NaiveDateTime{} = ndt), do: Calendar.strftime(ndt, "%Y-%m-%d %H:%M:%S UTC")
-  def format_time(_), do: "-"
-
   def pending_status_variant(:queued), do: "ghost"
   def pending_status_variant(:sent), do: "info"
   def pending_status_variant(:acknowledged), do: "info"
@@ -97,17 +92,6 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers do
   def reachability_tone(value) when is_number(value) and value < 80, do: "is-error"
   def reachability_tone(value) when is_number(value) and value < 95, do: "is-warning"
   def reachability_tone(_), do: "is-success"
-
-  def coverage_range_label(%{earliest_time: nil}), do: "no retained matches"
-
-  def coverage_range_label(%{earliest_time: earliest, latest_time: latest}) do
-    "#{format_date(earliest)} to #{format_date(latest)}"
-  end
-
-  def coverage_range_label(_), do: "unknown coverage"
-  def format_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
-  def format_date(%NaiveDateTime{} = ndt), do: Calendar.strftime(ndt, "%Y-%m-%d")
-  def format_date(_), do: "-"
 
   def retention_status_label(%{status: :ok}), do: "policy synced"
   def retention_status_label(%{status: :mismatch}), do: "policy mismatch"

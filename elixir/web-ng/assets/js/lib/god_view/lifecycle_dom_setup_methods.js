@@ -10,6 +10,38 @@ import {
   runRecoverableManagedCameraUpdate,
   surfaceRecoverableManagedTopologyError,
 } from "./lifecycle_managed_camera_recovery"
+import {hasManagedTopologyScene} from "./topology_layout_mode"
+
+/**
+ * Adopts a resized canvas into Deck's own viewport before anything reads it back.
+ *
+ * Deck caches the canvas size that every viewport it hands out is built from, and refreshes
+ * that cache only from its own animation frame. `setProps({width, height})` rewrites the
+ * canvas CSS and then re-sends the PREVIOUS cached size to the view manager, so between a
+ * resize and the next frame `deck.getViewports()` -- and the frame `redraw(true)` draws --
+ * still describe the old viewport. Everything downstream of a resize projects through that
+ * viewport: the label admission that decides which labels fit, the layer refresh, and the
+ * acceptance geometry observer. Comparing projections taken in the old frame against the safe
+ * rect measured in the new one is how a scene that fits exactly reports glyphs 560px outside
+ * it -- half the width difference between the two frames.
+ *
+ * Deck's refresh is idempotent and reads the size straight off the canvas we just sized, so
+ * pulling it forward costs nothing and leaves no frame drawn at the wrong size. It is internal
+ * API, so a Deck that no longer exposes it degrades to the old behaviour (one stale frame)
+ * rather than failing: the fallback still corrects the view manager, even though Deck's next
+ * `setProps` re-asserts its own cached size over it.
+ */
+function adoptDeckViewportSize(deck, width, height) {
+  if (typeof deck?._updateCanvasSize === "function") {
+    deck._updateCanvasSize()
+    if (Number(deck.width) === width && Number(deck.height) === height) return true
+  }
+  if (typeof deck?.viewManager?.setProps === "function") {
+    deck.viewManager.setProps({width, height})
+    return true
+  }
+  return false
+}
 
 function safeInsetsChanged(previous, current) {
   if (!previous) return true
@@ -43,8 +75,7 @@ function reconcileSafeAreaResizeTargets(state) {
 
 function refreshLayersAfterResize(context, {clearErrorOnSuccess = true} = {}) {
   const refresh = () => context.deps.refreshGraphLayersForViewState?.()
-  const managedScene = context.state.lastGraph?._layoutMode === "elk-scene"
-    && context.state.lastGraph?._topologyScene
+  const managedScene = hasManagedTopologyScene(context.state.lastGraph)
   if (managedScene) {
     return runRecoverableManagedCameraUpdate(context, refresh, {clearErrorOnSuccess})
   }
@@ -315,6 +346,19 @@ export const godViewLifecycleDomSetupMethods = {
     this.state.canvas.className = "h-full w-full rounded bg-transparent"
     this.state.canvas.style.cursor = "grab"
 
+    const labelMeasurementCanvas = document.createElement("canvas")
+    const labelMeasurementContext = labelMeasurementCanvas.getContext?.("2d")
+    this.state.topologyLabelMeasureText = labelMeasurementContext
+      ? (text, candidate = {}) => {
+          const requestedFontSize = Number(candidate?.fontSize)
+          const fontSize = Number.isFinite(requestedFontSize) && requestedFontSize > 0
+            ? requestedFontSize
+            : 12
+          labelMeasurementContext.font = `600 ${fontSize}px Inter, system-ui, sans-serif`
+          return labelMeasurementContext.measureText(String(text || ""))
+        }
+      : null
+
     this.state.atmosphereOverlay = document.createElement("div")
     this.state.atmosphereOverlay.className = "pointer-events-none absolute inset-0 z-10 rounded"
     this.state.atmosphereOverlay.style.background = "transparent"
@@ -394,6 +438,7 @@ export const godViewLifecycleDomSetupMethods = {
     this.state.canvas.style.height = `${height}px`
     if (this.state.deck) {
       this.state.deck.setProps({width, height})
+      adoptDeckViewportSize(this.state.deck, width, height)
       this.state.deck.redraw(true)
     }
 
@@ -416,12 +461,12 @@ export const godViewLifecycleDomSetupMethods = {
         this.deps.autoFitViewState?.(this.state.lastGraph, {force: true})
       })
       cameraUpdateAccepted = result.ok
-    } else if (this.state.lastGraph?._layoutMode === "elk-scene" && this.state.lastGraph?._topologyScene) {
+    } else if (hasManagedTopologyScene(this.state.lastGraph)) {
       const result = runRecoverableManagedCameraUpdate(this, () => {
-        const selection = this.deps.managedVisualDensityForViewScale?.(
+        const selection = this.deps.managedViewStateForCamera?.(
           this.state.lastGraph,
-          2 ** Number(this.state.viewState?.zoom || 0),
-          {safeRect},
+          this.state.viewState,
+          {safeRect, fittedManagedVisualDensity: this.state.managedTopologyVisualDensity},
         )
         if (selection?.managedVisualDensity) {
           this.state.managedTopologyVisualDensity = selection.managedVisualDensity
@@ -535,7 +580,20 @@ export const godViewLifecycleDomSetupMethods = {
       width,
       height,
       views: new OrthographicView({id: "god-view-ortho"}),
-      controller: false,
+      // Managed scenes own geometry, not the camera. Gestures are allowed
+      // and then clamped by onViewStateChange via managedViewStateForCamera,
+      // so trackpad pinch / two-finger zoom and drag-pan work without letting
+      // the user desync the accepted ELK scene. Rotation stays off: the scene
+      // is authored in an OrthographicView with a fixed up-axis.
+      controller: {
+        scrollZoom: {smooth: true},
+        dragPan: true,
+        touchZoom: true,
+        dragRotate: false,
+        touchRotate: false,
+        doubleClickZoom: false,
+        keyboard: false,
+      },
       pickingRadius: 8,
       useDevicePixels: true,
       initialViewState: this.state.viewState,
@@ -555,11 +613,16 @@ export const godViewLifecycleDomSetupMethods = {
       onViewStateChange: ({viewState}) => {
         const programmaticUpdate = this.state.isProgrammaticViewUpdate === true
         const layoutMode = this.state.lastGraph?._layoutMode
-        const managedScene = layoutMode === "elk-scene" && this.state.lastGraph?._topologyScene
+        const managedScene = hasManagedTopologyScene(this.state.lastGraph)
         const applyViewState = () => {
           let nextViewState = {...this.state.viewState, ...viewState}
           if (managedScene && !programmaticUpdate) {
-            const selection = this.deps.managedViewStateForCamera(this.state.lastGraph, nextViewState)
+            // A user pan or zoom must not re-widen the glyphs the fit stepped down.
+            const selection = this.deps.managedViewStateForCamera(
+              this.state.lastGraph,
+              nextViewState,
+              {fittedManagedVisualDensity: this.state.managedTopologyVisualDensity},
+            )
             nextViewState = selection.viewState
             this.state.managedTopologyVisualDensity = selection.managedVisualDensity
           }

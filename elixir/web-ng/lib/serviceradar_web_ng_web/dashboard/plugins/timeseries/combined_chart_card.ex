@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
 
   use Phoenix.Component
 
+  import ServiceRadarWebNGWeb.CoreComponents, only: [user_time: 1]
+
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.ChartCard
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Metrics
 
@@ -15,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
   attr :chart_top_pad, :integer, required: true
   attr :chart_bottom_pad, :integer, required: true
   attr :compact, :boolean, default: false
+  attr :timezone, :string, default: "Etc/UTC"
 
   def combined_chart_card(assigns) do
     series_tooltip_data =
@@ -51,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
       data-chart-width={@chart_width}
       data-chart-left-pad={@effective_chart_left_pad}
       data-chart-right-pad={@chart_right_pad}
+      data-timezone={@timezone}
     >
       <div class="flex items-center justify-between gap-3 mb-2">
         <div class="flex items-center gap-2 min-w-0">
@@ -149,8 +153,15 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
           </g>
 
           <g class="text-[11px] fill-sr-muted font-mono">
-            <%= for {x, label} <- @data.x_ticks do %>
-              <text x={x} y={@chart_height - 4} text-anchor="middle">{label}</text>
+            <%= for {x, instant} <- @data.x_ticks do %>
+              <text
+                x={x}
+                y={@chart_height - 4}
+                text-anchor="middle"
+                data-time-axis-iso={instant}
+              >
+                {instant}
+              </text>
             <% end %>
           </g>
 
@@ -240,8 +251,18 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.CombinedChartCard do
         @compact && "text-[9px]",
         not @compact && "text-[10px]"
       ]}>
-        <span>{@data.first_dt}</span>
-        <span>{@data.last_dt}</span>
+        <.user_time
+          id={"timeseries-#{@id}-combined-#{Metrics.unit_to_string(@data.unit)}-first-time"}
+          value={@data.first_dt}
+          timezone={@timezone}
+          style={:compact}
+        />
+        <.user_time
+          id={"timeseries-#{@id}-combined-#{Metrics.unit_to_string(@data.unit)}-last-time"}
+          value={@data.last_dt}
+          timezone={@timezone}
+          style={:compact}
+        />
       </div>
     </div>
     """

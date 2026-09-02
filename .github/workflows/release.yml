@@ -229,7 +229,7 @@ jobs:
             --commit "${RELEASE_COMMIT}" \
             --base-ref origin/staging \
             --token-env GH_TOKEN \
-            --timeout-seconds 1800 \
+            --timeout-seconds 5400 \
             --poll-seconds 15 \
             --target-url-prefix https://carverauto.buildbuddy.io/invocation/
 

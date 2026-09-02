@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.DeviceModal do
 
   # Add Device Modal Component
   attr(:form, :any, required: true)
+  attr(:partition_options, :list, default: [{"Default", "default"}])
 
   def add_device_modal(assigns) do
     ~H"""
@@ -45,6 +46,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.DeviceModal do
             class={ui_field_class()}
             placeholder="192.168.1.100"
           />
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <label class="flex items-center justify-between gap-2">
+            <span class="text-sm font-medium text-sr-ink">Partition</span>
+            <span class="text-xs text-sr-muted">default keeps isolation copies</span>
+          </label>
+          <input
+            type="text"
+            name="device[partition]"
+            value={@form[:partition].value || "default"}
+            list="add-device-partition-slugs"
+            class={ui_field_class()}
+            placeholder="default"
+            autocomplete="off"
+          />
+          <datalist id="add-device-partition-slugs">
+            <%= for {name, slug} <- @partition_options do %>
+              <option value={slug}>{name}</option>
+            <% end %>
+          </datalist>
         </div>
 
         <div class="flex flex-col gap-1.5">

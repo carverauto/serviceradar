@@ -1,0 +1,59 @@
+suite: flow collector bootstrap job
+templates:
+  - flow-collector-bootstrap-job.yaml
+tests:
+  - it: runs the collector in bootstrap-stream mode as a pre-upgrade hook
+    set:
+      flowCollector.enabled: true
+    asserts:
+      - isKind:
+          of: Job
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: pre-install,pre-upgrade
+      - equal:
+          path: metadata.annotations["helm.sh/hook-delete-policy"]
+          value: before-hook-creation
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--bootstrap-stream"
+  - it: is absent when the collector is disabled
+    set:
+      flowCollector.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+  # F1: serviceradar-flow-collector-data (flow-collector.yaml) is an
+  # ordinary resource, so it does not exist yet the first time this
+  # pre-install hook fires on a fresh install (pre-install hooks run
+  # before ANY ordinary resource is created). The Job must fall back to
+  # scratch storage rather than reference a claim that isn't there yet.
+  - it: uses scratch storage on a fresh install, before the durable PVC exists
+    set:
+      flowCollector.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[3].name
+          value: flow-collector-data
+      - isNotNull:
+          path: spec.template.spec.volumes[3].emptyDir
+      - isNull:
+          path: spec.template.spec.volumes[3].persistentVolumeClaim
+  # On any upgrade the PVC already exists (created during the prior
+  # install's ordinary-resource phase), so the Job must claim it -- this is
+  # what keeps the durable rehome/ownership markers persisting across
+  # releases.
+  - it: claims the durable PVC on upgrade, once it already exists
+    set:
+      flowCollector.enabled: true
+    release:
+      upgrade: true
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[3].name
+          value: flow-collector-data
+      - equal:
+          path: spec.template.spec.volumes[3].persistentVolumeClaim.claimName
+          value: serviceradar-flow-collector-data
+      - isNull:
+          path: spec.template.spec.volumes[3].emptyDir

@@ -144,7 +144,7 @@ test("slug_in_use envelope surfaces the owner_dashboard_id and a fix hint", asyn
     jsonReply(res, 409, {
       error: "slug_in_use",
       route: "wifi-network-map",
-      owner_dashboard_id: "com.wifi.network-map",
+      owner_dashboard_id: "com.example.network-map",
     })
   })
   try {
@@ -152,7 +152,7 @@ test("slug_in_use envelope surfaces the owner_dashboard_id and a fix hint", asyn
     assert.equal(r.ok, false)
     const out = `${r.stdout}\n${r.stderr}`
     assert.match(out, /slug_in_use/)
-    assert.match(out, /com\.ual\.network-map/)
+    assert.match(out, /com\.example\.network-map/)
     assert.match(out, /pick a different --route/)
   } finally {
     srv.close()

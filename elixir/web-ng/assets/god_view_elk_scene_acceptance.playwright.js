@@ -57,16 +57,19 @@ function assertProjectedGlyphsDisjoint(snapshot, phase) {
   }
 }
 
-function assertFocusedNeighborhood(snapshot, groupId) {
+function assertFocusedNeighborhood(snapshot, {anchorId, memberPrefix}) {
   assertProjectedGlyphsDisjoint(snapshot, "focus")
-  const group = snapshot.groups.find((candidate) => candidate.id === groupId)
-  expect(group, `focused group ${groupId} must remain expanded`).toBeTruthy()
-  expect(inside(group.projectedBox, snapshot.safeRect), `${groupId} group leaves safe rect`).toBe(true)
+  // The radial atlas frames a cluster by membership, not by a compound group rectangle, so the
+  // contract is asserted against the drawn glyphs themselves. The manifold/auxiliary-path
+  // assertions that used to live here went with the bounded-detail scene, which is the only
+  // layout that ever produced them.
+  const memberIds = snapshot.glyphIds.filter((id) => id.startsWith(memberPrefix))
+  expect(memberIds.length, `${anchorId} must retain its member glyphs`).toBeGreaterThan(0)
 
-  const selectedIds = new Set([group.anchorId, group.gatewayId, ...group.memberIds])
+  const selectedIds = new Set([anchorId, ...memberIds])
   const semanticRoutes = snapshot.routes.filter((route) => route.auxiliary !== true
     && (selectedIds.has(route.sourceId) || selectedIds.has(route.targetId)))
-  expect(semanticRoutes.length, `${groupId} focused semantic routes are missing`).toBeGreaterThan(0)
+  expect(semanticRoutes.length, `${anchorId} focused semantic routes are missing`).toBeGreaterThan(0)
   const semanticRouteIds = new Set(semanticRoutes.map((route) => route.id))
   const focusedRoutes = snapshot.routes.filter((route) => semanticRouteIds.has(route.id)
     || route.semanticRouteIds.some((routeId) => semanticRouteIds.has(routeId)))
@@ -77,16 +80,14 @@ function assertFocusedNeighborhood(snapshot, groupId) {
   }
 
   const selectedGlyphs = snapshot.glyphs.filter((glyph) => focusedNodeIds.has(glyph.nodeId))
-  expect(selectedGlyphs.length, `${groupId} must retain its member and anchor glyphs`).toBeGreaterThan(group.memberIds.length)
   const glyphIds = new Set(selectedGlyphs.map((glyph) => glyph.nodeId))
-  for (const nodeId of [group.anchorId, ...group.memberIds]) {
-    expect(glyphIds.has(nodeId), `${groupId} focused glyph ${nodeId} is missing`).toBe(true)
+  for (const nodeId of [anchorId, ...memberIds]) {
+    expect(glyphIds.has(nodeId), `${anchorId} focused glyph ${nodeId} is missing`).toBe(true)
   }
   for (const glyph of selectedGlyphs) {
     expect(inside(glyph, snapshot.safeRect), `${glyph.nodeId} focused glyph leaves safe rect`).toBe(true)
   }
 
-  expect(focusedRoutes.some((route) => route.auxiliary === true), `${groupId} focused manifold paths are missing`).toBe(true)
   for (const route of focusedRoutes) {
     expect(routeInsideSafeRect(route, snapshot.safeRect), `${routeDescription(route)} focused route leaves safe rect`).toBe(true)
     for (const glyph of selectedGlyphs) {
@@ -113,7 +114,7 @@ function assertFocusedNeighborhood(snapshot, groupId) {
   }
 
   const selectedLabels = snapshot.labels.filter((label) => focusedNodeIds.has(label.nodeId))
-  expect(selectedLabels.length, `${groupId} must retain admitted neighborhood labels`).toBeGreaterThan(0)
+  expect(selectedLabels.length, `${anchorId} must retain admitted neighborhood labels`).toBeGreaterThan(0)
   for (let left = 0; left < selectedLabels.length; left += 1) {
     const label = selectedLabels[left]
     expect(inside(label.box, snapshot.safeRect), `${label.nodeId} focused label leaves safe rect`).toBe(true)
@@ -132,6 +133,40 @@ function assertFocusedNeighborhood(snapshot, groupId) {
         routeStrokeHitsBox(route, label.box),
         `${label.nodeId} focused label hits ${routeDescription(route)}`,
       ).toBe(false)
+    }
+  }
+}
+
+// Expanding elaborates the radial atlas in place, so there is no compound group to inspect --
+// this replaces the group assertions that outlived the bounded-detail contract. What has to
+// hold instead is that an opened cluster stays tied into the backbone: the summary bubble it
+// replaced is no longer drawn, and every member's rendered route lands on the anchor glyph,
+// which is. Members left parented on the hidden summary is the "island" regression -- the ring
+// renders, but each route terminates on a glyph that is never drawn, so nothing visibly
+// connects the opened cluster to the rest of the graph.
+function assertClusterElaborated(snapshot, expansions) {
+  const drawn = new Set(snapshot.glyphIds)
+  for (const {anchorId, summaryId, memberPrefix, count} of expansions) {
+    expect(drawn.has(summaryId), `${summaryId} must not be drawn once expanded`).toBe(false)
+    expect(drawn.has(anchorId), `${anchorId} must be drawn as its members' attachment`).toBe(true)
+
+    const memberIds = snapshot.glyphIds.filter((id) => id.startsWith(memberPrefix)).sort()
+    expect(memberIds, `${memberPrefix}* members must be drawn`).toHaveLength(count)
+
+    const counterparts = new Map()
+    for (const route of snapshot.routes) {
+      if (route.auxiliary === true) continue
+      const sourceId = String(route.sourceId)
+      const targetId = String(route.targetId)
+      if (sourceId.startsWith(memberPrefix)) counterparts.set(sourceId, targetId)
+      if (targetId.startsWith(memberPrefix)) counterparts.set(targetId, sourceId)
+    }
+    expect(
+      [...counterparts.keys()].sort(),
+      `every ${memberPrefix}* member needs a rendered route`,
+    ).toEqual(memberIds)
+    for (const [memberId, counterpartId] of counterparts) {
+      expect(counterpartId, `${memberId} must attach to ${anchorId}`).toBe(anchorId)
     }
   }
 }
@@ -197,7 +232,14 @@ function assertScene(snapshot, expected) {
     }
   }
   for (const glyph of snapshot.glyphs) {
-    expect(inside(glyph, snapshot.safeRect), `${glyph.nodeId} glyph leaves safe rect`).toBe(true)
+    expect(
+      inside(glyph, snapshot.safeRect),
+      `${glyph.nodeId} glyph leaves safe rect [nodes=${snapshot.counts.semanticNodes} ` +
+      `glyphs=${snapshot.counts.renderedGlyphs} box=${Math.round(glyph.left)},${Math.round(glyph.top)},` +
+      `${Math.round(glyph.right)},${Math.round(glyph.bottom)} safe=${Math.round(snapshot.safeRect.left)},` +
+      `${Math.round(snapshot.safeRect.top)},${Math.round(snapshot.safeRect.right)},${Math.round(snapshot.safeRect.bottom)} ` +
+      `zoom=${snapshot.viewState.zoom.toFixed(4)} minZoom=${snapshot.viewState.minZoom.toFixed(4)}]`,
+    ).toBe(true)
   }
   for (const route of snapshot.routes) {
     expect(routeInsideSafeRect(route, snapshot.safeRect), `${routeDescription(route)} route leaves safe rect`).toBe(true)
@@ -271,17 +313,18 @@ test("gates the canonical God-View ELK scene through the production renderer", a
 
   const collapsedResult = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("collapsed"))
   assertScene(collapsedResult.snapshot, {
-    semanticNodes: 30, semanticEdges: 34, attachmentEdges: 24, renderedRoutes: 32,
-    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 30, admittedLabels: 12,
+    semanticNodes: 12, semanticEdges: 14, attachmentEdges: 0, renderedRoutes: 11,
+    physicalRoutes: 11, renderedPhysicalRoutes: 11, manifolds: 0, renderedGlyphs: 12, admittedLabels: 12,
   })
   await phase(page, context, "collapsed", "expanded")
 
   const expandedResult = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("expanded"))
-  expect(expandedResult.snapshot.groups).toHaveLength(1)
-  expect(expandedResult.snapshot.groups[0].memberIds).toHaveLength(24)
+  assertClusterElaborated(expandedResult.snapshot, [
+    {anchorId: "farm01:gateway-01", summaryId: "farm01:endpoint-summary-01", memberPrefix: "farm01:endpoint-member-", count: 24},
+  ])
   assertScene(expandedResult.snapshot, {
-    semanticNodes: 54, semanticEdges: 58, attachmentEdges: 48, renderedRoutes: 32,
-    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 53, admittedLabels: 17,
+    semanticNodes: 35, semanticEdges: 37, attachmentEdges: 0, renderedRoutes: 34,
+    physicalRoutes: 34, renderedPhysicalRoutes: 34, manifolds: 0, renderedGlyphs: 35, admittedLabels: 33,
   })
   await phase(page, context, "expanded", "fit")
 
@@ -299,38 +342,49 @@ test("gates the canonical God-View ELK scene through the production renderer", a
   expect(stableGroups(focused)).toEqual(stableGroups(expandedResult.snapshot))
   expect(focused.nodes).toEqual(expandedResult.snapshot.nodes)
   expect(stableGeometry(focused).routes).toEqual(stableGeometry(expandedResult.snapshot).routes)
-  assertFocusedNeighborhood(focused, "cluster:endpoints:farm01:gateway-01")
+  assertFocusedNeighborhood(focused, {anchorId: "farm01:gateway-01", memberPrefix: "farm01:endpoint-member-"})
 
   const concurrentResult = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("concurrent"))
-  expect(concurrentResult.snapshot.groups).toHaveLength(2)
+  assertClusterElaborated(concurrentResult.snapshot, [
+    {anchorId: "farm01:gateway-01", summaryId: "farm01:endpoint-summary-01", memberPrefix: "farm01:endpoint-member-01-", count: 24},
+    {anchorId: "farm01:gateway-02", summaryId: "farm01:endpoint-summary-02", memberPrefix: "farm01:endpoint-member-02-", count: 24},
+  ])
   assertScene(concurrentResult.snapshot, {
-    semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32,
-    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 76, admittedLabels: 15,
+    semanticNodes: 58, semanticEdges: 60, attachmentEdges: 0, renderedRoutes: 57,
+    physicalRoutes: 57, renderedPhysicalRoutes: 57, manifolds: 0, renderedGlyphs: 58, admittedLabels: 49,
   })
   const concurrentGeometry = stableGeometry(concurrentResult.snapshot)
   await phase(page, context, "concurrent-expanded", "collapse-reexpand-profile-threshold")
 
   const firstCollapsed = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("second"))
-  expect(firstCollapsed.snapshot.groups).toHaveLength(1)
-  expect(firstCollapsed.snapshot.groups[0].memberIds).toHaveLength(24)
+  assertClusterElaborated(firstCollapsed.snapshot, [
+    {anchorId: "farm01:gateway-02", summaryId: "farm01:endpoint-summary-02", memberPrefix: "farm01:endpoint-member-02-", count: 24},
+  ])
   assertScene(firstCollapsed.snapshot, {
-    semanticNodes: 54, semanticEdges: 58, attachmentEdges: 48, renderedRoutes: 32,
-    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 53, admittedLabels: 14,
+    semanticNodes: 35, semanticEdges: 37, attachmentEdges: 0, renderedRoutes: 34,
+    physicalRoutes: 34, renderedPhysicalRoutes: 34, manifolds: 0, renderedGlyphs: 35, admittedLabels: 33,
   })
 
   const reexpanded = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("concurrent"))
   expect(stableGeometry(reexpanded.snapshot)).toEqual(concurrentGeometry)
   assertScene(reexpanded.snapshot, {
-    semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32,
-    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 76, admittedLabels: 15,
+    semanticNodes: 58, semanticEdges: 60, attachmentEdges: 0, renderedRoutes: 57,
+    physicalRoutes: 57, renderedPhysicalRoutes: 57, manifolds: 0, renderedGlyphs: 58, admittedLabels: 49,
   })
 
   const portrait = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.profile(800, 1000))
-  expect(portrait.profileKey).not.toEqual(concurrentResult.snapshot.profileKey)
-  expect(portrait.profileKey).toMatch(/portrait/)
+  // The radial atlas reports a constant profileKey -- per-viewport density profiles were a
+  // bounded-detail concept -- so assert what portrait actually changes: the same scene is still
+  // laid out in full, and the narrower viewport admits no more labels than the wide one did.
+  expect(portrait.counts.semanticNodes).toEqual(concurrentResult.snapshot.counts.semanticNodes)
+  expect(portrait.counts.admittedLabels).toBeLessThanOrEqual(concurrentResult.snapshot.counts.admittedLabels)
+  // admittedLabels rose from 17 to 28 when resizeCanvas started adopting the new size into
+  // Deck's own viewport. Before that, a resized surface projected glyphs through the PREVIOUS
+  // viewport while clipping labels to the new safe rect, so labels were rejected for leaving a
+  // rect their glyph had never actually left. 28 of 58 admitted, against 49 at 1920x1080.
   assertScene(portrait, {
-    semanticNodes: 78, semanticEdges: 82, attachmentEdges: 72, renderedRoutes: 32,
-    physicalRoutes: 48, renderedPhysicalRoutes: 48, manifolds: 8, renderedGlyphs: 76, admittedLabels: 7,
+    semanticNodes: 58, semanticEdges: 60, attachmentEdges: 0, renderedRoutes: 57,
+    physicalRoutes: 57, renderedPhysicalRoutes: 57, manifolds: 0, renderedGlyphs: 58, admittedLabels: 28,
   })
   await context.tracing.stop({path: resolve(OUTPUT_DIR, "collapse-reexpand-profile-threshold.trace.zip")})
   expect((await readdir(OUTPUT_DIR)).sort()).toEqual([

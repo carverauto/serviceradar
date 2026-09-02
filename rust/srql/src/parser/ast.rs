@@ -17,6 +17,7 @@ pub enum Entity {
     ScanActivity,
     DnsActivity,
     BmpEvents,
+    MtrTraces,
     FieldSurveySessions,
     FieldSurveyRasters,
     FieldSurveyArtifacts,
@@ -68,6 +69,7 @@ pub enum Entity {
     EndpointPackages,
     EndpointInventoryScans,
     PublicEndpoints,
+    SourceFactDisagreements,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -142,6 +144,16 @@ pub enum DownsampleAgg {
     /// Calculates (current_value - previous_value) / time_delta_seconds,
     /// then averages within each bucket. Skips rows where counter appears to wrap/reset.
     Rate,
+    /// Rate of change per second, SUMMED across the series collapsed into each
+    /// display bucket rather than averaged.
+    ///
+    /// `Rate` answers "what is the typical rate of one of these"; `RateSum`
+    /// answers "what is the combined rate of all of them". They differ whenever
+    /// a display series aggregates more than one underlying counter -- several
+    /// controllers each keeping their own counters for the same RADIUS server,
+    /// for example, where the fleet total is the sum and the average understates
+    /// it by the number of controllers.
+    RateSum,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

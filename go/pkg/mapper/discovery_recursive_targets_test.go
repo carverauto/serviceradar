@@ -131,6 +131,34 @@ func TestRecursiveTopologyLinkEligibleRejectsWirelessClient(t *testing.T) {
 	}
 }
 
+func TestCollectRecursiveSNMPTargetsIncludesLLDPMgmtAddr(t *testing.T) {
+	engine := &DiscoveryEngine{}
+	job := &DiscoveryJob{
+		Results: &DiscoveryResults{
+			TopologyLinks: []*TopologyLink{
+				{
+					Protocol:         "LLDP",
+					NeighborMgmtAddr: "10.99.0.12",
+					Metadata:         map[string]string{"source": "lldp"},
+				},
+				{
+					Protocol:         "LLDP",
+					NeighborMgmtAddr: "10.99.0.21",
+					Metadata:         map[string]string{"source": "lldp"},
+				},
+			},
+		},
+	}
+
+	targets := engine.collectRecursiveSNMPTargets(job, map[string]bool{"10.99.0.11": true})
+	if !targets["10.99.0.12"] || !targets["10.99.0.21"] {
+		t.Fatalf("expected recursive CORE/EDGE loopbacks, got %#v", targets)
+	}
+	if targets["10.99.0.11"] {
+		t.Fatalf("did not expect the seed IP to be re-queued: %#v", targets)
+	}
+}
+
 func TestCollectRecursiveSNMPTargetsIncludesUniFiWiredClient(t *testing.T) {
 	engine := &DiscoveryEngine{}
 	job := &DiscoveryJob{

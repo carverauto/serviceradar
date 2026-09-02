@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.HealthcheckComponents do
   # ---------------------------------------------------------------------------
 
   attr(:summary, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def healthcheck_section(assigns) do
     services = Map.get(assigns.summary, :services, [])
@@ -48,8 +49,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.HealthcheckComponents do
         </div>
 
         <div :if={@services != []} class="space-y-2">
-          <%= for svc <- Enum.take(@services, 10) do %>
-            <.healthcheck_row service={svc} />
+          <%= for {svc, index} <- Enum.with_index(Enum.take(@services, 10)) do %>
+            <.healthcheck_row service={svc} index={index} timezone={@timezone} />
           <% end %>
         </div>
       </div>
@@ -58,6 +59,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.HealthcheckComponents do
   end
 
   attr(:service, :map, required: true)
+  attr(:index, :integer, required: true)
+  attr(:timezone, :string, required: true)
 
   defp healthcheck_row(assigns) do
     svc = assigns.service
@@ -91,21 +94,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.HealthcheckComponents do
         <div :if={@message != ""} class="text-xs text-sr-muted truncate">{@message}</div>
       </div>
       <div class="text-xs text-sr-muted shrink-0 font-mono">
-        {format_healthcheck_time(@timestamp)}
+        <.user_time
+          id={"device-healthcheck-#{healthcheck_time_key(@service, @index)}-timestamp"}
+          value={@timestamp}
+          timezone={@timezone}
+          style={:time}
+          fallback=""
+        />
       </div>
     </div>
     """
   end
 
-  defp format_healthcheck_time(nil), do: ""
-  defp format_healthcheck_time(""), do: ""
-
-  defp format_healthcheck_time(ts) when is_binary(ts) do
-    case DateTime.from_iso8601(ts) do
-      {:ok, dt, _} -> Calendar.strftime(dt, "%H:%M:%S")
-      _ -> ts
-    end
+  defp healthcheck_time_key(service, index) do
+    [
+      Map.get(service, :id) || Map.get(service, "id"),
+      Map.get(service, :service_id) || Map.get(service, "service_id"),
+      Map.get(service, :uid) || Map.get(service, "uid"),
+      Map.get(service, :service_name) || Map.get(service, "service_name"),
+      Map.get(service, :service_type) || Map.get(service, "service_type")
+    ]
+    |> Enum.find_value(&healthcheck_id_fragment/1)
+    |> Kernel.||(Integer.to_string(index))
   end
 
-  defp format_healthcheck_time(_), do: ""
+  defp healthcheck_id_fragment(value) when value in [nil, ""], do: nil
+
+  defp healthcheck_id_fragment(value) do
+    case value |> to_string() |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-") |> String.trim("-") do
+      "" -> nil
+      fragment -> fragment
+    end
+  end
 end

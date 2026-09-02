@@ -1,3 +1,5 @@
+import {topologySemanticLevel} from "./js/lib/god_view/topology_layout_mode"
+
 const ACCEPTANCE_FLAG = "__SR_GOD_VIEW_ACCEPTANCE__"
 const GEOMETRY_HOOK = "__SR_GOD_VIEW_GEOMETRY__"
 
@@ -67,6 +69,11 @@ function projectedWorldBox(viewport, box) {
 function layerData(layers, id) {
   const layer = (layers || []).find((candidate) => candidate?.id === id)
   return Array.isArray(layer?.props?.data) ? layer.props.data : []
+}
+
+function sortedUniqueIds(values) {
+  return [...new Set((values || []).map((value) => String(value || "")).filter((value) => value !== ""))]
+    .sort((left, right) => left.localeCompare(right))
 }
 
 function topologyTransportLayers(layers) {
@@ -173,6 +180,9 @@ function acceptanceGeometrySnapshot({context, effective, nodeData, edgeData, lay
   }
   const viewState = context.state?.viewState || {}
   const labels = layerData(layers, "god-view-node-labels")
+  const glyphIds = sortedUniqueIds((nodeData || []).map((node) => node?.id))
+  const labelIds = sortedUniqueIds(labels.map((node) => node?.id))
+  const labelIdSet = new Set(labelIds)
   const scenePhysicalRoutes = scene?.physicalRoutes || scene?.routes || []
   const sceneRouteById = new Map(scenePhysicalRoutes.map((route) => [String(route?.id || ""), route]))
   const renderedRouteRecords = renderedPhysicalRouteRecords(layers)
@@ -213,6 +223,10 @@ function acceptanceGeometrySnapshot({context, effective, nodeData, edgeData, lay
   return deepFreeze({
     sceneKey: String(effective?._layoutCacheKey || scene?.graphKey || ""),
     profileKey: String(scene?.profileKey || ""),
+    semanticLevel: topologySemanticLevel(effective),
+    glyphIds,
+    labelIds,
+    unlabeledGlyphIds: glyphIds.filter((nodeId) => !labelIdSet.has(nodeId)),
     counts: {
       semanticNodes: finiteNumber(manifest.nodes),
       semanticEdges: finiteNumber(manifest.semanticEdges),

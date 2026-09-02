@@ -272,6 +272,24 @@ defmodule ServiceRadar.Notifications.PluginCredentialGrantsTest do
         "field_username" => "username",
         "field_password" => "password",
         "fixed_grant_type" => "password"
+      },
+      # Token endpoint on the SAME host as the upstream call, which is the
+      # shape real client-credentials APIs take (ClearPass issues at
+      # /api/oauth and serves data from /api/* on one host). It needs one
+      # allowed domain, not two.
+      "oauth2_client_credentials" => %{
+        "injection_mode" => "oauth2_client_credentials",
+        "method" => "GET",
+        "host" => "chat.example.test",
+        "port" => 443,
+        "path" => "/api/session",
+        "token_method" => "POST",
+        "token_host" => "chat.example.test",
+        "token_port" => 443,
+        "token_path" => "/api/oauth",
+        "field_client_id" => "client_id",
+        "field_client_secret" => "client_secret",
+        "fixed_grant_type" => "client_credentials"
       }
     }
 

@@ -179,8 +179,7 @@ even operators only see the matched labels.
 The bounded-concurrency invariants advertised above are guarded by
 `TestEngineKeepsMillionHostSyntheticStreamBounded` in
 `go/pkg/scan/banner_grab/engine_test.go`. The test is opt-in (it skips unless
-`SERVICERADAR_LARGE_BANNER_GRAB_TEST=1` is set) and runs nightly via the
-`.forgejo/workflows/banner-grab-large.yml` workflow. To reproduce locally:
+`SERVICERADAR_LARGE_BANNER_GRAB_TEST=1` is set). To run it locally:
 
 ```sh
 SERVICERADAR_LARGE_BANNER_GRAB_TEST=1 \

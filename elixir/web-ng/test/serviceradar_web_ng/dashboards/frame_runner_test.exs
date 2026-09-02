@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
 
   alias ServiceRadarWebNG.Dashboards.FrameRunner
 
+  @moduletag :db_free
+
   defmodule FakeSRQL do
     @moduledoc false
     def query("in:devices", opts) do
@@ -98,6 +100,28 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
          payload: "arrow-ipc:#{limit}",
          schema: %{"columns" => ["id"]},
          pagination: %{"limit" => limit}
+       }}
+    end
+  end
+
+  defmodule FakeCursorSRQL do
+    @moduledoc false
+
+    def query(query, opts) when is_binary(query) do
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "query" => query,
+             "cursor" => Map.get(opts, :cursor),
+             "limit" => Map.get(opts, :limit)
+           }
+         ],
+         "pagination" => %{
+           "next_cursor" => "next-token",
+           "prev_cursor" => Map.get(opts, :cursor),
+           "limit" => Map.get(opts, :limit)
+         }
        }}
     end
   end
@@ -350,6 +374,39 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
 
     assert length(results) == 12
     assert Enum.all?(results, &(length(&1["results"]) == 2_000))
+  end
+
+  test "forwards a frame cursor into the SRQL query opts" do
+    frames = [
+      %{
+        "id" => "results",
+        "query" => "in:composite_results sort:device_uid:asc limit:200",
+        "encoding" => "json_rows",
+        "limit" => 200,
+        "cursor" => "page-two"
+      }
+    ]
+
+    assert [
+             %{
+               "id" => "results",
+               "status" => "ok",
+               "results" => [%{"cursor" => "page-two", "limit" => 200}],
+               "pagination" => %{"next_cursor" => "next-token", "prev_cursor" => "page-two"}
+             }
+           ] = FrameRunner.run(frames, :scope, srql_module: FakeCursorSRQL)
+  end
+
+  test "omits cursor from SRQL opts when the frame does not name one" do
+    frames = [
+      %{"id" => "results", "query" => "in:composite_results limit:200", "encoding" => "json_rows", "limit" => 200}
+    ]
+
+    assert [
+             %{
+               "results" => [%{"cursor" => nil, "limit" => 200}]
+             }
+           ] = FrameRunner.run(frames, :scope, srql_module: FakeCursorSRQL)
   end
 
   test "security findings source probes are optional" do

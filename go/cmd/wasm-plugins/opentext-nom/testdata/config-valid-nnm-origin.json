@@ -1,0 +1,5 @@
+{
+  "instance_id": "network-automation-prod",
+  "nnm_url": "https://nnm.example.com:443",
+  "api_url": "https://na.example.com/nom/api/automation/v1/wrapper"
+}

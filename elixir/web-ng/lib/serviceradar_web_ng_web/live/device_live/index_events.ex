@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents do
   @navigation_events ~w(
     srql_change
     srql_submit
+    srql_reset
     srql_paginate
     srql_builder_toggle
     srql_builder_change
@@ -31,6 +32,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents do
     open_import_modal
     close_import_modal
     validate_csv
+    set_import_partition
     preview_csv
     import_csv
     validate_device

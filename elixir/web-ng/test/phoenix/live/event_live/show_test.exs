@@ -25,7 +25,14 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
       end
     end)
 
-    user = operator_user_fixture()
+    user =
+      then(operator_user_fixture(), fn user ->
+        Ash.update!(user, %{timezone: "America/Chicago"},
+          action: :update_timezone_preference,
+          actor: user
+        )
+      end)
+
     conn = log_in_user(conn, user)
 
     %{conn: conn}
@@ -43,6 +50,61 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     assert html =~ device.hostname
     assert html =~ "qemu:116"
     assert html =~ @device_uid
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "renders the event instant semantically in the authenticated timezone", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/events/#{@event_id}")
+
+    assert has_element?(
+             lv,
+             ~s(time#event-detail-time[datetime="2026-07-04T12:00:00Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    assert has_element?(
+             lv,
+             ~s(#event-stream time[datetime="2026-07-04T12:00:00Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    assert has_element?(
+             lv,
+             ~s(time#event-additional-updated-at-time[datetime="2026-07-04T12:30:00Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    for {key, instant} <- [
+          event_time: "2026-07-04T12:01:00Z",
+          observed_at: "2026-07-04T12:02:00Z",
+          created_at: "2026-07-04T12:03:00Z",
+          expires_at: "2026-07-04T12:04:00Z",
+          timestamp: "2026-07-04T12:07:00Z"
+        ] do
+      id = key |> to_string() |> String.replace("_", "-")
+
+      assert has_element?(
+               lv,
+               ~s(time#event-context-#{id}-time[datetime="#{instant}"][data-user-time-zone="America/Chicago"])
+             )
+    end
+
+    assert has_element?(
+             lv,
+             ~s(time#event-signal-display-widget-3-field-1-time[datetime="2026-07-04T12:05:00Z"][data-user-time-zone="America/Chicago"])
+           )
+
+    refute has_element?(lv, "#event-context-note-time")
+    refute has_element?(lv, "time#event-context-logged-time-time")
+    assert render(lv) =~ "2026-07-04T12:06:30"
+    refute render(lv) =~ "2026-07-04T12:06:30Z"
+  end
+
+  @tag :web_ng_shared_fixture_db
+  test "renders projected exhaustion semantically in the authenticated timezone", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/events/capacity-forecast-1")
+
+    assert has_element?(
+             lv,
+             ~s(time#event-projected-exhaustion-time[datetime="2026-08-30T18:45:00Z"][data-user-time-zone="America/Chicago"])
+           )
   end
 
   test "still links by uid when the device cannot be resolved", %{conn: conn} do
@@ -108,6 +170,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
         String.contains?(query, "in:events") and String.contains?(query, "snmp-anomaly-1") ->
           {:ok, %{"results" => [snmp_anomaly_event()], "pagination" => %{}, "error" => nil}}
 
+        String.contains?(query, "in:events") and String.contains?(query, "capacity-forecast-1") ->
+          {:ok, %{"results" => [capacity_forecast_event()], "pagination" => %{}, "error" => nil}}
+
         String.contains?(query, "in:events") ->
           {:ok, %{"results" => [proxmox_event()], "pagination" => %{}, "error" => nil}}
 
@@ -126,9 +191,30 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
       %{
         "id" => "00000000-0000-0000-0000-0000000009a1",
         "time" => "2026-07-04T12:00:00Z",
+        "updated_at" => "2026-07-04T12:30:00Z",
         "severity" => "Critical",
         "log_provider" => "serviceradar-plugin",
         "message" => "Proxmox guest memory bottleneck 95%",
+        "raw_data" => %{
+          "event_time" => "2026-07-04T12:01:00Z",
+          "observed_at" => "2026-07-04T12:02:00Z",
+          "created_at" => "2026-07-04T12:03:00Z",
+          "expires_at" => "2026-07-04T12:04:00Z",
+          "timestamp" => "2026-07-04T12:07:00Z",
+          "logged_time" => "2026-07-04T12:06:30",
+          "note" => "2026-07-04T12:06:00Z"
+        },
+        "metadata" => %{
+          "logged_time" => "2026-07-04T12:05:00Z",
+          "service_radar" => %{
+            "signal_schema" => %{
+              "producer_id" => "proxmox-inventory",
+              "producer_version" => "0.1.1",
+              "schema_id" => "com.carverauto.proxmox.resource_event",
+              "schema_version" => "1.0.0"
+            }
+          }
+        },
         "unmapped" => %{
           "condition_key" => "proxmox:guest_memory:#{@device_uid}:qemu:116"
         }
@@ -182,6 +268,25 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
           "finding_info" => %{
             "title" => "SNMP interface rate anomaly",
             "uid" => "finding-snmp-1"
+          }
+        }
+      }
+    end
+
+    defp capacity_forecast_event do
+      %{
+        "id" => "capacity-forecast-1",
+        "time" => "2026-08-30T18:00:00Z",
+        "severity" => "High",
+        "log_provider" => "capacity_forecasting",
+        "message" => "Disk capacity forecast",
+        "unmapped" => %{
+          "event_type" => "capacity_forecast",
+          "capacity_forecast" => %{
+            "resource_label" => "disk /data",
+            "metric_name" => "disk_used_percent",
+            "status" => "projected",
+            "projected_exhaustion_at" => "2026-08-30T18:45:00Z"
           }
         }
       }

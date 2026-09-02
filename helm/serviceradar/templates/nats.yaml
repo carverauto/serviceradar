@@ -11,6 +11,10 @@
 {{- $replicas := int (default 1 $nats.replicas) -}}
 {{- $clusterName := default "serviceradar" $nats.clusterName -}}
 {{- $kvBucket := default "serviceradar-datasvc" .Values.kv.bucket -}}
+{{- $flowCollector := default (dict) .Values.flowCollector -}}
+{{- $flowCollectorConfig := default (dict) $flowCollector.config -}}
+{{- $flowTemplateStore := default (dict) $flowCollectorConfig.template_store -}}
+{{- $flowTemplateBucket := default "flow_templates" $flowTemplateStore.kv_bucket -}}
 {{- $datasvc := default (dict) .Values.datasvc -}}
 {{- $objectBucket := default "serviceradar-objects" $datasvc.objectBucket -}}
 {{- $webNg := default (dict) .Values.webNg -}}
@@ -388,10 +392,10 @@ spec:
                 user: "CN=serviceradar-flow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["flows.raw.>", "flow.host-slice.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                    allow: ["flows.raw.>", "flow.host-slice.>", "\$KV.{{ $flowTemplateBucket }}.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
                   }
                   subscribe: {
-                    allow: ["\$JS.API.>", "_INBOX.>"]
+                    allow: ["\$KV.{{ $flowTemplateBucket }}.>", "\$JS.API.>", "_INBOX.>"]
                   }
                 }
               },
@@ -399,10 +403,10 @@ spec:
                 user: "CN=serviceradar-netflow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["flows.raw.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
+                    allow: ["flows.raw.>", "\$KV.{{ $flowTemplateBucket }}.>", "\$JS.API.STREAM.INFO.events", "\$JS.API.STREAM.CREATE.events", "\$JS.API.>"]
                   }
                   subscribe: {
-                    allow: ["\$JS.API.>", "_INBOX.>"]
+                    allow: ["\$KV.{{ $flowTemplateBucket }}.>", "\$JS.API.>", "_INBOX.>"]
                   }
                 }
               },

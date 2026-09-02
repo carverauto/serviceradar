@@ -30,10 +30,10 @@ ctx/
 .local-dev-certs/
 docker/compose/creds/
 
-# Added by me
+# Local unpublished overlays (never commit)
 /k8s/robusta/generated_values.yaml
-/values-example.yaml
-/helm/serviceradar/values-example.yaml
+/values-*.yaml
+/helm/serviceradar/values-local.yaml
 
 # crypto
 jwks.json
@@ -85,6 +85,19 @@ build/Release
 # Dependency directories
 node_modules/
 jspm_packages/
+
+# Root-level npm scaffolding, not project code. Agent tooling (e.g.
+# `npm i @anthropic-ai/claude-agent-sdk`) run from the repo root leaves a
+# package.json/package-lock.json here that belongs to nothing in the build.
+#
+# ROOT-ANCHORED ON PURPOSE. There are a dozen tracked package.json /
+# package-lock.json files under docs/, elixir/web-ng/assets/, js/cli/ and
+# js/create-dashboard/, and one of them is a declared Bazel input
+# (npm_translate_lock resolves @web_ng_npm from it -- see the pnpm-lock note
+# below). An unanchored `package.json` would match every one of those. The
+# leading slash keeps this to the repo root only.
+/package.json
+/package-lock.json
 
 # TypeScript cache
 *.tsbuildinfo
@@ -284,6 +297,7 @@ pkg/cpufreq/hostfreq_darwin_embed.o
 .local-dev-certs/
 .playwright-cli/
 tmp/fieldsurvey-local/
+tmp/hpna-local/
 
 # Local review documents (not for upstream)
 pr-host-net-viz-*.md

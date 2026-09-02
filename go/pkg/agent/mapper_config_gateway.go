@@ -52,6 +52,7 @@ type mapperCredSpec struct {
 	Version               string   `json:"version"`
 	Community             string   `json:"community"`
 	Username              string   `json:"username"`
+	SecurityLevel         string   `json:"security_level"`
 	AuthProtocol          string   `json:"auth_protocol"`
 	AuthPassword          string   `json:"auth_password"`
 	PrivacyProtocol       string   `json:"privacy_protocol"`
@@ -318,6 +319,7 @@ func parseMapperJobCreds(job mapperJobSpec, log logger.Logger) mapper.SNMPCreden
 		Version:               mapper.SNMPVersion(parsed.Version),
 		Community:             parsed.Community,
 		Username:              parsed.Username,
+		SecurityLevel:         parsed.SecurityLevel,
 		AuthProtocol:          parsed.AuthProtocol,
 		AuthPassword:          parsed.AuthPassword,
 		PrivacyProtocol:       parsed.PrivacyProtocol,

@@ -147,9 +147,33 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
                       <% end %>
                       <td>{session.client_id}</td>
                       <td class="font-mono text-xs">{session.scope}</td>
-                      <td>{format_timestamp(session.issued_at)}</td>
-                      <td>{format_timestamp(session.last_used_at)}</td>
-                      <td>{format_timestamp(session.expires_at)}</td>
+                      <td>
+                        <.user_time
+                          id={"settings-cli-session-#{session.jti}-issued-at"}
+                          value={session.issued_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                          fallback="—"
+                        />
+                      </td>
+                      <td>
+                        <.user_time
+                          id={"settings-cli-session-#{session.jti}-last-used-at"}
+                          value={session.last_used_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                          fallback="—"
+                        />
+                      </td>
+                      <td>
+                        <.user_time
+                          id={"settings-cli-session-#{session.jti}-expires-at"}
+                          value={session.expires_at}
+                          timezone={@current_scope.user.timezone || "Etc/UTC"}
+                          style={:compact}
+                          fallback="—"
+                        />
+                      </td>
                       <td>
                         <.ui_badge size="sm" variant={status_badge_variant(session.status)}>
                           {Atom.to_string(session.status)}
@@ -262,14 +286,6 @@ defmodule ServiceRadarWebNGWeb.Settings.CliSessionsLive do
         false
     end
   end
-
-  defp format_timestamp(nil), do: "—"
-
-  defp format_timestamp(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M UTC")
-  end
-
-  defp format_timestamp(_), do: "—"
 
   defp status_badge_variant(:active), do: "success"
   defp status_badge_variant(:revoked), do: "error"

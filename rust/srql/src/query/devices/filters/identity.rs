@@ -7,23 +7,58 @@ use crate::{
 use diesel::{
     dsl::sql,
     prelude::*,
-    sql_types::{Bool, Text},
+    sql_types::{Array, Bool, Text},
 };
 
 pub(super) fn apply_device_type_filter<'a>(
     query: DeviceQuery<'a>,
     filter: &Filter,
 ) -> Result<DeviceQuery<'a>> {
-    let value = filter.value.as_scalar()?.to_string();
+    // Empty/blank type is the same "Unknown" bucket the inventory chips use, so
+    // `type:Unknown` and `type:%rids%` see the same normalized value.
     let expr = "COALESCE(NULLIF(trim(\"ocsf_devices\".\"type\"), ''), 'Unknown')";
 
     match filter.op {
-        FilterOp::Eq => Ok(query.filter(sql::<Bool>(&format!("{expr} = ")).bind::<Text, _>(value))),
+        FilterOp::Eq => {
+            let value = filter.value.as_scalar()?.to_string();
+            Ok(query.filter(sql::<Bool>(&format!("{expr} = ")).bind::<Text, _>(value)))
+        }
         FilterOp::NotEq => {
+            let value = filter.value.as_scalar()?.to_string();
             Ok(query.filter(sql::<Bool>(&format!("{expr} <> ")).bind::<Text, _>(value)))
         }
+        FilterOp::Like => {
+            let value = filter.value.as_scalar()?.to_string();
+            Ok(query.filter(sql::<Bool>(&format!("{expr} ILIKE ")).bind::<Text, _>(value)))
+        }
+        FilterOp::NotLike => {
+            let value = filter.value.as_scalar()?.to_string();
+            Ok(query.filter(sql::<Bool>(&format!("{expr} NOT ILIKE ")).bind::<Text, _>(value)))
+        }
+        FilterOp::In => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            Ok(query.filter(
+                sql::<Bool>(&format!("{expr} = ANY("))
+                    .bind::<Array<Text>, _>(values)
+                    .sql(")"),
+            ))
+        }
+        FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            Ok(query.filter(
+                sql::<Bool>(&format!("NOT ({expr} = ANY("))
+                    .bind::<Array<Text>, _>(values)
+                    .sql("))"),
+            ))
+        }
         _ => Err(ServiceError::InvalidRequest(
-            "device_type filter only supports equality".into(),
+            "device_type filter only supports equality, LIKE, and list filters".into(),
         )),
     }
 }

@@ -37,7 +37,7 @@ defmodule ServiceRadar.Dashboards.PackageImportTest do
                source_type: :git,
                source_repo_url: "git@example.com:customer/dashboards.git",
                source_ref: "main",
-               source_manifest_path: "united/dashboard.json",
+               source_manifest_path: "dashboards/dashboard.json",
                source_commit: "abc123",
                signature: %{"kind" => "cosign"},
                verification_status: "verified"

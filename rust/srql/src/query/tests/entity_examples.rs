@@ -718,3 +718,116 @@ fn composite_results_rejects_an_unsupported_filter_field() {
         "composite results should not accept device fields"
     );
 }
+
+#[test]
+fn composite_results_stats_groups_by_check_and_verdict() {
+    // Unquoted stats tokens cannot contain spaces. Comma-separated group
+    // fields are `by check,verdict`; quote the expression to write them
+    // with spaces (`stats:"count() as n by check, verdict"`).
+    let plan = plan_for("in:composite_results stats:count() as n by check,verdict");
+    let (sql, params) =
+        composite_results::to_sql_and_params(&plan).expect("should build composite results stats");
+    let lower = sql.to_lowercase();
+
+    assert!(lower.contains("group by"), "expected GROUP BY, got: {sql}");
+    assert!(
+        lower.contains("jsonb_build_object"),
+        "expected jsonb_build_object payload, got: {sql}"
+    );
+    assert!(
+        sql.contains("'check'") && sql.contains("composite_checks.slug"),
+        "expected check to alias composite_checks.slug, got: {sql}"
+    );
+    assert!(
+        !lower.contains("as check_slug"),
+        "stats payload must use the 'check' key, not check_slug, got: {sql}"
+    );
+    assert!(
+        !lower.contains("device_uid"),
+        "stats query must not select row columns, got: {sql}"
+    );
+    assert!(
+        params.is_empty(),
+        "unfiltered stats should have no binds, got {params:?}"
+    );
+}
+
+#[test]
+fn composite_results_stats_filter_then_group() {
+    let plan = plan_for("in:composite_results check:pci-isolation stats:count() as n by verdict");
+    let (sql, params) =
+        composite_results::to_sql_and_params(&plan).expect("should build filtered stats");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("composite_checks.slug = $1") || lower.contains("composite_checks.slug = ?"),
+        "expected slug filter bind, got: {sql}"
+    );
+    assert_eq!(params.len(), 1);
+    assert!(
+        lower.contains("group by device_composite_check_results.verdict"),
+        "expected group by verdict, got: {sql}"
+    );
+}
+
+#[test]
+fn composite_results_stats_unnests_inputs_for_vantage_rollups() {
+    let plan = plan_for(
+        r#"in:composite_results check:pci-isolation stats:"count() as n by input_key, input_value, input_stale""#,
+    );
+    let (sql, _params) =
+        composite_results::to_sql_and_params(&plan).expect("should build vantage stats");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("jsonb_each"),
+        "expected jsonb_each unnest, got: {sql}"
+    );
+    assert!(
+        lower.contains("input.key") && lower.contains("input.value->>'value'"),
+        "expected input key/value projections, got: {sql}"
+    );
+    assert!(
+        lower.contains("input_stale") || sql.contains("'input_stale'"),
+        "expected input_stale in the payload, got: {sql}"
+    );
+}
+
+#[test]
+fn composite_results_stats_without_by_counts_the_matching_set() {
+    let plan = plan_for("in:composite_results check:pci-isolation stats:count() as n");
+    let (sql, _params) =
+        composite_results::to_sql_and_params(&plan).expect("should build ungrouped count");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        !lower.contains("group by"),
+        "ungrouped count must not GROUP BY, got: {sql}"
+    );
+    assert!(
+        sql.contains("'n'"),
+        "expected alias n in the payload, got: {sql}"
+    );
+}
+
+#[test]
+fn composite_results_stats_rejects_unsupported_group_field() {
+    let plan = plan_for("in:composite_results stats:count() as n by hostname");
+    let err = composite_results::to_sql_and_params(&plan)
+        .expect_err("hostname is not a composite_results stats group field");
+    assert!(
+        err.to_string().contains("hostname"),
+        "error should name the field, got: {err}"
+    );
+}
+
+#[test]
+fn composite_results_stats_rejects_unsupported_aggregation() {
+    let plan = plan_for("in:composite_results stats:sum(bytes) as n by verdict");
+    let err = composite_results::to_sql_and_params(&plan)
+        .expect_err("sum() is not supported on composite_results");
+    assert!(
+        err.to_string().contains("count()"),
+        "error should say only count() is supported, got: {err}"
+    );
+}

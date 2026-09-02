@@ -60,6 +60,39 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
     refute Map.has_key?(attrs, :secret_payload)
   end
 
+  test "issue_attrs derives secret id from a canonical stored reference" do
+    attrs =
+      CredentialBrokerGrant.issue_attrs(%{
+        secret_ref: "credentialref:network-credential-secret:#{@secret_id}",
+        grant_type: "producer_schedule_credential",
+        consumer_kind: :plugin,
+        purpose: "device_inventory"
+      })
+
+    assert attrs.secret_id == @secret_id
+    assert attrs.secret_ref == "credentialref:network-credential-secret:#{@secret_id}"
+
+    unrelated =
+      CredentialBrokerGrant.issue_attrs(%{
+        secret_ref: "credentialref:example:service-account",
+        grant_type: "producer_schedule_credential",
+        consumer_kind: :plugin,
+        purpose: "device_inventory"
+      })
+
+    refute Map.has_key?(unrelated, :secret_id)
+
+    malformed =
+      CredentialBrokerGrant.issue_attrs(%{
+        secret_ref: "credentialref:network-credential-secret:not-a-uuid",
+        grant_type: "producer_schedule_credential",
+        consumer_kind: :plugin,
+        purpose: "device_inventory"
+      })
+
+    refute Map.has_key?(malformed, :secret_id)
+  end
+
   test "payload preserves existing wire contract while adding scope" do
     payload =
       CredentialBrokerGrant.to_payload(%{

@@ -5,7 +5,18 @@ import {
   layoutTopologyScene,
   viewportProfileForSize,
 } from "./layout_elk_scene"
+import {
+  applyTopologyOverviewToGraph,
+  layoutTopologyOverview,
+} from "./layout_elk_radial_overview"
+import {prepareTopologyOverviewInput} from "./topology_overview_projection"
 import {prepareTopologySceneInput} from "./topology_scene_graph"
+import {
+  hasManagedTopologyScene,
+  TOPOLOGY_DETAIL_MODE,
+  TOPOLOGY_OVERVIEW_MODE,
+  topologySemanticLevel,
+} from "./topology_layout_mode"
 import {topologyRelationId} from "./topology_relation_identity"
 
 let defaultLayoutEngine = null
@@ -13,6 +24,7 @@ const MAX_LAYOUT_CACHE_ENTRIES = 12
 const LAYOUT_WIDTH = 640
 const LAYOUT_HEIGHT = 320
 const LAYOUT_PAD = 20
+const RADIAL_OVERVIEW_PROFILE = Object.freeze({key: "radial-overview"})
 
 function getDefaultLayoutEngine() {
   if (!defaultLayoutEngine) defaultLayoutEngine = new ELK()
@@ -101,6 +113,35 @@ function immutableTopologyScene(value) {
   return Object.freeze(value)
 }
 
+function cloneTopologyValue(value) {
+  if (Array.isArray(value)) return value.map(cloneTopologyValue)
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, child]) => [key, cloneTopologyValue(child)]),
+    )
+  }
+  return value
+}
+
+function overviewGeometryGraphKey(input) {
+  const nodes = (input?.nodes || [])
+    .map((node) => ({id: node.id, synthetic: node.synthetic === true}))
+    .sort((left, right) => left.id.localeCompare(right.id))
+  const treeRelations = (input?.treeRelations || [])
+    .map((relation) => ({
+      id: relation.id,
+      sourceId: relation.sourceId,
+      targetId: relation.targetId,
+      synthetic: relation.synthetic === true,
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id))
+  return JSON.stringify({
+    nodes,
+    roots: [...(input?.roots || [])].sort((left, right) => left.localeCompare(right)),
+    treeRelations,
+  })
+}
+
 function topologySceneGeometry(scene) {
   if (!scene || typeof scene !== "object") return null
   return {
@@ -152,7 +193,7 @@ function topologySceneGeometry(scene) {
   }
 }
 
-function topologySceneFromGeometry(sceneInput, profile, geometry) {
+function detailTopologySceneFromGeometry(sceneInput, profile, geometry) {
   if (!geometry || typeof geometry !== "object") return null
 
   const nodeGeometry = new Map((geometry.nodes || []).map((node) => [node.id, node]))
@@ -239,6 +280,103 @@ function topologySceneFromGeometry(sceneInput, profile, geometry) {
   })
 }
 
+function overviewTopologySceneFromGeometry(sceneInput, profile, geometry) {
+  if (!geometry || typeof geometry !== "object") return null
+
+  const syntheticNodeIds = new Set(sceneInput?.synthetic?.nodeIds || [])
+  const syntheticRelationIds = new Set(sceneInput?.synthetic?.relationIds || [])
+  const currentNodes = (sceneInput?.nodes || [])
+    .filter((node) => !node?.synthetic && !syntheticNodeIds.has(node?.id))
+    .sort((left, right) => left.id.localeCompare(right.id))
+  const currentRoutes = (sceneInput?.treeRelations || [])
+    .filter((route) => !route?.synthetic && !syntheticRelationIds.has(route?.id))
+    .sort((left, right) => left.id.localeCompare(right.id))
+  const nodeGeometry = new Map((geometry.nodes || []).map((node) => [node.id, node]))
+  const routeGeometry = new Map((geometry.routes || []).map((route) => [route.id, route]))
+  if (nodeGeometry.size !== currentNodes.length || routeGeometry.size !== currentRoutes.length) return null
+
+  const nodes = currentNodes.map((node) => {
+    const cached = nodeGeometry.get(node.id)
+    if (!cached) return null
+    return {
+      id: node.id,
+      center: cached.center,
+      width: cached.width,
+      height: cached.height,
+      groupId: null,
+      render: true,
+      label: node.label || node.id,
+      role: node.role,
+      type: node.type,
+    }
+  })
+  const routes = currentRoutes.map((route) => {
+    const cached = routeGeometry.get(route.id)
+    if (!cached) return null
+    return {
+      id: route.id,
+      sourceId: route.sourceId,
+      targetId: route.targetId,
+      relationIds: cloneTopologyValue(route.semanticRelationIds || []),
+      semanticRelationIds: cloneTopologyValue(route.semanticRelationIds || []),
+      evidence: cloneTopologyValue(route.evidence || []),
+      pairId: route.pairId,
+      points: cached.points,
+    }
+  })
+  if (nodes.includes(null) || routes.includes(null)) return null
+
+  return immutableTopologyScene({
+    nodes,
+    groups: [],
+    routes,
+    physicalRoutes: routes,
+    manifolds: [],
+    crossLinks: cloneTopologyValue(sceneInput?.crossLinks || []),
+    bounds: geometry.bounds,
+    key: `${sceneInput.graphKey}:${profile.key}`,
+    graphKey: sceneInput.graphKey,
+    profileKey: profile.key,
+    manifest: cloneTopologyValue(sceneInput?.manifest || {}),
+  })
+}
+
+function topologySceneFromGeometry(sceneInput, profile, geometry, semanticLevel) {
+  return semanticLevel === "detail"
+    ? detailTopologySceneFromGeometry(sceneInput, profile, geometry)
+    : overviewTopologySceneFromGeometry(sceneInput, profile, geometry)
+}
+
+function topologyLayoutAdapter(graph, state) {
+  const semanticLevel = topologySemanticLevel(graph)
+  if (semanticLevel === "detail") {
+    const profile = viewportProfileForSize(
+      state.viewportWidth,
+      state.viewportHeight,
+      state.viewportSafeInsets,
+    )
+    return {
+      semanticLevel,
+      mode: TOPOLOGY_DETAIL_MODE,
+      errorMode: `${TOPOLOGY_DETAIL_MODE}-error`,
+      input: prepareTopologySceneInput(graph),
+      profile,
+      apply: applyTopologySceneToGraph,
+      layout: (input, engine) => layoutTopologyScene(input, {engine, profile}),
+    }
+  }
+
+  return {
+    semanticLevel,
+    mode: TOPOLOGY_OVERVIEW_MODE,
+    errorMode: `${TOPOLOGY_OVERVIEW_MODE}-error`,
+    input: prepareTopologyOverviewInput(graph),
+    profile: RADIAL_OVERVIEW_PROFILE,
+    apply: applyTopologyOverviewToGraph,
+    layout: (input, engine) => layoutTopologyOverview(input, engine),
+  }
+}
+
 function stripCoordinates(graph) {
   const {
     _topologyScene,
@@ -284,28 +422,34 @@ export const godViewLayoutTopologyStateMethods = {
     if (!graph || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) return graph
 
     const deduped = this.dedupeGraphById(graph)
-    const sceneInput = prepareTopologySceneInput(deduped)
-    const profile = viewportProfileForSize(
-      state.viewportWidth,
-      state.viewportHeight,
-      state.viewportSafeInsets,
+    const adapter = topologyLayoutAdapter(deduped, state)
+    const {input: sceneInput, profile, semanticLevel} = adapter
+    const cacheGraphKey = semanticLevel === "overview"
+      ? overviewGeometryGraphKey(sceneInput)
+      : sceneInput.graphKey
+    const layoutKey = this.graphLayoutCacheKey(
+      sceneInput,
+      profile,
+      semanticLevel,
+      cacheGraphKey,
     )
-    const layoutKey = this.graphLayoutCacheKey(sceneInput, profile)
     const cachedGeometry = this.getCachedGraphLayout(layoutKey)
-    const cachedScene = topologySceneFromGeometry(sceneInput, profile, cachedGeometry)
+    const cachedScene = topologySceneFromGeometry(sceneInput, profile, cachedGeometry, semanticLevel)
 
     if (cachedScene) {
       const cachedGraph = {
-        ...applyTopologySceneToGraph(stripCoordinates(deduped), cachedScene),
+        ...adapter.apply(stripCoordinates(deduped), cachedScene),
         _layoutRevision: revision,
         _layoutCacheKey: layoutKey,
       }
-      if (commit) {
-        state.layoutMode = cachedGraph._layoutMode
-        state.layoutRevision = revision
-        state.lastLayoutKey = layoutKey
+      if (hasManagedTopologyScene(cachedGraph)) {
+        if (commit) {
+          state.layoutMode = cachedGraph._layoutMode
+          state.layoutRevision = revision
+          state.lastLayoutKey = layoutKey
+        }
+        return cachedGraph
       }
-      return cachedGraph
     }
 
     const finalGraph = await this.computeClientTopologyLayout(
@@ -314,6 +458,7 @@ export const godViewLayoutTopologyStateMethods = {
       layoutKey,
       profile,
       revision,
+      adapter,
     )
 
     if (finalGraph._topologyScene && !finalGraph._layoutError) {
@@ -327,8 +472,8 @@ export const godViewLayoutTopologyStateMethods = {
     return finalGraph
   },
 
-  graphLayoutCacheKey(sceneInput, profile) {
-    return `${sceneInput.graphKey}:${profile.key}`
+  graphLayoutCacheKey(sceneInput, profile, semanticLevel, graphKey = sceneInput.graphKey) {
+    return `${semanticLevel}:${profile.key}:${graphKey}`
   },
 
   getCachedGraphLayout(layoutKey) {
@@ -348,12 +493,12 @@ export const godViewLayoutTopologyStateMethods = {
     }
   },
 
-  async computeClientTopologyLayout(graph, sceneInput, layoutKey, profile, revision) {
+  async computeClientTopologyLayout(graph, sceneInput, layoutKey, profile, revision, adapter) {
     try {
       const engine = this.state.layoutEngine || getDefaultLayoutEngine()
-      const scene = immutableTopologyScene(await layoutTopologyScene(sceneInput, {engine, profile}))
+      const scene = immutableTopologyScene(await adapter.layout(sceneInput, engine))
       return {
-        ...applyTopologySceneToGraph(stripCoordinates(graph), scene),
+        ...adapter.apply(stripCoordinates(graph), scene),
         _layoutRevision: revision,
         _layoutCacheKey: layoutKey,
       }
@@ -361,24 +506,33 @@ export const godViewLayoutTopologyStateMethods = {
       const diagnostic = layoutErrorMessage(error)
       const previousGraph = this.state.lastGraph
       const compatible =
-        previousGraph?._layoutCacheKey === layoutKey && previousGraph?._topologyScene
+        previousGraph?._layoutCacheKey === layoutKey &&
+        previousGraph?._layoutMode === adapter.mode &&
+        topologySemanticLevel(previousGraph) === adapter.semanticLevel &&
+        hasManagedTopologyScene(previousGraph)
       const previousGeometry = compatible
         ? topologySceneGeometry(previousGraph._topologyScene)
         : null
-      const recoveredScene = topologySceneFromGeometry(sceneInput, profile, previousGeometry)
+      const recoveredScene = topologySceneFromGeometry(
+        sceneInput,
+        profile,
+        previousGeometry,
+        adapter.semanticLevel,
+      )
 
       if (recoveredScene) {
-        return {
-          ...applyTopologySceneToGraph(stripCoordinates(graph), recoveredScene),
+        const recoveredGraph = {
+          ...adapter.apply(stripCoordinates(graph), recoveredScene),
           _layoutRevision: revision,
           _layoutCacheKey: layoutKey,
           _layoutError: diagnostic,
         }
+        if (hasManagedTopologyScene(recoveredGraph)) return recoveredGraph
       }
 
       return {
         ...stripCoordinates(graph),
-        _layoutMode: "elk-scene-error",
+        _layoutMode: adapter.errorMode,
         _layoutRevision: revision,
         _layoutCacheKey: layoutKey,
         _layoutError: diagnostic,

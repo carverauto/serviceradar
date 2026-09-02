@@ -1,6 +1,8 @@
 defmodule ServiceRadar.TestSupport.CredentialIntegrationFixtures do
   @moduledoc false
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Plugins.Manifest
 
   @plugins_root Path.expand("../../../../go/cmd/wasm-plugins", __DIR__)
@@ -17,6 +19,42 @@ defmodule ServiceRadar.TestSupport.CredentialIntegrationFixtures do
       profile -> profile
     end
   end
+
+  @doc """
+  Creates a real `network_credential_secrets` row and returns it.
+
+  Anything with a foreign key onto that table -- `ansible_controllers` and its
+  sync/execution/callback columns, credential broker grants -- needs a row that
+  actually exists. Seeding a generated UUID used to work only because nothing
+  enforced the reference; it now fails with a foreign key violation, which is
+  the constraint doing its job rather than a test to work around.
+  """
+  @spec secret!(keyword()) :: struct()
+  def secret!(opts \\ []) do
+    unique = System.unique_integer([:positive])
+    actor = Keyword.get(opts, :actor) || SystemActor.system(:credential_integration_fixtures)
+
+    {:ok, secret} =
+      NetworkCredentialSecret.create_secret(
+        %{
+          name: Keyword.get(opts, :name, "fixture-secret-#{unique}"),
+          provider: Keyword.get(opts, :provider, "test"),
+          credential_kind: Keyword.get(opts, :credential_kind, :api_token),
+          source_type: :internal_encrypted,
+          secret_payload: Keyword.get(opts, :secret_payload, "token-#{unique}"),
+          metadata: %{"fixture" => "credential_integration_fixtures"}
+        },
+        actor: actor
+      )
+
+    secret
+  end
+
+  @doc """
+  The id of a freshly created secret, for callers that only need the reference.
+  """
+  @spec secret_id!(keyword()) :: String.t()
+  def secret_id!(opts \\ []), do: secret!(opts).id
 
   @spec catalog([map()]) :: map()
   def catalog(profiles), do: %{credential_profiles: profiles, inventory_sources: []}

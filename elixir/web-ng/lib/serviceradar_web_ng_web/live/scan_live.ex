@@ -346,6 +346,8 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
 
   @impl true
   def render(assigns) do
+    assigns = assign(assigns, :timezone, user_timezone(assigns[:current_scope]))
+
     ~H"""
     <div class="p-4 space-y-6 max-w-6xl mx-auto">
       <div>
@@ -535,7 +537,14 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
             </thead>
             <tbody>
               <tr :for={run <- @runs}>
-                <td>{format_time(run.inserted_at)}</td>
+                <td>
+                  <.user_time
+                    id={"scan-run-#{run.id}-started-at"}
+                    value={run.inserted_at}
+                    timezone={@timezone}
+                    style={:compact}
+                  />
+                </td>
                 <td class="font-mono">{run.agent_id}</td>
                 <td>{Enum.join(run.modes, ", ")}</td>
                 <td>{run.target_count}</td>
@@ -575,7 +584,7 @@ defmodule ServiceRadarWebNGWeb.ScanLive do
   defp format_ms(ms) when is_number(ms), do: :erlang.float_to_binary(ms / 1.0, decimals: 1)
   defp format_ms(_), do: "—"
 
-  defp format_time(nil), do: "—"
-  defp format_time(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  defp format_time(_), do: "—"
+  defp user_timezone(%{user: %{timezone: timezone}}) when is_binary(timezone) and timezone != "", do: timezone
+
+  defp user_timezone(_current_scope), do: "Etc/UTC"
 end

@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.EventWriter.Processors.FalcoEvents
   alias ServiceRadar.Plugins.DisplayContract
   alias ServiceRadarWebNG.Observability.SignalDisplay
 
@@ -9,6 +10,7 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
   @event %{
     "message" => "RPZ blocked suspicious.example",
     "severity" => "High",
+    "time" => "2027-06-08T12:00:00Z",
     "log_provider" => "ns03",
     "query" => %{"hostname" => "suspicious.example", "type" => "A"},
     "metadata" => %{
@@ -30,18 +32,29 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
     assert Enum.any?(widgets, &(&1.type == :facts))
     assert [%{type: :summary} = summary | _] = widgets
     assert summary.title == "suspicious.example"
+
+    timeline = Enum.find(widgets, &(&1.type == :timeline))
+    assert timeline.contract_index == 3
+
+    assert %{format: "timestamp"} = Enum.find(timeline.fields, &(&1.label == "Event Time"))
+
+    assert %{format: "unix_nano"} = Enum.find(timeline.fields, &(&1.label == "Observed"))
   end
 
-  test "renders current PowerDNS producer version" do
-    event =
-      put_in(
-        @event,
-        ["metadata", "service_radar", "signal_schema", "producer_version"],
-        "0.1.1"
-      )
+  test "renders legacy and current exact PowerDNS producer versions" do
+    for producer_version <- ["0.1.0", "0.1.1", "0.1.7"] do
+      event =
+        put_in(
+          @event,
+          ["metadata", "service_radar", "signal_schema", "producer_version"],
+          producer_version
+        )
 
-    assert {:ok, [%{type: :summary} = summary | _]} = SignalDisplay.render_record(event)
-    assert summary.title == "suspicious.example"
+      assert {:ok, contract, :built_in} = SignalDisplay.resolve_contract_with_source(event)
+      assert contract["version"] == "1.1.0"
+      assert {:ok, [%{type: :summary} = summary | _]} = SignalDisplay.render_record(event)
+      assert summary.title == "suspicious.example"
+    end
   end
 
   test "infers PowerDNS contract for legacy OCSF rows without signal schema" do
@@ -93,6 +106,62 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
              Enum.find(fact_fields, &(&1.label == "Policy Match"))
 
     assert %{value: "ns03"} = Enum.find(fact_fields, &(&1.label == "Server Identity"))
+  end
+
+  test "infers the baked Trivy contract revision" do
+    event = %{
+      "log_provider" => "trivy",
+      "log_name" => "trivy.report.vulnerability",
+      "metadata" => %{"report_kind" => "VulnerabilityReport"}
+    }
+
+    assert {:ok, contract, :built_in} = SignalDisplay.resolve_contract_with_source(event)
+    assert contract["id"] == "com.carverauto.trivy.vulnerability_report.display"
+    assert contract["version"] == "1.1.0"
+  end
+
+  test "infers the baked Falco contract revision" do
+    event = %{
+      "log_provider" => "falco",
+      "log_name" => "falco.runtime",
+      "metadata" => %{"security_signal" => %{"source" => "falco"}}
+    }
+
+    assert {:ok, contract, :built_in} = SignalDisplay.resolve_contract_with_source(event)
+    assert contract["id"] == "com.carverauto.falco.runtime_event.display"
+    assert contract["version"] == "1.1.0"
+  end
+
+  test "classifies Falco's producer fallback event time separately from its stored UTC time" do
+    payload = %{
+      "output" => "Unexpected connection to K8s API Server from container",
+      "priority" => "Warning",
+      "rule" => "Contact K8S API Server From Container",
+      "time" => "2026-03-03T05:56:44.079252771Z",
+      "output_fields" => %{"evt.type" => "connect"}
+    }
+
+    row =
+      FalcoEvents.parse_message(%{
+        data: Jason.encode!(payload),
+        metadata: %{subject: "falco.warning.contact_k8s"}
+      })
+
+    event = %{
+      "log_provider" => row.log_provider,
+      "log_name" => row.log_name,
+      "time" => DateTime.to_iso8601(row.time),
+      "metadata" => row.metadata
+    }
+
+    assert {:ok, widgets} = SignalDisplay.render_record(event)
+    timeline = Enum.find(widgets, &(&1.type == :timeline))
+
+    assert %{format: "unix_nano", value: "2026-03-03T05:56:44.079252771Z"} =
+             Enum.find(timeline.fields, &(&1.label == "Event Time"))
+
+    assert %{format: "timestamp", value: "2026-03-03T05:56:44.079252Z"} =
+             Enum.find(timeline.fields, &(&1.label == "Observed"))
   end
 
   test "resolves and renders built-in Wasm plugin contract" do

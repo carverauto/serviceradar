@@ -60,6 +60,152 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
     assert update["metadata"]["latitude"] == 10.0000
   end
 
+  test "lifts OpenText Network Automation os, hardware, owner, and managed flags onto the inventory update" do
+    parent = self()
+
+    payload = %{
+      "status" => "OK",
+      "summary" => "OpenText Network Automation inventory collected: 1 devices",
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "opentext-nom",
+          "collection_id" => "col-1",
+          "devices" => [
+            %{
+              "device_id" => "71061",
+              "hostname" => "SITE02-MDF001-CSW001",
+              "ip" => "10.7.84.1",
+              "serial" => "VN4BM3P0W5",
+              "vendor_name" => "Aruba",
+              "model" => "JL659A 6300M",
+              "type" => "Switch",
+              "status" => "Managed",
+              "is_available" => true,
+              "location" => %{"site_name" => "Example Production"},
+              "labels" => %{
+                "discovery_source" => "opentext-nom",
+                "inventory_source" => "opentext-nom"
+              },
+              "metadata" => %{
+                "integration_id" => "opentext-nom:v1:network-automation-prod:device:71061",
+                "integration_type" => "opentext-nom",
+                "is_managed" => true,
+                "os" => %{"name" => "ArubaOS-CX", "version" => "FL.10.13.1161"},
+                "hw_info" => %{
+                  "serial_number" => "VN4BM3P0W5",
+                  "chassis_serials" => ["VN4BM3P0W5", "VN4BM3P0X3"],
+                  "memory_bytes" => 7_973_057_331,
+                  "total_ports" => 120
+                },
+                "owner" => %{"name" => "Example NOC"},
+                "source_metadata" => %{"geographical_location" => "TPECS_MDF1"}
+              }
+            }
+          ]
+        }
+      ]
+    }
+
+    assert :ok =
+             DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
+               actor: :actor,
+               device_sync: fn updates, context ->
+                 send(parent, {:device_sync, updates, context})
+                 :ok
+               end
+             )
+
+    assert_receive {:device_sync, [update], %{actor: :actor}}
+    assert update["is_managed"] == true
+    assert update["os"]["name"] == "ArubaOS-CX"
+    assert update["os"]["version"] == "FL.10.13.1161"
+    assert update["hw_info"]["serial_number"] == "VN4BM3P0W5"
+    assert update["hw_info"]["chassis_serials"] == ["VN4BM3P0W5", "VN4BM3P0X3"]
+    assert update["hw_info"]["memory_bytes"] == 7_973_057_331
+    assert update["owner"]["name"] == "Example NOC"
+    assert update["tags"]["inventory_source"] == "opentext-nom"
+    assert update["metadata"]["os_name"] == "ArubaOS-CX"
+    assert update["metadata"]["geographical_location"] == "TPECS_MDF1"
+  end
+
+  test "forwards plugin facts without dropping source metadata" do
+    parent = self()
+
+    payload = %{
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "opentext-nom",
+          "metadata" => %{"source_instance" => "network-automation-prod"},
+          "devices" => [
+            %{
+              "hostname" => "kiosk-1",
+              "ip" => "10.100.159.26",
+              "mac" => "00:09:EC:02:83:7E",
+              "metadata" => %{
+                "facts" => %{
+                  "switch_port_attachment" => %{
+                    "switch_hostname" => "SITE01-IDFC08-ASW002",
+                    "port" => "3/1/28"
+                  }
+                },
+                "opentext_nom_access_switch" => "SITE01-IDFC08-ASW002:3/1/28"
+              }
+            }
+          ]
+        }
+      ]
+    }
+
+    assert :ok =
+             DeviceDiscoveryIngestor.ingest(payload, %{partition: "default"},
+               actor: :actor,
+               device_sync: fn updates, context ->
+                 send(parent, {:device_sync, updates, context})
+                 :ok
+               end
+             )
+
+    assert_receive {:device_sync, [update], %{actor: :actor}}
+    assert update["facts"]["switch_port_attachment"]["port"] == "3/1/28"
+    assert update["source_instance"] == "network-automation-prod"
+    assert update["metadata"]["opentext_nom_access_switch"] == "SITE01-IDFC08-ASW002:3/1/28"
+  end
+
+  test "preserves unmanaged HPNA devices as is_managed false" do
+    parent = self()
+
+    payload = %{
+      "device_discovery" => [
+        %{
+          "schema" => "serviceradar.device_discovery.v1",
+          "source" => "opentext-nom",
+          "devices" => [
+            %{
+              "hostname" => "inactive-sw",
+              "ip" => "10.0.0.2",
+              "status" => "Unmanaged",
+              "metadata" => %{"is_managed" => false, "integration_id" => "na:device:2"}
+            }
+          ]
+        }
+      ]
+    }
+
+    assert :ok =
+             DeviceDiscoveryIngestor.ingest(payload, %{},
+               actor: :actor,
+               device_sync: fn updates, _context ->
+                 send(parent, {:device_sync, updates})
+                 :ok
+               end
+             )
+
+    assert_receive {:device_sync, [update]}
+    assert update["is_managed"] == false
+  end
+
   describe "integration_id minting" do
     defp ingest_device(device) do
       parent = self()

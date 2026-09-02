@@ -8,34 +8,87 @@ defmodule ServiceRadar.Identity.RoleMapping do
 
   @default_role :viewer
 
+  @typedoc """
+  Everything a claim set resolves to.
+
+  `matched` is kept so an operator can be shown *why* a user has the access they
+  have -- the previous resolver returned a bare role atom, which made that
+  unanswerable.
+  """
+  @type resolution :: %{
+          role: atom(),
+          role_profile_ids: [String.t()],
+          user_group_ids: [String.t()],
+          matched: [map()]
+        }
+
   @doc """
   Resolve a role from IdP claims using stored mappings.
 
-  Accepts an opts keyword list forwarded to Ash reads (actor/scope).
+  Kept for callers that only want the role. `resolve/2` carries the rest.
   """
   def resolve_role(claims, opts \\ []) when is_map(claims) do
+    resolve(claims, opts).role
+  end
+
+  @doc """
+  Resolve every grant that `claims` matches.
+
+  **Every** matching mapping contributes, not just the first. The previous
+  implementation used `Enum.find_value/2`, so a user in three mapped groups got
+  whichever mapping happened to be listed first, and reordering the list
+  silently changed who could do what. Profiles and groups union; the role is the
+  highest-privilege one matched, by `RoleMappingSupport.role_rank/1` rather than
+  by atom comparison, which would sort :admin below :helpdesk.
+
+  Falls back to the configured default role when nothing matches.
+  """
+  @spec resolve(map(), keyword()) :: resolution()
+  def resolve(claims, opts \\ []) when is_map(claims) do
     case AuthorizationSettings.get_settings(opts) do
-      {:ok, nil} -> @default_role
+      {:ok, nil} -> empty_resolution(@default_role)
       {:ok, settings} -> resolve_from_settings(settings, claims)
-      {:error, _} -> @default_role
+      {:error, _reason} -> empty_resolution(@default_role)
     end
   end
 
+  defp empty_resolution(role) do
+    %{role: role, role_profile_ids: [], user_group_ids: [], matched: []}
+  end
+
   defp resolve_from_settings(settings, claims) do
-    mapping_role = match_mappings(settings.role_mappings || [], claims)
-    mapping_role || settings.default_role || @default_role
+    matched = match_mappings(settings.role_mappings || [], claims)
+    default_role = settings.default_role || @default_role
+
+    role =
+      matched
+      |> Enum.map(&RoleMappingSupport.normalize_role(RoleMappingSupport.get_key(&1, "role")))
+      |> RoleMappingSupport.highest_role()
+
+    %{
+      role: role || default_role,
+      role_profile_ids: grant_ids(matched, "role_profile_id"),
+      user_group_ids: grant_ids(matched, "user_group_id"),
+      matched: matched
+    }
+  end
+
+  defp grant_ids(matched, key) do
+    matched
+    |> Enum.map(&RoleMappingSupport.presence(RoleMappingSupport.get_key(&1, key)))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
   end
 
   defp match_mappings(mappings, claims) do
-    Enum.find_value(mappings, fn mapping ->
+    Enum.filter(mappings, fn mapping ->
       source = normalize_value(RoleMappingSupport.get_key(mapping, "source"))
       value = normalize_value(RoleMappingSupport.get_key(mapping, "value"))
-      role = RoleMappingSupport.normalize_role(RoleMappingSupport.get_key(mapping, "role"))
       claim_key = normalize_value(RoleMappingSupport.get_key(mapping, "claim"))
 
-      if role && value && source && matches?(source, value, claim_key, claims) do
-        role
-      end
+      # A mapping no longer has to name a role to count; it may grant a profile
+      # or a group instead, so matching is decided by source and value alone.
+      value && source && matches?(source, value, claim_key, claims)
     end)
   end
 

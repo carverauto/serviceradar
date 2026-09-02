@@ -63,10 +63,10 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerReconcileAllTest 
     profiles = [
       %{"provider" => "awx", "provisioning" => %{"mode" => "credential_only"}},
       %{
-        "provider" => "opentext-network-automation",
+        "provider" => "opentext-nom",
         "provisioning" => %{
           "mode" => "producer_schedule",
-          "schedule_id" => "opentext-network-automation.inventory.refresh"
+          "schedule_id" => "opentext-nom.inventory.refresh"
         }
       },
       target_policy_profile("proxmox")

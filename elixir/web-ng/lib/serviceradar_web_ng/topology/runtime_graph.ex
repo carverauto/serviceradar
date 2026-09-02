@@ -18,6 +18,11 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
+  # Published once per process lifetime in `init/1` so readers never have to enter this
+  # GenServer. Reads are the hot path (every God-View snapshot build); the refresh handler
+  # holds the process for the whole projection/AGE round trip.
+  @graph_ref_key {__MODULE__, :graph_ref}
+
   @default_refresh_ms 30_000
   @max_backbone_link_rows 5_000
   @max_attachment_link_rows 2_000
@@ -38,14 +43,52 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @doc """
+  Read the cached topology links.
+
+  Reads the published graph reference directly rather than calling this GenServer.
+  `Native.runtime_graph_get_links/1` takes only a read lock, and an ingest replaces the
+  whole vector under a write lock held for the assignment alone -- so a reader observes
+  either the previous or the next snapshot, never a partial one. Going through the
+  process instead would queue every reader behind `handle_info(:refresh, ...)`, which
+  performs the projection/AGE round trip inline; with `GenServer.call/2`'s default 5s
+  that surfaced as a timeout on the God-View snapshot path.
+
+  Falls back to the process only when no reference has been published yet.
+  """
   @spec get_links() :: {:ok, [map()]}
   def get_links do
-    GenServer.call(__MODULE__, :get_links)
+    case published_graph_ref() do
+      {:ok, graph_ref} ->
+        {:ok, graph_ref |> Native.runtime_graph_get_links() |> decode_runtime_rows()}
+
+      :error ->
+        GenServer.call(__MODULE__, :get_links)
+    end
   end
 
   @spec get_graph_ref() :: {:ok, term()}
   def get_graph_ref do
-    GenServer.call(__MODULE__, :get_graph_ref)
+    case published_graph_ref() do
+      {:ok, graph_ref} -> {:ok, graph_ref}
+      :error -> GenServer.call(__MODULE__, :get_graph_ref)
+    end
+  end
+
+  defp published_graph_ref do
+    case :persistent_term.get(@graph_ref_key, :error) do
+      :error -> :error
+      graph_ref -> {:ok, graph_ref}
+    end
+  end
+
+  # One write per process lifetime, so the global scan `:persistent_term.put/2` triggers is
+  # paid at boot and on the rare supervisor restart. The term is deliberately NOT erased on
+  # exit: the resource stays alive through the reference, so a reader racing a restart gets
+  # the last known links instead of a `:noproc`, and `init/1` overwrites it moments later.
+  defp publish_graph_ref(graph_ref) do
+    :persistent_term.put(@graph_ref_key, graph_ref)
+    graph_ref
   end
 
   @spec refresh_now() :: :ok
@@ -78,7 +121,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
         true
 
     state = %{
-      graph_ref: Native.runtime_graph_new(),
+      graph_ref: publish_graph_ref(Native.runtime_graph_new()),
       last_refresh_at: nil,
       last_refresh_started_at_ms: nil,
       refresh_ms: refresh_ms,

@@ -392,7 +392,13 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
                 <%= for log <- @preview_result.sample_logs do %>
                   <div class="text-xs font-mono bg-sr-control/50 px-2 py-1 rounded flex gap-2">
                     <span class="text-sr-muted">
-                      {format_preview_time(log["timestamp"])}
+                      <.user_time
+                        id={"promotion-preview-log-#{preview_log_dom_id(log)}-timestamp"}
+                        value={log["timestamp"]}
+                        timezone={@current_scope.user.timezone || "Etc/UTC"}
+                        style={:time}
+                        fallback="--:--:--"
+                      />
                     </span>
                     <span class={severity_class(log["severity_text"])}>{log["severity_text"]}</span>
                     <span class="truncate">{truncate(log["body"] || log["message"], 60)}</span>
@@ -863,16 +869,13 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
   defp truncate(str, max) when byte_size(str) <= max, do: str
   defp truncate(str, max), do: String.slice(str, 0, max) <> "..."
 
-  defp format_preview_time(nil), do: "--:--:--"
+  defp preview_log_dom_id(log) do
+    identity = log["id"] || log["uid"] || log["trace_id"] || :erlang.phash2(log)
 
-  defp format_preview_time(timestamp) when is_binary(timestamp) do
-    case DateTime.from_iso8601(timestamp) do
-      {:ok, dt, _} -> Calendar.strftime(dt, "%H:%M:%S")
-      _ -> "--:--:--"
-    end
+    identity
+    |> to_string()
+    |> String.replace(~r/[^A-Za-z0-9_-]/u, "-")
   end
-
-  defp format_preview_time(_), do: "--:--:--"
 
   defp severity_class(severity) when is_binary(severity) do
     case String.downcase(severity) do

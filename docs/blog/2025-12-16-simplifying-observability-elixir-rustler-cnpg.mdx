@@ -83,7 +83,7 @@ Elixir and Phoenix already provide the streaming primitives we need:
 ## API Shift to Elixir
 
 - **Single surface.** The SRQL and domain APIs that React once hit through Kong now live in Phoenix; no dual-API/gateway dance.
-- **MCP in-process.** `hermes_mcp` exposes the MCP contract from Elixir so IDE/CLI agents talk directly to the web app.
+- **MCP in-process.** Production MCP is `AshAi.Mcp.Router` on `/mcp` (not `hermes_mcp`), a read-only facade over the HTTP API. See [MCP Integration](/docs/mcp-integration).
 - **Contract-first docs.** `open_api_spex` generates OpenAPI from Phoenix controllers, replacing hand-rolled swagger and keeping the contract locked to code.
 
 ## Core Becomes the Engine, Not the Edge
@@ -103,7 +103,7 @@ core-elx remains the orchestration and ingestion engine writing into CNPG. Web/A
 - SRQL service for `/api/query` and `/api/stream`
 - Direct [CNPG](https://cloudnative-pg.io/) access with [TimescaleDB](https://github.com/timescale/timescaledb) + [Apache AGE](https://age.apache.org/) (HA/replicas via CNPG operator)
 - `pg_notify` → LiveView pushes for real-time streaming
-- MCP endpoints in Elixir (hermes_mcp)
+- MCP endpoints in Elixir (`AshAi.Mcp`, not hermes_mcp)
 - OpenAPI generation via `open_api_spex`
 - core-elx ingestion into the same CNPG cluster
 

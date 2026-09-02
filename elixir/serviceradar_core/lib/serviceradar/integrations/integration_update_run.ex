@@ -19,7 +19,30 @@ defmodule ServiceRadar.Integrations.IntegrationUpdateRun do
     :updated_count,
     :skipped_count,
     :error_count,
+    :eligible_count,
+    :withheld_count,
+    :accepted_count,
+    :failed_count,
+    :unattempted_count,
+    :reconciliation_status,
     :error_message,
+    :metadata
+  ]
+
+  @collection_fields [
+    :collection_id,
+    :collection_content_hash,
+    :collection_observed_at,
+    :raw_rows,
+    :excluded_rows,
+    :invalid_rows,
+    :valid_occurrences,
+    :distinct_source_ids,
+    :duplicate_occurrences,
+    :conflicting_duplicate_ids,
+    :eligible_count,
+    :withheld_count,
+    :reconciliation_status,
     :metadata
   ]
 
@@ -140,6 +163,11 @@ defmodule ServiceRadar.Integrations.IntegrationUpdateRun do
       change transition_state(:timeout)
       change set_attribute(:finished_at, &DateTime.utc_now/0)
     end
+
+    update :bind_collection do
+      description "Bind this run to one activated source collection"
+      accept @collection_fields
+    end
   end
 
   policies do
@@ -214,6 +242,112 @@ defmodule ServiceRadar.Integrations.IntegrationUpdateRun do
       public? true
       constraints min: 0
       description "Devices or batches that failed during the run"
+    end
+
+    attribute :collection_id, :string do
+      public? true
+      description "Activated source collection used by this run"
+    end
+
+    attribute :collection_content_hash, :string do
+      public? true
+      description "Content hash of the activated source collection"
+    end
+
+    attribute :collection_observed_at, :utc_datetime_usec do
+      public? true
+      description "Source observation time of the activated collection"
+    end
+
+    attribute :raw_rows, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      constraints min: 0
+    end
+
+    attribute :excluded_rows, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      constraints min: 0
+    end
+
+    attribute :invalid_rows, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      constraints min: 0
+    end
+
+    attribute :valid_occurrences, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      constraints min: 0
+    end
+
+    attribute :distinct_source_ids, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      constraints min: 0
+    end
+
+    attribute :duplicate_occurrences, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      constraints min: 0
+    end
+
+    attribute :conflicting_duplicate_ids, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      constraints min: 0
+    end
+
+    attribute :eligible_count, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      constraints min: 0
+    end
+
+    attribute :withheld_count, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      constraints min: 0
+    end
+
+    attribute :accepted_count, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      constraints min: 0
+    end
+
+    attribute :failed_count, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      constraints min: 0
+    end
+
+    attribute :unattempted_count, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      constraints min: 0
+    end
+
+    attribute :reconciliation_status, :atom do
+      allow_nil? false
+      default :unavailable
+      public? true
+      constraints one_of: [:unavailable, :pending, :reconciled, :degraded, :failed]
     end
 
     attribute :error_message, :string do

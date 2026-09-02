@@ -479,7 +479,11 @@ defmodule ServiceRadarWebNG.Notifications.FirehoseReplayTest do
 
   test "pull callback waits for the channel decision before acknowledging" do
     test_pid = self()
-    state = %{channel_pid: test_pid, reply_timeout_ms: 1_000}
+    # Must outlast everything this test waits on before it replies (an
+    # `assert_receive` plus a `refute_receive`, either of which can be
+    # stretched by a VM stall). At 1_000 the handler gave up first and
+    # returned `:noreply`, failing the result assertion below.
+    state = %{channel_pid: test_pid, reply_timeout_ms: 30_000}
 
     message = %{
       body: Jason.encode!(%{"delivery_id" => "delivery-42"}),
@@ -507,7 +511,11 @@ defmodule ServiceRadarWebNG.Notifications.FirehoseReplayTest do
 
   test "pull callback leaves the record pending when replay authorization is revoked" do
     test_pid = self()
-    state = %{channel_pid: test_pid, reply_timeout_ms: 1_000}
+    # Must outlast everything this test waits on before it replies (an
+    # `assert_receive` plus a `refute_receive`, either of which can be
+    # stretched by a VM stall). At 1_000 the handler gave up first and
+    # returned `:noreply`, failing the result assertion below.
+    state = %{channel_pid: test_pid, reply_timeout_ms: 30_000}
     message = %{body: Jason.encode!(%{"delivery_id" => "delivery-43"}), reply_to: nil}
 
     task_pid =

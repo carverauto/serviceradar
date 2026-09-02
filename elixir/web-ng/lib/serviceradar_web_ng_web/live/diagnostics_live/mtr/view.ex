@@ -62,13 +62,18 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View do
           traces={@traces}
           trace_coverage={@trace_coverage}
           mtr_retention_status={@mtr_retention_status}
+          timezone={@current_scope.user.timezone || "Etc/UTC"}
         />
-        <BulkPanel.render bulk_jobs={@bulk_jobs} />
+        <BulkPanel.render
+          bulk_jobs={@bulk_jobs}
+          timezone={@current_scope.user.timezone || "Etc/UTC"}
+        />
         <TraceTable.render
           traces={@traces}
           pending_jobs={@pending_jobs}
           filter_target={@filter_target}
           filter_agent={@filter_agent}
+          timezone={@current_scope.user.timezone || "Etc/UTC"}
         />
         <div class="pt-1">
           <Pagination.render

@@ -2,6 +2,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroupRunNowTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.TestSupport
 
@@ -16,6 +18,16 @@ defmodule ServiceRadar.SweepJobs.SweepGroupRunNowTest do
     actor = SystemActor.system(:sweep_group_run_now_test)
     unique = System.unique_integer([:positive])
     agent_id = "offline-sweep-agent-#{unique}"
+    :ok = AgentCommandPubSub.subscribe()
+
+    assert {:ok, %Agent{uid: ^agent_id, status: :connecting}} =
+             Agent
+             |> Ash.Changeset.for_create(
+               :register,
+               %{uid: agent_id, metadata: %{"partition_id" => "default"}},
+               actor: actor
+             )
+             |> Ash.create()
 
     assert {:ok, group} =
              SweepGroup
@@ -23,7 +35,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupRunNowTest do
                :create,
                %{
                  name: "Offline run-now group #{unique}",
-                 agent_id: agent_id,
+                 agent_ids: [agent_id],
                  enabled: false
                },
                actor: actor
@@ -41,5 +53,23 @@ defmodule ServiceRadar.SweepJobs.SweepGroupRunNowTest do
              %{value: [agent_offline: ^agent_id]} -> true
              _other -> false
            end)
+
+    assert_receive {:sweep_dispatch,
+                    %{
+                      phase: :started,
+                      sweep_dispatch_id: dispatch_id,
+                      sweep_dispatch_generation: generation
+                    }}
+
+    assert String.match?(generation, ~r/^\d+$/)
+    assert String.to_integer(generation) > 0
+
+    assert_receive {:sweep_dispatch,
+                    %{
+                      phase: :finished,
+                      sweep_dispatch_id: ^dispatch_id,
+                      sweep_dispatch_generation: ^generation,
+                      error: {:agent_offline, ^agent_id}
+                    }}
   end
 end

@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -148,6 +149,43 @@ func TestPluginHostHTTPRequestEnforcesManifestEgressDestination(t *testing.T) {
 				AllowedPorts:   []int{443},
 			},
 		},
+		{
+			name:       "domain wildcard alone denies an on-prem appliance literal",
+			requestURL: "https://192.168.1.1/proxy/protect/api/bootstrap",
+			permissions: pluginPermissions{
+				AllowedDomains: []string{"*"},
+				AllowedPorts:   []int{443},
+			},
+		},
+		{
+			name:       "shipped appliance networks authorize an rfc1918 literal",
+			requestURL: "https://192.168.1.1/proxy/protect/api/bootstrap",
+			permissions: pluginPermissions{
+				AllowedDomains:  []string{"*"},
+				AllowedNetworks: onPremApplianceAllowedNetworks,
+				AllowedPorts:    []int{443},
+			},
+			wantAllowed: true,
+		},
+		{
+			name:       "shipped appliance networks authorize a carrier-grade nat literal",
+			requestURL: "https://100.64.0.7/proxy/protect/api/bootstrap",
+			permissions: pluginPermissions{
+				AllowedDomains:  []string{"*"},
+				AllowedNetworks: onPremApplianceAllowedNetworks,
+				AllowedPorts:    []int{443},
+			},
+			wantAllowed: true,
+		},
+		{
+			name:       "shipped appliance networks still deny a link-local literal",
+			requestURL: "https://169.254.0.1/proxy/protect/api/bootstrap",
+			permissions: pluginPermissions{
+				AllowedDomains:  []string{"*"},
+				AllowedNetworks: onPremApplianceAllowedNetworks,
+				AllowedPorts:    []int{443},
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -175,6 +213,65 @@ func TestPluginHostHTTPRequestEnforcesManifestEgressDestination(t *testing.T) {
 				t.Fatalf("transport calls = %d, want 0", transport.calls)
 			}
 		})
+	}
+}
+
+func TestPluginHTTPEgressDeniedReasonNamesTheFailedGate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		requestURL  string
+		permissions pluginPermissions
+		want        string
+	}{
+		{
+			name:       "literal ip without allowed networks fails the host gate",
+			requestURL: "https://192.168.1.1/proxy/protect/api/bootstrap",
+			permissions: pluginPermissions{
+				AllowedDomains: []string{"*"},
+				AllowedPorts:   []int{443},
+			},
+			want: pluginHTTPDeniedReasonEgressHost,
+		},
+		{
+			name:       "permitted host on an unlisted port fails the port gate",
+			requestURL: "https://192.168.1.1:8443/proxy/protect/api/bootstrap",
+			permissions: pluginPermissions{
+				AllowedNetworks: onPremApplianceAllowedNetworks,
+				AllowedPorts:    []int{443},
+			},
+			want: pluginHTTPDeniedReasonEgressPort,
+		},
+		{
+			name:       "unsupported scheme is not attributed to either gate",
+			requestURL: "ftp://192.168.1.1/resource",
+			permissions: pluginPermissions{
+				AllowedNetworks: onPremApplianceAllowedNetworks,
+				AllowedPorts:    []int{443},
+			},
+			want: pluginHTTPDeniedReasonEgress,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			reqURL, err := url.Parse(tc.requestURL)
+			if err != nil {
+				t.Fatalf("parse %s: %v", tc.requestURL, err)
+			}
+			tc.permissions.normalize()
+
+			if got := pluginHTTPEgressDeniedReason(&tc.permissions, reqURL); got != tc.want {
+				t.Fatalf("pluginHTTPEgressDeniedReason() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	if got := pluginHTTPEgressDeniedReason(nil, nil); got != pluginHTTPDeniedReasonEgress {
+		t.Fatalf("pluginHTTPEgressDeniedReason(nil, nil) = %q, want %q", got, pluginHTTPDeniedReasonEgress)
 	}
 }
 

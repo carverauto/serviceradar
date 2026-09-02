@@ -728,6 +728,103 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestorTest do
       assert by_mac.neighbor_device_id == "sr:uswagg"
     end
 
+    test "prefers chassis MAC over a conflicting neighbor IP" do
+      # Farm Catalyst FDB can report vJunos' chassis MAC on the same port
+      # whose ARP table still has a dead MikroTik's IP. IP-first resolution
+      # glued those into one neighbor and later into one device.
+      records = [
+        %{
+          local_device_id: "sr:farm01-switch",
+          local_device_ip: "192.168.1.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "192.168.6.167",
+          neighbor_system_name: nil,
+          neighbor_chassis_id: "bc:24:11:26:40:e7",
+          metadata: %{
+            "source" => "snmp-arp-fdb",
+            "confidence_reason" => "cross_subnet_arp_fdb_port_mapping"
+          }
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{
+          "sr:farm01-switch" => "sr:farm01-switch",
+          "sr:vjuniper" => "sr:vjuniper",
+          "sr:mikrotik" => "sr:mikrotik"
+        },
+        ip_to_uid: %{
+          "192.168.1.1" => "sr:farm01-switch",
+          "192.168.6.167" => "sr:mikrotik"
+        },
+        name_to_uid: %{},
+        mac_to_uid: %{"BC24112640E7" => "sr:vjuniper"}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+
+      assert resolved.local_device_id == "sr:farm01-switch"
+      assert resolved.neighbor_device_id == "sr:vjuniper"
+    end
+
+    test "does not fall back to IP when a weak L2 sighting carries an unknown chassis MAC" do
+      records = [
+        %{
+          local_device_id: "sr:farm01-switch",
+          local_device_ip: "192.168.1.1",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "192.168.6.167",
+          neighbor_system_name: nil,
+          neighbor_chassis_id: "bc:24:11:26:40:e7",
+          metadata: %{
+            "source" => "snmp-arp-fdb",
+            "confidence_reason" => "cross_subnet_arp_fdb_port_mapping"
+          }
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"sr:farm01-switch" => "sr:farm01-switch", "sr:mikrotik" => "sr:mikrotik"},
+        ip_to_uid: %{
+          "192.168.1.1" => "sr:farm01-switch",
+          "192.168.6.167" => "sr:mikrotik"
+        },
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+
+      assert resolved.local_device_id == "sr:farm01-switch"
+      assert resolved.neighbor_device_id == nil
+    end
+
+    test "LLDP still falls back to neighbor IP when the chassis MAC is unknown" do
+      records = [
+        %{
+          local_device_id: "sr:core-1",
+          local_device_ip: "10.99.0.11",
+          neighbor_device_id: nil,
+          neighbor_mgmt_addr: "10.99.0.12",
+          neighbor_system_name: "CORE-2",
+          neighbor_chassis_id: "aa:bb:cc:dd:ee:12",
+          protocol: "LLDP",
+          metadata: %{"source" => "lldp"}
+        }
+      ]
+
+      index = %{
+        uid_to_uid: %{"sr:core-1" => "sr:core-1", "sr:core-2" => "sr:core-2"},
+        ip_to_uid: %{"10.99.0.11" => "sr:core-1", "10.99.0.12" => "sr:core-2"},
+        name_to_uid: %{},
+        mac_to_uid: %{}
+      }
+
+      [resolved] = MapperResultsIngestor.resolve_topology_records(records, index)
+
+      assert resolved.neighbor_device_id == "sr:core-2"
+    end
+
     test "preserves records when local endpoint cannot be canonically resolved" do
       records = [
         %{

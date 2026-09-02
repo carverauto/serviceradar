@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
   attr(:metrics, :list, required: true)
   attr(:search, :string, default: "")
   attr(:page, :integer, default: 1)
+  attr(:timezone, :string, default: "Etc/UTC")
 
   def process_metrics_section(assigns) do
     all_rows = assigns.metrics || []
@@ -49,7 +50,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
             </span>
           </div>
           <div class="text-xs text-sr-muted">
-            <span :if={@row_count > 0} class="font-mono">{format_timestamp(@last_sampled)}</span>
+            <.user_time
+              :if={@row_count > 0}
+              id="device-process-metrics-last-sampled-at"
+              value={@last_sampled}
+              timezone={@timezone}
+              style={:compact}
+              class="font-mono"
+            />
           </div>
         </div>
 
@@ -95,7 +103,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
             </tr>
           </thead>
           <tbody>
-            <%= for row <- @rows do %>
+            <%= for {row, index} <- Enum.with_index(@rows) do %>
               <tr class="hover">
                 <td class="text-xs font-medium">{format_value(Map.get(row, "name"))}</td>
                 <td class="text-xs font-mono text-right">{format_value(Map.get(row, "pid"))}</td>
@@ -109,7 +117,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
                   {format_bytes(Map.get(row, "memory_usage"))}
                 </td>
                 <td class="text-xs">{format_value(Map.get(row, "status"))}</td>
-                <td class="text-xs font-mono">{format_timestamp(Map.get(row, "timestamp"))}</td>
+                <td class="text-xs font-mono">
+                  <.user_time
+                    id={"device-process-metric-#{process_time_key(row, index)}-timestamp"}
+                    value={Map.get(row, "timestamp")}
+                    timezone={@timezone}
+                    style={:compact}
+                  />
+                </td>
               </tr>
             <% end %>
           </tbody>
@@ -148,15 +163,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
 
   defp timestamp_sort_key(_), do: 0
 
-  defp format_timestamp(nil), do: "—"
-
-  defp format_timestamp(value) do
-    case parse_datetime(value) do
-      {:ok, %DateTime{} = dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> "—"
-    end
-  end
-
   defp parse_datetime(%DateTime{} = dt), do: {:ok, dt}
 
   defp parse_datetime(%NaiveDateTime{} = ndt) do
@@ -174,6 +180,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
   end
 
   defp parse_datetime(_), do: {:error, :invalid_datetime}
+
+  defp process_time_key(row, index) do
+    [Map.get(row, "id"), Map.get(row, "uid"), Map.get(row, "pid"), Map.get(row, "name")]
+    |> Enum.find_value(&process_id_fragment/1)
+    |> Kernel.||(Integer.to_string(index))
+  end
+
+  defp process_id_fragment(value) when value in [nil, ""], do: nil
+
+  defp process_id_fragment(value) do
+    case value |> to_string() |> String.replace(~r/[^a-zA-Z0-9_-]+/, "-") |> String.trim("-") do
+      "" -> nil
+      fragment -> fragment
+    end
+  end
 
   defp parse_number(value) when is_integer(value), do: value * 1.0
   defp parse_number(value) when is_float(value), do: value

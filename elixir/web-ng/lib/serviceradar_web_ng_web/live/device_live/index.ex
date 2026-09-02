@@ -97,6 +97,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:csv_errors, [])
      |> assign(:csv_warnings, [])
      |> assign(:import_status, nil)
+     |> assign(:import_partition, "default")
+     |> assign(:import_partition_error, nil)
+     |> assign(:import_partition_options, [{"Default", "default"}])
      |> allow_upload(:csv_file,
        accept: ~w(.csv),
        max_entries: 1,

@@ -102,6 +102,29 @@ pub(super) fn addon_fleet() -> VizMeta {
     }
 }
 
+pub(super) fn source_fact_disagreements() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("device_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("fact_key", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("status", ColumnType::Text, None),
+            col("configuration_conflict", ColumnType::Bool, None),
+            col(
+                "last_detected_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("values", ColumnType::Jsonb, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 pub(super) fn devices() -> VizMeta {
     VizMeta {
         columns: vec![
@@ -128,6 +151,8 @@ pub(super) fn devices() -> VizMeta {
                 ColumnType::Timestamptz,
                 Some(ColumnSemantic::Time),
             ),
+            col("vlan_uid", ColumnType::Text, None),
+            col("switch_port_attachment", ColumnType::Jsonb, None),
             col("device_type", ColumnType::Text, None),
             col("service_type", ColumnType::Text, None),
             col("service_status", ColumnType::Text, None),

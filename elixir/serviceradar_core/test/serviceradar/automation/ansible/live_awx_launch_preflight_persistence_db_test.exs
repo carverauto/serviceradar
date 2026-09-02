@@ -14,6 +14,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightPersistenceDbTes
   alias ServiceRadar.Automation.Ansible.AwxLaunchContract
   alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightAttestation
   alias ServiceRadar.Automation.Ansible.AwxLaunchPreflightFixtures, as: Fixtures
+  alias ServiceRadar.Automation.Ansible.ControllerSecuritySnapshot
   alias ServiceRadar.Automation.Ansible.HardenedRunLauncher
   alias ServiceRadar.Automation.Ansible.HardenedRunLauncher.AshActions
   alias ServiceRadar.Automation.Ansible.SecureChildLauncher
@@ -21,6 +22,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightPersistenceDbTes
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @moduletag :integration
 
@@ -264,7 +266,16 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightPersistenceDbTes
         canonical_device_uid: device_uid
       })
 
-    attestation = attestation(binding, membership, now)
+    # The controller's secret ids must exist (foreign keys) AND must match what
+    # the attestation was digested over: ControllerSecuritySnapshot covers them,
+    # so seeding the row with different ids reads as controller drift.
+    controller =
+      Fixtures.controller(%{
+        sync_credential_secret_id: CredentialIntegrationFixtures.secret_id!(),
+        execution_credential_secret_id: CredentialIntegrationFixtures.secret_id!()
+      })
+
+    attestation = attestation(binding, membership, now, controller)
 
     %{
       now: now,
@@ -288,7 +299,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightPersistenceDbTes
         awx_job_template_id: 42,
         parse_status: :ok
       },
-      controller: Fixtures.controller(),
+      controller: controller,
       binding: binding,
       membership: membership,
       device_uid: device_uid,
@@ -296,12 +307,14 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightPersistenceDbTes
     }
   end
 
-  defp attestation(binding, membership, now) do
+  defp attestation(binding, membership, now, controller) do
     {:ok, request} =
       Fixtures.preflight_request(binding, [Fixtures.request_host(membership)])
 
     {:ok, request_digest} = AwxLaunchContract.request_digest(request)
     {:ok, target_digest} = AwxLaunchContract.target_snapshot_digest(request)
+    {:ok, security_snapshot} = ControllerSecuritySnapshot.capture(controller)
+    {:ok, security_digest} = ControllerSecuritySnapshot.digest(security_snapshot)
 
     Fixtures.attestation(%{
       evidence_id: Ash.UUIDv7.generate(),
@@ -312,6 +325,7 @@ defmodule ServiceRadar.Automation.Ansible.LiveAwxLaunchPreflightPersistenceDbTes
       reviewed_launch_snapshot_digest: binding.reviewed_launch_snapshot_digest,
       preflight_request_digest: request_digest,
       target_snapshot_digest: target_digest,
+      controller_security_snapshot_digest: security_digest,
       verified_at: now,
       expires_at: DateTime.add(now, 60, :second)
     })

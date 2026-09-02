@@ -24,9 +24,9 @@ naming the invalid value and listing the accepted kinds, and SHALL NOT fall back
 
 #### Scenario: Component starts with an on-prem instance
 
-- **GIVEN** `SERVICERADAR_ENV=onprem:united`
+- **GIVEN** `SERVICERADAR_ENV=onprem:acme`
 - **WHEN** a component initialises its ConfigManager
-- **THEN** it SHALL load the configuration instance for `united`
+- **THEN** it SHALL load the configuration instance for `acme`
 - **AND** configuration for other on-prem instances SHALL NOT be loaded
 
 #### Scenario: On-prem is selected without an instance
@@ -37,7 +37,7 @@ naming the invalid value and listing the accepted kinds, and SHALL NOT fall back
 
 #### Scenario: An instance is supplied for a single-instance kind
 
-- **GIVEN** `SERVICERADAR_ENV=ci:united`
+- **GIVEN** `SERVICERADAR_ENV=ci:acme`
 - **WHEN** a component initialises its ConfigManager
 - **THEN** startup SHALL fail reporting that `ci` does not accept an instance identifier
 

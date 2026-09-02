@@ -62,7 +62,7 @@ func TestBuildSNMPDrainedResultsPreservesCounterSemantics(t *testing.T) {
 		},
 	}
 
-	results := (&PushLoop{}).buildSNMPDrainedResults(statuses, metrics)
+	results := (&PushLoop{}).buildSNMPDrainedResults(statuses, metrics, "")
 	require.Len(t, results, 1)
 
 	result := results[0]
@@ -142,7 +142,7 @@ func TestBuildSNMPDrainedResultsTagsWalkedIfTableRows(t *testing.T) {
 		},
 	}
 
-	results := (&PushLoop{}).buildSNMPDrainedResults(statuses, metrics)
+	results := (&PushLoop{}).buildSNMPDrainedResults(statuses, metrics, "")
 	require.Len(t, results, 2)
 
 	byIndex := map[int]snmpMetricResult{}
@@ -192,9 +192,45 @@ func TestBuildSNMPDrainedResultsDoesNotTreatNonIfTableWalkIndexAsIfIndex(t *test
 		},
 	}
 
-	results := (&PushLoop{}).buildSNMPDrainedResults(statuses, metrics)
+	results := (&PushLoop{}).buildSNMPDrainedResults(statuses, metrics, "")
 	require.Len(t, results, 1)
 	require.Equal(t, "cppmServiceCount", results[0].Metric)
 	require.Equal(t, "index:3", results[0].InterfaceUID)
 	require.Nil(t, results[0].IfIndex)
+}
+
+func TestBuildSNMPDrainedResultsCopiesProfileID(t *testing.T) {
+	profileID := "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+	statuses := map[string]snmpchecker.TargetStatus{
+		"clearpass": {
+			HostIP: "10.0.0.8",
+			Target: &snmpchecker.Target{
+				ID: "target-1",
+				OIDs: []snmpchecker.OIDConfig{
+					{
+						OID:      ".1.3.6.1.4.1.14823.1.6.1.1.1.1.1.3.0",
+						Name:     "node_version",
+						DataType: snmpchecker.TypeString,
+					},
+				},
+			},
+		},
+	}
+
+	metrics := map[string][]snmpchecker.DataPoint{
+		"clearpass|node_version": {
+			{
+				OIDName:   "node_version",
+				Value:     "6.11.15",
+				RawValue:  "6.11.15",
+				Timestamp: time.Date(2026, 8, 30, 0, 0, 0, 0, time.UTC),
+				DataType:  snmpchecker.TypeString,
+			},
+		},
+	}
+
+	results := (&PushLoop{}).buildSNMPDrainedResults(statuses, metrics, profileID)
+	require.Len(t, results, 1)
+	require.Equal(t, profileID, results[0].ProfileID)
+	require.Equal(t, "6.11.15", results[0].Value)
 }

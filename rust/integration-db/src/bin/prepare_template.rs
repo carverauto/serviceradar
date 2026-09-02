@@ -4,7 +4,7 @@
 
 //! Ensures the template database exists and reports whether it needs migrating.
 //!
-//! Run by `.forgejo/workflows/elixir-integration-sr-core.yml` ahead of everything else. Two
+//! Run by BuildBuddy (`buildbuddy.yaml`) ahead of everything else. Two
 //! jobs in one step, because both answer the same question and both are cheap:
 //!
 //!   1. create `sr_core_template` if absent, with extensions, AGE graphs and grants;

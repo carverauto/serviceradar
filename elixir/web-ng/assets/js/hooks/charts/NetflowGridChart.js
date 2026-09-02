@@ -14,8 +14,25 @@ import {
   parseSeriesData as nfParseSeriesData,
   yTickValues as nfYTickValues,
 } from "../../netflow_charts/util"
-import {yGridTicks} from "../../utils/chart_axis_grid"
 import {nfFormatRateValue} from "../../utils/formatters"
+import {canonicalUtcInstant, userTimeFormatter} from "../../utils/user_time"
+
+export function gridTooltipTimeLabel(value, {timeZone = "Etc/UTC", locale} = {}) {
+  return userTimeFormatter({timeZone, locale, style: "tooltip"})(value)
+}
+
+export function gridTooltipTimeHtml(value, {timeZone = "Etc/UTC", locale} = {}) {
+  const canonical = canonicalUtcInstant(value)
+  const label = gridTooltipTimeLabel(value, {timeZone, locale})
+  if (!canonical) return nfEscapeHtml(label)
+
+  const title = `${canonical} (UTC); display zone ${timeZone}`
+  const ariaLabel = `${label}; display zone ${timeZone}; canonical UTC ${canonical}`
+
+  return `<time datetime="${nfEscapeHtml(canonical)}" data-canonical-utc="${nfEscapeHtml(
+    canonical,
+  )}" title="${nfEscapeHtml(title)}" aria-label="${nfEscapeHtml(ariaLabel)}">${nfEscapeHtml(label)}</time>`
+}
 
 export function gridPanelLayout(keys, iw, ih, pad = 10) {
   const visibleKeys = Array.isArray(keys) ? keys : []
@@ -272,7 +289,9 @@ export default {
       const value = row?.[state.key] || 0
       const markerX = state.x0 + state.xScale(row.t)
       const markerY = state.y0 + state.yScale(value)
-      const timeLabel = row.t instanceof Date ? row.t.toISOString() : String(row.t || "")
+      const timeHtml = gridTooltipTimeHtml(row.t, {
+        timeZone: el.dataset.timezone || "Etc/UTC",
+      })
 
       hover.attr("display", null)
       hoverLine
@@ -286,7 +305,7 @@ export default {
       tooltip.innerHTML = `<div class="flex items-center justify-between gap-2"><span class="truncate">${nfEscapeHtml(
         state.key,
       )}</span><span class="font-mono">${nfEscapeHtml(nfFormatRateValue(el.dataset.units, value))}</span></div>
-        <div class="mt-1 text-[10px] text-base-content/60 font-mono">${nfEscapeHtml(timeLabel)}</div>`
+        <div class="mt-1 text-[10px] text-base-content/60 font-mono">${timeHtml}</div>`
       tooltip.classList.remove("hidden")
 
       const padPx = 8

@@ -65,7 +65,11 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsShow do
         <.ui_spinner size="sm" />
         <span class="ml-2 text-sm text-sr-muted">Loading operation evidence…</span>
       </div>
-      <AutomationHistoryComponents.operation_detail :if={@bundle} bundle={@bundle} />
+      <AutomationHistoryComponents.operation_detail
+        :if={@bundle}
+        bundle={@bundle}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
+      />
     </Layouts.app>
     """
   end

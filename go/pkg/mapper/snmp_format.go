@@ -29,6 +29,20 @@ func formatMACAddress(mac []byte) string {
 		mac[0], mac[1], mac[2], mac[3], mac[4], mac[5])
 }
 
+func usableMACFromPDUValue(value interface{}) string {
+	bytes, ok := value.([]byte)
+	if !ok {
+		return ""
+	}
+
+	formatted := formatMACAddress(bytes)
+	if !usableHardwareMAC(formatted) {
+		return ""
+	}
+
+	return formatted
+}
+
 const (
 	defaultByteLength = 6
 )

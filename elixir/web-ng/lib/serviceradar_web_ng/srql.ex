@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.SRQL do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Repo
+  alias ServiceRadarWebNG.SRQL.EntityAccess
   alias ServiceRadarWebNG.SRQL.Native
 
   require Logger
@@ -41,8 +42,10 @@ defmodule ServiceRadarWebNG.SRQL do
     cursor = Map.get(opts, :cursor)
     direction = Map.get(opts, :direction)
     mode = Map.get(opts, :mode)
+    scope = Map.get(opts, :scope)
 
-    with {:ok, translation} <- translate(query, limit, cursor, direction, mode),
+    with :ok <- EntityAccess.authorize(query, scope, optional_scope: true),
+         {:ok, translation} <- translate(query, limit, cursor, direction, mode),
          {:ok, result} <- execute_translation_raw(translation),
          {:ok, payload} <- encode_result_arrow(result) do
       {:ok,
@@ -78,18 +81,24 @@ defmodule ServiceRadarWebNG.SRQL do
     start_time = System.monotonic_time()
 
     result =
-      if entity == "dashboards" do
-        {:ok,
-         %{
-           "results" => dashboard_search_rows(scope, query, limit),
-           "pagination" => %{"next_cursor" => nil, "previous_cursor" => nil},
-           "viz" => nil,
-           "error" => nil
-         }}
-      else
-        with {:ok, translation} <- translate(query, limit, cursor, direction, mode) do
-          execute_translation(Map.put(translation, "_query", query))
-        end
+      case EntityAccess.authorize(query, scope, optional_scope: true) do
+        {:error, :forbidden} = denied ->
+          denied
+
+        :ok ->
+          if entity == "dashboards" do
+            {:ok,
+             %{
+               "results" => dashboard_search_rows(scope, query, limit),
+               "pagination" => %{"next_cursor" => nil, "previous_cursor" => nil},
+               "viz" => nil,
+               "error" => nil
+             }}
+          else
+            with {:ok, translation} <- translate(query, limit, cursor, direction, mode) do
+              execute_translation(Map.put(translation, "_query", query))
+            end
+          end
       end
 
     status = if match?({:ok, _}, result), do: :ok, else: :error

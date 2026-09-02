@@ -155,6 +155,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             device_deleted={@device_deleted}
             editing={@editing}
             snmp_polling_source={@snmp_polling_source}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
 
           <.device_edit_section
@@ -195,13 +196,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 :if={is_map(@device_row)}
                 device_row={@device_row}
                 source_observations={@source_observations}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
               />
 
-              <.metadata_summary_section :if={is_map(@device_row)} device_row={@device_row} />
+              <.metadata_summary_section
+                :if={is_map(@device_row)}
+                device_row={@device_row}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
+              />
 
               <.all_metadata_section :if={is_map(@device_row)} device_row={@device_row} />
 
-              <.network_visibility_section :if={is_map(@device_row)} device_row={@device_row} />
+              <.network_visibility_section
+                :if={is_map(@device_row)}
+                device_row={@device_row}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
+              />
 
               <.agents_section :if={is_map(@device_row)} device_row={@device_row} />
 
@@ -224,6 +234,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 launch_resolution={@ansible_launch_resolution}
                 launch_readiness={@ansible_launch_readiness}
                 launch_form={@ansible_launch_form}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
               />
 
               <.camera_streams_section
@@ -248,6 +259,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 rows={@agent_availability}
                 device_row={@device_row}
                 sweep_results={@sweep_results}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
               />
 
               <.composite_verdict_section entries={@composite_verdicts} />
@@ -255,6 +267,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.healthcheck_section
                 :if={is_map(@healthcheck_summary)}
                 summary={@healthcheck_summary}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
               />
 
               <.bumblebee_section
@@ -263,20 +276,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 findings={@bumblebee_findings}
                 error={@bumblebee_error}
                 has_exposure={@has_bumblebee_exposure}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
               />
 
               <.virtualization_section
                 :if={is_map(@virtualization_summary)}
                 summary={@virtualization_summary}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
               />
 
-              <.sweep_status_section :if={is_map(@sweep_results)} sweep_results={@sweep_results} />
+              <.sweep_status_section
+                :if={is_map(@sweep_results)}
+                sweep_results={@sweep_results}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
+              />
 
               <.ip_aliases_section
                 :if={is_list(@ip_aliases)}
                 aliases={@ip_aliases}
                 show_stale={@show_stale_aliases}
                 error={@ip_alias_error}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
               />
 
               <.northbound_action_history
@@ -287,12 +307,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 error={@northbound_device_history_error}
                 notice={@northbound_launch_notice}
                 empty_message="No action invocations have been recorded for this device yet."
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
               />
 
               <.metric_sections_content
                 sections={@metric_sections_to_render}
                 device_uid={@device_uid}
                 time_range={@sysmon_time_range}
+                timezone={@current_scope.user.timezone}
               />
 
               <.process_metrics_section
@@ -300,6 +322,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 metrics={@process_metrics}
                 search={@process_metrics_search}
                 page={@process_metrics_page}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
               />
 
               <.anomaly_capacity_section
@@ -311,6 +334,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 device_uid={@device_uid}
                 device_display_name={@device_display_name}
                 metric_sections={@anomaly_capacity_detail_metric_sections}
+                timezone={@current_scope.user.timezone}
               />
 
               <%= for panel <- @panels do %>
@@ -321,7 +345,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                     module={panel.plugin}
                     id={"device-#{panel.id}"}
                     title={panel.title}
-                    panel_assigns={panel.assigns}
+                    panel_assigns={Map.put(panel.assigns, :timezone, @current_scope.user.timezone)}
                   />
                 <% end %>
               <% end %>
@@ -355,11 +379,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               query_running={@endpoint_inventory_query_running}
               force_refresh_running={@endpoint_inventory_force_refresh_running}
               cohort_running={@endpoint_inventory_cohort_running}
+              timezone={@current_scope.user.timezone || "Etc/UTC"}
             />
           </div>
 
           <div :if={@active_tab == "guests" and @has_virtualization_guests}>
-            <.virtualization_guests_tab summary={@virtualization_summary} />
+            <.virtualization_guests_tab
+              summary={@virtualization_summary}
+              timezone={@current_scope.user.timezone || "Etc/UTC"}
+            />
           </div>
 
           <div :if={@active_tab == "interfaces" and (@has_ifaces or @details_loading)}>
@@ -369,6 +397,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               selected_interfaces={@selected_interfaces}
               favorited_interfaces={@favorited_interfaces}
               device_uid={@device_uid}
+              timezone={@current_scope.user.timezone}
               interface_metrics={@interface_metrics}
               loading={
                 DeviceTabRuntime.tab_content_loading?(
@@ -388,6 +417,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
           <div :if={@active_tab == "flows" and (@has_flows or @details_loading)}>
             <.flows_tab_content
+              timezone={@current_scope.user.timezone}
               flows={@device_flows}
               error={@flows_error}
               pagination={@flows_pagination}
@@ -432,6 +462,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               device_uid={@device_uid}
               query={QueryData.default_logs_query(@device_uid)}
               limit={@logs_limit}
+              timezone={@current_scope.user.timezone || "Etc/UTC"}
             />
           </div>
 
@@ -449,7 +480,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
           <div :if={
             @active_tab == "active-fingerprint" and can_view_active_fingerprint?(@current_scope)
           }>
-            <.active_fingerprint_tab_content device_row={@device_row} />
+            <.active_fingerprint_tab_content
+              device_row={@device_row}
+              timezone={@current_scope.user.timezone || "Etc/UTC"}
+            />
           </div>
 
           <div :if={@active_tab == "process-listeners"}>
@@ -457,6 +491,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               device_row={@device_row}
               search={@process_listeners_search}
               page={@process_listeners_page}
+              timezone={@current_scope.user.timezone || "Etc/UTC"}
             />
           </div>
 
@@ -465,6 +500,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             device_uid={@device_uid}
             fallback_target={get_device_ip(@results)}
             traces={@mtr_traces}
+            recent_traces={@mtr_recent_traces}
             pending_jobs={@mtr_pending_jobs}
             trends={@mtr_trends}
             total_count={@mtr_total_count}
@@ -472,6 +508,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             retention_status={@mtr_retention_status}
             page={@mtr_page}
             page_size={@mtr_page_size}
+            timezone={@current_scope.user.timezone || "Etc/UTC"}
           />
         </div>
       </div>
@@ -480,6 +517,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
         show={@show_mtr_trace_modal}
         trace={@selected_mtr_trace}
         hops={@selected_mtr_hops}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
       />
 
       <.endpoint_inventory_package_modal
@@ -487,11 +525,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
         package={@endpoint_inventory_selected_package}
         matches={@endpoint_inventory_selected_package_matches}
         cpe_catalog_current={@endpoint_inventory_cpe_catalog_current}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
       />
 
       <.endpoint_inventory_match_modal
         show={@show_endpoint_inventory_match_modal}
         group={@endpoint_inventory_selected_match_group}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
       />
 
       <%!-- Interfaces Bulk Edit Modal --%>

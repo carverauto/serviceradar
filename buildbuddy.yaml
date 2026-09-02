@@ -108,7 +108,7 @@ actions:
             set -a; . "$PREFLIGHT_ENV_FILE"; set +a
             PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
                --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-               --test_output=all
+               --test_output=errors
                --nocache_test_results --noremote_upload_local_results
                --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
                --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
@@ -133,7 +133,7 @@ actions:
           export SERVICERADAR_FIXTURE_ENV_FILE
           FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
              --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-             --test_output=all
+             --test_output=errors
              --nocache_test_results --noremote_upload_local_results
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
              --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
@@ -255,6 +255,10 @@ actions:
           # test_tag_filters controls execution, not every top-level target Bazel builds from
           # //.... Keep build selection identical so packages and images stay out of this wave.
           bazel test $FLAGS --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
+          # web-ng's database-free unit allow-list excludes the focused shared-fixture DB cases.
+          # Reuse the now-quiescent serial_0 database before cleanup; the manual target cannot be
+          # selected by the wildcard.
+          bazel test $FLAGS //elixir/web-ng:networks_live_db_test
 
       # Run all go race conditions tests (race on, pure off); --flaky_test_attempts=1 overrides the repo default of 2;
       #
@@ -295,7 +299,7 @@ actions:
       - run: >-
           bazel test -c opt --config=ci --//build:enable_integration_tests
           --test_tag_filters=benchmark
-          --test_output=all
+          --test_output=errors
           //...
 
   - name: "LargeIngestionGate"
@@ -314,8 +318,6 @@ actions:
       push:
         branches:
           - "staging"
-        tags:
-          - "v*"
       schedule:
         crons:
           - "0 2 * * *"
@@ -349,7 +351,7 @@ actions:
             set -a; . "$PREFLIGHT_ENV_FILE"; set +a
             PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
                --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-               --test_output=all
+               --test_output=errors
                --nocache_test_results --noremote_upload_local_results
                --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
                --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
@@ -374,7 +376,7 @@ actions:
           export SERVICERADAR_FIXTURE_ENV_FILE
           FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
              --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-             --test_output=all
+             --test_output=errors
              --nocache_test_results --noremote_upload_local_results
              --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
              --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD

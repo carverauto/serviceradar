@@ -5,6 +5,9 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewStreamState do
 
   require Logger
 
+  # Layout diagnostics can be long; keep a single log line bounded.
+  @client_stream_error_text_limit 2_000
+
   @default_decode_alert_ms 20.0
   @default_render_alert_ms 40.0
 
@@ -42,6 +45,8 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewStreamState do
   end
 
   def assign_error(socket, params) when is_map(params) do
+    log_client_stream_error(params)
+
     stream_state =
       cond do
         topology_snapshot_seen?(socket) ->
@@ -58,6 +63,37 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodViewStreamState do
   end
 
   def assign_error(socket, _params), do: assign_error(socket, %{})
+
+  # The client already knows exactly why the surface is blank -- the ELK diagnostic for a
+  # layout error, or the RangeError with node ids for a render error -- and pushes it here as
+  # `message`. Nothing read it. The only account of a blank topology was a UI box telling the
+  # operator to check server logs and AGE data, neither of which knows anything about a
+  # client-side exception, so the one description of the fault was discarded on arrival.
+  defp log_client_stream_error(params) when is_map(params) do
+    message = params |> Map.get("message") |> client_error_text()
+
+    if message != "" do
+      stack = params |> Map.get("stack") |> client_error_text()
+      stack_suffix = if stack == "", do: "", else: " stack=#{stack}"
+
+      Logger.warning(
+        "god_view_client_stream_error reason=#{params |> Map.get("reason") |> client_error_text()} " <>
+          "message=#{message}" <> stack_suffix
+      )
+    end
+
+    :ok
+  end
+
+  defp client_error_text(value) when is_binary(value) do
+    value |> String.trim() |> String.slice(0, @client_stream_error_text_limit)
+  end
+
+  defp client_error_text(nil), do: ""
+
+  defp client_error_text(value) do
+    value |> inspect() |> String.slice(0, @client_stream_error_text_limit)
+  end
 
   defp maybe_emit_client_perf_alert(params, pipeline_stats) when is_map(params) and is_map(pipeline_stats) do
     decode_ms = numeric_ms(Map.get(params, "decode_ms"))

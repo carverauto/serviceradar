@@ -74,7 +74,7 @@ Run via the srql-fixtures CNPG instance per the `srql-fixtures-db-tests` skill. 
 Run against `mix phx.server` at `http://localhost:4000` with the docker CNPG DB.
 
 - [x] 8.1 `serviceradar-cli auth login` (covered by cli-device-auth §13.3 — passing).
-- [x] 8.2 `serviceradar-cli dashboard publish --instance http://localhost:4000 --route wifi-network-map --enable --yes` against `wifi-dashboard` — 200, package + instance bound. Verified DB rows.
+- [x] 8.2 `serviceradar-cli dashboard publish --instance http://localhost:4000 --route wifi-network-map --enable --yes` against `example-dashboard` — 200, package + instance bound. Verified DB rows.
 - [x] 8.3 Idempotent re-publish — 200 `result: idempotent_noop`, CLI prints "Re-published … nothing changed".
 - [x] 8.4 Slug conflict — 409 `slug_in_use` with structured `owner_dashboard_id`. CLI prints the actionable hint.
 - [x] 8.5 Version overwrite — 409 `version_already_published`.
