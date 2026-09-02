@@ -183,7 +183,6 @@ git commit -m "fix(feeds): preserve advisory feed successors"
 
 **Files:**
 - Create: `elixir/serviceradar_core/priv/repo/migrations/20260901120000_add_advisory_content_hash.exs`
-- Modify: `elixir/serviceradar_core/priv/repo/baseline/platform_schema.sql`
 - Modify: `elixir/serviceradar_core/lib/serviceradar/inventory/vulnerability_advisory.ex`
 - Modify: `elixir/serviceradar_core/lib/serviceradar/inventory/advisory_feeds/loader.ex`
 - Modify: `elixir/serviceradar_core/lib/serviceradar/inventory/advisory_feeds/feed_worker.ex`
@@ -251,7 +250,7 @@ defmodule ServiceRadar.Repo.Migrations.AddAdvisoryContentHash do
 end
 ```
 
-Add `content_hash text` to the matching baseline table. Add a public nullable `:content_hash` string attribute to `VulnerabilityAdvisory`, its accepted upsert fields, and its replacement fields. Do not add an index; reads are scoped by `(provider, feed_key, current)` and return the hash as payload.
+This is a post-baseline migration: the frozen baseline must remain unchanged unless it is fully regenerated with an advanced `included_through` marker. Add a public nullable `:content_hash` string attribute to `VulnerabilityAdvisory`, its accepted upsert fields, and its replacement fields. Do not add an index; reads are scoped by `(provider, feed_key, current)` and return the hash as payload.
 
 - [ ] **Step 5: Implement deterministic record hashing**
 
