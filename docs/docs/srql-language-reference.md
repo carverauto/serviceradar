@@ -271,6 +271,7 @@ fields; using a field that the entity does not support returns an
 | `devices` | `device`, `device_inventory` | Device inventory and current state |
 | `events` | `activity` | Normalized OCSF events and activity |
 | `logs` | — | Application and system logs (OpenTelemetry) |
+| `threat_intel_matches` | `threat_intel_match`, `ioc_matches`, `ioc_match` | Current IP/CIDR cache-to-indicator memberships. Requires `observability.netflow.view`. |
 | `flows` | `flow`, `network_activity` | NetFlow / network activity records (raw 5-tuples) |
 | `attributed_flows` | `attributed_flow`, `flow_attributions`, `flow_attribution` | Flows joined with host process context (and optional public VIP owner) |
 | `public_endpoints` | — | Kubernetes public VIP / Gateway ownership inventory (current snapshot) |
@@ -378,6 +379,28 @@ Sortable fields: `time` (aliases `event_timestamp`, `timestamp`).
 
 Sortable fields: `timestamp`, `severity_number`.
 
+### threat_intel_matches
+
+Current AlienVault OTX (and other IP/CIDR feed) matches. One row is one
+endpoint-to-indicator membership. `evaluated_at` is cache lookup time, not flow
+observation time. `indicator_match_count` is how many indicator CIDRs contain
+that endpoint, not how many flows hit it.
+
+| Field | Notes |
+|---|---|
+| `observed_ip` / `ip` | Cached endpoint |
+| `source` | Feed source (`alienvault_otx`, …) |
+| `indicator` | CIDR or IP |
+| `severity` | Integer comparison |
+| `stale:true` | Expired cache/indicator rows, labeled rather than mixed into the default |
+
+Default sort: `evaluated_at DESC, observed_ip, indicator_id`. Default query
+excludes expired rows.
+
+```srql
+in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100
+```
+
 ### flows
 
 | Field | Aliases | Description |
@@ -394,6 +417,11 @@ Sortable fields: `timestamp`, `severity_number`.
 | `src_endpoint_port` | `src_port` | Source port |
 | `dst_endpoint_port` | `dst_port` | Destination port |
 | `port` | `endpoint_port` | Matches **either** endpoint port — e.g. `port:22` for SSH regardless of direction |
+| `threat_matched` | | Live cache match on either flow endpoint. Interactive queries default to `time:last_24h` |
+| `threat_source` | | Feed source on the live cache row |
+| `threat_indicator` | | IP or CIDR of the matching indicator |
+| `threat_observed_ip` | | Specific cached endpoint IP |
+| `threat_severity` | | Compare live `max_severity` |
 | `protocol_name` | | Protocol name |
 | `protocol_num` | `proto` | Protocol number |
 | `protocol_group` | `proto_group` | Protocol group |
