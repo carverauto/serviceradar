@@ -8619,6 +8619,7 @@ CREATE TABLE platform.vulnerability_advisories (
     cvss_vector text,
     published_at timestamp without time zone,
     modified_at timestamp without time zone,
+    content_hash text,
     kev boolean DEFAULT false NOT NULL,
     exploit_available boolean DEFAULT false NOT NULL,
     affected_coordinates jsonb[] DEFAULT ARRAY[]::jsonb[] NOT NULL,

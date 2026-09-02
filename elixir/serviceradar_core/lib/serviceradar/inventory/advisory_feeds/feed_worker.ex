@@ -570,8 +570,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
   defp load_and_finalize(records, provider, feed_key) do
     generation = Loader.next_generation(provider, feed_key)
-    existing_modified = Loader.existing_modified_at(provider, feed_key)
-    existing_count = map_size(existing_modified)
+    existing_state = Loader.existing_comparison_state(provider, feed_key)
+    existing_count = Loader.comparable_count(feed_key, existing_state)
 
     result =
       records
@@ -579,7 +579,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
         provider: provider,
         feed_key: feed_key,
         generation: generation,
-        existing_modified: existing_modified
+        existing_comparison_state: existing_state
       )
       |> then(&warn_if_guard_inert(feed_key, existing_count, &1))
 

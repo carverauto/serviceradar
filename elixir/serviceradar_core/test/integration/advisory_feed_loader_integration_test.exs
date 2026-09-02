@@ -160,6 +160,45 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     assert live_count(feed_key) == 3
   end
 
+  test "KEV hashes skip unchanged records and backfill legacy rows" do
+    feed_key = "cisa-kev"
+    record = kev_record()
+
+    {first, _gen} = load(feed_key, [record])
+    assert first.advisories_upserted == 1
+    assert first.advisories_skipped == 0
+    assert live_count(feed_key) == 1
+
+    before = updated_ats(feed_key)
+
+    {second, _gen} = load(feed_key, [record])
+    assert second.advisories_upserted == 0
+    assert second.advisories_skipped == 1
+    assert updated_ats(feed_key) == before
+
+    changed = put_in(record, [:advisory, :description], "Changed KEV description")
+    {third, _gen} = load(feed_key, [changed])
+    assert third.advisories_upserted == 1
+    assert third.advisories_skipped == 0
+
+    {1, _} =
+      Repo.update_all(
+        from(a in "vulnerability_advisories",
+          where: a.provider == ^@provider and a.feed_key == ^feed_key
+        ),
+        [set: [content_hash: nil]],
+        prefix: @schema
+      )
+
+    {legacy_backfill, _gen} = load(feed_key, [changed])
+    assert legacy_backfill.advisories_upserted == 1
+    assert legacy_backfill.advisories_skipped == 0
+
+    {after_backfill, _gen} = load(feed_key, [changed])
+    assert after_backfill.advisories_upserted == 0
+    assert after_backfill.advisories_skipped == 1
+  end
+
   # The destructive failure mode this guards: skipped rows keep an older
   # generation while staying live. Demoting them would hide the corpus from the
   # matcher, and reap_old_generations/3 cascade-deletes demoted rows and their
@@ -209,5 +248,34 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     assert_raise KeyError, fn ->
       Loader.finalize(@provider, feed_key, 1, [])
     end
+  end
+
+  defp kev_record do
+    %{
+      advisory: %{
+        source_object_id: "CVE-2026-KEV-0001",
+        advisory_id: "CVE-2026-KEV-0001",
+        cve_id: "CVE-2026-KEV-0001",
+        title: "KEV test advisory",
+        description: "KEV description",
+        severity: "critical",
+        modified_at: nil,
+        kev: true,
+        exploit_available: true,
+        raw: %{"cveID" => "CVE-2026-KEV-0001"},
+        metadata: %{"catalogVersion" => "2026.09.01"}
+      },
+      coordinates: [
+        %{
+          coordinate_type: "cpe",
+          value: "cpe:2.3:a:example:kev:1.0:*:*:*:*:*:*:*",
+          cpe_part: "a",
+          cpe_vendor: "example",
+          cpe_product: "kev",
+          cpe_version: "1.0",
+          metadata: %{"match_criteria_id" => "kev-coordinate"}
+        }
+      ]
+    }
   end
 end
