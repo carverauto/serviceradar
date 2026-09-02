@@ -201,6 +201,8 @@ filegroup(
     ]) + [
         "god_view_acceptance_geometry_observer.js",
         "god_view_acceptance_geometry_observer.test.js",
+        "god_view_acceptance_timeline.js",
+        "god_view_acceptance_timeline.test.js",
         "god_view_production_bundle_contract.test.js",
         "js/lib/GodViewRenderer.js",
         "js/utils/dashboard_user_time.js",
@@ -228,6 +230,8 @@ js_test(
         ":node_modules",
         "god_view_acceptance_geometry_observer.js",
         "god_view_acceptance_geometry_observer.test.js",
+        "god_view_acceptance_timeline.js",
+        "god_view_acceptance_timeline.test.js",
         "god_view_production_bundle_contract.test.js",
         "js/lib/GodViewRenderer.js",
     ],
@@ -293,9 +297,15 @@ js_library(
 )
 
 js_library(
+    name = "god_view_acceptance_timeline_lib",
+    srcs = ["god_view_acceptance_timeline.js"],
+)
+
+js_library(
     name = "god_view_elk_scene_acceptance_test_lib",
     srcs = ["god_view_elk_scene_acceptance.playwright.js"],
     deps = [
+        ":god_view_acceptance_timeline_lib",
         ":god_view_scene_assertions_lib",
         ":node_modules/@playwright/test",
     ],
