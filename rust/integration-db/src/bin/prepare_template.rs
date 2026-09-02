@@ -10,7 +10,7 @@
 //!   1. create `sr_core_template` if absent, with extensions, AGE graphs and grants;
 //!   2. compare the migration versions on disk against the template's `schema_migrations` in
 //!      BOTH directions -- refusing outright when the template is AHEAD of this checkout, and
-//!      otherwise emitting `needs_migration` so the workflow can skip
+//!      otherwise reporting the migration status on stdout so the workflow can skip
 //!      `//elixir/serviceradar_core:migrate_template` entirely.
 //!
 //! That skip is the point of the whole arrangement. Starting the BEAM for an `ex_unit_test`
@@ -50,9 +50,10 @@ async fn run() -> Result<()> {
 
     // FAIL EARLY, and name them. The template is shared across branches and only ratchets
     // forward, so a branch that is BEHIND clones a FUTURE schema and runs its own resources
-    // against it. `mix ecto.migrate` cannot see that -- a behind-branch has nothing PENDING, so
-    // it reports "already up" -- and the suite then fails with constraint or undefined-column
-    // errors that name no migration at all.
+    // against it. `mix ecto.migrate` cannot report migrations already applied to the template
+    // but absent from this checkout. A strictly behind branch therefore reports "already up",
+    // and the suite then fails with constraint or undefined-column errors that name no migration
+    // at all.
     //
     // Refusing here costs one line instead of a bisect, and it refuses BEFORE the suite runs
     // rather than in the middle of it.

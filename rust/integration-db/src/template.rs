@@ -88,7 +88,7 @@ fn is_object_in_use(err: &tokio_postgres::Error) -> bool {
 pub enum TemplateState {
     /// Did not exist; created empty with extensions and graphs. Every migration is pending.
     Created,
-    /// Already present. Whether it is current is [`pending_versions`]' question.
+    /// Already present. Whether it differs from this checkout is [`migration_drift`]'s question.
     Existed,
 }
 
@@ -129,8 +129,9 @@ pub async fn ensure_template(owner: &str) -> Result<TemplateState> {
 
 /// Migration versions present on disk but not yet applied to the template.
 ///
-/// Empty means the template is current and the Elixir migrator has nothing to do, which is
-/// what lets the workflow skip starting the BEAM at all.
+/// Empty means the Elixir migrator has nothing to do. It does NOT establish that the template is
+/// current: the template may also contain extra-applied versions absent from this checkout. Use
+/// [`migration_drift`] and [`ensure_not_ahead`] when both directions matter.
 pub async fn pending_versions(migrations_dir: &Path) -> Result<Vec<i64>> {
     Ok(migration_drift(migrations_dir).await?.pending)
 }
@@ -174,6 +175,9 @@ pub async fn migration_drift(migrations_dir: &Path) -> Result<MigrationDrift> {
 
 /// Refuses when the template is AHEAD of this checkout, naming every extra migration.
 ///
+/// Pending and extra-applied migrations can coexist when branches have diverged, so the refusal
+/// does not assume that the pending direction is empty.
+///
 /// Separate from [`migration_drift`] so the REFUSAL is testable, not just the comparison: the
 /// message is the entire value of this guard. What it replaces is a scatter of constraint and
 /// undefined-column errors that name no migration, which has twice cost a full bisect.
@@ -193,8 +197,9 @@ pub fn ensure_not_ahead(template: &str, drift: &MigrationDrift) -> Result<()> {
         "template {template} is AHEAD of this checkout: {} migration(s) are applied that this \
          branch does not contain.\n\nExtra applied versions: {versions}\n\n\
          The template is shared and only ratchets forward, so a branch behind another clones a \
-         FUTURE schema. `mix ecto.migrate` cannot see this: it reports PENDING migrations, and \
-         this branch has none.\n\n\
+         FUTURE schema. `mix ecto.migrate` cannot see this: it reports migrations pending from \
+         this checkout, not migrations already applied to the template that are absent from \
+         this checkout.\n\n\
          Merge or rebase onto the branch that added those migrations. Re-provisioning will NOT \
          help -- a fresh clone of the same template reproduces it exactly.",
         drift.extra_applied.len()
@@ -507,6 +512,25 @@ mod tests {
 
         assert_eq!(drift.pending, vec![2, 4]);
         assert_eq!(drift.extra_applied, vec![3]);
+    }
+
+    #[test]
+    fn ahead_refusal_explains_divergent_drift_without_denying_pending_migrations() {
+        let drift = drift_between(&versions(&[1, 2, 4]), &versions(&[1, 3]));
+
+        assert_eq!(drift.pending, vec![2, 4]);
+        assert_eq!(drift.extra_applied, vec![3]);
+
+        let error = ensure_not_ahead("sr_core_template", &drift)
+            .expect_err("extra-applied migrations must be refused even when some are pending");
+        let message = error.to_string();
+
+        assert!(
+            message.contains(
+                "not migrations already applied to the template that are absent from this checkout"
+            ),
+            "message: {message}"
+        );
     }
 
     #[test]

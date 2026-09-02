@@ -224,9 +224,9 @@ rust_test(
 
 # Creates the template if absent and reports whether it needs migrating.
 #
-# A binary rather than a test because it writes `needs_migration` to $GITHUB_OUTPUT.
-# `bazel run` builds eligible actions remotely and launches the binary on the caller, where
-# that output file exists, without depending on a TestRunner placement strategy.
+# A binary rather than a test because it reports a human-readable migration status on stdout.
+# `bazel run` builds eligible actions remotely and launches the binary on the caller, which
+# branches on the `migration(s) pending` line without depending on a TestRunner placement strategy.
 rust_binary(
     name = "prepare_template",
     srcs = ["src/bin/prepare_template.rs"],
