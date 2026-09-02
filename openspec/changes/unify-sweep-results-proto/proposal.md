@@ -11,10 +11,10 @@
 > JetStream, projectors, migration, and rollout over a frozen contract. It MUST
 > NOT re-freeze anything the ABI change owns.
 
-Task 0.12 below is a GUARDED PRE-FREEZE INTEGRATION MILESTONE against the
-currently committed candidate ABI. Passing it does not complete or waive the
-ABI freeze, authorize an `edge-records:v1` production rollout, or make this
-runtime change production-ready. Runtime promotion still depends on the
+Task 0.12 in `tasks.md` is a GUARDED PRE-FREEZE INTEGRATION MILESTONE
+against the currently committed candidate ABI. Passing it does not complete or
+waive the ABI freeze, authorize an `edge-records:v1` production rollout, or make
+this runtime change production-ready. Runtime promotion still depends on the
 completed ABI freeze and its own rollout gates.
 
 ## Immediate implementation milestone

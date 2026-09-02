@@ -27,11 +27,12 @@
   and validation needed by this fixture; one real JetStream route, stream, and
   durable consumer; the Sweep record decoder plus the minimum ingest ledger,
   immutable delivery-slot and sweep-batch-slot bindings, and atomic domain
-  projection; and the exact Bazel target
-  `//integration_tests/edge_record:vertical_slice_test`, using real NATS and a
-  scratch CNPG database and running in the required `BazelCI` check. Required CI
-  or migration-baseline repair MAY land in a separate enabling PR so the target
-  can run; it SHALL NOT broaden the slice.
+  projection; and introduction and registration of the exact Bazel target
+  `//integration_tests/edge_record:vertical_slice_test`. That target does not
+  exist yet; this milestone SHALL create it using real NATS and a scratch CNPG
+  database and run it in the required `BazelCI` check. Required CI or
+  migration-baseline repair MAY land in a separate enabling PR so the target can
+  run; it SHALL NOT broaden the slice.
 
   "REAL composed path" means the target starts the production supervision and
   configuration, provisions the production stream/durable, uses the production
