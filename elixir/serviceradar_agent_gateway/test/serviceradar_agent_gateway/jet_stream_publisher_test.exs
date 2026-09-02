@@ -83,7 +83,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert {:error, :capacity} = JetStreamPublisher.parse_ack(body)
     end
 
-    test "the REAL expected-stream refusal (err_code 10060) withholds, never DLQs" do
+    test "the REAL expected-stream refusal (err_code 10060) is RETRYABLE, never terminal" do
       # NATS answers a mismatched Nats-Expected-Stream with error 10060 (JSStreamNotMatchErr),
       # NOT with a successful ack naming another stream. This is the path that actually fires,
       # and it was terminal.
@@ -182,7 +182,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       end
     end
 
-    test "an UNKNOWN broker refusal withholds rather than DLQ-ing" do
+    test "an UNKNOWN broker refusal is classified RETRYABLE rather than DLQ-bound" do
       # The old default was :permanent, so any refusal this module did not recognise sent the
       # record to the DLQ without proof it was bad.
       for body <- [
@@ -903,7 +903,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
     end
   end
 
-  describe "a wrong-stream ack withholds progress rather than DLQ-ing" do
+  describe "a wrong-stream ack is classified RETRYABLE rather than DLQ-bound" do
     defp planned_pub do
       pub = %{
         slot: %{
@@ -931,7 +931,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert {:ok, %{seq: 5}} = JetStreamPublisher.publish_record(pub, with_pools(connection: FakeConn))
     end
 
-    test "an ack from ANOTHER stream is :misrouted, and :misrouted WITHHOLDS progress" do
+    test "an ack from ANOTHER stream is :misrouted, and :misrouted is RETRYABLE" do
       {pub, _planned} = planned_pub()
       with_reply({:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_V1_INTERACTIVE","seq":5})}})
 
@@ -941,14 +941,14 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       # would DLQ a record that may already be durable elsewhere and resolve a sequence that was
       # never accepted. Progress must stay unresolved instead.
       assert JetStreamPublisher.retryable?(:misrouted),
-             "a misrouted ack must withhold source progress, not send the record to the DLQ"
+             "a misrouted ack must be RETRYABLE so a caller can withhold progress, not terminal"
     end
 
-    test "ONLY proven poison is terminal; everything else withholds" do
+    test "ONLY proven poison is terminal; everything else is RETRYABLE" do
       refute JetStreamPublisher.retryable?(:poison)
 
-      for withheld <- [:capacity, :timeout, :misrouted, :systemic] do
-        assert JetStreamPublisher.retryable?(withheld), "#{withheld} must withhold progress"
+      for retryable <- [:capacity, :timeout, :misrouted, :systemic] do
+        assert JetStreamPublisher.retryable?(retryable), "#{retryable} must be classified retryable"
       end
     end
   end
