@@ -175,7 +175,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
 
   # `:already_outstanding` is NOT an error here: it means this sequence's credits are already
   # held, which is exactly the state a RETRY is in. PublishWindow keeps a retryable frame
-  # outstanding on purpose -- the publisher republishes the same bytes on the same slot, so
+  # outstanding on purpose -- a retry republishes the same bytes on the same slot, so
   # re-admitting would hand the same budget out twice and let the in-flight total exceed the
   # grant. Republishing under the credits already held is the designed path.
   defp admit(pool, key, bytes, opts) do
