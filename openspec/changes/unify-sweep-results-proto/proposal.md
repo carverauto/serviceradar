@@ -11,6 +11,12 @@
 > JetStream, projectors, migration, and rollout over a frozen contract. It MUST
 > NOT re-freeze anything the ABI change owns.
 
+Task 0.12 below is a GUARDED PRE-FREEZE INTEGRATION MILESTONE against the
+currently committed candidate ABI. Passing it does not complete or waive the
+ABI freeze, authorize an `edge-records:v1` production rollout, or make this
+runtime change production-ready. Runtime promotion still depends on the
+completed ABI freeze and its own rollout gates.
+
 ## Immediate implementation milestone
 
 After `freeze-edge-record-v1-abi` task 1.5-l is saved and the active integration
@@ -34,6 +40,25 @@ capacity, migration, or soak requirements. It prevents those horizontal proof
 surfaces from indefinitely displacing the first composed runtime result: a real
 record must travel through the new pipeline and land in the database before the
 proof surface broadens again, unless a demonstrated defect blocks that path.
+
+### Active milestone authority
+
+Until the first green vertical slice above is recorded as complete in task 0.12,
+it governs implementation ORDER and review SCOPE for this change. Other unchecked
+tasks remain real obligations, but they are not prerequisites to this milestone
+unless task 0.12 names them. They SHALL stay unchecked rather than being pulled
+into the active PR merely because adjacent code, a surviving mutation, or a more
+general future case exists.
+
+The active slice is deliberately one committed BULK `SweepObservationBatchV1`
+fixture on one valid durable route plus ONLY the six finite control groups named
+in task 0.12. Scanner integration, MTR, recovery, complete DLQ/redrive coverage,
+generalized producer support, fleet sizing, benchmarks, soak, and the final
+ABI/archive gate resume only after this slice is green. A demonstrated
+data-loss, authentication, unbounded-work, false-green, or unresolved normative
+defect within the review contract still blocks; `design.md` defines that
+contract and its stopping rule. This is a work-order freeze, not a waiver of the
+deferred requirements.
 
 ## Why
 

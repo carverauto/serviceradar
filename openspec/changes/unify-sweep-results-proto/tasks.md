@@ -1,5 +1,130 @@
 # Tasks: Build the durable extensible edge producer data plane
 
+> **ACTIVE WORK-ORDER GATE:** Until task 0.12 is checked, implementation and
+> review SHALL follow its scope and the review contract in `design.md`. An
+> unchecked task elsewhere in this file remains owed; it does not become a
+> prerequisite merely because it is nearby or more general.
+
+## Active milestone coordination gate
+
+- [ ] 0.12 **FIRST GREEN VERTICAL SLICE -- ACTIVE MILESTONE AND SCOPE FREEZE.**
+  Drive ONE committed BULK `SweepObservationBatchV1` fixture on ONE valid durable
+  route through the REAL composed path:
+
+  ```text
+  record -> agent spool -> mTLS gRPC -> gateway -> JetStream PubAck
+         -> EventWriter -> idempotent CNPG transaction -> query
+  ```
+
+  This is a COORDINATION AND ACCEPTANCE task. It owns work order and the composed
+  acceptance target; tasks 2-5 retain semantic ownership of spool, transport,
+  gateway, publication, and projection behavior. Closing this task does not
+  close those parent tasks or the ABI freeze.
+
+  IN-SCOPE IMPLEMENTATION is limited to: the minimum production sender over the
+  existing agent spool; task 3.3's restart-overlap and post-handoff
+  request-fencing defects; the `EdgeRecordIngestService.Stream` caller/server
+  and validation needed by this fixture; one real JetStream route, stream, and
+  durable consumer; the Sweep record decoder plus the minimum ingest ledger,
+  immutable delivery-slot and sweep-batch-slot bindings, and atomic domain
+  projection; and the exact Bazel target
+  `//integration_tests/edge_record:vertical_slice_test`, using real NATS and a
+  scratch CNPG database and running in the required `BazelCI` check. Required CI
+  or migration-baseline repair MAY land in a separate enabling PR so the target
+  can run; it SHALL NOT broaden the slice.
+
+  "REAL composed path" means the target starts the production supervision and
+  configuration, provisions the production stream/durable, uses the production
+  spool/sender, registered mTLS gRPC service, gateway publisher, and EventWriter
+  entry points, and queries the committed CNPG tables. Manually calling the
+  component modules in sequence is not closure. `edge-records:v1` remains
+  disabled outside this guarded target; inside it, readiness becomes true only
+  after the required stream and durable are writable. Committed synthetic
+  certificates, keys, grants, and contract inputs are permitted, but the
+  production mTLS handshake, principal resolver, trust/grant/route/contract
+  validation, and authorization ordering SHALL execute. One mismatched identity
+  control that differs from the accepted fixture only in the authenticated
+  principal SHALL pass the mTLS trust gate, fail with the asserted
+  identity-mismatch outcome, and be refused before NATS publication.
+
+  MECHANICAL CLOSURE is CONJUNCTIVE. The following SIX groups are the complete
+  acceptance matrix; every listed observation SHALL be made through the composed
+  target:
+
+  **A. PRODUCTION COMPOSITION AND TRUST.** The positive fixture reaches the
+  production EventWriter and its unique fixture identities are asserted absent
+  from the scratch database before the send and exactly present afterward. The
+  queried Sweep domain row SHALL match independently committed expected values
+  for every required fixture field. The mismatched-identity control above SHALL
+  pass every preceding gate and fail for that named reason. The target fails if
+  any production entry point, required stream/durable provisioning, or readiness
+  gate is bypassed.
+
+  **B. EXACT BYTES.** Read the committed record through the public spool read
+  path and fetch the stored message through the JetStream consumer. Those two
+  independently observed byte strings SHALL be identical. Comparing two aliases
+  of the fixture, or values produced by the same helper without those two reads,
+  is not evidence.
+
+  **C. IDEMPOTENT CNPG TRANSACTION.** Force consumer redelivery of the SAME
+  stored JetStream message and observe the EventWriter/ledger path enter twice;
+  JetStream de-duplication at publish time is not replay evidence. Exact before,
+  first-commit, and second-delivery database snapshots SHALL show one event
+  ledger row, one immutable delivery-slot binding, one sweep-batch-slot binding,
+  no duplicate domain rows, and the same exact expected Sweep field values. A
+  validly signed, digest-consistent second frame that differs from the accepted
+  fixture only in record content and its corresponding `record_sha256`, while
+  reusing the same delivery slot, SHALL pass every preceding gate, reach
+  EventWriter, fail with the asserted delivery-slot-conflict outcome, and leave
+  the first immutable binding unchanged.
+
+  **D. FAILURE AND WATERMARK ORDER.** Cut the real NATS connection after spool
+  commit, invoke the production sender for that exact entry, and observe its
+  publish attempt take the withholding/failure path: no gateway durability
+  acknowledgement and an unresolved spool entry. Force the CNPG transaction to
+  roll back after broker delivery and observe that EventWriter sends no broker
+  ACK and the stored message is redeliverable. After the positive publication's
+  PubAck, observe the production gateway write the spool-ID/session-nonce-bound
+  cumulative `EdgeDeliveryAckV1` and the agent advance its remote resolved
+  prefix. That gateway acknowledgement or remote prefix alone SHALL NOT
+  physically reclaim the spool record. Task 0.12 proves successful remote
+  progress and that negative reclaim rule; implementing and positively
+  exercising agent-local terminal reclaim remains with its existing lifecycle
+  owner after this slice.
+
+  **E. RESTART OVERLAP.** While one publish request is in flight, restart the
+  lane publisher/pool and prove replacement state does not reopen capacity still
+  occupied by that request. After that request's termination is observed, the
+  replacement SHALL admit work within the original grant. Waiting for an
+  eventual sibling restart, permanently disabling the replacement, or checking
+  only the final empty window does not satisfy this group.
+
+  **F. POST-HANDOFF FENCING.** After a reservation is handed to its request
+  owner, attempt a retry of that publication and observe refusal until the
+  previous request is fenced by observable owner/start/termination state. After
+  that fence, the same publication SHALL be admitted once and proceed. A passed
+  deadline, an absent PubAck, or permanently disabling retries does not satisfy
+  this group.
+
+  OUT OF SCOPE UNTIL THIS TASK IS GREEN: another producer or traffic class; MTR;
+  recovery or spool rollover; exhaustive refusal/DLQ/redrive behavior; full
+  64-partition production sizing; generalized contract dispatch; benchmarks;
+  dashboards; migration/canary/rollout; soak; new mutation or fixture axes not
+  required by groups A-F; and final ABI/archive completeness. Inputs are
+  out-of-scope only when they are unreachable through the declared v1 boundary,
+  not merely absent from the positive fixture. Normative requirements applicable
+  to groups A-F or to a concrete V2 boundary-safety finding, plus all existing
+  required checks, remain binding; they do not create a seventh acceptance group
+  or require completion of an owning parent task.
+
+  An actionable non-blocking defect SHOULD be recorded once in an existing named
+  task or a separate issue and, when recorded, linked once in the implementation
+  PR's consolidated deferred summary. Logging or listing it is not an approval
+  prerequisite and cannot start another review round. This scope block may
+  change only with explicit maintainer approval in a separate docs-only
+  amendment. Implementation and review agents MAY propose an amendment; they
+  SHALL NOT promote it into the milestone themselves.
+
 ## 0. Baseline and approve capacity assumptions
 
 - [ ] 0.1 Capture 1k, 10k, 100k, and 1M target fixtures for ICMP plus zero,
