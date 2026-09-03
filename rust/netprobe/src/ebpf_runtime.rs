@@ -105,10 +105,27 @@ impl NetprobeEbpfRuntime {
         // AF_XDP/XDP/TC packet-capture path. Previously these programs were
         // compiled into the object but never loaded/attached, so flow_to_pid
         // stayed empty and no FlowAttributionEvent was ever emitted.
-        attach_attribution_probes(&mut ebpf)?;
+        let tcp_layout = match attach_attribution_probes(&mut ebpf) {
+            Ok(layout) => layout,
+            Err(err) => {
+                metrics.inc_attribution_stage("program_attach", "tcp", "failed");
+                return Err(err);
+            }
+        };
+        metrics.inc_attribution_stage("program_attach", "tcp", "ready");
+        metrics.inc_attribution_stage("tracepoint_layout", "tcp", tcp_layout.metric_outcome());
         // Flow attribution (kprobe-driven) runs in EVERY mode, before and
         // independently of the packet-capture data path.
-        let attribution_reader = AyaAttributionReader::from_ebpf(&mut ebpf)?;
+        let attribution_reader = match AyaAttributionReader::from_ebpf(&mut ebpf) {
+            Ok(reader) => {
+                metrics.inc_attribution_stage("ring_reader", "tcp", "ready");
+                reader
+            }
+            Err(err) => {
+                metrics.inc_attribution_stage("ring_reader", "tcp", "failed");
+                return Err(err);
+            }
+        };
         let attribution_runtime = FlowAttributionRuntime::start(
             attribution_reader,
             flow_attribution_events,
@@ -117,6 +134,7 @@ impl NetprobeEbpfRuntime {
             metrics.clone(),
             flow_attribution_runtime_config(config),
         )?;
+        metrics.inc_attribution_stage("userspace_runtime", "tcp", "ready");
 
         if config.capture_interfaces.is_empty() {
             // Attribution-only mode: no capture interface configured. Run ONLY the
@@ -749,7 +767,8 @@ fn attach_xdp_program(ebpf: &mut Ebpf, interfaces: &[String]) -> Result<()> {
 // These are global kernel hooks, so they require no capture interface and never
 // touch the host data path (unlike the AF_XDP/XDP redirect). aya keeps each link
 // alive inside the owned `Ebpf`, so attribution persists for the runtime's life.
-fn attach_attribution_probes(ebpf: &mut Ebpf) -> Result<()> {
+fn attach_attribution_probes(ebpf: &mut Ebpf) -> Result<InetSockSetStateLayout> {
+    crate::kernel_layout::ensure_supported_sock_common_layout()?;
     // tcp_connect/tcp_close/udp_sendmsg/udp_recvmsg are kprobes; inet_csk_accept
     // is a kretprobe. aya represents both as KProbe and attaches by the program's
     // section kind, so the same load/attach call works for all of them.
@@ -772,18 +791,22 @@ fn attach_attribution_probes(ebpf: &mut Ebpf) -> Result<()> {
             .with_context(|| format!("failed to attach attribution probe {name}"))?;
     }
 
+    let tcp_layout = detect_inet_sock_set_state_layout()?;
+    let tracepoint_program = tcp_layout.program_name();
     let tracepoint: &mut TracePoint = ebpf
-        .program_mut("inet_sock_set_state")
+        .program_mut(tracepoint_program)
         .ok_or_else(|| {
-            anyhow::anyhow!("inet_sock_set_state tracepoint is missing from netprobe eBPF object")
+            anyhow::anyhow!(
+                "TCP attribution unavailable: {tracepoint_program} is missing from netprobe eBPF object"
+            )
         })?
         .try_into()?;
     tracepoint
         .load()
-        .context("failed to load attribution tracepoint inet_sock_set_state")?;
+        .with_context(|| format!("failed to load attribution tracepoint {tracepoint_program}"))?;
     tracepoint
         .attach("sock", "inet_sock_set_state")
-        .context("failed to attach attribution tracepoint inet_sock_set_state")?;
+        .with_context(|| format!("failed to attach attribution tracepoint {tracepoint_program}"))?;
 
     for name in ["sched_process_exec", "sched_process_exit"] {
         let tracepoint: &mut TracePoint = ebpf
@@ -819,7 +842,166 @@ fn attach_attribution_probes(ebpf: &mut Ebpf) -> Result<()> {
         }
     }
 
-    Ok(())
+    Ok(tcp_layout)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum InetSockSetStateLayout {
+    CommonHeader8,
+    CommonHeader16,
+}
+
+impl InetSockSetStateLayout {
+    fn program_name(self) -> &'static str {
+        match self {
+            Self::CommonHeader8 => "inet_sock_set_state",
+            Self::CommonHeader16 => "inet_sock_set_state_rhel9",
+        }
+    }
+
+    fn metric_outcome(self) -> &'static str {
+        match self {
+            Self::CommonHeader8 => "common_header_8",
+            Self::CommonHeader16 => "common_header_16",
+        }
+    }
+}
+
+const INET_SOCK_SET_STATE_FIELDS: [(&str, usize); 11] = [
+    ("skaddr", 8),
+    ("oldstate", 16),
+    ("newstate", 20),
+    ("sport", 24),
+    ("dport", 26),
+    ("family", 28),
+    ("protocol", 30),
+    ("saddr", 32),
+    ("daddr", 36),
+    ("saddr_v6", 40),
+    ("daddr_v6", 56),
+];
+
+fn detect_inet_sock_set_state_layout() -> Result<InetSockSetStateLayout> {
+    const FORMAT_PATHS: [&str; 2] = [
+        "/sys/kernel/tracing/events/sock/inet_sock_set_state/format",
+        "/sys/kernel/debug/tracing/events/sock/inet_sock_set_state/format",
+    ];
+
+    let (path, format) = FORMAT_PATHS
+        .iter()
+        .find_map(|path| std::fs::read_to_string(path).ok().map(|format| (*path, format)))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "TCP attribution unavailable: cannot read inet_sock_set_state tracefs format from {} or {}",
+                FORMAT_PATHS[0],
+                FORMAT_PATHS[1]
+            )
+        })?;
+    parse_inet_sock_set_state_layout(&format).with_context(|| {
+        format!("TCP attribution unavailable: unsupported inet_sock_set_state layout in {path}")
+    })
+}
+
+fn parse_inet_sock_set_state_layout(format: &str) -> Result<InetSockSetStateLayout> {
+    let mut offsets = std::collections::HashMap::new();
+    for line in format.lines().map(str::trim) {
+        let Some(field) = line.strip_prefix("field:") else {
+            continue;
+        };
+        let mut parts = field.split(';');
+        let declaration = parts.next().unwrap_or_default();
+        let Some(name) = declaration.split_whitespace().last().map(|name| {
+            name.trim_start_matches('*')
+                .split('[')
+                .next()
+                .unwrap_or(name)
+        }) else {
+            continue;
+        };
+        let offset = parts.find_map(|part| {
+            part.trim()
+                .strip_prefix("offset:")
+                .and_then(|value| value.parse::<usize>().ok())
+        });
+        if let Some(offset) = offset {
+            offsets.insert(name, offset);
+        }
+    }
+
+    for (layout, shift) in [
+        (InetSockSetStateLayout::CommonHeader8, 0),
+        (InetSockSetStateLayout::CommonHeader16, 8),
+    ] {
+        if INET_SOCK_SET_STATE_FIELDS
+            .iter()
+            .all(|(name, expected)| offsets.get(name) == Some(&(expected + shift)))
+        {
+            return Ok(layout);
+        }
+    }
+
+    let observed = INET_SOCK_SET_STATE_FIELDS
+        .iter()
+        .map(|(name, _)| format!("{name}={:?}", offsets.get(name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    anyhow::bail!("field offsets did not match supported layouts: {observed}")
+}
+
+#[cfg(test)]
+mod tracepoint_layout_tests {
+    use super::{InetSockSetStateLayout, parse_inet_sock_set_state_layout};
+
+    fn format_with_shift(shift: usize) -> String {
+        [
+            ("void * skaddr", 8, 8),
+            ("int oldstate", 16, 4),
+            ("int newstate", 20, 4),
+            ("__u16 sport", 24, 2),
+            ("__u16 dport", 26, 2),
+            ("__u16 family", 28, 2),
+            ("__u16 protocol", 30, 2),
+            ("__u8 saddr[4]", 32, 4),
+            ("__u8 daddr[4]", 36, 4),
+            ("__u8 saddr_v6[16]", 40, 16),
+            ("__u8 daddr_v6[16]", 56, 16),
+        ]
+        .into_iter()
+        .map(|(field, offset, size)| {
+            format!(
+                "field:{field}; offset:{}; size:{size}; signed:0;",
+                offset + shift
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+    }
+
+    #[test]
+    fn selects_ubuntu_common_header_layout() {
+        assert_eq!(
+            parse_inet_sock_set_state_layout(&format_with_shift(0)).unwrap(),
+            InetSockSetStateLayout::CommonHeader8
+        );
+    }
+
+    #[test]
+    fn selects_rhel9_common_header_layout() {
+        assert_eq!(
+            parse_inet_sock_set_state_layout(&format_with_shift(8)).unwrap(),
+            InetSockSetStateLayout::CommonHeader16
+        );
+    }
+
+    #[test]
+    fn rejects_unrecognized_layout_instead_of_reporting_ready() {
+        let error = parse_inet_sock_set_state_layout(&format_with_shift(4)).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("did not match supported layouts")
+        );
+    }
 }
 
 // Load + attach one best-effort optional kprobe (v4/v6 ICMP, IPv6 UDP). Returns
@@ -837,6 +1019,605 @@ fn attach_optional_probe(ebpf: &mut Ebpf, name: &str) -> Result<()> {
         .attach(name, 0)
         .with_context(|| format!("failed to attach optional attribution probe {name}"))?;
     Ok(())
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod loaded_tcp_tests {
+    use std::{
+        fs,
+        net::{IpAddr, Ipv4Addr, SocketAddrV4, TcpListener, TcpStream},
+        path::PathBuf,
+        sync::{Arc, mpsc},
+        thread,
+        time::{Duration, Instant},
+    };
+
+    use anyhow::{Context, Result, bail};
+    use aya::{EbpfLoader, maps::HashMap as AyaHashMap};
+    use prometheus::{Encoder, TextEncoder};
+    use tokio::sync::broadcast;
+
+    use super::attach_attribution_probes;
+    use crate::{
+        af_xdp_classifier::{FlowKey, canonical_flow_key},
+        attribution::{
+            AyaAttributionReader, FlowAttributionRuntime, FlowAttributionRuntimeConfig,
+            FlowPidRecord,
+        },
+        event_queue,
+        external_flow::SharedExternalFlowMatcher,
+        metrics::Metrics,
+        proto::netprobe::FlowAttributionEvent,
+    };
+
+    const CAP_PERFMON: u32 = 38;
+    const CAP_BPF: u32 = 39;
+    const TCP_ACCEPT_EVENT: u32 = 2;
+    const EVENT_WAIT: Duration = Duration::from_secs(10);
+    const SERVICE_TEST_PORT_START: u16 = 20_000;
+    const SERVICE_TEST_PORT_END: u16 = 20_100;
+    const TEST_PORT_START: u16 = 40_000;
+    const TEST_PORT_END: u16 = 40_100;
+    const EPHEMERAL_PORT_FLOOR: u16 = 32_768;
+
+    /// Loads the production eBPF object and proves that real client and accepted
+    /// server sockets reach the owner-resolved userspace event boundary.
+    ///
+    /// Run only through `//rust/netprobe:loaded_tcp_attribution_test` on a Linux
+    /// worker granted CAP_BPF and CAP_PERFMON. The ordinary unit target leaves
+    /// this ignored because an unprivileged skip would make the release gate lie.
+    #[test]
+    #[ignore = "requires Linux with CAP_BPF and CAP_PERFMON; run the dedicated Bazel target"]
+    fn loaded_object_tcp_loopback_emits_owner_resolved_client_and_server_events() -> Result<()> {
+        require_capability(CAP_BPF, "CAP_BPF")?;
+        require_capability(CAP_PERFMON, "CAP_PERFMON")?;
+
+        let object = PathBuf::from(
+            std::env::var("NETPROBE_TEST_EBPF_OBJECT")
+                .context("attach/readiness: NETPROBE_TEST_EBPF_OBJECT was not declared")?,
+        );
+        if !object.is_file() {
+            bail!(
+                "attach/readiness: declared production eBPF object is missing: {}",
+                object.display()
+            );
+        }
+
+        // Deliberately avoid the production pin directory: this test validates
+        // the shipped object and runtime path without sharing map state with a
+        // concurrently running netprobe daemon on a privileged verification host.
+        let mut ebpf = EbpfLoader::new().load_file(&object).with_context(|| {
+            format!(
+                "attach/readiness: load production object {}",
+                object.display()
+            )
+        })?;
+        let layout = attach_attribution_probes(&mut ebpf)
+            .context("attach/readiness: attach production attribution probes")?;
+        let flow_to_pid_map = ebpf.take_map("flow_to_pid").context(
+            "close handling: production object is missing flow_to_pid for cleanup proof",
+        )?;
+        let socket_to_pid_map = ebpf.take_map("socket_to_pid").context(
+            "close handling: production object is missing socket_to_pid for cleanup proof",
+        )?;
+        let flow_to_pid: AyaHashMap<_, FlowKey, FlowPidRecord> =
+            AyaHashMap::try_from(flow_to_pid_map)
+                .context("close handling: open flow_to_pid map")?;
+        let socket_to_pid: AyaHashMap<_, u64, FlowPidRecord> =
+            AyaHashMap::try_from(socket_to_pid_map)
+                .context("close handling: open socket_to_pid map")?;
+
+        let reader = AyaAttributionReader::from_ebpf(&mut ebpf)
+            .context("drain_ring readiness: open production flow_events ring")?;
+        let (event_tx, mut event_rx) = event_queue::bounded(1024);
+        let (process_snapshot_tx, _) = broadcast::channel(4);
+        let metrics = Metrics::new().context("userspace readiness: create metrics registry")?;
+        let runtime = FlowAttributionRuntime::start(
+            reader,
+            Some(event_tx),
+            process_snapshot_tx,
+            SharedExternalFlowMatcher::new(120_000),
+            metrics.clone(),
+            FlowAttributionRuntimeConfig {
+                process_snapshot_interval: None,
+                resend_interval: None,
+            },
+        )
+        .context("drain_ring readiness: start production ring reader")?;
+
+        // Give tracepoint/kprobe links and the reader thread a deterministic
+        // readiness interval before generating the controlled stimulus.
+        thread::sleep(Duration::from_millis(100));
+
+        let listener = bind_test_listener()?;
+        let listener_addr = listener
+            .local_addr()
+            .context("stimulus: read loopback listener address")?;
+        let (accepted_tx, accepted_rx) = mpsc::sync_channel(1);
+        let server = thread::spawn(move || -> Result<()> {
+            let accept_tid = linux_tid()?;
+            let (stream, _) = listener.accept().context("stimulus: accept loopback TCP")?;
+            accepted_tx
+                .send((stream, accept_tid))
+                .map_err(|_| anyhow::anyhow!("stimulus: accepted-stream receiver dropped"))?;
+            Ok(())
+        });
+
+        let client_tid = linux_tid()?;
+        let client = TcpStream::connect(listener_addr)
+            .context("stimulus: complete loopback TCP client handshake")?;
+        let client_addr = client
+            .local_addr()
+            .context("stimulus: read loopback client address")?;
+        if client_addr.port() < EPHEMERAL_PORT_FLOOR {
+            bail!(
+                "stimulus: client port {} is outside the service-gate model; expected >= {EPHEMERAL_PORT_FLOOR}",
+                client_addr.port()
+            );
+        }
+        let (accepted, accept_tid) = accepted_rx
+            .recv_timeout(EVENT_WAIT)
+            .context("stimulus: wait for accepted loopback socket")?;
+        server
+            .join()
+            .map_err(|_| anyhow::anyhow!("stimulus: accept thread panicked"))??;
+
+        let expected_tgid = std::process::id();
+        let expected_uid = effective_uid()?;
+        let deadline = Instant::now() + EVENT_WAIT;
+        let mut observed = Vec::new();
+        let mut client_event = None;
+        let mut server_event = None;
+
+        while Instant::now() < deadline && (client_event.is_none() || server_event.is_none()) {
+            match event_rx.try_recv() {
+                Ok(event) => {
+                    if event.transport_protocol == "tcp" {
+                        observed.push(event_summary(&event));
+                    }
+                    if owner_resolved(&event, client_tid, expected_tgid, expected_uid)
+                        && event.local_ip == Ipv4Addr::LOCALHOST.to_string()
+                        && event.remote_ip == Ipv4Addr::LOCALHOST.to_string()
+                        && event.local_port == u32::from(client_addr.port())
+                        && event.remote_port == u32::from(listener_addr.port())
+                    {
+                        client_event = Some(Arc::clone(&event));
+                    }
+                    if owner_resolved(&event, accept_tid, expected_tgid, expected_uid)
+                        && event.event_kind == TCP_ACCEPT_EVENT
+                        && event.local_ip == Ipv4Addr::LOCALHOST.to_string()
+                        && event.remote_ip == Ipv4Addr::LOCALHOST.to_string()
+                        && event.local_port == u32::from(listener_addr.port())
+                        && event.remote_port == u32::from(client_addr.port())
+                    {
+                        server_event = Some(event);
+                    }
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => {
+                    bail!("agent handoff: production event queue disconnected")
+                }
+            }
+        }
+
+        let Some(client_event) = client_event else {
+            bail!(
+                "kernel-to-ring/tuple/owner/event boundary: no owner-resolved outbound TCP event for 127.0.0.1:{} -> 127.0.0.1:{}; observed TCP events: {observed:?}",
+                client_addr.port(),
+                listener_addr.port()
+            );
+        };
+        let Some(server_event) = server_event else {
+            bail!(
+                "kernel-to-ring/tuple/owner/event boundary: no owner-resolved accepted TCP event for 127.0.0.1:{} <- 127.0.0.1:{}; observed TCP events: {observed:?}",
+                listener_addr.port(),
+                client_addr.port()
+            );
+        };
+        let server_gate_key = attribution_gate_key(&server_event)?;
+        let server_socket_address = server_event.socket_address;
+        assert_map_owner(
+            &flow_to_pid,
+            &server_gate_key,
+            accept_tid,
+            expected_tgid,
+            "controlled flow gate before close",
+        )?;
+        assert_socket_owner(
+            &socket_to_pid,
+            server_socket_address,
+            accept_tid,
+            expected_tgid,
+            "accepted socket before close",
+        )?;
+
+        let close_count_before = tcp_close_count(&metrics)?;
+        drop(client);
+        drop(accepted);
+
+        let close_deadline = Instant::now() + EVENT_WAIT;
+        while Instant::now() < close_deadline
+            && (tcp_close_count(&metrics)? <= close_count_before
+                || map_contains(&flow_to_pid, &server_gate_key)?
+                || map_contains(&socket_to_pid, &server_socket_address)?)
+        {
+            thread::sleep(Duration::from_millis(10));
+        }
+        if tcp_close_count(&metrics)? <= close_count_before {
+            bail!(
+                "close handling: the controlled tuple did not advance the TCP close outcome from baseline {close_count_before}"
+            );
+        }
+        if map_contains(&flow_to_pid, &server_gate_key)? {
+            bail!("close handling: controlled accepted tuple retained its flow gate after close");
+        }
+        if map_contains(&socket_to_pid, &server_socket_address)? {
+            bail!("close handling: controlled accepted socket retained its owner after close");
+        }
+
+        prove_service_gate_eviction_and_reuse(&flow_to_pid, expected_tgid, &mut event_rx)?;
+
+        drop(runtime);
+        drop(ebpf);
+
+        if client_event.local_port != u32::from(client_addr.port()) {
+            bail!("internal test error: captured client event changed after selection");
+        }
+
+        eprintln!("loaded-object TCP attribution used {layout:?}");
+
+        Ok(())
+    }
+
+    fn owner_resolved(
+        event: &FlowAttributionEvent,
+        expected_tid: u32,
+        expected_tgid: u32,
+        expected_uid: u32,
+    ) -> bool {
+        event.transport_protocol == "tcp"
+            && event.local_port != 0
+            && event.remote_port != 0
+            && event.pid == expected_tid
+            && event.tgid == expected_tgid
+            && event.uid == expected_uid
+            && !event.comm.is_empty()
+    }
+
+    fn event_summary(event: &FlowAttributionEvent) -> String {
+        format!(
+            "kind={} {}:{} -> {}:{} pid={} tgid={} uid={} comm={}",
+            event.event_kind,
+            event.local_ip,
+            event.local_port,
+            event.remote_ip,
+            event.remote_port,
+            event.pid,
+            event.tgid,
+            event.uid,
+            event.comm
+        )
+    }
+
+    fn effective_uid() -> Result<u32> {
+        let status = fs::read_to_string("/proc/self/status")
+            .context("owner resolution: read /proc/self/status")?;
+        status
+            .lines()
+            .find_map(|line| line.strip_prefix("Uid:"))
+            .and_then(|values| values.split_whitespace().nth(1))
+            .and_then(|value| value.parse().ok())
+            .context("owner resolution: parse effective uid from /proc/self/status")
+    }
+
+    fn linux_tid() -> Result<u32> {
+        // SAFETY: gettid takes no pointer arguments and has no memory-safety
+        // preconditions. The positive kernel TID fits in u32 on Linux.
+        let tid = unsafe { nix::libc::syscall(nix::libc::SYS_gettid) };
+        u32::try_from(tid).context("owner resolution: gettid returned an invalid value")
+    }
+
+    fn bind_test_listener() -> Result<TcpListener> {
+        for port in TEST_PORT_START..=TEST_PORT_END {
+            match TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)) {
+                Ok(listener) => return Ok(listener),
+                Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => continue,
+                Err(error) => return Err(error).context("stimulus: bind loopback listener"),
+            }
+        }
+        bail!("stimulus: no loopback test port available in {TEST_PORT_START}..={TEST_PORT_END}")
+    }
+
+    fn bind_service_test_listener() -> Result<TcpListener> {
+        for port in SERVICE_TEST_PORT_START..=SERVICE_TEST_PORT_END {
+            match TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port)) {
+                Ok(listener) => return Ok(listener),
+                Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => continue,
+                Err(error) => return Err(error).context("service reuse: bind loopback listener"),
+            }
+        }
+        bail!(
+            "service reuse: no loopback test port available in {SERVICE_TEST_PORT_START}..={SERVICE_TEST_PORT_END}"
+        )
+    }
+
+    fn prove_service_gate_eviction_and_reuse(
+        flow_to_pid: &AyaHashMap<aya::maps::MapData, FlowKey, FlowPidRecord>,
+        expected_tgid: u32,
+        event_rx: &mut event_queue::EventReceiver<Arc<FlowAttributionEvent>>,
+    ) -> Result<()> {
+        let listener = bind_service_test_listener()?;
+        let listener_addr = listener
+            .local_addr()
+            .context("service reuse: read listener address")?;
+        let (accepted_tx, accepted_rx) = mpsc::sync_channel(1);
+        let server = thread::spawn(move || -> Result<()> {
+            let accept_tid = linux_tid()?;
+            for attempt in 1..=2 {
+                let (stream, peer_addr) = listener
+                    .accept()
+                    .with_context(|| format!("service reuse: accept attempt {attempt}"))?;
+                accepted_tx
+                    .send((stream, peer_addr, accept_tid))
+                    .map_err(|_| {
+                        anyhow::anyhow!("service reuse: accepted-stream receiver dropped")
+                    })?;
+            }
+            Ok(())
+        });
+
+        let first_client = TcpStream::connect(listener_addr)
+            .context("service reuse: first loopback TCP handshake")?;
+        let first_client_addr = first_client
+            .local_addr()
+            .context("service reuse: first client address")?;
+        if first_client_addr.port() < EPHEMERAL_PORT_FLOOR {
+            bail!(
+                "service reuse: first client port {} is below the service-gate floor {EPHEMERAL_PORT_FLOOR}",
+                first_client_addr.port()
+            );
+        }
+        let (first_accepted, first_peer_addr, accept_tid) = accepted_rx
+            .recv_timeout(EVENT_WAIT)
+            .context("service reuse: wait for first accepted socket")?;
+        if first_peer_addr != first_client_addr {
+            bail!(
+                "service reuse: accepted peer {first_peer_addr} did not match client {first_client_addr}"
+            );
+        }
+        let service_gate = attribution_gate_key_for_tuple(listener_addr, first_client_addr)?;
+        wait_for_map_owner(
+            flow_to_pid,
+            &service_gate,
+            accept_tid,
+            expected_tgid,
+            "service gate after first accept",
+        )?;
+
+        drop(first_client);
+        drop(first_accepted);
+        wait_for_map_absence(flow_to_pid, &service_gate, "service gate after first close")?;
+
+        let second_client = TcpStream::connect(listener_addr)
+            .context("service reuse: second loopback TCP handshake")?;
+        let second_client_addr = second_client
+            .local_addr()
+            .context("service reuse: second client address")?;
+        if second_client_addr.port() < EPHEMERAL_PORT_FLOOR {
+            bail!(
+                "service reuse: second client port {} is below the service-gate floor {EPHEMERAL_PORT_FLOOR}",
+                second_client_addr.port()
+            );
+        }
+        let (second_accepted, second_peer_addr, second_accept_tid) = accepted_rx
+            .recv_timeout(EVENT_WAIT)
+            .context("service reuse: wait for second accepted socket")?;
+        if second_peer_addr != second_client_addr || second_accept_tid != accept_tid {
+            bail!("service reuse: second accept did not run in the controlled accept thread");
+        }
+        let reused_gate = attribution_gate_key_for_tuple(listener_addr, second_client_addr)?;
+        if reused_gate != service_gate {
+            bail!("service reuse: service-coalesced gate changed across peer-port reuse");
+        }
+        wait_for_map_owner(
+            flow_to_pid,
+            &reused_gate,
+            accept_tid,
+            expected_tgid,
+            "service gate after second accept",
+        )?;
+
+        drop(second_client);
+        drop(second_accepted);
+        server
+            .join()
+            .map_err(|_| anyhow::anyhow!("service reuse: accept thread panicked"))??;
+        wait_for_map_absence(
+            flow_to_pid,
+            &service_gate,
+            "service gate after second close",
+        )?;
+
+        // Discard the service-reuse events so this helper cannot leave the
+        // bounded receiver full while waiting for close cleanup.
+        while event_rx.try_recv().is_ok() {}
+        Ok(())
+    }
+
+    fn attribution_gate_key(event: &FlowAttributionEvent) -> Result<FlowKey> {
+        let local_ip: IpAddr = event.local_ip.parse().context("close handling: local IP")?;
+        let remote_ip: IpAddr = event
+            .remote_ip
+            .parse()
+            .context("close handling: remote IP")?;
+        let local_port = u16::try_from(event.local_port).context("close handling: local port")?;
+        let remote_port =
+            u16::try_from(event.remote_port).context("close handling: remote port")?;
+        attribution_gate_key_for_tuple(
+            (local_ip, local_port).into(),
+            (remote_ip, remote_port).into(),
+        )
+    }
+
+    fn attribution_gate_key_for_tuple(
+        local: std::net::SocketAddr,
+        remote: std::net::SocketAddr,
+    ) -> Result<FlowKey> {
+        let local_port = local.port();
+        let remote_port = remote.port();
+        let mut key = canonical_flow_key(local.ip(), remote.ip(), local_port, remote_port, 6)
+            .context("close handling: canonicalize accepted tuple")?;
+        if local_port < EPHEMERAL_PORT_FLOOR && remote_port >= EPHEMERAL_PORT_FLOOR {
+            if key.endpoint_a_port == remote_port {
+                key.endpoint_a_port = 0;
+                key.endpoint_a_addr = [0; 16];
+            } else if key.endpoint_b_port == remote_port {
+                key.endpoint_b_port = 0;
+                key.endpoint_b_addr = [0; 16];
+            } else {
+                bail!("close handling: remote endpoint missing from canonical key")
+            }
+        }
+        Ok(key)
+    }
+
+    fn wait_for_map_owner(
+        map: &AyaHashMap<aya::maps::MapData, FlowKey, FlowPidRecord>,
+        key: &FlowKey,
+        expected_tid: u32,
+        expected_tgid: u32,
+        stage: &str,
+    ) -> Result<()> {
+        let deadline = Instant::now() + EVENT_WAIT;
+        while Instant::now() < deadline {
+            match map.get(key, 0) {
+                Ok(owner) if owner.pid == expected_tid && owner.tgid == expected_tgid => {
+                    return Ok(());
+                }
+                Ok(_) | Err(aya::maps::MapError::KeyNotFound) => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => {
+                    return Err(error).with_context(|| {
+                        format!("close handling: inspect {stage} while waiting for owner")
+                    });
+                }
+            }
+        }
+        assert_map_owner(map, key, expected_tid, expected_tgid, stage)
+    }
+
+    fn wait_for_map_absence(
+        map: &AyaHashMap<aya::maps::MapData, FlowKey, FlowPidRecord>,
+        key: &FlowKey,
+        stage: &str,
+    ) -> Result<()> {
+        let deadline = Instant::now() + EVENT_WAIT;
+        while Instant::now() < deadline && map_contains(map, key)? {
+            thread::sleep(Duration::from_millis(10));
+        }
+        if map_contains(map, key)? {
+            bail!("close handling: {stage} remained present")
+        }
+        Ok(())
+    }
+
+    fn assert_map_owner(
+        map: &AyaHashMap<aya::maps::MapData, FlowKey, FlowPidRecord>,
+        key: &FlowKey,
+        expected_tid: u32,
+        expected_tgid: u32,
+        stage: &str,
+    ) -> Result<()> {
+        let owner = map
+            .get(key, 0)
+            .with_context(|| format!("close handling: {stage} was not present"))?;
+        if owner.pid != expected_tid || owner.tgid != expected_tgid {
+            bail!(
+                "close handling: {stage} owner was pid/tgid {}/{}, expected {expected_tid}/{expected_tgid}",
+                owner.pid,
+                owner.tgid
+            );
+        }
+        Ok(())
+    }
+
+    fn assert_socket_owner(
+        map: &AyaHashMap<aya::maps::MapData, u64, FlowPidRecord>,
+        socket_address: u64,
+        expected_tid: u32,
+        expected_tgid: u32,
+        stage: &str,
+    ) -> Result<()> {
+        let owner = map
+            .get(&socket_address, 0)
+            .with_context(|| format!("close handling: {stage} was not present"))?;
+        if owner.pid != expected_tid || owner.tgid != expected_tgid {
+            bail!(
+                "close handling: {stage} owner was pid/tgid {}/{}, expected {expected_tid}/{expected_tgid}",
+                owner.pid,
+                owner.tgid
+            );
+        }
+        Ok(())
+    }
+
+    fn map_contains<K: aya::Pod, V: aya::Pod>(
+        map: &AyaHashMap<aya::maps::MapData, K, V>,
+        key: &K,
+    ) -> Result<bool> {
+        match map.get(key, 0) {
+            Ok(_) => Ok(true),
+            Err(aya::maps::MapError::KeyNotFound) => Ok(false),
+            Err(error) => Err(error).context("close handling: inspect eBPF owner map"),
+        }
+    }
+
+    fn require_capability(bit: u32, name: &str) -> Result<()> {
+        let status = fs::read_to_string("/proc/self/status")
+            .context("attach/readiness: read /proc/self/status capabilities")?;
+        let effective = status
+            .lines()
+            .find_map(|line| line.strip_prefix("CapEff:"))
+            .map(str::trim)
+            .and_then(|value| u64::from_str_radix(value, 16).ok())
+            .context("attach/readiness: parse CapEff from /proc/self/status")?;
+        if effective & (1_u64 << bit) == 0 {
+            bail!(
+                "attach/readiness prerequisite: {name} is required (CapEff bit {bit}); run //rust/netprobe:loaded_tcp_attribution_test on the designated privileged Linux worker"
+            );
+        }
+        Ok(())
+    }
+
+    fn tcp_close_count(metrics: &Metrics) -> Result<u64> {
+        let families = metrics.registry().gather();
+        let mut encoded = Vec::new();
+        TextEncoder::new()
+            .encode(&families, &mut encoded)
+            .context("close handling: encode attribution metrics")?;
+        let text = String::from_utf8(encoded).context("close handling: metrics were not UTF-8")?;
+
+        text.lines()
+            .filter(|line| {
+                line.starts_with("serviceradar_netprobe_attribution_records_total{")
+                    && line.contains("event_kind=\"tcp_close\"")
+                    && line.contains("protocol=\"tcp\"")
+                    && line.contains("outcome=\"close\"")
+            })
+            .map(|line| {
+                line.rsplit_once(' ')
+                    .context("close handling: malformed close counter")?
+                    .1
+                    .parse::<u64>()
+                    .context("close handling: parse close counter")
+            })
+            .try_fold(0_u64, |total, value| {
+                value.map(|value| total.saturating_add(value))
+            })
+    }
 }
 
 fn attach_tc_program(

@@ -82,7 +82,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.52"
+NETPROBE_VERSION = "0.2.53"
 
 cargo_build_script(
     name = "build_script",
@@ -148,6 +148,31 @@ rust_test(
     crate = ":netprobe",
     data = ["//third_party/netprobe_corpora:satori_xml"],
     deps = ["@crates//:tempfile"],
+)
+
+# Privileged production-object gate for the TCP attribution lifecycle. This is
+# intentionally separate from :netprobe_test: it needs a Linux host with
+# CAP_BPF and CAP_PERFMON, loads the exact eBPF object shipped in the native
+# add-on, and exercises real loopback sockets rather than synthetic records.
+rust_test(
+    name = "loaded_tcp_attribution_test",
+    args = [
+        "--ignored",
+        "ebpf_runtime::loaded_tcp_tests::loaded_object_tcp_loopback_emits_owner_resolved_client_and_server_events",
+        "--exact",
+        "--nocapture",
+    ],
+    crate = ":netprobe",
+    data = ["//rust/netprobe/ebpf:netprobe_ebpf_object"],
+    env = {
+        "NETPROBE_TEST_EBPF_OBJECT": "$(rootpath //rust/netprobe/ebpf:netprobe_ebpf_object)",
+    },
+    tags = [
+        "integration_test",
+        "requires_cap_bpf",
+        "requires_cap_perfmon",
+    ],
+    target_compatible_with = ["@platforms//os:linux"],
 )
 
 ###############################################################################

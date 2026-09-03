@@ -321,6 +321,130 @@ CPU below the fleet budget is not enough by itself. Also check that event drops 
 not rising, queue lag is bounded, duplicate suppression is active, and attributed-flow
 hit rate is not regressing.
 
+### Read-only flow-attribution diagnostic sequence
+
+Check the pipeline in order. A later stage cannot disprove a failure at an earlier
+one, and a correlator log line is supporting evidence rather than the success gate.
+
+1. On the agent host, record the running add-on version and start time, then verify
+   that the bounded TCP stages advance after a controlled completed handshake:
+
+   ```bash
+   systemctl show serviceradar-netprobe -p ExecMainStartTimestamp -p MainPID
+   curl -fsS http://127.0.0.1:9417/metrics | grep -E 'serviceradar_netprobe_attribution_(stage|records)_total'
+   ```
+
+   `program_attach` and `ring_reader` must be `ready`; a TCP record must reach
+   `tuple_extraction=accepted` and `owner_resolution=hit`. An owner miss is counted
+   but is not emitted as process attribution.
+
+   Record the stimulus boundary and exact identity/tuple before querying CNPG. The
+   examples below use `psql` variables so an unrelated row cannot make a check pass:
+
+   ```sql
+   \set stimulus_started_at '2026-09-03T12:00:00Z'
+   \set partition 'default'
+   \set agent_id 'agent-example'
+   \set local_ip '10.0.0.10'
+   \set local_port '45678'
+   \set remote_ip '10.0.0.20'
+   \set remote_port '20000'
+   \set pid '1234'
+   ```
+
+2. In CNPG, require a fresh producer row. This query always returns a row, including
+   an explicit zero count:
+
+   ```sql
+   SELECT count(*) AS fresh_tcp_attributions,
+          max(observed_at) AS newest_observed_at
+   FROM platform.flow_process_attribution_current
+   WHERE proto = 6
+     AND observed_at >= :'stimulus_started_at'::timestamptz
+     AND partition = :'partition'
+     AND agent_id = :'agent_id'
+     AND local_ip = :'local_ip'
+     AND local_port = :'local_port'::integer
+     AND remote_ip = :'remote_ip'
+     AND remote_port = :'remote_port'::integer
+     AND pid = :'pid'::integer;
+   ```
+
+3. Only after step 2 is non-zero, verify that the production-sized, newest-first
+   5,000-flow sample and the attribution window share an endpoint and tuple. Keep
+   the partition predicate when investigating a specific tenant:
+
+   ```sql
+   WITH recent_flows AS (
+     SELECT time, partition, protocol_num,
+            src_endpoint_ip, src_endpoint_port,
+            dst_endpoint_ip, dst_endpoint_port
+     FROM platform.ocsf_network_activity
+     WHERE time >= :'stimulus_started_at'::timestamptz
+       AND partition = :'partition'
+       AND protocol_num = 6
+       AND (
+         (src_endpoint_ip, src_endpoint_port, dst_endpoint_ip, dst_endpoint_port) =
+           (:'local_ip', :'local_port'::integer, :'remote_ip', :'remote_port'::integer)
+         OR
+         (src_endpoint_ip, src_endpoint_port, dst_endpoint_ip, dst_endpoint_port) =
+           (:'remote_ip', :'remote_port'::integer, :'local_ip', :'local_port'::integer)
+       )
+       AND (ocsf_payload ->> 'event_type') IS DISTINCT FROM 'attributed_flow'
+     ORDER BY time DESC
+     LIMIT 5000
+   )
+   SELECT count(*) AS exact_or_reverse_tcp_candidates
+   FROM recent_flows f
+   JOIN platform.flow_process_attribution_current a
+     ON a.partition = f.partition
+    AND a.partition = :'partition'
+    AND a.agent_id = :'agent_id'
+    AND a.pid = :'pid'::integer
+    AND a.proto = f.protocol_num
+    AND a.observed_at >= :'stimulus_started_at'::timestamptz
+    AND a.observed_at BETWEEN f.time - interval '900 seconds'
+                          AND f.time + interval '900 seconds'
+    AND (
+      (a.local_ip, a.local_port, a.remote_ip, a.remote_port) =
+        (f.src_endpoint_ip, f.src_endpoint_port,
+         f.dst_endpoint_ip, f.dst_endpoint_port)
+      OR
+      (a.local_ip, a.local_port, a.remote_ip, a.remote_port) =
+        (f.dst_endpoint_ip, f.dst_endpoint_port,
+         f.src_endpoint_ip, f.src_endpoint_port)
+    )
+   WHERE f.protocol_num = 6;
+   ```
+
+   Zero here means there is no eligible exact tuple in the bounded production
+   sample; inspect wildcard, relaxed UDP, node-SNAT, or public-endpoint topology as
+   appropriate rather than blaming the producer.
+
+4. Finally, gate success on the persisted OCSF artifact newer than the stimulus:
+
+   ```sql
+   SELECT count(*) AS attributed_tcp_flows,
+          max(time) AS newest_attributed_flow
+   FROM platform.ocsf_network_activity
+   WHERE protocol_num = 6
+     AND time >= :'stimulus_started_at'::timestamptz
+     AND partition = :'partition'
+     AND (ocsf_payload ->> 'agent_id') = :'agent_id'
+     AND (ocsf_payload #>> '{attribution,pid}')::integer = :'pid'::integer
+     AND (
+       (src_endpoint_ip, src_endpoint_port, dst_endpoint_ip, dst_endpoint_port) =
+         (:'local_ip', :'local_port'::integer, :'remote_ip', :'remote_port'::integer)
+       OR
+       (src_endpoint_ip, src_endpoint_port, dst_endpoint_ip, dst_endpoint_port) =
+         (:'remote_ip', :'remote_port'::integer, :'local_ip', :'local_port'::integer)
+     )
+     AND (ocsf_payload ->> 'event_type') = 'attributed_flow';
+   ```
+
+   A stamped-count log without this row is not success. Re-run the final query after
+   the correlator pass to catch partial or stale observations.
+
 ### Missing container or workload fields
 
 `netprobe` can capture cgroup/container hints, but user-friendly pod, namespace,

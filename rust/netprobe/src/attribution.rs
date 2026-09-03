@@ -245,9 +245,9 @@ unsafe impl aya::Pod for ProcessInfoRecord {}
 // laid out byte-for-byte with the eBPF struct so a ring slot can be read
 // directly with `ptr::read_unaligned`. The `inet_sock_set_state` (TCP),
 // udp_sendmsg/udp_recvmsg (UDP), and ping_sendmsg/raw_sendmsg (ICMP) records
-// carry a populated `tuple` read off the struct sock; the bare
-// tcp_connect/accept/close lifecycle probes submit an empty tuple, so those
-// records have no usable 5-tuple and are skipped by the consumer.
+// carry a populated tuple. tcp_connect caches the owner for the later state
+// tracepoint; accept/close also carry a tuple so service ownership and cleanup
+// do not depend on the task scheduled when the state tracepoint fires.
 #[cfg(target_os = "linux")]
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -1586,18 +1586,32 @@ const ATTRIBUTION_EVENT_KIND_LABELS: [&str; 8] = [
 const ATTRIBUTION_PROTOCOL_LABELS: [&str; 5] = ["icmp", "tcp", "udp", "icmpv6", "other"];
 
 #[cfg(target_os = "linux")]
-const ATTRIBUTION_OUTCOME_CLOSE: usize = 0;
-#[cfg(target_os = "linux")]
-const ATTRIBUTION_OUTCOME_MISS: usize = 1;
-#[cfg(target_os = "linux")]
-const ATTRIBUTION_OUTCOME_CACHED: usize = 2;
-#[cfg(target_os = "linux")]
-const ATTRIBUTION_OUTCOME_UPDATED: usize = 3;
-#[cfg(target_os = "linux")]
-const ATTRIBUTION_OUTCOME_NEW: usize = 4;
+fn attribution_protocol_label(protocol: u16) -> &'static str {
+    ATTRIBUTION_PROTOCOL_LABELS[attribution_protocol_index(protocol)]
+}
 
 #[cfg(target_os = "linux")]
-const ATTRIBUTION_OUTCOME_LABELS: [&str; 5] = ["close", "miss", "cached", "updated", "new"];
+const ATTRIBUTION_OUTCOME_CLOSE: usize = 0;
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_TUPLE_REJECTED: usize = 1;
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_OWNER_MISS: usize = 2;
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_CACHED: usize = 3;
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_UPDATED: usize = 4;
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_NEW: usize = 5;
+
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_LABELS: [&str; 6] = [
+    "close",
+    "tuple_rejected",
+    "owner_miss",
+    "cached",
+    "updated",
+    "new",
+];
 
 #[cfg(target_os = "linux")]
 const ATTRIBUTION_RECORD_METRIC_SLOTS: usize = ATTRIBUTION_EVENT_KIND_LABELS.len()
@@ -1784,16 +1798,46 @@ fn drain_ring(
             }
             continue;
         }
+        if record.pid == 0 || record.tgid == 0 {
+            drain_metrics.inc_record(
+                record.event_kind,
+                record.tuple.protocol,
+                ATTRIBUTION_OUTCOME_OWNER_MISS,
+                coalesce_service,
+            );
+            drain_metrics.inc_backend_miss();
+            metrics.inc_attribution_stage(
+                "owner_resolution",
+                attribution_protocol_label(record.tuple.protocol),
+                "miss",
+            );
+            continue;
+        }
+        metrics.inc_attribution_stage(
+            "owner_resolution",
+            attribution_protocol_label(record.tuple.protocol),
+            "hit",
+        );
         let Some(key) = join_key_from_record(record, coalesce_service) else {
             drain_metrics.inc_record(
                 record.event_kind,
                 record.tuple.protocol,
-                ATTRIBUTION_OUTCOME_MISS,
+                ATTRIBUTION_OUTCOME_TUPLE_REJECTED,
                 coalesce_service,
             );
             drain_metrics.inc_backend_miss();
+            metrics.inc_attribution_stage(
+                "tuple_extraction",
+                attribution_protocol_label(record.tuple.protocol),
+                "rejected",
+            );
             continue;
         };
+        metrics.inc_attribution_stage(
+            "tuple_extraction",
+            attribution_protocol_label(record.tuple.protocol),
+            "accepted",
+        );
         if let Some(existing) = cache.get_mut(&key) {
             drain_metrics.inc_backend_hit();
             if !should_record_inventory(record) || reader.touch_inventory_record(record) {
@@ -1824,7 +1868,7 @@ fn drain_ring(
             drain_metrics.inc_record(
                 record.event_kind,
                 record.tuple.protocol,
-                ATTRIBUTION_OUTCOME_MISS,
+                ATTRIBUTION_OUTCOME_TUPLE_REJECTED,
                 coalesce_service,
             );
             drain_metrics.inc_backend_miss();
@@ -2120,14 +2164,25 @@ fn emit_raw_flow_attribution_event(
         return;
     };
 
+    let protocol = match event.transport_protocol.as_str() {
+        "tcp" => "tcp",
+        "udp" => "udp",
+        "icmp" => "icmp",
+        "icmpv6" => "icmpv6",
+        _ => "other",
+    };
     metrics.inc_flow_attribution_events();
     match tx.try_send(event) {
-        Ok(()) => {}
+        Ok(()) => {
+            metrics.inc_attribution_stage("agent_handoff", protocol, "queued");
+        }
         Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
             metrics.inc_flow_attribution_events_dropped("queue_full", 1);
+            metrics.inc_attribution_stage("agent_handoff", protocol, "queue_full");
         }
         Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
             metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
+            metrics.inc_attribution_stage("agent_handoff", protocol, "no_receiver");
         }
     }
 }
