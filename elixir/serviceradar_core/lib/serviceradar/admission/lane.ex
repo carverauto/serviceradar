@@ -610,7 +610,8 @@ defmodule ServiceRadar.Admission.Lane do
 
     next_state = %{
       state
-      | jobs: Map.delete(state.jobs, job.id),
+      | queue: :queue.delete(job.id, state.queue),
+        jobs: Map.delete(state.jobs, job.id),
         running: Map.delete(state.running, job.id),
         monitors:
           state.monitors
