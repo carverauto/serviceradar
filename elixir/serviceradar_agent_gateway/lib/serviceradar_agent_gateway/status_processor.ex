@@ -414,11 +414,14 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     end
   end
 
-  # A downstream core outage must not tear down an agent's entire status stream.
-  # These sources use the bounded gateway queue; overflow is explicitly metered
-  # and alerted instead of being silent loss.
-  defp should_buffer?(%{source: source})
-       when source in ["plugin-result", :plugin_result, "flow-attribution", :flow_attribution], do: true
+  # The agent retains flow attribution and capability-qualified plugin results
+  # until the gateway truthfully acknowledges durable downstream acceptance.
+  # Putting either source in this volatile queue would transfer ownership too
+  # early and turn a core failure into data loss on gateway restart/overflow.
+  defp should_buffer?(%{source: source}) when source in ["flow-attribution", :flow_attribution], do: false
+
+  defp should_buffer?(%{source: source} = status) when source in ["plugin-result", :plugin_result],
+    do: not retained_plugin_result_delivery?(status)
 
   defp should_buffer?(status), do: results_router_source?(status)
 

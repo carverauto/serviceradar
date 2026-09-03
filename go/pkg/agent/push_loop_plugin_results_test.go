@@ -27,6 +27,8 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func TestPushPluginResultsRetainsBatchUntilGatewayAcknowledges(t *testing.T) {
@@ -127,8 +129,26 @@ func TestPushPluginResultsBoundsStrictDeliveryBatch(t *testing.T) {
 	if got, want := batchSizes, []int{maxPluginResultsPerStream, 1}; !slices.Equal(got, want) {
 		t.Fatalf("plugin result batch sizes = %#v, want %#v", got, want)
 	}
-	if got, want := pluginResultStreamTimeout(maxPluginResultsPerStream), 110*time.Second; got != want {
+	if got, want := pluginResultStreamTimeout(maxPluginResultsPerStream), 165*time.Second; got != want {
 		t.Fatalf("full plugin result batch timeout = %s, want %s", got, want)
+	}
+}
+
+func TestPluginResultStreamTimeoutUsesTwoWorkerWaves(t *testing.T) {
+	tests := []struct {
+		chunks int
+		want   time.Duration
+	}{
+		{chunks: 1, want: 45 * time.Second},
+		{chunks: 2, want: 45 * time.Second},
+		{chunks: 3, want: 75 * time.Second},
+		{chunks: 10, want: 165 * time.Second},
+	}
+
+	for _, tt := range tests {
+		if got := pluginResultStreamTimeout(tt.chunks); got != tt.want {
+			t.Errorf("pluginResultStreamTimeout(%d) = %s, want %s", tt.chunks, got, tt.want)
+		}
 	}
 }
 
@@ -155,6 +175,117 @@ func TestPushPluginResultsRetainsBatchOnNegativeAcknowledgement(t *testing.T) {
 	}
 	if got := len(loop.pendingPluginResults); got != 1 {
 		t.Fatalf("pending plugin results after negative acknowledgement = %d, want 1", got)
+	}
+}
+
+func TestPushPluginResultsRetriesExactNegativeAcknowledgedSetThenClearsOnce(t *testing.T) {
+	manager := &PluginManager{results: make(chan PluginResult, 3)}
+	manager.results <- testPendingPluginResult("assignment-1", "first")
+	manager.results <- testPendingPluginResult("assignment-2", "second")
+
+	var attempts [][]string
+	loop := &PushLoop{
+		server: &Server{
+			config:        &ServerConfig{AgentID: "agent-1", HostIP: "192.0.2.10"},
+			pluginManager: manager,
+		},
+		logger: logger.NewTestLogger(),
+		pluginResultStreamStatus: func(
+			_ context.Context,
+			chunks []*proto.GatewayStatusChunk,
+		) (*proto.GatewayStatusResponse, error) {
+			attempts = append(attempts, pluginResultAssignments(t, chunks))
+			return &proto.GatewayStatusResponse{Received: len(attempts) > 1}, nil
+		},
+	}
+
+	if loop.pushPluginResults(t.Context()) {
+		t.Fatal("negative acknowledgement must retain the plugin result set")
+	}
+	if !loop.pushPluginResults(t.Context()) {
+		t.Fatal("later positive acknowledgement must clear the retained set")
+	}
+	if got, want := attempts, [][]string{{"assignment-1", "assignment-2"}, {"assignment-1", "assignment-2"}}; !equalStringMatrix(got, want) {
+		t.Fatalf("delivery attempts = %#v, want %#v", got, want)
+	}
+	if got := len(loop.pendingPluginResults); got != 0 {
+		t.Fatalf("pending plugin results = %d, want 0", got)
+	}
+}
+
+func TestPushPluginResultsPoisonDropsCompleteSetAndLaterWorkProgresses(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantReason string
+	}{
+		{name: "local chunk excess", err: agentgateway.ErrStreamStatusChunkTooLarge, wantReason: "chunk_too_large"},
+		{name: "local stream excess", err: agentgateway.ErrStreamStatusBudgetExceeded, wantReason: "stream_budget_exceeded"},
+		{name: "remote invalid argument", err: fmt.Errorf("stream failed: %w", status.Error(codes.InvalidArgument, "invalid plugin-result payload")), wantReason: "invalid_argument"},
+		{name: "remote payload too large", err: fmt.Errorf("stream failed: %w", status.Error(codes.ResourceExhausted, "payload_too_large")), wantReason: "payload_too_large"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetAgentRetainedPoisonDropCounters()
+			t.Cleanup(resetAgentRetainedPoisonDropCounters)
+
+			manager := &PluginManager{results: make(chan PluginResult, 3)}
+			manager.results <- testPendingPluginResult("poison-1", "first")
+			manager.results <- testPendingPluginResult("poison-2", "second")
+			attempt := 0
+			loop := &PushLoop{
+				server: &Server{
+					config:        &ServerConfig{AgentID: "agent-1", HostIP: "192.0.2.10"},
+					pluginManager: manager,
+				},
+				logger: logger.NewTestLogger(),
+				pluginResultStreamStatus: func(
+					_ context.Context,
+					_ []*proto.GatewayStatusChunk,
+				) (*proto.GatewayStatusResponse, error) {
+					attempt++
+					if attempt == 1 {
+						return nil, tt.err
+					}
+					return &proto.GatewayStatusResponse{Received: true}, nil
+				},
+			}
+
+			if loop.pushPluginResults(t.Context()) {
+				t.Fatal("poison drop must not count as receipt")
+			}
+			if got := len(loop.pendingPluginResults); got != 0 {
+				t.Fatalf("pending poison results = %d, want 0", got)
+			}
+			items, bytes := AgentRetainedPoisonDropTotals("plugin-result", tt.wantReason)
+			if items != 2 || bytes == 0 {
+				t.Fatalf("poison totals = (items=%d, bytes=%d), want (2, >0)", items, bytes)
+			}
+
+			manager.results <- testPendingPluginResult("valid-later", "later")
+			if !loop.pushPluginResults(t.Context()) {
+				t.Fatal("later valid plugin result must progress")
+			}
+			if attempt != 2 {
+				t.Fatalf("stream attempts = %d, want 2 (poison set must not replay)", attempt)
+			}
+		})
+	}
+}
+
+func TestRetainedPoisonDropReasonPreservesRetryableFailures(t *testing.T) {
+	tests := []error{
+		agentgateway.ErrGatewayNotConnected,
+		status.Error(codes.Unavailable, "transport unavailable"),
+		status.Error(codes.ResourceExhausted, "configured lane capacity"),
+		status.Error(codes.DeadlineExceeded, "lane execution timeout"),
+	}
+
+	for _, err := range tests {
+		if reason, terminal := retainedPoisonDropReason(err); terminal {
+			t.Errorf("retainedPoisonDropReason(%v) = (%q, true), want retryable", err, reason)
+		}
 	}
 }
 

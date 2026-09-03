@@ -36,6 +36,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   use GRPC.Server, service: Monitoring.AgentGatewayService.Service
 
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Edge.AgentGatewaySync
@@ -57,12 +58,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @max_results_message_bytes 15 * 1024 * 1024
   @max_sysmon_message_bytes 15 * 1024 * 1024
   @max_workload_identity_message_bytes 15 * 1024 * 1024
-  # Flow-attribution batches (FlowAttributionEventBatch protobuf) carry up to a
-  # few hundred events per push — well past 4 KB. They MUST NOT be truncated
-  # (truncation corrupts the protobuf and core fails to decode the batch), so
-  # they get a large cap like results/sysmon and are rejected (never truncated)
-  # if they ever exceed it.
-  @max_flow_attribution_message_bytes 15 * 1024 * 1024
+  # Keep this source contract aligned with the core ingestion lane. Rejecting
+  # above the producer's 6 MiB limit at the gateway gives the agent a terminal,
+  # bounded payload_too_large result instead of an endlessly retryable NACK.
+  @max_flow_attribution_message_bytes 6 * 1024 * 1024
   # OTLP relay statuses carry one ready-to-publish OTLP protobuf chunk each
   # (chunked at the edge to <=900 KiB, 1 record = 1 NATS message). Like the
   # other protobuf payloads they must never be truncated, so they share the
@@ -401,7 +400,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     if service_count > @max_services_per_request do
       raise GRPC.RPCError,
-        status: :resource_exhausted,
+        status: :invalid_argument,
         message: "too many service statuses in one request (max: #{@max_services_per_request})"
     end
 
@@ -411,6 +410,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     partition = resolve_partition(identity)
 
     refresh_agent_heartbeat(identity, agent_id, partition, request, stream)
+    delivery_capabilities = AgentRegistryProxy.delivery_capabilities(agent_id)
 
     Logger.info("Received status push from agent #{agent_id}: #{service_count} services")
 
@@ -425,20 +425,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       source_ip: get_peer_ip(stream),
       kv_store_id: request.kv_store_id,
       timestamp: System.os_time(:second),
-      agent_timestamp: request.timestamp
+      agent_timestamp: request.timestamp,
+      delivery_capabilities: delivery_capabilities
     }
 
-    # Process each service status
-    {processed_count, directives} =
-      services
-      |> Enum.reject(&is_nil/1)
-      |> Enum.reduce({0, []}, fn
-        %Monitoring.GatewayServiceStatus{} = service, acc ->
-          process_push_service(service, metadata, acc)
-
-        _other, acc ->
-          acc
-      end)
+    valid_services = Enum.filter(services, &match?(%Monitoring.GatewayServiceStatus{}, &1))
+    {processed_count, response} = process_status_services_with_count(valid_services, metadata)
 
     if processed_count == 0 and service_count > 0 do
       raise GRPC.RPCError, status: :invalid_argument, message: "no valid service statuses"
@@ -448,7 +440,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     record_push_metrics(agent_id, processed_count)
     reconcile_agent_release(agent_id)
 
-    %Monitoring.GatewayStatusResponse{received: true, directives: directives}
+    response
   end
 
   @doc """
@@ -477,7 +469,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     Logger.info("Completed streaming status reception: #{state.total_services} total services")
 
-    %Monitoring.GatewayStatusResponse{received: true, directives: state.directives}
+    response = process_status_stream(state.status_chunks)
+    record_push_metrics(state.stream_agent_id, state.total_services)
+    reconcile_agent_release(state.stream_agent_id)
+    response
   end
 
   @doc """
@@ -501,27 +496,62 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     :ok
   end
 
-  # Strict-delivery statuses still fail closed for invalid payloads and protocol
-  # invariants. Downstream availability failures are buffered by StatusProcessor
-  # and acknowledged so one unavailable consumer cannot abort the whole stream.
-  defp process_push_service(service, metadata, {count, directives}) do
+  @doc false
+  def process_status_services(services, metadata) when is_list(services) and is_map(metadata) do
+    {_count, response} = process_status_services_with_count(services, metadata)
+    response
+  end
+
+  defp process_status_services_with_count(services, metadata) do
+    validate_unary_agent_retained_isolation!(services, metadata)
+
+    {processed_count, directives, outcome} =
+      Enum.reduce(services, {0, [], :best_effort_accepted}, fn service, acc ->
+        process_push_service(service, metadata, acc)
+      end)
+
+    {processed_count, delivery_response(outcome, directives)}
+  end
+
+  # Invalid agent-retained payloads fail the RPC. A valid downstream non-commit
+  # is an ordinary negative acknowledgement and never enters StatusBuffer.
+  defp process_push_service(service, metadata, {count, directives, outcome}) do
     if strict_delivery_service?(service, metadata) do
-      {count + 1, directives ++ process_service_status(service, metadata)}
+      {service_outcome, service_directives} = process_service_status(service, metadata)
+
+      {
+        count + 1,
+        directives ++ service_directives,
+        combine_delivery_outcomes(outcome, service_outcome)
+      }
     else
       try do
-        service_directives = process_service_status(service, metadata)
-        {count + 1, directives ++ service_directives}
+        {service_outcome, service_directives} = process_service_status(service, metadata)
+
+        {
+          count + 1,
+          directives ++ service_directives,
+          combine_delivery_outcomes(outcome, service_outcome)
+        }
       rescue
         e in GRPC.RPCError ->
           log_invalid_service_status(metadata, service, e)
 
-          {count, directives}
+          {count, directives, outcome}
 
         e ->
           Logger.warning("Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}")
 
-          {count, directives}
+          {count, directives, outcome}
       end
+    end
+  end
+
+  defp validate_unary_agent_retained_isolation!(services, metadata) do
+    if Enum.any?(services, &agent_retained_service?(&1, metadata)) and length(services) != 1 do
+      raise GRPC.RPCError,
+        status: :invalid_argument,
+        message: "agent-retained status must be isolated in exactly one service"
     end
   end
 
@@ -540,8 +570,20 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     @plugin_result_retained_delivery_capability_v1 in List.wrap(Map.get(metadata, :delivery_capabilities, []))
   end
 
+  defp agent_retained_service?(%Monitoring.GatewayServiceStatus{source: source}, metadata) do
+    source = normalize_service_field(source)
+    source == @flow_attribution_source or (source == @plugin_result_source and retained_plugin_result_delivery?(metadata))
+  end
+
+  defp agent_retained_service?(_service, _metadata), do: false
+
   # Process a single service status and forward to the core
   defp process_service_status(service, metadata) do
+    {service, status} = prepare_service_status(service, metadata)
+    deliver_prepared_service_status(service, status)
+  end
+
+  defp prepare_service_status(service, metadata) do
     # Validation is done by mTLS certificate verification and deployment isolation.
     {service_name, service_type, source} = normalized_service_fields(service)
     validate_service_fields!(service_name, service_type, source)
@@ -555,8 +597,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         source
       )
 
+    validate_agent_retained_payload!(status)
     log_package_telemetry_status(status)
-    forward_service_status(service, status)
+    {service, status}
   end
 
   defp log_package_telemetry_status(%{source: source} = status) when is_binary(source) do
@@ -701,12 +744,17 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   @doc false
   def forward_service_status(service, status) do
+    {_outcome, directives} = deliver_prepared_service_status(service, status)
+    directives
+  end
+
+  defp deliver_prepared_service_status(service, status) do
     case StatusProcessor.process(status) do
       :ok ->
-        []
+        {committed_delivery_outcome(status), []}
 
       {:ok, result} ->
-        gateway_status_directives(service, result)
+        {committed_delivery_outcome(status), gateway_status_directives(service, result)}
 
       {:error, reason} ->
         if committed_plugin_result_error?(status, reason) do
@@ -714,12 +762,89 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           # failure before returning this error. Retrying it forever cannot
           # improve durability and would block every later result in the
           # agent's retained batch.
-          []
+          {:agent_retained_committed, []}
         else
-          maybe_raise_strict_delivery_error(service, status, reason)
+          handle_delivery_error(service, status, reason)
         end
     end
   end
+
+  defp committed_delivery_outcome(status) do
+    if agent_retained_status?(status), do: :agent_retained_committed, else: :best_effort_accepted
+  end
+
+  defp handle_delivery_error(service, status, reason) do
+    cond do
+      agent_retained_status?(status) ->
+        Logger.warning("Failed to commit #{status.source} status from agent #{status.agent_id}: #{inspect(reason)}")
+        {:agent_retained_uncommitted, []}
+
+      strict_delivery_status?(status) ->
+        maybe_raise_strict_delivery_error(service, status, reason)
+
+      true ->
+        Logger.warning("Failed to process status for service #{service.service_name}: #{inspect(reason)}")
+        {:best_effort_accepted, []}
+    end
+  end
+
+  defp agent_retained_status?(%{source: @flow_attribution_source}), do: true
+
+  defp agent_retained_status?(%{source: @plugin_result_source} = status), do: retained_plugin_result_delivery?(status)
+
+  defp agent_retained_status?(_status), do: false
+
+  defp validate_agent_retained_payload!(%{source: @flow_attribution_source, message: message}) do
+    case FlowAttributionEventBatch.decode(message) do
+      %FlowAttributionEventBatch{} -> :ok
+      {:ok, %FlowAttributionEventBatch{}} -> :ok
+      _other -> invalid_retained_payload!("flow-attribution")
+    end
+  rescue
+    _error -> invalid_retained_payload!("flow-attribution")
+  end
+
+  defp validate_agent_retained_payload!(%{source: @plugin_result_source} = status) do
+    if retained_plugin_result_delivery?(status) do
+      case Jason.decode(status.message) do
+        {:ok, %{"status" => plugin_status, "summary" => summary}}
+        when is_binary(plugin_status) and is_binary(summary) ->
+          normalized_status = plugin_status |> String.trim() |> String.upcase()
+
+          if plugin_status == normalized_status and normalized_status in ["OK", "WARNING", "CRITICAL", "UNKNOWN"] and
+               String.trim(summary) != "" do
+            :ok
+          else
+            invalid_retained_payload!("plugin-result")
+          end
+
+        _other ->
+          invalid_retained_payload!("plugin-result")
+      end
+    end
+  end
+
+  defp validate_agent_retained_payload!(_status), do: :ok
+
+  defp invalid_retained_payload!(source) do
+    raise GRPC.RPCError,
+      status: :invalid_argument,
+      message: "invalid #{source} payload"
+  end
+
+  defp delivery_response(:agent_retained_uncommitted, _directives) do
+    %Monitoring.GatewayStatusResponse{received: false, directives: []}
+  end
+
+  defp delivery_response(_outcome, directives) do
+    %Monitoring.GatewayStatusResponse{received: true, directives: directives}
+  end
+
+  defp combine_delivery_outcomes(:agent_retained_uncommitted, _outcome), do: :agent_retained_uncommitted
+  defp combine_delivery_outcomes(_outcome, :agent_retained_uncommitted), do: :agent_retained_uncommitted
+  defp combine_delivery_outcomes(:agent_retained_committed, _outcome), do: :agent_retained_committed
+  defp combine_delivery_outcomes(_outcome, :agent_retained_committed), do: :agent_retained_committed
+  defp combine_delivery_outcomes(_left, _right), do: :best_effort_accepted
 
   defp committed_plugin_result_error?(
          %{source: @plugin_result_source} = status,
@@ -814,7 +939,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       if strict_message_size_source?(source) do
         raise GRPC.RPCError,
           status: :resource_exhausted,
-          message: "payload exceeds max size"
+          message: "payload_too_large: payload exceeds max size"
       else
         binary_part(msg, 0, @max_status_message_bytes)
       end
@@ -1000,7 +1125,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       source_ip: get_peer_ip(stream)
     }
 
-    compact_metadata(metadata)
+    metadata = compact_metadata(metadata)
+
+    # nil means a heartbeat that cannot renegotiate capabilities. An explicit
+    # list comes from authenticated hello and must also be able to clear a
+    # previously negotiated capability set.
+    if is_list(capabilities), do: Map.put(metadata, :capabilities, capabilities), else: metadata
   end
 
   defp ensure_agent_record(_identity, agent_id, partition_id, request, source_ip) do
@@ -1414,11 +1544,17 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       pinned_delivery_capabilities: nil,
       registered?: false,
       stream_bytes: 0,
-      directives: []
+      status_chunks: []
     }
   end
 
   defp handle_status_chunk(chunk, state, identity, peer_ip, stream) do
+    if state.saw_final? do
+      raise GRPC.RPCError,
+        status: :invalid_argument,
+        message: "stream contains a chunk after the final chunk"
+    end
+
     chunk_bytes = stream_status_chunk_size(chunk)
     stream_bytes = validate_stream_status_byte_window!(state.stream_bytes, chunk_bytes)
     agent_id = resolve_stream_agent_id(state.stream_agent_id, chunk.agent_id)
@@ -1451,8 +1587,6 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         pinned_delivery_capabilities
       )
 
-    directives = process_chunk_services(services, metadata)
-
     next_stream_status_state(state, chunk, %{
       agent_id: agent_id,
       total_services: total_services,
@@ -1460,7 +1594,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       pinned_delivery_capabilities: pinned_delivery_capabilities,
       chunk_index: chunk_index,
       stream_bytes: stream_bytes,
-      directives: directives
+      status_chunk: {services, metadata}
     })
   end
 
@@ -1560,12 +1694,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       chunk_bytes > @max_stream_status_chunk_bytes ->
         raise GRPC.RPCError,
           status: :resource_exhausted,
-          message: "stream status chunk exceeds byte budget"
+          message: "payload_too_large: stream status chunk exceeds byte budget"
 
       current_bytes + chunk_bytes > @max_stream_status_window_bytes ->
         raise GRPC.RPCError,
           status: :resource_exhausted,
-          message: "stream status stream exceeds byte budget"
+          message: "payload_too_large: stream status stream exceeds byte budget"
 
       true ->
         current_bytes + chunk_bytes
@@ -1595,7 +1729,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     if new_total > @max_services_per_request do
       raise GRPC.RPCError,
-        status: :resource_exhausted,
+        status: :invalid_argument,
         message: "too many service statuses in one stream (max: #{@max_services_per_request})"
     end
 
@@ -1688,10 +1822,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         # Strict-delivery statuses bypass the lenient rescue for invalid payloads
         # and protocol invariants. Downstream failures are buffered before this
         # point so they do not fail the whole stream.
-        process_service_status(service, metadata)
+        {_outcome, directives} = process_service_status(service, metadata)
+        directives
       else
         try do
-          process_service_status(service, metadata)
+          {_outcome, directives} = process_service_status(service, metadata)
+          directives
         rescue
           e in GRPC.RPCError ->
             log_invalid_service_status(metadata, service, e)
@@ -1708,6 +1844,106 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end)
   end
 
+  @doc false
+  def process_status_stream(status_chunks) when is_list(status_chunks) do
+    case retained_stream_source(status_chunks) do
+      nil ->
+        directives =
+          Enum.flat_map(status_chunks, fn {services, metadata} -> process_chunk_services(services, metadata) end)
+
+        %Monitoring.GatewayStatusResponse{received: true, directives: directives}
+
+      source ->
+        process_agent_retained_stream(status_chunks, source)
+    end
+  end
+
+  defp retained_stream_source(status_chunks) do
+    Enum.find_value(status_chunks, fn {services, metadata} ->
+      Enum.find_value(services, fn service ->
+        if agent_retained_service?(service, metadata), do: normalize_service_field(service.source)
+      end)
+    end)
+  end
+
+  defp process_agent_retained_stream(status_chunks, source) do
+    non_empty_chunks = Enum.reject(status_chunks, fn {services, _metadata} -> services == [] end)
+    validate_agent_retained_stream_isolation!(status_chunks, non_empty_chunks, source)
+
+    prepared =
+      Enum.map(non_empty_chunks, fn {[service], metadata} ->
+        prepare_service_status(service, metadata)
+      end)
+
+    results = forward_agent_retained_stream(prepared, source)
+
+    {outcome, directives} =
+      Enum.reduce(results, {:agent_retained_committed, []}, fn
+        {:ok, {item_outcome, item_directives}}, {outcome, directives} ->
+          {combine_delivery_outcomes(outcome, item_outcome), directives ++ item_directives}
+
+        {:exit, reason}, {_outcome, _directives} ->
+          Logger.warning("Agent-retained gateway forward task exited: #{inspect(reason)}")
+          {:agent_retained_uncommitted, []}
+      end)
+
+    delivery_response(outcome, directives)
+  end
+
+  defp validate_agent_retained_stream_isolation!(all_chunks, non_empty_chunks, source) do
+    if non_empty_chunks == [] do
+      raise GRPC.RPCError, status: :invalid_argument, message: "agent-retained stream is empty"
+    end
+
+    valid? =
+      Enum.all?(non_empty_chunks, fn
+        {[service], metadata} ->
+          agent_retained_service?(service, metadata) and normalize_service_field(service.source) == source
+
+        {_services, _metadata} ->
+          false
+      end)
+
+    if not valid? do
+      raise GRPC.RPCError,
+        status: :invalid_argument,
+        message: "every non-empty chunk must contain exactly one service from the same retained source"
+    end
+
+    cond do
+      source == @flow_attribution_source and length(non_empty_chunks) != 1 ->
+        raise GRPC.RPCError,
+          status: :invalid_argument,
+          message: "flow-attribution stream must contain exactly one non-empty chunk"
+
+      source == @plugin_result_source and length(all_chunks) > 10 ->
+        raise GRPC.RPCError,
+          status: :invalid_argument,
+          message: "retained plugin-result stream exceeds ten chunks"
+
+      true ->
+        :ok
+    end
+  end
+
+  defp forward_agent_retained_stream(prepared, @plugin_result_source) do
+    ServiceRadarAgentGateway.DeliveryTaskSupervisor
+    |> Task.Supervisor.async_stream_nolink(
+      prepared,
+      fn {service, status} -> deliver_prepared_service_status(service, status) end,
+      max_concurrency: 2,
+      ordered: true,
+      timeout: :infinity
+    )
+    |> Enum.to_list()
+  end
+
+  defp forward_agent_retained_stream(prepared, @flow_attribution_source) do
+    Enum.map(prepared, fn {service, status} ->
+      {:ok, deliver_prepared_service_status(service, status)}
+    end)
+  end
+
   defp next_stream_status_state(state, chunk, transition) do
     %{
       agent_id: agent_id,
@@ -1716,17 +1952,15 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       pinned_delivery_capabilities: pinned_delivery_capabilities,
       chunk_index: chunk_index,
       stream_bytes: stream_bytes,
-      directives: new_directives
+      status_chunk: status_chunk
     } = transition
 
-    directives = state.directives ++ new_directives
+    status_chunks = state.status_chunks ++ [status_chunk]
 
     if chunk.is_final do
       validate_final_chunk!(chunk_index, pinned_total_chunks)
-      record_push_metrics(agent_id, total_services)
-      reconcile_agent_release(agent_id)
 
-      {:halt,
+      {:cont,
        %{
          state
          | total_services: total_services,
@@ -1737,7 +1971,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
            pinned_delivery_capabilities: pinned_delivery_capabilities,
            registered?: true,
            stream_bytes: stream_bytes,
-           directives: directives
+           status_chunks: status_chunks
        }}
     else
       {:cont,
@@ -1750,7 +1984,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
            pinned_delivery_capabilities: pinned_delivery_capabilities,
            registered?: true,
            stream_bytes: stream_bytes,
-           directives: directives
+           status_chunks: status_chunks
        }}
     end
   end

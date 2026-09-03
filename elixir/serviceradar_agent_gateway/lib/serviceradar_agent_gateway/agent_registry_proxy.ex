@@ -21,6 +21,12 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
     GenServer.call(__MODULE__, {:touch_agent, agent_id, metadata})
   end
 
+  @doc "Returns the delivery capabilities last negotiated by this gateway."
+  @spec delivery_capabilities(String.t()) :: [String.t()]
+  def delivery_capabilities(agent_id) do
+    GenServer.call(__MODULE__, {:delivery_capabilities, agent_id})
+  end
+
   @impl true
   def init(_opts) do
     {:ok, %{}}
@@ -33,7 +39,7 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
            |> Map.merge(metadata)
            |> Map.put(:last_heartbeat, DateTime.utc_now())
          end) do
-      {_new, _old} ->
+      {_new_metadata, _old} ->
         {:reply, :ok, state}
 
       :error ->
@@ -45,5 +51,18 @@ defmodule ServiceRadarAgentGateway.AgentRegistryProxy do
             {:reply, :ok, state}
         end
     end
+  end
+
+  @impl true
+  def handle_call({:delivery_capabilities, agent_id}, _from, state) do
+    capabilities =
+      {:agent, agent_id, node()}
+      |> ProcessRegistry.lookup()
+      |> Enum.find_value([], fn
+        {pid, metadata} when pid == self() -> List.wrap(Map.get(metadata, :capabilities, []))
+        _entry -> nil
+      end)
+
+    {:reply, capabilities, state}
   end
 end
