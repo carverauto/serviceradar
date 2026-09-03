@@ -16,6 +16,7 @@ defmodule ServiceRadar.Admission.FlowLane do
     :lane,
     :concurrency,
     :processor,
+    :on_accepted_result,
     :source_max_bytes,
     :gateway_max_ms
   ]
@@ -32,6 +33,7 @@ defmodule ServiceRadar.Admission.FlowLane do
           concurrency: 1,
           task_supervisor: ServiceRadar.Admission.FlowTaskSupervisor,
           processor: {ServiceRadar.StatusHandler, :process_flow_attribution, []},
+          on_accepted_result: {ServiceRadar.StatusHandler, :emit_flow_attribution_committed, []},
           source_max_bytes: 6 * 1_024 * 1_024,
           gateway_max_ms: 25_000,
           config: config
@@ -45,7 +47,7 @@ defmodule ServiceRadar.Admission.FlowLane do
     do: %{id: Keyword.get(opts, :name, __MODULE__), start: {__MODULE__, :start_link, [opts]}}
 
   def admit(status, reply_to), do: Lane.admit(server(), status, reply_to)
-  def admit_cast(status), do: Lane.admit_cast(server(), status)
+  def admit_cast(status), do: Lane.admit_cast(server(), status, :flow_attribution)
 
   defp server do
     :serviceradar_core

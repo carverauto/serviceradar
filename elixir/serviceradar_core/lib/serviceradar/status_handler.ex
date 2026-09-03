@@ -248,12 +248,10 @@ defmodule ServiceRadar.StatusHandler do
         # stays the flow source; netprobe only supplies the process context.
         case persist_flow_attribution(events || [], partition_id, agent_id) do
           :ok ->
-            emit_flow_attribution_batch_received(events, dropped, partition_id, agent_id)
-            {:ok, %{event_count: length(events || [])}}
+            committed_flow_result(events, dropped, partition_id, agent_id)
 
           {:ok, _result} ->
-            emit_flow_attribution_batch_received(events, dropped, partition_id, agent_id)
-            {:ok, %{event_count: length(events || [])}}
+            committed_flow_result(events, dropped, partition_id, agent_id)
 
           {:error, _reason} = error ->
             error
@@ -292,12 +290,28 @@ defmodule ServiceRadar.StatusHandler do
 
   defp decode_batch(_), do: :error
 
-  defp emit_flow_attribution_batch_received(events, dropped, partition_id, agent_id) do
+  @doc false
+  def emit_flow_attribution_committed(%{
+        event_count: event_count,
+        dropped_since_last: dropped,
+        partition_id: partition_id,
+        agent_id: agent_id
+      }) do
     :telemetry.execute(
       @telemetry_batch_received,
-      %{count: 1, event_count: length(events || []), dropped_since_last: dropped || 0},
+      %{count: 1, event_count: event_count, dropped_since_last: dropped},
       %{partition_id: partition_id, agent_id: agent_id}
     )
+  end
+
+  defp committed_flow_result(events, dropped, partition_id, agent_id) do
+    {:ok,
+     %{
+       event_count: length(events || []),
+       dropped_since_last: dropped || 0,
+       partition_id: partition_id,
+       agent_id: agent_id
+     }}
   end
 
   defp persist_flow_attribution(events, partition_id, agent_id) do

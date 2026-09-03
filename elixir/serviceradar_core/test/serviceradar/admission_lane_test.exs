@@ -136,6 +136,90 @@ defmodule ServiceRadar.AdmissionLaneTest do
     assert_empty(lane)
   end
 
+  test "execution timeout does not start replacement work before the worker terminates" do
+    parent = self()
+
+    lane =
+      start_lane(delayed_link_exit_processor(parent, 150),
+        max_items: 2,
+        queue_wait_ms: 500,
+        worker_timeout_ms: 50,
+        gateway_call_timeout_ms: 3_550
+      )
+
+    first_ref = admit(lane, status("agent-a", "first"))
+    assert_receive {:started, "first", first_worker}
+    first_monitor = Process.monitor(first_worker)
+
+    second_ref = admit(lane, status("agent-b", "second"))
+    assert_receive {^first_ref, {:error, :execution_timeout}}, 250
+
+    receive do
+      {:DOWN, ^first_monitor, :process, ^first_worker, _reason} ->
+        :ok
+
+      {:started, "second", second_worker} ->
+        Process.exit(second_worker, :kill)
+        flunk("replacement started while the timed-out worker was still alive")
+    after
+      300 ->
+        flunk("timed-out worker did not terminate")
+    end
+
+    assert_receive {:started, "second", second_worker}
+    send(second_worker, :release)
+    assert_receive {^second_ref, :ok}
+    assert_empty(lane)
+  end
+
+  test "caller exit does not start replacement work before the worker terminates" do
+    parent = self()
+
+    lane =
+      start_lane(delayed_link_exit_processor(parent, 150),
+        max_items: 2,
+        queue_wait_ms: 500,
+        worker_timeout_ms: 1_000,
+        gateway_call_timeout_ms: 4_500
+      )
+
+    caller =
+      spawn(fn ->
+        reply_ref = make_ref()
+
+        send(
+          parent,
+          {:caller_admission, Lane.admit(lane, status("agent-a", "first"), {self(), reply_ref})}
+        )
+
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:caller_admission, :ok}
+    assert_receive {:started, "first", first_worker}
+    first_monitor = Process.monitor(first_worker)
+    second_ref = admit(lane, status("agent-b", "second"))
+
+    Process.exit(caller, :kill)
+
+    receive do
+      {:DOWN, ^first_monitor, :process, ^first_worker, _reason} ->
+        :ok
+
+      {:started, "second", second_worker} ->
+        Process.exit(second_worker, :kill)
+        flunk("replacement started while the abandoned worker was still alive")
+    after
+      300 ->
+        flunk("abandoned worker did not terminate")
+    end
+
+    assert_receive {:started, "second", second_worker}
+    send(second_worker, :release)
+    assert_receive {^second_ref, :ok}
+    assert_empty(lane)
+  end
+
   test "a crashing worker releases capacity and returns worker_crash" do
     lane = start_lane(fn _status -> exit(:forced_crash) end, max_items: 1)
     reply_ref = admit(lane, status("agent-a", "crash"))
@@ -144,6 +228,17 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
     next_ref = admit(lane, status("agent-b", "also-crash"))
     assert_receive {^next_ref, {:error, :worker_crash}}, 250
+    assert_empty(lane)
+  end
+
+  test "fast workers repeatedly complete after their running state is registered" do
+    lane = start_lane(fn _status -> :ok end, max_items: 1)
+
+    for iteration <- 1..100 do
+      reply_ref = admit(lane, status("agent-a", "fast-#{iteration}"))
+      assert_receive {^reply_ref, :ok}
+    end
+
     assert_empty(lane)
   end
 
@@ -218,6 +313,42 @@ defmodule ServiceRadar.AdmissionLaneTest do
         0 -> false
       end
     end)
+  end
+
+  test "cast admission reports an unavailable flow lane and emits rejection telemetry" do
+    parent = self()
+    handler_id = {__MODULE__, make_ref()}
+    previous = Application.get_env(:serviceradar_core, ServiceRadar.StatusHandler)
+    original = previous || []
+    missing_lane = unique_name(:missing_flow_lane)
+
+    Application.put_env(
+      :serviceradar_core,
+      ServiceRadar.StatusHandler,
+      Keyword.put(original, :flow_lane, missing_lane)
+    )
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :admission_lane, :rejected],
+        fn event, measurements, metadata, pid ->
+          send(pid, {:cast_rejected, event, measurements, metadata})
+        end,
+        parent
+      )
+
+    on_exit(fn ->
+      :telemetry.detach(handler_id)
+      restore_env(ServiceRadar.StatusHandler, previous)
+    end)
+
+    assert {:error, {:admission_lane_unavailable, _reason}} =
+             FlowLane.admit_cast(status("agent-a", "cast"))
+
+    assert_receive {:cast_rejected, [:serviceradar, :admission_lane, :rejected],
+                    %{count: 1, payload_bytes: 4},
+                    %{lane: :flow_attribution, reason: :lane_unavailable}}
   end
 
   test "bounded admission telemetry is exported by the core reporter" do
@@ -386,6 +517,25 @@ defmodule ServiceRadar.AdmissionLaneTest do
       end
     end
   end
+
+  defp delayed_link_exit_processor(parent, delay_ms) do
+    fn status ->
+      Process.flag(:trap_exit, true)
+      send(parent, {:started, status.message, self()})
+
+      receive do
+        :release ->
+          :ok
+
+        {:EXIT, _lease, _reason} ->
+          Process.sleep(delay_ms)
+          :ok
+      end
+    end
+  end
+
+  defp unique_name(suffix),
+    do: Module.concat(__MODULE__, "#{suffix}_#{System.unique_integer([:positive])}")
 
   defp assert_eventually(fun, attempts \\ 30)
   defp assert_eventually(fun, 0), do: assert(fun.())

@@ -20,11 +20,18 @@ defmodule ServiceRadar.Admission.Lane do
     :exit, reason -> {:error, {:admission_lane_unavailable, reason}}
   end
 
-  def admit_cast(server, status) do
-    GenServer.cast(server, {:admit_cast, status})
-    :ok
+  def admit_cast(server, status, lane) do
+    GenServer.call(server, {:admit_cast, status}, :infinity)
   catch
-    :exit, reason -> {:error, {:admission_lane_unavailable, reason}}
+    :exit, reason ->
+      emit(
+        lane,
+        :rejected,
+        %{count: 1, payload_bytes: payload_bytes(status)},
+        %{reason: :lane_unavailable}
+      )
+
+      {:error, {:admission_lane_unavailable, reason}}
   end
 
   def validate_config(config, gateway_max_ms) do
@@ -49,6 +56,7 @@ defmodule ServiceRadar.Admission.Lane do
           concurrency: Keyword.fetch!(opts, :concurrency),
           task_supervisor: Keyword.fetch!(opts, :task_supervisor),
           processor: Keyword.fetch!(opts, :processor),
+          on_accepted_result: Keyword.get(opts, :on_accepted_result),
           source_max_bytes: Keyword.fetch!(opts, :source_max_bytes),
           config: config,
           queue: :queue.new(),
@@ -76,10 +84,10 @@ defmodule ServiceRadar.Admission.Lane do
   end
 
   @impl true
-  def handle_cast({:admit_cast, status}, state) do
+  def handle_call({:admit_cast, status}, _from, state) do
     case do_admit(status, nil, state) do
-      {:ok, next_state} -> {:noreply, dispatch(next_state)}
-      {:error, _reason, next_state} -> {:noreply, next_state}
+      {:ok, next_state} -> {:reply, :ok, dispatch(next_state)}
+      {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
     end
   end
 
@@ -108,45 +116,24 @@ defmodule ServiceRadar.Admission.Lane do
   def handle_info({:execution_timeout, id}, state) do
     case Map.get(state.jobs, id) do
       %{phase: :running} = job ->
-        reply(job.reply_to, {:error, :execution_timeout})
-        Process.exit(job.lease, :kill)
-
-        emit(
-          state.lane,
-          :timeout,
-          %{count: 1, acknowledgement_ms: elapsed_ms(job.admitted_at)},
-          %{reason: :execution_timeout}
-        )
-
-        emit_completion(state.lane, job, :execution_timeout)
-
-        {:noreply, state |> remove_job(job) |> dispatch()}
+        {:noreply, begin_execution_termination(state, job, :execution_timeout)}
 
       _ ->
         {:noreply, state}
     end
   end
 
-  def handle_info({:worker_result, id, lease, result}, state) do
+  def handle_info({:worker_result, id, worker, result}, state) do
     case Map.get(state.jobs, id) do
-      %{phase: :running, lease: ^lease} = job ->
+      %{phase: :running, worker: ^worker} = job ->
         Process.cancel_timer(job.execution_timer)
         duration_ms = elapsed_ms(job.started_at)
 
         if duration_ms >= state.config[:worker_timeout_ms] do
-          send(lease, {:deliver, {:error, :execution_timeout}})
-
-          emit(
-            state.lane,
-            :timeout,
-            %{count: 1, acknowledgement_ms: elapsed_ms(job.admitted_at)},
-            %{reason: :execution_timeout}
-          )
-
-          emit_completion(state.lane, job, :execution_timeout)
-          {:noreply, state |> remove_job(job) |> dispatch()}
+          {:noreply, begin_execution_termination(state, job, :execution_timeout)}
         else
-          send(lease, {:deliver, normalize_result(result)})
+          notify_accepted_result(state.on_accepted_result, result)
+          send(job.lease, {:deliver, normalize_result(result)})
 
           emit(
             state.lane,
@@ -169,6 +156,7 @@ defmodule ServiceRadar.Admission.Lane do
     case Map.get(state.monitors, ref) do
       {:lease, id} -> handle_lease_exit(state, id, ref, reason)
       {:caller, id} -> handle_caller_exit(state, id, ref)
+      {:worker, id} -> handle_worker_exit(state, id, ref, reason)
       nil -> {:noreply, state}
     end
   end
@@ -180,19 +168,28 @@ defmodule ServiceRadar.Admission.Lane do
       nil ->
         {:noreply, %{state | monitors: Map.delete(state.monitors, ref)}}
 
-      job ->
-        reply(job.reply_to, {:error, :worker_crash})
-
-        emit(
-          state.lane,
-          :crash,
-          %{count: 1, acknowledgement_ms: elapsed_ms(job.admitted_at)},
-          %{reason: :worker_crash, exit_reason: bounded_reason(reason)}
-        )
-
-        emit_completion(state.lane, job, :worker_crash)
-
+      %{phase: :queued} = job ->
+        report_worker_crash(state, job, reason)
         {:noreply, state |> remove_job(job) |> dispatch()}
+
+      %{phase: :running} = job ->
+        Process.cancel_timer(job.execution_timer)
+        reply(job.reply_to, {:error, :worker_crash})
+        Process.exit(job.worker, :kill)
+        report_worker_crash(state, job, reason)
+
+        terminating =
+          job
+          |> Map.put(:phase, :terminating)
+          |> Map.put(:reply_to, nil)
+
+        {:noreply,
+         state
+         |> drop_monitor(ref)
+         |> put_job(terminating)}
+
+      %{phase: :terminating} ->
+        {:noreply, drop_monitor(state, ref)}
     end
   end
 
@@ -201,11 +198,82 @@ defmodule ServiceRadar.Admission.Lane do
       nil ->
         {:noreply, %{state | monitors: Map.delete(state.monitors, ref)}}
 
-      job ->
+      %{phase: :queued} = job ->
         Process.exit(job.lease, :kill)
+        {:noreply, state |> remove_job(job) |> dispatch()}
+
+      %{phase: :running} = job ->
+        Process.cancel_timer(job.execution_timer)
+        Process.exit(job.lease, :kill)
+        Process.exit(job.worker, :kill)
+
+        terminating =
+          job
+          |> Map.put(:phase, :terminating)
+          |> Map.put(:reply_to, nil)
+
+        {:noreply,
+         state
+         |> drop_monitor(ref)
+         |> put_job(terminating)}
+
+      %{phase: :terminating} ->
+        {:noreply, drop_monitor(state, ref)}
+    end
+  end
+
+  defp handle_worker_exit(state, id, ref, reason) do
+    case Map.get(state.jobs, id) do
+      nil ->
+        {:noreply, drop_monitor(state, ref)}
+
+      %{phase: :terminating} = job ->
+        {:noreply, state |> remove_job(job) |> dispatch()}
+
+      %{phase: :running} = job ->
+        send(job.lease, {:deliver, {:error, :worker_crash}})
+        report_worker_crash(state, job, reason)
         {:noreply, state |> remove_job(job) |> dispatch()}
     end
   end
+
+  defp begin_execution_termination(state, job, reason) do
+    Process.cancel_timer(job.execution_timer)
+    reply(job.reply_to, {:error, reason})
+    Process.exit(job.lease, :kill)
+    Process.exit(job.worker, :kill)
+
+    emit(
+      state.lane,
+      :timeout,
+      %{count: 1, acknowledgement_ms: elapsed_ms(job.admitted_at)},
+      %{reason: reason}
+    )
+
+    emit_completion(state.lane, job, reason)
+
+    terminating =
+      job
+      |> Map.put(:phase, :terminating)
+      |> Map.put(:reply_to, nil)
+
+    put_job(state, terminating)
+  end
+
+  defp report_worker_crash(state, job, reason) do
+    emit(
+      state.lane,
+      :crash,
+      %{count: 1, acknowledgement_ms: elapsed_ms(job.admitted_at)},
+      %{reason: :worker_crash, exit_reason: bounded_reason(reason)}
+    )
+
+    emit_completion(state.lane, job, :worker_crash)
+  end
+
+  defp put_job(state, job), do: %{state | jobs: Map.put(state.jobs, job.id, job)}
+
+  defp drop_monitor(state, ref), do: %{state | monitors: Map.delete(state.monitors, ref)}
 
   defp do_admit(status, reply_to, state) do
     payload_bytes = payload_bytes(status)
@@ -214,7 +282,7 @@ defmodule ServiceRadar.Admission.Lane do
 
     with :ok <- validate_source_size(payload_bytes, state.source_max_bytes),
          :ok <- validate_capacity(state, retained_bytes, agent_id),
-         {:ok, lease} <- start_lease(state, status, reply_to) do
+         {:ok, lease} <- start_lease(state, reply_to) do
       id = make_ref()
       lease_ref = Process.monitor(lease)
       caller_ref = monitor_caller(reply_to)
@@ -223,6 +291,7 @@ defmodule ServiceRadar.Admission.Lane do
 
       job = %{
         id: id,
+        status: status,
         reply_to: reply_to,
         lease: lease,
         lease_ref: lease_ref,
@@ -258,44 +327,36 @@ defmodule ServiceRadar.Admission.Lane do
     end
   end
 
-  defp start_lease(state, status, reply_to) do
+  defp start_lease(state, reply_to) do
     coordinator = self()
-    processor = state.processor
 
     # The lightweight lease exists for queued as well as running work. It owns
     # the eventual GenServer.reply/2 and monitors the coordinator, so a lane
     # restart cannot strand a caller whose admission was already accepted.
     case Task.Supervisor.start_child(state.task_supervisor, fn ->
-           lease(coordinator, processor, status, reply_to)
+           lease(coordinator, reply_to)
          end) do
       {:ok, pid} -> {:ok, pid}
       {:error, _reason} -> {:error, :worker_crash}
     end
   end
 
-  defp lease(coordinator, processor, status, reply_to) do
+  defp lease(coordinator, reply_to) do
     coordinator_ref = Process.monitor(coordinator)
 
     receive do
       {:lease_id, id} ->
-        lease_wait(id, coordinator, coordinator_ref, processor, status, reply_to)
+        lease_wait(id, coordinator_ref, reply_to)
 
       {:DOWN, ^coordinator_ref, :process, _pid, _reason} ->
         reply(reply_to, {:error, :coordinator_restart})
     end
   end
 
-  defp lease_wait(id, coordinator, coordinator_ref, processor, status, reply_to) do
+  defp lease_wait(id, coordinator_ref, reply_to) do
     receive do
-      :start ->
-        lease = self()
-
-        worker =
-          spawn_link(fn ->
-            send(lease, {:processor_result, self(), invoke(processor, status)})
-          end)
-
-        lease_running(id, coordinator, coordinator_ref, worker, reply_to)
+      {:worker, ^id, worker} ->
+        lease_running(coordinator_ref, worker, reply_to)
 
       {:deliver, result} ->
         reply(reply_to, result)
@@ -305,24 +366,13 @@ defmodule ServiceRadar.Admission.Lane do
     end
   end
 
-  defp lease_running(id, coordinator, coordinator_ref, worker, reply_to) do
+  defp lease_running(coordinator_ref, worker, reply_to) do
     receive do
-      {:processor_result, ^worker, result} ->
-        send(coordinator, {:worker_result, id, self(), result})
-        lease_deliver(coordinator_ref, reply_to)
+      {:deliver, result} ->
+        reply(reply_to, result)
 
       {:DOWN, ^coordinator_ref, :process, _pid, _reason} ->
         Process.exit(worker, :kill)
-        reply(reply_to, {:error, :coordinator_restart})
-    end
-  end
-
-  defp lease_deliver(coordinator_ref, reply_to) do
-    receive do
-      {:deliver, result} ->
-        reply(reply_to, result)
-
-      {:DOWN, ^coordinator_ref, :process, _pid, _reason} ->
         reply(reply_to, {:error, :coordinator_restart})
     end
   end
@@ -331,6 +381,14 @@ defmodule ServiceRadar.Admission.Lane do
     do: apply(module, function, [status | extra_args])
 
   defp invoke(fun, status) when is_function(fun, 1), do: fun.(status)
+
+  defp notify_accepted_result(nil, _result), do: :ok
+
+  defp notify_accepted_result({module, function, extra_args}, {:ok, metadata}) do
+    apply(module, function, [metadata | extra_args])
+  end
+
+  defp notify_accepted_result(_callback, _result), do: :ok
 
   defp dispatch(state) when map_size(state.running) >= state.concurrency, do: state
 
@@ -356,34 +414,70 @@ defmodule ServiceRadar.Admission.Lane do
           next_state |> remove_job(job) |> dispatch()
         else
           Process.cancel_timer(job.queue_timer)
-          send(job.lease, :start)
 
-          timer =
-            Process.send_after(
-              self(),
-              {:execution_timeout, job.id},
-              state.config[:worker_timeout_ms]
-            )
+          case start_worker(next_state, job) do
+            {:ok, worker, worker_ref} ->
+              timer =
+                Process.send_after(
+                  self(),
+                  {:execution_timeout, job.id},
+                  state.config[:worker_timeout_ms]
+                )
 
-          running_job =
-            Map.merge(job, %{phase: :running, started_at: now_ms(), execution_timer: timer})
+              running_job =
+                Map.merge(job, %{
+                  phase: :running,
+                  started_at: now_ms(),
+                  execution_timer: timer,
+                  worker: worker,
+                  worker_ref: worker_ref
+                })
 
-          dispatched = %{
-            next_state
-            | jobs: Map.put(next_state.jobs, job.id, running_job),
-              running: Map.put(next_state.running, job.id, true)
-          }
+              dispatched = %{
+                next_state
+                | jobs: Map.put(next_state.jobs, job.id, running_job),
+                  monitors: Map.put(next_state.monitors, worker_ref, {:worker, job.id}),
+                  running: Map.put(next_state.running, job.id, true)
+              }
 
-          emit(
-            state.lane,
-            :admission,
-            %{wait_ms: wait_ms, payload_bytes: job.payload_bytes},
-            %{}
-          )
+              # The worker must not invoke persistence until its monitor and
+              # running job are installed. Otherwise a fast worker can exit
+              # before the lane is ready to correlate its result and DOWN.
+              send(job.lease, {:worker, job.id, worker})
+              send(worker, {:start, job.id})
 
-          emit_state(dispatched)
-          dispatch(dispatched)
+              emit(
+                state.lane,
+                :admission,
+                %{wait_ms: wait_ms, payload_bytes: job.payload_bytes},
+                %{}
+              )
+
+              emit_state(dispatched)
+              dispatch(dispatched)
+
+            {:error, reason} ->
+              send(job.lease, {:deliver, {:error, :worker_crash}})
+              report_worker_crash(state, job, reason)
+              next_state |> remove_job(job) |> dispatch()
+          end
         end
+    end
+  end
+
+  defp start_worker(state, job) do
+    coordinator = self()
+    processor = state.processor
+
+    case Task.Supervisor.start_child(state.task_supervisor, fn ->
+           receive do
+             {:start, id} when id == job.id ->
+               result = invoke(processor, job.status)
+               send(coordinator, {:worker_result, job.id, self(), result})
+           end
+         end) do
+      {:ok, worker} -> {:ok, worker, Process.monitor(worker)}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -407,6 +501,7 @@ defmodule ServiceRadar.Admission.Lane do
     if is_reference(Map.get(job, :execution_timer)), do: Process.cancel_timer(job.execution_timer)
     Process.demonitor(job.lease_ref, [:flush])
     if is_reference(job.caller_ref), do: Process.demonitor(job.caller_ref, [:flush])
+    if is_reference(Map.get(job, :worker_ref)), do: Process.demonitor(job.worker_ref, [:flush])
 
     next_state = %{
       state
@@ -415,7 +510,8 @@ defmodule ServiceRadar.Admission.Lane do
         monitors:
           state.monitors
           |> Map.delete(job.lease_ref)
-          |> Map.delete(job.caller_ref),
+          |> Map.delete(job.caller_ref)
+          |> Map.delete(Map.get(job, :worker_ref)),
         admitted_bytes: state.admitted_bytes - job.retained_bytes,
         admitted_per_agent: decrement_agent(state.admitted_per_agent, job.agent_id)
     }

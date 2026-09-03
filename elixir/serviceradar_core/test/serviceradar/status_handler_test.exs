@@ -1,6 +1,7 @@
 defmodule ServiceRadar.StatusHandlerTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Admission.FlowLane
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Addon.V1.TelemetrySource
@@ -191,7 +192,7 @@ defmodule ServiceRadar.StatusHandlerTest do
 
       lane =
         start_supervised!(
-          {ServiceRadar.Admission.FlowLane,
+          {FlowLane,
            name: unique_name(:flow_lane),
            task_supervisor: task_supervisor,
            config: [
@@ -360,6 +361,94 @@ defmodule ServiceRadar.StatusHandlerTest do
                       %{partition_id: "prod-east", agent_id: "agent-a"}}
 
       refute_receive {:flow_attribution_batch_received, _, _, _}, 20
+    end
+
+    test "does not emit committed flow telemetry when lane acceptance misses its deadline" do
+      release_ref = make_ref()
+      handler_id = {__MODULE__, self(), make_ref()}
+
+      task_supervisor =
+        start_supervised!(Supervisor.child_spec({Task.Supervisor, []}, id: make_ref()))
+
+      lane =
+        start_supervised!(
+          {FlowLane,
+           name: unique_name(:deadline_flow_lane),
+           task_supervisor: task_supervisor,
+           config: [
+             max_items: 16,
+             max_bytes: 64 * 1_024 * 1_024,
+             max_items_per_agent: 4,
+             queue_wait_ms: 100,
+             worker_timeout_ms: 150,
+             gateway_call_timeout_ms: 3_250
+           ]}
+        )
+
+      Application.put_env(
+        :serviceradar_core,
+        StatusHandler,
+        :serviceradar_core
+        |> Application.get_env(StatusHandler, [])
+        |> Keyword.put(:flow_lane, lane)
+        |> Keyword.put(
+          :flow_attribution_persister,
+          {__MODULE__, :persist_flow_attribution_after_release, [self(), release_ref]}
+        )
+      )
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:serviceradar, :event_writer, :attributed_flow, :batch_received],
+          &__MODULE__.forward_flow_attribution_telemetry/4,
+          self()
+        )
+
+      on_exit(fn ->
+        if Process.alive?(lane), do: :sys.resume(lane)
+        :telemetry.detach(handler_id)
+      end)
+
+      batch =
+        FlowAttributionEventBatch.encode(%FlowAttributionEventBatch{
+          events: [
+            %FlowAttributionEvent{
+              local_ip: "192.0.2.1",
+              local_port: 50_000,
+              remote_ip: "198.51.100.2",
+              remote_port: 443,
+              transport_protocol: "TCP",
+              pid: 42,
+              comm: "synthetic-client"
+            }
+          ],
+          dropped_since_last: 3
+        })
+
+      status = %{
+        source: "flow-attribution",
+        service_type: "passive-netprobe",
+        service_name: "flow-attribution",
+        agent_id: "agent-synthetic",
+        partition: "synthetic-partition",
+        message: batch
+      }
+
+      reply_ref = make_ref()
+
+      assert {:noreply, %{}} =
+               StatusHandler.handle_call({:status_update, status}, {self(), reply_ref}, %{})
+
+      assert_receive {:flow_attribution_waiting, ^release_ref, worker}
+      :ok = :sys.suspend(lane)
+      Process.sleep(180)
+      send(worker, {:commit_flow_attribution, release_ref})
+      assert_receive {:flow_attribution_committed, ^release_ref}
+      :ok = :sys.resume(lane)
+
+      assert_receive {^reply_ref, {:error, :execution_timeout}}, 500
+      refute_receive {:flow_attribution_batch_received, _, _, _}, 30
     end
 
     test "ignores malformed flow-attribution messages without crashing" do
@@ -1062,6 +1151,16 @@ defmodule ServiceRadar.StatusHandlerTest do
     send(pid, {:flow_attribution_persist_attempt, attempt, events, partition_id, agent_id})
 
     if attempt == 1, do: {:error, :deadlock_exhausted}, else: :ok
+  end
+
+  def persist_flow_attribution_after_release(_events, _partition_id, _agent_id, pid, release_ref) do
+    send(pid, {:flow_attribution_waiting, release_ref, self()})
+
+    receive do
+      {:commit_flow_attribution, ^release_ref} ->
+        send(pid, {:flow_attribution_committed, release_ref})
+        :ok
+    end
   end
 
   def forward_flow_attribution_telemetry(event, measurements, metadata, pid) do

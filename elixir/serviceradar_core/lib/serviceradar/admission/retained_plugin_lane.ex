@@ -16,6 +16,7 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
     :lane,
     :concurrency,
     :processor,
+    :on_accepted_result,
     :source_max_bytes,
     :gateway_max_ms
   ]
@@ -45,7 +46,7 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
     do: %{id: Keyword.get(opts, :name, __MODULE__), start: {__MODULE__, :start_link, [opts]}}
 
   def admit(status, reply_to), do: Lane.admit(server(), status, reply_to)
-  def admit_cast(status), do: Lane.admit_cast(server(), status)
+  def admit_cast(status), do: Lane.admit_cast(server(), status, :retained_plugin_result)
 
   defp server do
     :serviceradar_core
