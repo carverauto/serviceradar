@@ -43,9 +43,11 @@
 
 - [x] 2.1 Add `merge_audit`, `device_revival_audit`, `device_identifiers`, and
       `identity_reconciliation_runs` to `rust/srql/src/schema.rs`.
-- [ ] 2.2 Add row models and `into_json` in `rust/srql/src/models/inventory.rs`
-      (or a new `identity.rs` module if inventory.rs grows past a comfortable
-      size).
+- [x] 2.2 ~~Add row models and `into_json`~~ **Not needed.** All five entities
+      build `SELECT to_jsonb(sub) AS payload`, so there is one shared
+      `JsonPayload` row type in `query/identity/mod.rs` and no per-entity
+      `Queryable` struct. Adding five typed structs that are never used as
+      Diesel projections would be dead weight.
 - [x] 2.3 Define the `details` and `metadata` key allowlists in one place and
       apply them from every projection that touches those columns.
 
@@ -143,49 +145,49 @@
 
 ## 9. RBAC, catalog, and docs
 
-- [ ] 9.1 Add all five canonical names and every alias to the `"devices.view"`
+- [x] 9.1 Add all five canonical names and every alias to the `"devices.view"`
       list in `srql/entity_access.ex`.
-- [ ] 9.2 Add a test asserting every parser alias for the five entities
+- [x] 9.2 Add a test asserting every parser alias for the five entities
       resolves to `{:ok, "devices.view"}` and never `:passthrough`. This is the
       gate: an alias missing from the map is an ungated entity on the HTTP and
       MCP paths, and it fails open silently.
-- [ ] 9.3 Register the entities, fields, and enums in
+- [x] 9.3 Register the entities, fields, and enums in
       `serviceradar_web_ng_web/srql/catalog.ex` and the viz metadata.
-- [ ] 9.4 Add cookbook recipes to `elixir/web-ng/priv/mcp/srql-cookbook.md`
+- [x] 9.4 Add cookbook recipes to `elixir/web-ng/priv/mcp/srql-cookbook.md`
       covering: reconcile an inventory list, trace a tombstone to its survivor,
       corroborated vs historical MAC, cross-partition evidence, and reading a
       capped run.
 
 ## 10. MCP tools
 
-- [ ] 10.1 Add `trace_device_identity` to `ServiceRadarWebNG.Mcp.Tools`,
+- [x] 10.1 Add `trace_device_identity` to `ServiceRadarWebNG.Mcp.Tools`,
       accepting `uid`, `ip`, or `hostname`. Resolve non-uid seeds through a
       bound `in:devices` query that includes tombstones.
-- [ ] 10.2 Compose the trace from bound SRQL through `Mcp.Runner`: device row
+- [x] 10.2 Compose the trace from bound SRQL through `Mcp.Runner`: device row
       with tombstone fields, merge chain both directions, revival events,
       identifiers with `matches_current_facts`, evidence component with
       `cross_partition`.
-- [ ] 10.3 Add `explain_identity_reconciliation` accepting `run_id` or a time
+- [x] 10.3 Add `explain_identity_reconciliation` accepting `run_id` or a time
       range, returning run summaries with `merge_cap_reached`, blocked
       component membership, and on request the evidence edges for one
       component.
-- [ ] 10.4 Both tools are read-only. Do not expose merge, unmerge, delete, or
+- [x] 10.4 Both tools are read-only. Do not expose merge, unmerge, delete, or
       restore.
-- [ ] 10.5 Runner tests including injection payloads in `uid`, `hostname`, and
+- [x] 10.5 Runner tests including injection payloads in `uid`, `hostname`, and
       `run_id`, asserting each is bound as a single value and does not alter
       query structure.
-- [ ] 10.6 Test that a caller holding `settings.mcp.manage` but not
+- [x] 10.6 Test that a caller holding `settings.mcp.manage` but not
       `devices.view` is refused by both tools.
-- [ ] 10.7 Test that the `details` allowlist applies to tool output, not only
+- [x] 10.7 Test that the `details` allowlist applies to tool output, not only
       to raw SRQL results.
 
 ## 11. Integration fixtures and verification
 
-- [ ] 11.1 Extend the SRQL integration fixtures with: a three-hop merge chain,
+- [x] 11.1 Extend the SRQL integration fixtures with: a three-hop merge chain,
       an oscillating merge pair, a revival with a preserved prior tombstone,
       a cross-partition identifier collision, a corroborated and a historical
       MAC on one device, and a blocked five-device component.
-- [ ] 11.2 Add the five entities to `integration_tests/srql/tests/comprehensive_queries.rs`.
+- [x] 11.2 Add the five entities to `integration_tests/srql/tests/comprehensive_queries.rs`.
 - [ ] 11.3 Run the guarded database lifecycle per the `srql-fixtures-db-tests`
       skill: sweep, prepare template, migrate, provision, test, teardown. Always
       pass `--nocache_test_results`; always run `teardown_db` after a red shard.

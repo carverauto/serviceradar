@@ -235,6 +235,132 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       ],
       downsample: false
     },
+    # Identity reconciliation diagnostics. All five ride `devices.view` and all
+    # five are read-only; they route to /devices because they explain what is
+    # (and is no longer) in device inventory rather than owning a page.
+    %{
+      id: "merge_audit",
+      label: "Device Merges",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "created_at",
+      default_sort_dir: "desc",
+      default_filter_field: "device_id",
+      filter_fields: [
+        "device_id",
+        "from_device_id",
+        "to_device_id",
+        "reason",
+        "source",
+        "confidence_score",
+        # Resolves the whole canonical chain from one uid, both directions.
+        "chain",
+        "depth",
+        "include_unmerge"
+      ],
+      boolean_fields: ["include_unmerge"],
+      downsample: false
+    },
+    %{
+      id: "device_revival_audit",
+      label: "Device Revivals",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "revived_at",
+      default_sort_dir: "desc",
+      default_filter_field: "device_uid",
+      filter_fields: [
+        "device_uid",
+        "previous_deleted_by",
+        "previous_deleted_reason",
+        "revived_by_application"
+      ],
+      downsample: false
+    },
+    %{
+      id: "device_identifiers",
+      label: "Device Identifiers",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "last_seen",
+      default_sort_dir: "desc",
+      default_filter_field: "device_id",
+      filter_fields: [
+        "device_id",
+        "identifier_type",
+        "value",
+        "partition",
+        "confidence",
+        "source",
+        "verified",
+        "owner_deleted",
+        "matches_current_facts"
+      ],
+      boolean_fields: ["verified", "owner_deleted", "matches_current_facts"],
+      known_values: %{
+        "identifier_type" => [
+          "agent_id",
+          "armis_device_id",
+          "integration_id",
+          "netbox_device_id",
+          "hardware_serial",
+          "mac",
+          "ip"
+        ],
+        "confidence" => ["strong", "medium", "weak"]
+      },
+      downsample: false
+    },
+    %{
+      id: "identity_reconciliation_runs",
+      label: "Identity Reconciliation Runs",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "started_at",
+      default_sort_dir: "desc",
+      default_filter_field: "status",
+      filter_fields: [
+        "run_id",
+        "status",
+        "trigger",
+        "merge_cap_reached",
+        "merges",
+        "errors",
+        "blocked_components",
+        "largest_blocked_component",
+        "duration_ms"
+      ],
+      boolean_fields: ["merge_cap_reached"],
+      known_values: %{
+        "status" => ["completed", "failed"],
+        "trigger" => ["scheduled", "manual"]
+      },
+      downsample: false
+    },
+    %{
+      id: "identity_evidence_edges",
+      label: "Identity Evidence",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "depth",
+      default_sort_dir: "asc",
+      # A seed is mandatory: an unseeded walk is a self-join across the whole
+      # identifier table and is refused rather than served slowly.
+      default_filter_field: "device",
+      filter_fields: ["device", "identifier_type", "depth"],
+      known_values: %{
+        "identifier_type" => [
+          "agent_id",
+          "armis_device_id",
+          "integration_id",
+          "netbox_device_id",
+          "hardware_serial",
+          "mac",
+          "ip"
+        ]
+      },
+      downsample: false
+    },
     %{
       id: "gateways",
       label: "Gateways",

@@ -50,6 +50,11 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       virtualization_host_disks virtualization_disks host_disks
       virtualization_network_interfaces virtualization_nics hypervisor_nics
       virtualization_storage_systems storage_systems ceph
+      merge_audit device_merges merges
+      device_revival_audit device_revivals revivals
+      device_identifiers identifiers device_identity
+      identity_reconciliation_runs reconciliation_runs dire_runs
+      identity_evidence_edges identity_evidence evidence_edges
     ),
     "services.view" => ~w(
       services service

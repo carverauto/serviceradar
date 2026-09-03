@@ -109,6 +109,69 @@ defmodule ServiceRadarWebNG.Mcp.Tools do
       run(&Runner.list_devices/2)
     end
 
+    action :trace_device_identity, :map do
+      description("""
+      Explain one device's identity end to end: its current record including
+      tombstone fields, the canonical merge chain in both directions, revival
+      events, identifier ownership with whether each identifier still matches
+      the device's current facts, and the shared-identifier evidence component
+      with direct evidence separated from transitive connectivity.
+
+      Use this to answer "where did this device go", "why did these two merge",
+      or "is this MAC still real". Read-only; it cannot merge, unmerge, delete
+      or restore anything. The seed is a bound identifier, not an SRQL fragment.
+      """)
+
+      argument :seed, :string do
+        allow_nil?(false)
+
+        description(
+          "Device uid (sr:<uuid>), IP, or hostname. Tombstoned devices are searched too."
+        )
+      end
+
+      argument :limit, :integer do
+        allow_nil?(true)
+        description("Maximum rows per section (default 50, max 200)")
+      end
+
+      run(&Runner.trace_device_identity/2)
+    end
+
+    action :explain_identity_reconciliation, :map do
+      description("""
+      Summarise scheduled identity reconciliation runs: candidates, mergeable
+      and blocked components, largest blocked component, merges attempted,
+      errors, the configured per-run merge cap, and whether the run stopped
+      because it reached that cap. Failed runs are included with their error.
+
+      Pass include_evidence to also return the shared-identifier evidence edges
+      for the components a run declined to merge. Read-only.
+      """)
+
+      argument :run_id, :string do
+        allow_nil?(true)
+        description("One run uuid. Omit to list recent runs in the time window.")
+      end
+
+      argument :time, :string do
+        allow_nil?(true)
+        description("Window: last_1h, last_24h (default), last_7d, or last_30d")
+      end
+
+      argument :include_evidence, :boolean do
+        allow_nil?(true)
+        description("Also return evidence edges for blocked components")
+      end
+
+      argument :limit, :integer do
+        allow_nil?(true)
+        description("Maximum runs to return (default 10)")
+      end
+
+      run(&Runner.explain_identity_reconciliation/2)
+    end
+
     action :get_device, :map do
       description("""
       Fetch one device by uid via the same lookup as GET /api/devices/:uid.
