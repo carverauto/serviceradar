@@ -44,7 +44,7 @@ references in the repository are ServiceRadar's own `startup_migrations.ex` and 
 line. The "AshPostgres reads and writes that table when the repo starts" hypothesis is therefore
 **disproved**.
 
-### E2. The migrator holds a lock on that table for the whole run
+### E2. The migrator holds a lock on that table while each migration runs
 
 `deps/ecto_sql/lib/ecto/adapters/postgres.ex:332-347`, the default strategy
 (`migration_lock` defaults to `:table_lock`):
@@ -64,8 +64,13 @@ end
 ```
 
 `opts[:migration_source]` is populated from repo config at `migrator.ex:573`. So under web-ng
-the statement is `LOCK TABLE "ash_schema_migrations" IN SHARE UPDATE EXCLUSIVE MODE`, and it is
-held open across `fun.()` — every migration in the run.
+the statement is `LOCK TABLE "ash_schema_migrations" IN SHARE UPDATE EXCLUSIVE MODE`.
+
+The lock is taken **per migration**, not once around the whole run: `migrate/4`
+(`migrator.ex:754-758`) loops over migrations and each iteration calls
+`conditional_lock_for_migrations` → `lock_for_migrations` → the adapter callback above. So for
+`20260126120000` specifically, the ledger is locked immediately before that migration's body
+runs — which is exactly why the issue observed it "blocked from its start".
 
 ### E3. Each migration runs on a different connection
 
@@ -83,6 +88,19 @@ end
 Each migration executes inside `Task.async` — a separate process — which then calls
 `repo.transaction/2`. Ecto connection ownership is per-process, so this is a *second* pooled
 connection, distinct from the one holding the lock in E2.
+
+The full chain, verified by reading each hop:
+
+```
+migrate/4                             migrator.ex:754   per migration
+  do_direction(:up, ...)              migrator.ex:760
+    conditional_lock_for_migrations   migrator.ex:606
+      lock_for_migrations             migrator.ex:553
+        do_lock_for_migrations        postgres.ex:332   conn A: BEGIN + LOCK TABLE ledger
+          do_up                       migrator.ex:279
+            async_migrate_...         migrator.ex:332   Task.async -> conn B
+              run_maybe_in_transaction migrator.ex:346  conn B: BEGIN + migration body
+```
 
 ### E4. The resulting topology is an unbreakable wait (positive control)
 
