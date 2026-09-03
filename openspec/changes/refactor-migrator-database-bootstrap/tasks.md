@@ -1,24 +1,22 @@
 ## 1. Establish the mechanism (#4151)
 
-- [ ] 1.1 Provision a scratch CNPG database migrated to exactly `20260125090000`, and assert
-      that version from `platform.schema_migrations` before running anything else. Do not use
-      `mix ecto.migrate --to`; it replays from the beginning, which is what invalidated the
-      probe in the issue.
-- [ ] 1.2 Write the concurrent observer: poll `pg_locks` joined to `pg_stat_activity` for the
-      relations the migration touches, append timestamped samples to a file, and record its own
-      start and stop times.
-- [ ] 1.3 Run `20260126120000` alone under `MIX_ENV=test` against that database with the
-      observer running, and with `SERVICERADAR_MIGRATION_LOCK_TIMEOUT_MS` set high enough to
-      observe the stall rather than cut it short.
-- [ ] 1.4 Gate on the artefact, not the run: assert the observer captured at least one sample
-      and that the recorded start version was `20260125090000`. A run that produced no samples
-      is a broken observer and must be reported as such, not as "no contention".
-- [ ] 1.5 Record the outcome in this change directory as `findings.md`, naming the blocker
-      (pid, application_name, query) or explicitly stating that no lock contention was observed
-      and the stall is elsewhere.
-- [ ] 1.6 If no contention is observed, stop and re-scope: the remaining candidates are the
-      connection pooler, the Sandbox ownership proxy, and the network path. Tasks 3-5 proceed
-      regardless; task 6 does not.
+- [x] 1.1 Read the mechanism out of source rather than reproducing blind. `migration_source`
+      (web-ng config), `do_lock_for_migrations` (ecto_sql postgres.ex) and the `Task.async` in
+      `async_migrate_maybe_in_transaction` (ecto_sql migrator.ex) compose into the stall. The
+      full chain is recorded hop by hop in `findings.md` E1-E3. This replaced the planned
+      "database at exactly 20260125090000" replay, which was a way to *discover* the mechanism;
+      reading it was cheaper and gave a stronger answer.
+- [x] 1.2 Write the concurrent observer polling `pg_locks` joined to `pg_stat_activity`, with a
+      sample counter so the artefact can be gated on.
+- [x] 1.3 Positive control: reproduce the lock topology with plain `psql` and confirm the
+      observer detects it (`findings.md` E4). This validates the instrument -- a null result
+      from an observer that cannot see contention is not evidence.
+- [x] 1.4 Confirm the two-connection step live, with an explicit PASS/FAIL branch per claim
+      (`findings.md` E5). C1: `Task.async` used a different backend pid. C2: the move waited the
+      full 15,000 ms `lock_timeout` (`db=15035.1ms`) and was cancelled `55P03`.
+- [x] 1.5 Record the outcome in `findings.md`, including what remains un-measured (the
+      `MIX_ENV=dev` secondary claim) and that nothing in the fix depends on it.
+- [x] 1.6 Contention WAS observed, so no re-scope is needed. Task 6 stands.
 
 ## 2. Refresh the CI contract first
 

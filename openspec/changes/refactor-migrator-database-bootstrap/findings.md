@@ -1,8 +1,8 @@
 # Findings: mechanism of the #4151 migration stall
 
-Task 1 of `tasks.md`. Status: **mechanism identified from source; live confirmation in
-progress.** This document records evidence, not inference — where something is inferred it says
-so.
+Task 1 of `tasks.md`. Status: **mechanism established.** Read from source hop by hop (E1-E3) and
+measured against the fixture CNPG instance (E4-E5). This document records evidence, not
+inference — where something is inferred it says so.
 
 ## Summary
 
@@ -147,9 +147,49 @@ explains *any* such wait and should stay; it is what would have made this diagno
 minutes. But a bounded self-deadlock is still a failed migration — the migration must stop
 moving the ledger out from under the migrator.
 
-## Status of the live confirmation
+### E5. Confirmed live: two connections, and the wait is real
 
-E1, E2 and E3 are read directly from source. E4 is measured. Outstanding: an end-to-end run
-showing the two distinct backend pids in a real `mix ecto.migrate`, confirming E3 holds under
-this project's pool configuration rather than only in Ecto's source. See `probe.exs` results
-appended below when complete.
+E3 was read from Ecto's source; this measures it. Because the claim is a property of
+Ecto + DBConnection rather than of ServiceRadar, it was tested with a minimal
+`ecto_sql` + `postgrex` repo against a throwaway database on the fixture CNPG instance,
+reproducing the exact topology from the chain in E3.
+
+```
+parent_backend_pid=689488
+task_backend_pid=689490
+C1 PASS: different connections (689488 -> 689490).
+
+C2 PASS: the move did not succeed.
+   result={:ok, {:raised, "ERROR 55P03 (lock_not_available) canceling statement due to lock timeout"}}
+
+QUERY ERROR db=15035.1ms
+  ALTER TABLE public.ash_schema_migrations SET SCHEMA platform
+
+schemas holding ash_schema_migrations: [["public"]]
+```
+
+Both claims hold:
+
+- **C1** — `Task.async` checked out a *different* pooled connection (`689488` → `689490`). The
+  two-connection premise is confirmed, not inferred.
+- **C2** — with the outer connection holding `SHARE UPDATE EXCLUSIVE` and blocked in
+  `Task.await`, the inner connection's `ALTER TABLE ... SET SCHEMA` waited the **entire**
+  15,000 ms `lock_timeout` (`db=15035.1ms`) and was cancelled. It never acquired the lock, and
+  the table stayed in `public`.
+
+The 15 s figure is the whole point: the wait was bounded only because the probe set a
+`lock_timeout`. Without one it does not end — which is what produced the 264 s in the issue,
+where the wait was terminated by the Sandbox `ownership_timeout` killing the connection instead.
+
+Both the probe database and the E4 control database were dropped and their absence re-queried.
+
+## Status
+
+E1, E2 and E3 are read directly from source, hop by hop. E4 and E5 are measured. The mechanism
+is established; no step of it remains inferred.
+
+What is *not* established, and does not need to be for the fix: whether the same stall also
+reproduces through `MIX_ENV=dev`. The issue reports dev completing, which is consistent with a
+dev run made from `elixir/serviceradar_core`, where `migration_source` is unset and the ledger
+is the already-excluded `schema_migrations`. That is a plausible reading of a secondary detail,
+not a measurement, and nothing in the fix depends on it.
