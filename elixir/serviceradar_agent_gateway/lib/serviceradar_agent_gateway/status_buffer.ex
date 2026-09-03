@@ -53,11 +53,12 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
       Keyword.get(opts, :flush_interval_ms, env_int("GATEWAY_RESULTS_BUFFER_FLUSH_MS", @default_flush_interval_ms))
 
     schedule_flush(flush_interval_ms)
-    emit_buffer_depth(0)
+    emit_buffer_depth(0, 0)
 
     {:ok,
      %{
        queue: :queue.new(),
+       retained_bytes: 0,
        max_entries: max_entries,
        flush_interval_ms: flush_interval_ms
      }}
@@ -70,15 +71,23 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
       emit_buffer_drop(status, :disabled)
       {:reply, :ok, state}
     else
+      status_bytes = encoded_status_bytes(status)
       {queue, dropped} = enqueue_status(state.queue, status, state.max_entries)
+
+      retained_bytes =
+        state.retained_bytes + status_bytes -
+          case dropped do
+            nil -> 0
+            dropped_status -> encoded_status_bytes(dropped_status)
+          end
 
       if dropped do
         Logger.warning("Status buffer full; dropping oldest status")
-        emit_buffer_drop(status, :overflow)
+        emit_buffer_drop(dropped, :overflow)
       end
 
-      emit_buffer_depth(:queue.len(queue))
-      {:reply, :ok, %{state | queue: queue}}
+      emit_buffer_depth(:queue.len(queue), retained_bytes)
+      {:reply, :ok, %{state | queue: queue, retained_bytes: retained_bytes}}
     end
   end
 
@@ -102,10 +111,10 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
 
   defp enqueue_status(queue, status, max_entries) do
     if :queue.len(queue) >= max_entries do
-      {{:value, _dropped}, reduced} = :queue.out(queue)
-      {:queue.in(status, reduced), true}
+      {{:value, dropped}, reduced} = :queue.out(queue)
+      {:queue.in(status, reduced), dropped}
     else
-      {:queue.in(status, queue), false}
+      {:queue.in(status, queue), nil}
     end
   end
 
@@ -121,12 +130,14 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
       {{:value, status}, rest} ->
         case StatusProcessor.process(status, buffer_on_failure: false, from_buffer: true) do
           :ok ->
-            emit_buffer_depth(:queue.len(rest))
-            flush_queue(%{state | queue: rest}, remaining - 1)
+            retained_bytes = state.retained_bytes - encoded_status_bytes(status)
+            emit_buffer_depth(:queue.len(rest), retained_bytes)
+            flush_queue(%{state | queue: rest, retained_bytes: retained_bytes}, remaining - 1)
 
           {:ok, _result} ->
-            emit_buffer_depth(:queue.len(rest))
-            flush_queue(%{state | queue: rest}, remaining - 1)
+            retained_bytes = state.retained_bytes - encoded_status_bytes(status)
+            emit_buffer_depth(:queue.len(rest), retained_bytes)
+            flush_queue(%{state | queue: rest, retained_bytes: retained_bytes}, remaining - 1)
 
           {:error, reason} ->
             Logger.debug("Results buffer flush paused: #{inspect(reason)}")
@@ -142,26 +153,85 @@ defmodule ServiceRadarAgentGateway.StatusBuffer do
   defp emit_buffer_drop(status, reason) do
     :telemetry.execute(
       [:serviceradar, :agent_gateway, :results, :buffer, :dropped],
-      %{count: 1},
+      %{count: 1, bytes: encoded_status_bytes(status)},
       buffer_metadata(status, reason)
     )
   end
 
-  defp emit_buffer_depth(depth) do
+  defp emit_buffer_depth(depth, retained_bytes) do
     :telemetry.execute(
       [:serviceradar, :agent_gateway, :results, :buffer, :depth],
-      %{depth: depth},
+      %{depth: depth, bytes: retained_bytes},
       %{gateway_id: ServiceRadarAgentGateway.Config.gateway_id()}
     )
   end
 
   defp buffer_metadata(status, reason) do
     %{
-      reason: reason,
+      reason: bounded_reason(reason),
       gateway_id: status[:gateway_id] || ServiceRadarAgentGateway.Config.gateway_id(),
-      partition: status[:partition] || "default"
+      partition: status[:partition] || "default",
+      source: bounded_source(status[:source]),
+      service_type: bounded_service_type(status[:service_type])
     }
   end
+
+  defp encoded_status_bytes(status), do: :erlang.external_size(status)
+
+  defp bounded_source(source)
+       when source in [
+              "status",
+              :status,
+              "results",
+              :results,
+              "plugin-result",
+              :plugin_result,
+              "sysmon-metrics",
+              :sysmon_metrics,
+              "snmp-metrics",
+              :snmp_metrics,
+              "icmp-metrics",
+              :icmp_metrics,
+              "rperf-metrics",
+              :rperf_metrics,
+              "mtr-metrics",
+              :mtr_metrics,
+              "sweep-metrics",
+              :sweep_metrics,
+              "workload-identity",
+              :workload_identity
+            ], do: source |> to_string() |> String.replace("_", "-")
+
+  defp bounded_source("addon:" <> _addon_id), do: "addon"
+  defp bounded_source("plugin:" <> _plugin_id), do: "plugin"
+  defp bounded_source(_source), do: "other"
+
+  defp bounded_service_type(service_type)
+       when service_type in [
+              "agent",
+              :agent,
+              "check",
+              :check,
+              "inventory",
+              :inventory,
+              "metrics",
+              :metrics,
+              "native-addon",
+              :native_addon,
+              "plugin",
+              :plugin,
+              "process",
+              :process,
+              "status",
+              :status,
+              "sync",
+              :sync
+            ], do: service_type |> to_string() |> String.replace("_", "-")
+
+  defp bounded_service_type(_service_type), do: "other"
+
+  defp bounded_reason(reason) when reason in [:disabled, :overflow, :unavailable], do: reason
+  defp bounded_reason(_reason), do: :other
 
   defp env_int(var, default) do
     case System.get_env(var) do

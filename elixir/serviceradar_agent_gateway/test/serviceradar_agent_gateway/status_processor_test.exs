@@ -1,6 +1,8 @@
 defmodule ServiceRadarAgentGateway.StatusProcessorTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadarAgentGateway.Config
+  alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.StatusHandlerTestHelpers
   alias ServiceRadarAgentGateway.StatusProcessor
 
@@ -159,7 +161,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert forwarded.service_type == "endpoint_inventory"
   end
 
-  test "buffers flow attribution persistence failures without failing the agent stream" do
+  test "returns flow attribution persistence failures without buffering" do
     parent = self()
 
     handler_pid =
@@ -183,12 +185,16 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
       message: <<10, 0>>
     }
 
-    assert :ok = StatusProcessor.process(status)
+    ensure_status_buffer_started!()
+    initial_buffer_size = StatusBuffer.size()
+
+    assert {:error, :deadlock_exhausted} = StatusProcessor.process(status)
     assert_receive {:forwarded, forwarded}
     assert_normalized_status(forwarded, status)
+    assert StatusBuffer.size() == initial_buffer_size
   end
 
-  test "buffers a flow attribution core timeout without a distributed retry" do
+  test "returns a flow attribution core timeout without buffering or a distributed retry" do
     previous_timeout =
       Application.get_env(
         :serviceradar_agent_gateway,
@@ -234,10 +240,14 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
       message: <<10, 0>>
     }
 
-    assert :ok = StatusProcessor.process(status)
+    ensure_status_buffer_started!()
+    initial_buffer_size = StatusBuffer.size()
+
+    assert {:error, :forward_timeout} = StatusProcessor.process(status)
     assert_receive {:forward_attempt, forwarded}
     assert_normalized_status(forwarded, status)
     refute_receive {:unexpected_second_attempt, _status}, 50
+    assert StatusBuffer.size() == initial_buffer_size
   end
 
   test "publishes package telemetry metrics before buffering when core status handler is unavailable" do
@@ -610,14 +620,18 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert :ok = StatusProcessor.process(plugin_result_status())
   end
 
-  test "buffers retry-capable plugin-result forwarding errors when core is unavailable" do
+  test "returns retry-capable plugin-result forwarding errors without buffering" do
     status =
       plugin_result_status(delivery_capabilities: [@plugin_result_retained_delivery_capability_v1])
 
-    assert :ok = StatusProcessor.process(status)
+    ensure_status_buffer_started!()
+    initial_buffer_size = StatusBuffer.size()
+
+    assert {:error, :not_available} = StatusProcessor.process(status)
+    assert StatusBuffer.size() == initial_buffer_size
   end
 
-  test "buffers uncommitted plugin-result persistence failures" do
+  test "returns uncommitted plugin-result persistence failures without buffering" do
     parent = self()
 
     handler_pid =
@@ -634,9 +648,13 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     status =
       plugin_result_status(delivery_capabilities: [@plugin_result_retained_delivery_capability_v1])
 
-    assert :ok = StatusProcessor.process(status)
+    ensure_status_buffer_started!()
+    initial_buffer_size = StatusBuffer.size()
+
+    assert {:error, :database_unavailable} = StatusProcessor.process(status)
     assert_receive {:forwarded, forwarded}
     assert forwarded.source == "plugin-result"
+    assert StatusBuffer.size() == initial_buffer_size
   end
 
   test "publishes rperf metrics without core status forward" do
@@ -1026,6 +1044,20 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
   defp assert_normalized_status(published, original) do
     assert Map.delete(published, :timestamp) == original
     assert is_integer(published.timestamp)
+  end
+
+  defp ensure_status_buffer_started! do
+    try do
+      Config.get()
+    rescue
+      ArgumentError ->
+        Config.setup(gateway_id: "gateway-test", domain: "test", capabilities: [])
+        on_exit(fn -> :persistent_term.erase(Config) end)
+    end
+
+    if !Process.whereis(StatusBuffer) do
+      start_supervised!(StatusBuffer)
+    end
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
