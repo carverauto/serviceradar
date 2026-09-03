@@ -574,7 +574,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp agent_retained_service?(%Monitoring.GatewayServiceStatus{source: source}, metadata) do
     source = normalize_service_field(source)
-    source == @flow_attribution_source or (source == @plugin_result_source and retained_plugin_result_delivery?(metadata))
+
+    source == @flow_attribution_source or
+      (source == @plugin_result_source and retained_plugin_result_delivery?(metadata))
   end
 
   defp agent_retained_service?(_service, _metadata), do: false
@@ -808,25 +810,36 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp validate_agent_retained_payload!(%{source: @plugin_result_source} = status) do
     if retained_plugin_result_delivery?(status) do
-      case Jason.decode(status.message) do
-        {:ok, %{"status" => plugin_status, "summary" => summary}}
-        when is_binary(plugin_status) and is_binary(summary) ->
-          normalized_status = plugin_status |> String.trim() |> String.upcase()
-
-          if plugin_status == normalized_status and normalized_status in ["OK", "WARNING", "CRITICAL", "UNKNOWN"] and
-               String.trim(summary) != "" do
-            :ok
-          else
-            invalid_retained_payload!("plugin-result")
-          end
-
-        _other ->
-          invalid_retained_payload!("plugin-result")
-      end
+      validate_retained_plugin_payload!(status.message)
     end
   end
 
   defp validate_agent_retained_payload!(_status), do: :ok
+
+  defp validate_retained_plugin_payload!(message) do
+    case Jason.decode(message) do
+      {:ok, %{"status" => plugin_status, "summary" => summary}}
+      when is_binary(plugin_status) and is_binary(summary) ->
+        validate_retained_plugin_fields!(plugin_status, summary)
+
+      _other ->
+        invalid_retained_payload!("plugin-result")
+    end
+  end
+
+  defp validate_retained_plugin_fields!(plugin_status, summary) do
+    normalized_status = plugin_status |> String.trim() |> String.upcase()
+
+    valid_status? =
+      plugin_status == normalized_status and
+        normalized_status in ["OK", "WARNING", "CRITICAL", "UNKNOWN"]
+
+    if valid_status? and String.trim(summary) != "" do
+      :ok
+    else
+      invalid_retained_payload!("plugin-result")
+    end
+  end
 
   defp invalid_retained_payload!(source) do
     raise GRPC.RPCError,
@@ -1870,11 +1883,14 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp retained_stream_source(status_chunks) do
     Enum.find_value(status_chunks, fn {services, metadata} ->
-      Enum.find_value(services, fn service ->
-        if agent_retained_service?(service, metadata), do: normalize_service_field(service.source)
-      end)
+      services
+      |> Enum.find(&agent_retained_service?(&1, metadata))
+      |> retained_service_source()
     end)
   end
+
+  defp retained_service_source(nil), do: nil
+  defp retained_service_source(service), do: normalize_service_field(service.source)
 
   defp process_agent_retained_stream(status_chunks, source) do
     non_empty_chunks = Enum.reject(status_chunks, fn {services, _metadata} -> services == [] end)
