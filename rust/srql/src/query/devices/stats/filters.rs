@@ -121,8 +121,9 @@ pub(super) fn build_grouped_stats_filter_clause(
 }
 
 fn build_match_cve_clause(filter: &Filter, binds: &mut Vec<DeviceSqlBindValue>) -> Result<String> {
-    let prefix = "EXISTS (SELECT 1 FROM endpoint_vulnerability_matches m \
-         WHERE m.device_uid = ocsf_devices.uid AND m.status = 'active' AND ";
+    let prefix = "EXISTS (SELECT 1 FROM endpoint_vulnerability_assessments a \
+         WHERE a.device_uid = ocsf_devices.uid AND a.status = 'active' \
+         AND a.assessment = 'confirmed' AND a.disposition = 'affected' AND ";
     match filter.op {
         FilterOp::Eq | FilterOp::NotEq | FilterOp::In | FilterOp::NotIn => {
             let values = crate::query::advisory::cve_eq_values(filter)?;
@@ -130,7 +131,7 @@ fn build_match_cve_clause(filter: &Filter, binds: &mut Vec<DeviceSqlBindValue>) 
                 return Ok("TRUE".into());
             }
             binds.push(DeviceSqlBindValue::TextArray(values));
-            let clause = format!("{prefix}m.cve_id = ANY(?))");
+            let clause = format!("{prefix}a.cve_id = ANY(?))");
             Ok(if matches!(filter.op, FilterOp::NotEq | FilterOp::NotIn) {
                 format!("NOT {clause}")
             } else {
@@ -141,13 +142,13 @@ fn build_match_cve_clause(filter: &Filter, binds: &mut Vec<DeviceSqlBindValue>) 
             binds.push(DeviceSqlBindValue::Text(
                 filter.value.as_scalar()?.to_string(),
             ));
-            Ok(format!("{prefix}m.cve_id ILIKE ?)"))
+            Ok(format!("{prefix}a.cve_id ILIKE ?)"))
         }
         FilterOp::NotLike => {
             binds.push(DeviceSqlBindValue::Text(
                 filter.value.as_scalar()?.to_string(),
             ));
-            Ok(format!("NOT {prefix}m.cve_id ILIKE ?)"))
+            Ok(format!("NOT {prefix}a.cve_id ILIKE ?)"))
         }
         _ => Err(ServiceError::InvalidRequest(
             "cve filter only supports equality, membership, and % wildcards".into(),
@@ -168,8 +169,9 @@ fn build_match_kev_clause(filter: &Filter, binds: &mut Vec<DeviceSqlBindValue>) 
         want
     };
     binds.push(DeviceSqlBindValue::Bool(true));
-    let clause = "EXISTS (SELECT 1 FROM endpoint_vulnerability_matches m \
-         WHERE m.device_uid = ocsf_devices.uid AND m.status = 'active' AND m.kev = ?)";
+    let clause = "EXISTS (SELECT 1 FROM endpoint_vulnerability_assessments a \
+         WHERE a.device_uid = ocsf_devices.uid AND a.status = 'active' \
+         AND a.assessment = 'confirmed' AND a.disposition = 'affected' AND a.kev = ?)";
     Ok(if want {
         clause.to_string()
     } else {

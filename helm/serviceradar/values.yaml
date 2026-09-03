@@ -350,7 +350,7 @@ core:
     usernameKey: "smtp-username"
     passwordKey: "smtp-password"
   # Core-owned advisory vulnerability feed ingestion (CISA KEV, VulnCheck KEV,
-  # VulnCheck nist-nvd2, NVD CVE 2.0). Feeds are AshOban-scheduled in core,
+  # VulnCheck nist-nvd2, NVD CVE 2.0, Ubuntu OSV + OpenVEX). Feeds are AshOban-scheduled in core,
   # disk-staged on a PVC, and bulk-loaded into CNPG — no agent involvement.
   # See openspec/changes/refactor-advisory-feeds-into-core.
   advisoryFeeds:
@@ -2268,11 +2268,13 @@ networkPolicy:
     #   - api.vulncheck.com            (VulnCheck backup index, Bearer)
     #   - *.amazonaws.com              (VulnCheck presigned S3 archive download)
     #   - services.nvd.nist.gov        (NVD CVE 2.0 API fallback)
+    #   - security-metadata.canonical.com (Ubuntu OSV + OpenVEX tar.xz)
     advisoryFeedsFQDNs:
       - www.cisa.gov
       - api.vulncheck.com
       - "*.amazonaws.com"
       - services.nvd.nist.gov
+      - security-metadata.canonical.com
   calicoLogDenied:
     enabled: false
     selector: "app.kubernetes.io/part-of == 'serviceradar'"

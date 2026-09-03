@@ -3,12 +3,74 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorkerTimeoutTest do
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker
 
+  test "preflight treats parser skips as errors instead of a complete partial snapshot" do
+    records_factory = fn -> [{:record, %{id: 1}}, :skip, {:record, %{id: 2}}] end
+
+    completeness = FeedWorker.preflight(records_factory, "records", [])
+
+    assert completeness.complete_snapshot? == false
+    assert completeness.source_objects_seen == 2
+    assert completeness.parse_errors == 1
+  end
+
+  test "status attrs preserve completion metadata on failure and expose it on success" do
+    now = ~U[2026-09-02 12:00:00Z]
+    failure = FeedWorker.result_status_attrs({:error, :incomplete_snapshot}, now)
+
+    assert failure.last_status == "error"
+    assert failure.last_failure_at == now
+    refute Map.has_key?(failure, :last_success_at)
+    refute Map.has_key?(failure, :metadata)
+
+    completed_at = ~U[2026-09-02 11:59:00Z]
+
+    success =
+      FeedWorker.result_status_attrs(
+        {:ok,
+         %{
+           advisories_upserted: 3,
+           coordinates_upserted: 4,
+           assertions_upserted: 5,
+           advisories_skipped: 2,
+           source_objects_seen: 5,
+           parse_errors: 0,
+           read_errors: 0,
+           generation: 42,
+           complete_generation_at: completed_at,
+           validation: %{"records" => %{"complete" => true, "count" => 5}}
+         }},
+        now
+      )
+
+    assert success.last_status == "success"
+    assert success.last_success_at == completed_at
+    assert success.metadata["assertions"] == 5
+    assert success.metadata["source_objects_seen"] == 5
+    assert success.metadata["read_errors"] == 0
+    assert success.metadata["generation"] == 42
+    assert success.metadata["complete_generation_at"] == "2026-09-02T11:59:00Z"
+    assert success.metadata["validation"]["records"]["complete"]
+  end
+
   test "nist-nvd2 is allowed a 60-minute Oban timeout" do
     assert FeedWorker.timeout(%Oban.Job{args: %{"feed" => "nist-nvd2"}}) == 3_600_000
   end
 
   test "other feeds keep the 3-minute timeout" do
     assert FeedWorker.timeout(%Oban.Job{args: %{"feed" => "vulncheck-kev"}}) == 180_000
+  end
+
+  test "Ubuntu archive acquisition gets a bounded 30-minute timeout" do
+    assert FeedWorker.timeout(%Oban.Job{args: %{"feed" => "ubuntu-osv-vex"}}) == 1_800_000
+  end
+
+  test "Ubuntu is a first-class worker feed and uses string-keyed Oban args" do
+    assert "ubuntu-osv-vex" in FeedWorker.feeds()
+
+    assert %{"feed" => "ubuntu-osv-vex"} =
+             %{"feed" => "ubuntu-osv-vex"}
+             |> FeedWorker.new()
+             |> Ecto.Changeset.get_change(:args)
   end
 
   describe "backoff/1" do

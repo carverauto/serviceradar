@@ -389,4 +389,236 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     assert rebuilt =~ "sort:updated_at:desc"
     assert rebuilt =~ "limit:20"
   end
+
+  @new_entity_alias_families [
+    {"vulnerability_advisories", "Vulnerability Advisories",
+     ~w(vulnerability_advisories vulnerability_advisory advisories cves)},
+    {"advisory_coordinates", "Advisory Coordinates", ~w(advisory_coordinates advisory_cpes cpe_coordinates)},
+    {"endpoint_vulnerability_assessments", "Vulnerability Assessments",
+     ~w(endpoint_vulnerability_assessments endpoint_vulnerability_assessment package_vulnerabilities endpoint_vulnerability_matches vulnerability_matches cve_matches advisory_matches)}
+  ]
+
+  test "every advisory entity alias parses and rebuilds with its canonical catalog entry" do
+    for {canonical_id, label, aliases} <- @new_entity_alias_families,
+        alias_name <- aliases do
+      assert %{id: ^canonical_id, label: ^label, default_sort_field: ""} =
+               Catalog.entity(alias_name)
+
+      assert {:ok, parsed} = Builder.parse("in:#{alias_name} limit:25")
+      assert parsed["entity"] == canonical_id, alias_name
+      assert parsed["sort_field"] == "", alias_name
+
+      rebuilt = parsed |> Builder.update(%{"limit" => "50"}) |> Builder.build()
+      assert rebuilt =~ "in:#{canonical_id}", alias_name
+      assert rebuilt =~ "limit:50", alias_name
+      refute rebuilt =~ "sort:", alias_name
+    end
+  end
+
+  test "advisory entities leave their compound engine ordering implicit" do
+    for {entity, _label, _aliases} <- @new_entity_alias_families do
+      state = Builder.default_state(entity, 25)
+
+      assert state["sort_field"] == "", entity
+
+      query = Builder.build(state)
+
+      assert query =~ "in:#{entity}", entity
+      assert query =~ "limit:25", entity
+      refute query =~ "sort:", entity
+
+      assert {:ok, parsed} = Builder.parse("in:#{entity} limit:25")
+
+      assert parsed["sort_field"] == "", entity
+      refute parsed |> Builder.build() |> String.contains?("sort:"), entity
+    end
+  end
+
+  test "legacy vulnerability match queries parse, edit, and rebuild with assessment metadata" do
+    package_ref = "62508706-cf2f-4ca5-8446-b18b2b96e3a5"
+
+    query =
+      "in:endpoint_vulnerability_matches package_name:%curl% assessment:confirmed " <>
+        "endpoint_package_ref:#{package_ref} limit:25"
+
+    assert {:ok, parsed} = Builder.parse(query)
+
+    assert parsed["entity"] == "endpoint_vulnerability_assessments"
+    assert parsed["sort_field"] == ""
+
+    assert [
+             %{"field" => "package_name", "op" => "contains", "value" => "curl"},
+             %{"field" => "assessment", "op" => "equals", "value" => "confirmed"},
+             %{"field" => "endpoint_package_ref", "op" => "equals", "value" => ^package_ref}
+           ] = parsed["filters"]
+
+    rebuilt =
+      parsed
+      |> Builder.update(%{"limit" => "50"})
+      |> Builder.build()
+
+    assert rebuilt =~ "in:endpoint_vulnerability_assessments"
+    assert rebuilt =~ "package_name:%curl%"
+    assert rebuilt =~ "assessment:confirmed"
+    assert rebuilt =~ "endpoint_package_ref:#{package_ref}"
+    assert rebuilt =~ "limit:50"
+    refute rebuilt =~ "sort:"
+    refute rebuilt =~ "%#{package_ref}%"
+  end
+
+  test "advisory filters default text to contains and structured values to exact matching" do
+    package_ref = "62508706-cf2f-4ca5-8446-b18b2b96e3a5"
+
+    for {entity, field} <- [
+          {"vulnerability_advisories", "title"},
+          {"vulnerability_advisories", "description"},
+          {"advisory_coordinates", "cpe_vendor"},
+          {"advisory_coordinates", "cpe_version"}
+        ] do
+      assert Catalog.default_filter_op(entity, field) == "contains", "#{entity}.#{field}"
+    end
+
+    for {entity, field} <- [
+          {"vulnerability_advisories", "severity"},
+          {"advisory_coordinates", "coordinate_type"},
+          {"advisory_coordinates", "cpe_part"}
+        ] do
+      assert Catalog.default_filter_op(entity, field) == "equals", "#{entity}.#{field}"
+    end
+
+    for field <-
+          ~w(name package_name version package_version installed_version source_package source_version binary_package fixed_version purl package_purl purl_canonical) do
+      assert Catalog.default_filter_op("endpoint_vulnerability_assessments", field) ==
+               "contains",
+             field
+    end
+
+    for field <-
+          ~w(assessment disposition package_namespace namespace package_release release distro device_uid device_id agent_id advisory_ref package_id endpoint_package_ref inventory_package_ref scan_ref) do
+      assert Catalog.default_filter_op("endpoint_vulnerability_assessments", field) == "equals",
+             field
+    end
+
+    query =
+      Builder.build(%{
+        "entity" => "endpoint_vulnerability_assessments",
+        "filters" => [
+          %{"field" => "package_name", "value" => "curl"},
+          %{"field" => "assessment", "value" => "confirmed"},
+          %{"field" => "endpoint_package_ref", "value" => package_ref}
+        ]
+      })
+
+    assert query =~ "package_name:%curl%"
+    assert query =~ "assessment:confirmed"
+    assert query =~ "endpoint_package_ref:#{package_ref}"
+    refute query =~ "assessment:%confirmed%"
+    refute query =~ "%#{package_ref}%"
+  end
+
+  test "advisory UUID filters cannot rebuild wildcard operators" do
+    package_ref = "62508706-cf2f-4ca5-8446-b18b2b96e3a5"
+
+    uuid_fields_by_entity = [
+      {"vulnerability_advisories", ~w(id)},
+      {"advisory_coordinates", ~w(id advisory_ref)},
+      {"endpoint_vulnerability_assessments",
+       ~w(id advisory_ref package_id endpoint_package_ref inventory_package_ref scan_ref)}
+    ]
+
+    for {entity, uuid_fields} <- uuid_fields_by_entity do
+      query =
+        Builder.build(%{
+          "entity" => entity,
+          "filters" =>
+            Enum.map(uuid_fields, fn field ->
+              %{"field" => field, "op" => "contains", "value" => package_ref}
+            end)
+        })
+
+      for field <- uuid_fields do
+        assert query =~ "#{field}:#{package_ref}", field
+      end
+
+      refute query =~ "%#{package_ref}%", entity
+    end
+
+    negative_query =
+      Builder.build(%{
+        "entity" => "endpoint_vulnerability_assessments",
+        "filters" => [
+          %{"field" => "advisory_ref", "op" => "not_contains", "value" => package_ref}
+        ]
+      })
+
+    assert negative_query =~ "!advisory_ref:#{package_ref}"
+    refute negative_query =~ "%#{package_ref}%"
+
+    assert {:ok, parsed} =
+             Builder.parse("in:endpoint_vulnerability_matches advisory_ref:%#{package_ref}% limit:25")
+
+    assert [%{"field" => "advisory_ref", "op" => "equals", "value" => ^package_ref}] =
+             parsed["filters"]
+
+    parsed_query = Builder.build(parsed)
+    assert parsed_query =~ "advisory_ref:#{package_ref}"
+    refute parsed_query =~ "%#{package_ref}%"
+  end
+
+  test "assessment authority audit fields parse and rebuild as scalar comparisons" do
+    entity = Catalog.entity("endpoint_vulnerability_assessments")
+
+    assert "authority_generation" in entity.filter_fields
+    assert "authority_as_of" in entity.filter_fields
+    assert "authority_generation" in entity.numeric_fields
+    assert "authority_as_of" in entity.timestamp_fields
+    assert Catalog.default_filter_op(entity, "authority_generation") == "equals"
+    assert Catalog.default_filter_op(entity, "authority_as_of") == "equals"
+
+    query =
+      "in:endpoint_vulnerability_matches authority_generation:>=7 " <>
+        "authority_as_of:<2026-09-02T12:30:00Z limit:25"
+
+    assert {:ok, parsed} = Builder.parse(query)
+
+    assert parsed["entity"] == "endpoint_vulnerability_assessments"
+
+    assert [
+             %{"field" => "authority_generation", "op" => "gte", "value" => "7"},
+             %{
+               "field" => "authority_as_of",
+               "op" => "lt",
+               "value" => "2026-09-02T12:30:00Z"
+             }
+           ] = parsed["filters"]
+
+    rebuilt = Builder.build(parsed)
+    assert rebuilt =~ "authority_generation:>=7"
+    assert rebuilt =~ "authority_as_of:<2026-09-02T12:30:00Z"
+
+    structured = Catalog.structured()
+
+    assert "authority_as_of" in structured["entities"]["endpoint_vulnerability_assessments"]["fields"]["timestamp"]
+  end
+
+  test "advisory catalogs expose every filter field supported by their Rust queries" do
+    advisories = Catalog.entity("vulnerability_advisories")
+
+    for field <- ~w(id description cpe_version) do
+      assert field in advisories.filter_fields, field
+    end
+
+    coordinates = Catalog.entity("advisory_coordinates")
+
+    for field <- ~w(id cpes cvss_score) do
+      assert field in coordinates.filter_fields, field
+    end
+
+    assessments = Catalog.entity("endpoint_vulnerability_assessments")
+
+    for field <-
+          ~w(id advisory_ref inventory_package_ref scan_ref namespace release distro name package_version version purl purl_canonical cpes) do
+      assert field in assessments.filter_fields, field
+    end
+  end
 end

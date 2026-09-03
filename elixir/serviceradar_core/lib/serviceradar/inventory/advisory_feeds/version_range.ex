@@ -33,28 +33,64 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.VersionRange do
 
   Accepts string keys (raw NVD JSON) and is tolerant of a missing/`""` bound.
   """
-  @spec from_cpe_match(map()) :: bounds()
+  @spec from_cpe_match(map()) ::
+          {:ok, bounds()}
+          | {:error, :ambiguous_version_start | :ambiguous_version_end}
+          | {:error, {:invalid_version_bound, String.t()}}
   def from_cpe_match(match) when is_map(match) do
-    {start_value, start_inclusive} =
-      cond do
-        present?(match["versionStartIncluding"]) -> {match["versionStartIncluding"], true}
-        present?(match["versionStartExcluding"]) -> {match["versionStartExcluding"], false}
-        true -> {nil, nil}
-      end
+    with :ok <- validate_bound_types(match),
+         :ok <- validate_exclusive_bound_forms(match) do
+      {start_value, start_inclusive} =
+        cond do
+          present?(match["versionStartIncluding"]) -> {match["versionStartIncluding"], true}
+          present?(match["versionStartExcluding"]) -> {match["versionStartExcluding"], false}
+          true -> {nil, nil}
+        end
 
-    {end_value, end_inclusive} =
-      cond do
-        present?(match["versionEndIncluding"]) -> {match["versionEndIncluding"], true}
-        present?(match["versionEndExcluding"]) -> {match["versionEndExcluding"], false}
-        true -> {nil, nil}
-      end
+      {end_value, end_inclusive} =
+        cond do
+          present?(match["versionEndIncluding"]) -> {match["versionEndIncluding"], true}
+          present?(match["versionEndExcluding"]) -> {match["versionEndExcluding"], false}
+          true -> {nil, nil}
+        end
 
-    %{
-      version_start: normalize_bound(start_value),
-      version_start_inclusive: start_inclusive,
-      version_end: normalize_bound(end_value),
-      version_end_inclusive: end_inclusive
-    }
+      {:ok,
+       %{
+         version_start: normalize_bound(start_value),
+         version_start_inclusive: start_inclusive,
+         version_end: normalize_bound(end_value),
+         version_end_inclusive: end_inclusive
+       }}
+    end
+  end
+
+  defp validate_bound_types(match) do
+    Enum.find_value(
+      ~w(versionStartIncluding versionStartExcluding versionEndIncluding versionEndExcluding),
+      :ok,
+      fn key ->
+        case Map.fetch(match, key) do
+          :error -> false
+          {:ok, value} when is_binary(value) -> false
+          {:ok, _value} -> {:error, {:invalid_version_bound, key}}
+        end
+      end
+    )
+  end
+
+  defp validate_exclusive_bound_forms(match) do
+    cond do
+      Map.has_key?(match, "versionStartIncluding") and
+          Map.has_key?(match, "versionStartExcluding") ->
+        {:error, :ambiguous_version_start}
+
+      Map.has_key?(match, "versionEndIncluding") and
+          Map.has_key?(match, "versionEndExcluding") ->
+        {:error, :ambiguous_version_end}
+
+      true ->
+        :ok
+    end
   end
 
   @doc """

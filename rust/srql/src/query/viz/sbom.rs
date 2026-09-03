@@ -1,7 +1,7 @@
 //! Viz metadata builders for endpoint SBOM inventory entities: scans,
 //! per-endpoint packages, and the package catalog.
 
-use super::{ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
+use super::{col, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion};
 
 pub(super) fn endpoint_inventory_scans() -> VizMeta {
     VizMeta {
@@ -191,7 +191,7 @@ pub(super) fn advisory_coordinates() -> VizMeta {
     }
 }
 
-pub(super) fn endpoint_vulnerability_matches() -> VizMeta {
+pub(super) fn endpoint_vulnerability_assessments() -> VizMeta {
     VizMeta {
         columns: vec![
             col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
@@ -204,7 +204,12 @@ pub(super) fn endpoint_vulnerability_matches() -> VizMeta {
             ),
             col("package_version", ColumnType::Text, None),
             col("purl_canonical", ColumnType::Text, None),
-            col("coordinate_value", ColumnType::Text, None),
+            col("assessment", ColumnType::Text, None),
+            col("disposition", ColumnType::Text, None),
+            col("authority", ColumnType::Text, None),
+            col("applicability_reason", ColumnType::Text, None),
+            col("freshness", ColumnType::Text, None),
+            col("fixed_version", ColumnType::Text, None),
             col("severity", ColumnType::Text, None),
             col("cvss_score", ColumnType::Float, Some(ColumnSemantic::Value)),
             col("kev", ColumnType::Bool, None),
@@ -212,7 +217,7 @@ pub(super) fn endpoint_vulnerability_matches() -> VizMeta {
             col("epss_score", ColumnType::Float, None),
             col("due_date", ColumnType::Text, None),
             col("status", ColumnType::Text, None),
-            col("confidence", ColumnType::Text, None),
+            col("actionable", ColumnType::Bool, None),
             col(
                 "last_seen_at",
                 ColumnType::Timestamptz,

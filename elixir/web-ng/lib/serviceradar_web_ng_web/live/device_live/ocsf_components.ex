@@ -4,12 +4,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponents do
   use ServiceRadarWebNGWeb, :html
 
   import ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents, only: [metadata_lookup: 2]
+
+  alias ServiceRadar.Inventory.EndpointVulnerabilityAssessment
   # ---------------------------------------------------------------------------
   # OCSF Information Section (OS, Hardware, Network, Compliance)
   # ---------------------------------------------------------------------------
 
   attr(:device_row, :map, required: true)
-  attr(:vulnerability_matches, :list, default: [])
+  attr(:vulnerability_assessments, :any, default: %{})
 
   def ocsf_info_section(assigns) do
     assigns = assign_ocsf_info(assigns)
@@ -40,7 +42,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponents do
           metadata_first_value(metadata, ["armis_risk_score", "risk_score"])
       )
 
-    vuln_score = vulnerability_risk_score(assigns[:vulnerability_matches] || [])
+    vuln_score = vulnerability_risk_score(assigns[:vulnerability_assessments] || %{})
 
     risk_score =
       cond do
@@ -338,8 +340,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponents do
     end
   end
 
-  defp vulnerability_risk_score(matches) when is_list(matches) and matches != [] do
-    matches
+  defp vulnerability_risk_score(assessment_pages) do
+    assessment_pages
+    |> actionable_assessments()
     |> Enum.map(&vulnerability_finding/1)
     |> ServiceRadar.Inventory.EndpointInventoryVulnerabilityScore.compute()
     |> Map.get(:score)
@@ -349,7 +352,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponents do
     end
   end
 
-  defp vulnerability_risk_score(_matches), do: nil
+  defp actionable_assessments(%{} = pages) do
+    pages
+    |> Map.get(:confirmed, Map.get(pages, "confirmed", %{}))
+    |> case do
+      %{rows: rows} -> rows
+      %{"rows" => rows} -> rows
+      rows when is_list(rows) -> rows
+      _ -> []
+    end
+    |> Enum.filter(&EndpointVulnerabilityAssessment.actionable?/1)
+  end
+
+  defp actionable_assessments(assessments) when is_list(assessments) do
+    Enum.filter(assessments, &EndpointVulnerabilityAssessment.actionable?/1)
+  end
+
+  defp actionable_assessments(_assessment_pages), do: []
 
   defp vulnerability_risk_level(score) do
     {_id, label} = ServiceRadar.Inventory.DeviceRiskReducer.risk_level_for_score(score)
@@ -358,8 +377,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponents do
 
   defp vulnerability_finding(match) when is_map(match) do
     metadata = Map.get(match, :metadata) || Map.get(match, "metadata") || %{}
-    evidence = Map.get(match, :evidence) || Map.get(match, "evidence") || %{}
-    package = Map.get(evidence, "package") || Map.get(evidence, :package) || %{}
 
     cwes =
       Map.get(match, :cwes) || Map.get(metadata, "cwes") || Map.get(metadata, :cwes) || []
@@ -370,7 +387,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponents do
       kev: Map.get(match, :kev) || Map.get(match, "kev"),
       exploit: Map.get(match, :exploit_available) || Map.get(match, "exploit_available"),
       cwes: List.wrap(cwes),
-      package: Map.get(package, "name") || Map.get(package, :name)
+      package: Map.get(match, :package_name) || Map.get(match, "package_name")
     }
   end
 

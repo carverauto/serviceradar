@@ -103,6 +103,13 @@ file_layer_amd64(
     target_path = "usr/local/bin/serviceradar-sshca-signer",
 )
 
+file_layer_amd64(
+    name = "ubuntu_feed_merge_layer_amd64",
+    src = "//go/cmd/tools/ubuntu-feed-merge",
+    target_compatible_with = [],
+    target_path = "usr/local/bin/serviceradar-ubuntu-feed-merge",
+)
+
 # bun (React SSR) and cosign are third-party binaries baked into the web-ng image, so each
 # needs its own arm64 pin. Aliases rather than a select() passed to the macro: both reach
 # file_layer_amd64, which uses `src` as a dict KEY, and a select is unhashable at loading
@@ -141,7 +148,9 @@ declare_web_ng_release_container_amd64(
         "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
     },
     exposed_ports = ["4000/tcp"],
-    extra_tars = [":sshca_signer_layer_amd64"],
+    extra_tars = [
+        ":sshca_signer_layer_amd64",
+    ],
     image_title = "serviceradar-web-ng",
     local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-web-ng:local",
     release_tar = "//elixir/web-ng:release_tar",
@@ -177,7 +186,10 @@ declare_elixir_release_container_amd64(
         "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
         "MIX_ENV": "prod",
     },
-    extra_tars = [":sshca_signer_layer_amd64"],
+    extra_tars = [
+        ":sshca_signer_layer_amd64",
+        ":ubuntu_feed_merge_layer_amd64",
+    ],
     image_title = "serviceradar-core-elx",
     local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-core-elx:local",
     release_tar = "//elixir/serviceradar_core_elx:release_tar",

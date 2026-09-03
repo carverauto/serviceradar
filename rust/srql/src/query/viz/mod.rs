@@ -116,7 +116,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::EndpointPackageCatalog => sbom::endpoint_package_catalog(),
         Entity::VulnerabilityAdvisories => sbom::vulnerability_advisories(),
         Entity::AdvisoryCoordinates => sbom::advisory_coordinates(),
-        Entity::EndpointVulnerabilityMatches => sbom::endpoint_vulnerability_matches(),
+        Entity::EndpointVulnerabilityAssessments => sbom::endpoint_vulnerability_assessments(),
         Entity::Devices => inventory::devices(),
         Entity::CompositeResults => inventory::composite_results(),
         Entity::WifiSites => wifi::sites(),
