@@ -78,10 +78,17 @@ pub(in crate::query) async fn execute(
     conn: &mut AsyncPgConnection,
     plan: &QueryPlan,
 ) -> Result<Vec<Value>> {
-    ensure_entity(plan)?;
-    let built = build_sql(plan)?;
-    let mut query = sql_query(&built.sql).into_boxed::<Pg>();
-    for bind in built.binds {
+    // Execution goes through `to_sql_and_params`, not around it, so the SQL that
+    // runs is by construction the SQL that translate returns. They used to be
+    // built separately, and the execute side passed `?` straight to Diesel --
+    // which does not translate it for Postgres, where `?` is a valid operator
+    // character. `col = ? OR ...` then parsed as a prefix operator and failed as
+    // "syntax error at or near OR", naming neither the placeholder nor the
+    // column. A test comparing the two paths could not have caught it; removing
+    // the second path does.
+    let (sql, binds) = to_sql_and_params(plan)?;
+    let mut query = sql_query(&sql).into_boxed::<Pg>();
+    for bind in binds {
         query = bind_sql_param(query, bind)?;
     }
 

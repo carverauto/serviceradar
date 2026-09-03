@@ -344,6 +344,50 @@ mod tests {
     }
 
     #[test]
+    fn every_entity_emits_positional_placeholders_for_execution() {
+        // The SQL handed to `sql_query` must carry `$n`, never `?`. Postgres
+        // treats `?` as an operator character, so a stray one does not fail as
+        // "unknown placeholder" -- it fails as a syntax error at the NEXT token,
+        // which is how this reached CI reading as a broken OR clause.
+        for query in [
+            "in:merge_audit device_id:sr:aaa limit:10",
+            "in:merge_audit chain:sr:aaa limit:10",
+            "in:device_revival_audit device_uid:sr:aaa limit:10",
+            "in:device_identifiers device_id:sr:aaa limit:10",
+            "in:identity_reconciliation_runs status:failed limit:10",
+            "in:identity_evidence_edges device:sr:aaa limit:10",
+        ] {
+            let plan = tests_support::plan_for(query);
+            let (sql, binds) = match plan.entity {
+                crate::parser::Entity::MergeAudit => merge_audit::to_sql_and_params(&plan),
+                crate::parser::Entity::DeviceRevivalAudit => {
+                    device_revival_audit::to_sql_and_params(&plan)
+                }
+                crate::parser::Entity::DeviceIdentifiers => {
+                    device_identifiers::to_sql_and_params(&plan)
+                }
+                crate::parser::Entity::IdentityReconciliationRuns => {
+                    reconciliation_runs::to_sql_and_params(&plan)
+                }
+                crate::parser::Entity::IdentityEvidenceEdges => {
+                    evidence_edges::to_sql_and_params(&plan)
+                }
+                other => panic!("unexpected entity {other:?} for {query}"),
+            }
+            .unwrap_or_else(|err| panic!("{query} failed to build: {err:?}"));
+
+            assert!(!sql.contains('?'), "{query} left a bare `?` in: {sql}");
+            for n in 1..=binds.len() {
+                assert!(
+                    sql.contains(&format!("${n}")),
+                    "{query} binds {} values but has no ${n}: {sql}",
+                    binds.len()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn placeholders_become_positional() {
         assert_eq!(
             rewrite_placeholders("SELECT ? WHERE a = ? AND b = ?"),
