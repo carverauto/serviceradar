@@ -19,12 +19,12 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use diesel::deserialize::QueryableByName;
-use diesel::dsl::not;
+use diesel::dsl::{not, sql};
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
 use diesel::sql_query;
-use diesel::sql_types::{Jsonb, Text, Timestamptz};
+use diesel::sql_types::{Array, Bool, Jsonb, Text, Timestamptz};
 use diesel::{PgArrayExpressionMethods, PgTextExpressionMethods};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
@@ -535,6 +535,12 @@ fn apply_filter<'a>(
         "cpe" | "cpes" => {
             query = apply_cpe_filter(query, filter)?;
         }
+        "cve" | "cve_id" => {
+            query = apply_package_match_cve_filter(query, filter)?;
+        }
+        "kev" => {
+            query = apply_package_match_kev_filter(query, filter)?;
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for endpoint_packages: '{other}'"
@@ -577,6 +583,76 @@ fn apply_cpe_filter<'a>(
             "cpe filter only supports equality and membership".into(),
         )),
     }
+}
+
+fn apply_package_match_cve_filter<'a>(
+    query: EndpointPackagesQuery<'a>,
+    filter: &Filter,
+) -> Result<EndpointPackagesQuery<'a>> {
+    let prefix = "EXISTS (SELECT 1 FROM endpoint_vulnerability_matches m \
+         WHERE m.endpoint_package_ref = endpoint_inventory_packages.endpoint_package_ref \
+         AND m.status = 'active' AND ";
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::In | FilterOp::NotIn => {
+            let values = crate::query::advisory::cve_eq_values(filter)?;
+            if values.is_empty() {
+                return Ok(query);
+            }
+            let expr = sql::<Bool>(prefix)
+                .sql("m.cve_id = ANY(")
+                .bind::<Array<Text>, _>(values)
+                .sql("))");
+            Ok(if matches!(filter.op, FilterOp::NotEq | FilterOp::NotIn) {
+                query.filter(not(expr))
+            } else {
+                query.filter(expr)
+            })
+        }
+        FilterOp::Like | FilterOp::NotLike => {
+            let value = filter.value.as_scalar()?.to_string();
+            let expr = sql::<Bool>(prefix)
+                .sql("m.cve_id ILIKE ")
+                .bind::<Text, _>(value)
+                .sql(")");
+            Ok(if matches!(filter.op, FilterOp::NotLike) {
+                query.filter(not(expr))
+            } else {
+                query.filter(expr)
+            })
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "cve filter only supports equality, membership, and % wildcards".into(),
+        )),
+    }
+}
+
+fn apply_package_match_kev_filter<'a>(
+    query: EndpointPackagesQuery<'a>,
+    filter: &Filter,
+) -> Result<EndpointPackagesQuery<'a>> {
+    if !matches!(filter.op, FilterOp::Eq | FilterOp::NotEq) {
+        return Err(ServiceError::InvalidRequest(
+            "kev filter only supports equality".into(),
+        ));
+    }
+    let want = parse_bool(filter.value.as_scalar()?)?;
+    let want = if matches!(filter.op, FilterOp::NotEq) {
+        !want
+    } else {
+        want
+    };
+    let expr = sql::<Bool>(
+        "EXISTS (SELECT 1 FROM endpoint_vulnerability_matches m \
+         WHERE m.endpoint_package_ref = endpoint_inventory_packages.endpoint_package_ref \
+         AND m.status = 'active' AND m.kev = ",
+    )
+    .bind::<Bool, _>(true)
+    .sql(")");
+    Ok(if want {
+        query.filter(expr)
+    } else {
+        query.filter(not(expr))
+    })
 }
 
 fn cpe_values(value: &FilterValue) -> Result<Vec<String>> {
@@ -643,6 +719,28 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
                 return Ok(());
             }
             params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        "cve" | "cve_id" => match filter.op {
+            FilterOp::Eq | FilterOp::NotEq | FilterOp::In | FilterOp::NotIn => {
+                let values = crate::query::advisory::cve_eq_values(filter)?;
+                if values.is_empty() {
+                    return Ok(());
+                }
+                params.push(BindParam::TextArray(values));
+                Ok(())
+            }
+            FilterOp::Like | FilterOp::NotLike => {
+                params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+                Ok(())
+            }
+            _ => Err(ServiceError::InvalidRequest(
+                "cve filter only supports equality, membership, and % wildcards".into(),
+            )),
+        },
+        "kev" => {
+            let _ = parse_bool(filter.value.as_scalar()?)?;
+            params.push(BindParam::Bool(true));
             Ok(())
         }
         other => Err(ServiceError::InvalidRequest(format!(
@@ -863,6 +961,30 @@ mod tests {
         ]);
 
         assert!(build_query(&plan).is_ok());
+    }
+
+    #[test]
+    fn cve_pivot_uses_exists_against_matches() {
+        let plan = plan_with(vec![Filter {
+            field: "cve".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("cve-2026-0001".into()),
+        }]);
+        let (sql, params) = to_sql_and_params(&plan).expect("sql");
+        assert!(
+            sql.contains("endpoint_vulnerability_matches"),
+            "expected EXISTS against matches, got {sql}"
+        );
+        assert!(
+            sql.contains("endpoint_inventory_packages"),
+            "package grain must be preserved, got {sql}"
+        );
+        assert!(
+            params.iter().any(|param| {
+                matches!(param, BindParam::TextArray(values) if values == &["CVE-2026-0001".to_string()])
+            }),
+            "CVE must be bound uppercased, got {params:?}"
+        );
     }
 
     #[test]

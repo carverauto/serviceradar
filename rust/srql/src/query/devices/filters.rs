@@ -209,6 +209,12 @@ pub(super) fn apply_filter<'a>(
                 "risk_level filter only supports equality"
             )?;
         }
+        "cve" | "cve_id" => {
+            query = apply_device_match_cve_filter(query, filter)?;
+        }
+        "kev" => {
+            query = apply_device_match_kev_filter(query, filter)?;
+        }
         "deleted" => {
             let value = parse_bool(filter.value.as_scalar()?)?;
             let matches_deleted = col_deleted_at.is_not_null();
@@ -331,4 +337,72 @@ pub(super) fn apply_filter<'a>(
     }
 
     Ok(query)
+}
+
+fn apply_device_match_cve_filter<'a>(
+    query: DeviceQuery<'a>,
+    filter: &Filter,
+) -> Result<DeviceQuery<'a>> {
+    let prefix = "EXISTS (SELECT 1 FROM endpoint_vulnerability_matches m \
+         WHERE m.device_uid = ocsf_devices.uid AND m.status = 'active' AND ";
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::In | FilterOp::NotIn => {
+            let values = crate::query::advisory::cve_eq_values(filter)?;
+            if values.is_empty() {
+                return Ok(query);
+            }
+            let expr = sql::<Bool>(prefix)
+                .sql("m.cve_id = ANY(")
+                .bind::<Array<Text>, _>(values)
+                .sql("))");
+            Ok(if matches!(filter.op, FilterOp::NotEq | FilterOp::NotIn) {
+                query.filter(not(expr))
+            } else {
+                query.filter(expr)
+            })
+        }
+        FilterOp::Like | FilterOp::NotLike => {
+            let value = filter.value.as_scalar()?.to_string();
+            let expr = sql::<Bool>(prefix)
+                .sql("m.cve_id ILIKE ")
+                .bind::<Text, _>(value)
+                .sql(")");
+            Ok(if matches!(filter.op, FilterOp::NotLike) {
+                query.filter(not(expr))
+            } else {
+                query.filter(expr)
+            })
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "cve filter only supports equality, membership, and % wildcards".into(),
+        )),
+    }
+}
+
+fn apply_device_match_kev_filter<'a>(
+    query: DeviceQuery<'a>,
+    filter: &Filter,
+) -> Result<DeviceQuery<'a>> {
+    if !matches!(filter.op, FilterOp::Eq | FilterOp::NotEq) {
+        return Err(ServiceError::InvalidRequest(
+            "kev filter only supports equality".into(),
+        ));
+    }
+    let want = parse_bool(filter.value.as_scalar()?)?;
+    let want = if matches!(filter.op, FilterOp::NotEq) {
+        !want
+    } else {
+        want
+    };
+    let expr = sql::<Bool>(
+        "EXISTS (SELECT 1 FROM endpoint_vulnerability_matches m \
+         WHERE m.device_uid = ocsf_devices.uid AND m.status = 'active' AND m.kev = ",
+    )
+    .bind::<Bool, _>(true)
+    .sql(")");
+    Ok(if want {
+        query.filter(expr)
+    } else {
+        query.filter(not(expr))
+    })
 }

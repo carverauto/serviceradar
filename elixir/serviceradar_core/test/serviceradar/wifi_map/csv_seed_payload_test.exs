@@ -8,7 +8,7 @@ defmodule ServiceRadar.WifiMap.CSVSeedPayloadTest do
 
     write!(dir, "sites.csv", """
     iata,name,lat,lon,site_type,region,ap_count,up_count,down_count,models,controllers,wlc_count,wlcs,aos_versions,server_group,cluster,all_server_groups,aaa_profile
-    ZZA,"Example Regional Airport, Houston",10.0000,-20.0000,airport,REGION-1,2,1,1,"635:1,325:1",wlc-manager-01.example.com,1,7220:1,8.10.0.21:1,aaa-site02-group-1_0,ZZB,aaa-site02-group-1_0,example-aaa-standard
+    ZZA,"Example Regional Airport, Example City",10.0000,-20.0000,airport,REGION-1,2,1,1,"635:1,325:1",wlc-manager-01.example.com,1,7220:1,8.10.0.21:1,aaa-site02-group-1_0,ZZB,aaa-site02-group-1_0,example-aaa-standard
     """)
 
     write!(dir, "search_index.csv", """
@@ -47,7 +47,7 @@ defmodule ServiceRadar.WifiMap.CSVSeedPayloadTest do
     assert payload["row_counts"]["fleet_history"] == 1
     assert payload["row_counts"]["overrides"] == 1
 
-    assert [%{"iata" => "ZZA", "name" => "Example Regional Airport, Houston"}] =
+    assert [%{"iata" => "ZZA", "name" => "Example Regional Airport, Example City"}] =
              payload["sites"]
 
     assert summary.reference_hash == payload["reference_hash"]

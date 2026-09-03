@@ -11,10 +11,14 @@ core, so it discards the job with `:nats_not_configured`.
 This produced a misleading partial-success state for package
 `f8828fb5-1df4-4058-adc8-e82e0825257b` (`vndcngrpexnap01`): the base package
 was delivered, but the optional NATS credential was absent. The credential
-was intended for per-agent `flow.host-slice.<agent-id>` publication, not for
-the normal OTLP/OTEL path. The current implementation already relays OTLP
-through the agent and gateway by default, and the central flow collector
-publishes host slices for core-side attribution.
+belonged to a now-retired host-slice canary that granted experimental
+per-agent publication to `flow.host-slice.<agent-id>`; it is not required by
+the deployed OTLP or flow-attribution paths. Today raw sampled flows travel
+through the normal central/internal flow pipeline, while the agent sends local
+process attribution to the gateway as `FlowAttributionEventBatch` payloads on
+the dedicated `StreamStatus` path. Core persists that attribution in
+`platform.flow_process_attribution_current` and correlates it with sampled
+flows in CNPG.
 
 ## What Changes
 
@@ -31,9 +35,12 @@ publishes host slices for core-side attribution.
   configuration lifecycle, scoped to the leaf and add-on. It SHALL NOT place
   a central platform account seed or broad central NATS credential in the
   base onboarding bundle.
-- Remove or retire the unused agent-side flow NATS publisher path and keep
-  flow attribution on the existing gateway relay plus central flow-collector
-  and core subscriber path.
+- Remove or retire the unused agent-side flow NATS publisher/bootstrap path
+  left by the retired host-slice canary. Preserve the deployed split: raw
+  sampled flows use the normal central/internal flow pipeline; local
+  attribution uses agent-to-gateway `StreamStatus` with
+  `FlowAttributionEventBatch`; and core persists and correlates the two in
+  CNPG.
 - Add migration and recovery handling for existing packages and agents that
   were created with the old optional NATS credential fields.
 
@@ -48,4 +55,3 @@ publishes host slices for core-side attribution.
   credential to remain operational.
 - Existing legacy per-agent NATS credentials require an explicit cleanup and
   revocation migration; they SHALL NOT be silently reissued for new packages.
-

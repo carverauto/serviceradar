@@ -334,7 +334,7 @@ They are compact agent-facing distillates, not the human Docusaurus pages.
 | --- | --- |
 | `serviceradar://srql/grammar` | Token shape, operators, time, stats, bucket, common mistakes |
 | `serviceradar://srql/entities` | Live entity-id table generated from the catalog |
-| `serviceradar://srql/cookbook` | Copy-paste recipes (devices, logs, flows, metrics) |
+| `serviceradar://srql/cookbook` | Copy-paste recipes (devices, logs, flows, metrics, advisories/CPE) |
 
 The human [SRQL Tutorial](./srql-tutorial.md), [SRQL Reference](./srql-language-reference.md),
 and [SRQL Cookbook](./srql-cookbook.md) stay in the docs site. Do not dump those

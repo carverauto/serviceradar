@@ -73,7 +73,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestorTest do
       "source" => %{"name" => "customer-wifi-map", "source_kind" => "wifi_map_seed"},
       "site_references" => [
         %{
-          "iata" => "iah",
+          "iata" => "zza",
           "name" => "Example Regional Airport",
           "lat" => "10.0000",
           "lon" => "-20.0000",
@@ -83,7 +83,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestorTest do
       ],
       "sites" => [
         %{
-          "iata" => "iah",
+          "iata" => "zza",
           "name" => "Example Regional Airport",
           "lat" => "10.0000",
           "lon" => "-20.0000",
@@ -106,7 +106,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestorTest do
       "search_index" => [
         %{
           "kind" => "ap",
-          "iata" => "iah",
+          "iata" => "zza",
           "name" => "SITE01-MDF001-WAP001",
           "mac" => "00:00:5e:00:53:01",
           "serial" => "SN0000000001",
@@ -116,7 +116,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestorTest do
         },
         %{
           "kind" => "wlc",
-          "iata" => "iah",
+          "iata" => "zza",
           "name" => "SITE01-MDF001-WLC001",
           "base_mac" => "00:00:5e:00:53:02",
           "ip" => "192.0.2.10",
@@ -126,7 +126,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestorTest do
       ],
       "radius_groups" => [
         %{
-          "airport_code" => "iah",
+          "airport_code" => "zza",
           "controller_alias" => "SITE01-MDF001-WLC001",
           "aaa_profile" => "example-aaa-standard",
           "dot1x_server_group" => "aaa-site02-group-1_0",
@@ -258,7 +258,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestorTest do
       ],
       "controllers" => [
         %{
-          "location" => "SITE01",
+          "location" => "NZZAAP",
           "expected_name" => "SITE01-MDF001-WLC001",
           "hostname" => "SITE01-MDF001-WLC001",
           "ip_address" => "192.0.2.10",

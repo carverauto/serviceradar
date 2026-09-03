@@ -239,11 +239,11 @@ stopgap and Phase 3 deletes it rather than optimizing it further).
   (sock_ops / kprobes on `tcp_connect`, `inet_csk_accept`, `udp_sendmsg`,
   `udp_recvmsg`) and joined to `/proc` to produce `(5-tuple → PID,
   comm, cmdline, uid, container-id)` attribution.
-- **NetFlow ↔ application attribution join** — the agent forwards
-  external NetFlow records seen by `flow-collector` for the host's IPs to
-  `netprobe`, which annotates them with local process attribution when
-  the 5-tuple matches an observed local socket. Annotated flows are
-  pushed back into the existing flow pipeline.
+- **NetFlow to application attribution join** — netprobe sends local
+  socket/process observations agent-up for bounded core persistence. Core
+  correlates those observations with independently ingested NetFlow/IPFIX and
+  stamps matching OCSF rows as `attributed_flow`; NetFlow is not replayed down
+  to the agent or netprobe.
 - **Process snapshot stream** — periodic snapshot of locally-bound
   listening sockets and their owning processes, so the agent can answer
   "what is listening here and what owns it" without packet observation.
@@ -356,24 +356,29 @@ the agent's existing edge-network trust boundary is unchanged.
   agent status. Generic enough to host future native sidecars.
 - New bridge package `go/pkg/agent/netprobe/` translates each event
   type into the appropriate ingestion path: fingerprint + DPI events
-  → discovery / inventory enrichment; flow-attribution events →
-  flow-collector enrichment; process snapshots → device-inventory
-  process map.
+  → discovery / inventory enrichment; flow-attribution events → a
+  retained `FlowAttributionEventBatch` on the dedicated agent status path;
+  process snapshots → device-inventory process map.
 - New gRPC + JSON sub-config `visibility_config` carried inside
   `AgentConfigResponse` (compatible with `add-streamed-agent-config`
   chunked delivery), bearing per-device profile bindings and capture
   parameters resolved by an Elixir-side compiler.
 
-### Flow-collector integration
+### Flow-attribution integration
 
-- `flow-collector` is extended to publish a per-host filter signal
-  describing which 5-tuples a given agent's `netprobe` should expect to
-  attribute (i.e. flows touching that agent's host IPs).
-- The agent subscribes to its own host's slice, forwards the records to
-  `netprobe`, and republishes the attributed records into the existing
-  flow pipeline under a new `attributed_flow` event type.
-- No NATS account changes; no new JetStream subjects beyond a single
-  `flow.attributed.*` subject.
+- `serviceradar-agent` batches netprobe's local socket/process observations as
+  `FlowAttributionEventBatch` and sends them through its ordered retained
+  `StreamStatus` path to the authenticated agent-gateway/core boundary.
+- Core derives the agent and partition from the authenticated status context
+  and upserts the observations into
+  `platform.flow_process_attribution_current`.
+- `ServiceRadar.FlowAttribution.Correlation` joins that bounded current state
+  to independently ingested NetFlow/IPFIX rows in
+  `platform.ocsf_network_activity` and stamps the matching OCSF row in place as
+  `event_type = "attributed_flow"` with process context.
+- `flow-collector` remains the raw NetFlow/sFlow ingestion source. Production
+  attribution does not publish or consume per-host slices and does not use a
+  `flow.attributed.*` JetStream subject.
 
 ### Control-plane (Elixir / Ash) integration
 
@@ -390,8 +395,10 @@ the agent's existing edge-network trust boundary is unchanged.
 - Device records gain passive fingerprint evidence and per-process map
   in OCSF `os.passive_fingerprint`, `metadata.passive_fingerprint`,
   `metadata.local_processes` (with safe redaction).
-- New OCSF Network-Activity-class records persisted for attributed
-  flows in the existing flow pipeline; no new top-level table.
+- Local process-attribution observations are persisted as bounded current
+  state in `platform.flow_process_attribution_current`. Matching existing
+  OCSF Network Activity rows are updated in place, setting the `event_type`
+  field to `"attributed_flow"` and adding the attribution context.
 
 ### Imported-device coverage (Armis, NetBox, UniFi)
 
@@ -413,8 +420,8 @@ the agent's existing edge-network trust boundary is unchanged.
   an agent host: live listing of listening sockets and their owning
   processes/cmdlines (subject to redaction policy).
 - New "Attributed Flows" view on the existing Flows dashboard surfacing
-  the `attributed_flow` records (PID / process / cmdline alongside the
-  classic NetFlow fields).
+  OCSF Network Activity rows stamped as `attributed_flow` (PID / process /
+  cmdline alongside the classic NetFlow fields).
 - Agent Detail page surfaces the new `host-network-visibility`
   capability and `netprobe` sidecar status.
 
@@ -480,8 +487,9 @@ the agent's existing edge-network trust boundary is unchanged.
 - **MODIFIED** `build-web-ui` — Visibility Profile management UI,
   Network Visibility / Process Listeners / Attributed Flows surfaces,
   and a "Start Remote Capture" action with session-state display.
-- **MODIFIED** `flow-collector` — per-host slice publication for
-  netprobe attribution and re-publication of attributed flows.
+- **COORDINATES WITH** `flow-attribution` — the focused current-path
+  acceptance contract is defined by `harden-flow-attribution-pipeline` rather
+  than a second delta in this older sidecar proposal.
 
 ### Affected code (key paths)
 
@@ -502,7 +510,8 @@ the agent's existing edge-network trust boundary is unchanged.
 - Modified: `go/cmd/agent/main.go`, `go/pkg/agent/server.go`,
   `go/pkg/agent/push_loop.go` — wire sidecar manager, capability
   advertisement, control stream extensions.
-- Modified: `rust/flow-collector/` — per-host slice publish path.
+- Modified: `elixir/serviceradar_core/lib/serviceradar/flow_attribution/` —
+  current-state persistence and protocol-aware CNPG correlation.
 - Modified: `elixir/serviceradar_core/lib/serviceradar/inventory/device.ex`
   — accept new map keys.
 - Modified: `elixir/serviceradar_core/lib/serviceradar/identity/rbac/catalog.ex`
@@ -579,11 +588,10 @@ and reversible on its own:
   - **Hard kernel floor: 5.8.** Hosts below the floor advertise
     `host-network-visibility = unavailable` cleanly. There is no
     `degraded` half-state.
-- **Phase 4 — NetFlow ↔ application attribution.** `flow-collector`
-  per-host slice publication, agent forwarding into `netprobe`,
-  `attributed_flow` republish, Attributed Flows view. Now trivial
-  to land because the `flow_to_pid` map already exists from
-  Phase 3.
+- **Phase 4 — NetFlow to application attribution.** Agent-up local
+  observation persistence, protocol-aware core-side CNPG correlation,
+  `attributed_flow` stamping, and the Attributed Flows view. The retired demo
+  host-slice canary is not re-enabled.
 - **Phase 5 — Remote pcapng capture sessions.** `CaptureSessions`
   IPC RPC, agent-side session bridge over the existing mTLS control
   stream, `core-elx` session lifecycle + audit, `srctl capture` CLI

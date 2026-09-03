@@ -94,9 +94,16 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCStrategy do
       client_secret: settings.oidc_client_secret_encrypted,
       discovery_url: settings.oidc_discovery_url,
       scopes: parse_scopes(settings.oidc_scopes),
+      pkce_mode: pkce_mode(settings),
       redirect_uri: build_redirect_uri()
     }
   end
+
+  defp pkce_mode(%{oidc_pkce_mode: :required}), do: :required
+  defp pkce_mode(%{oidc_pkce_mode: :disabled}), do: :disabled
+  defp pkce_mode(%{oidc_pkce_mode: "required"}), do: :required
+  defp pkce_mode(%{oidc_pkce_mode: "disabled"}), do: :disabled
+  defp pkce_mode(_settings), do: :auto
 
   defp parse_scopes(nil), do: ["openid", "email", "profile"]
   defp parse_scopes(""), do: ["openid", "email", "profile"]
