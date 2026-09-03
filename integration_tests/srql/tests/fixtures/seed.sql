@@ -2153,6 +2153,19 @@ $$;
 --   * a cross-partition identifier collision
 --   * a transitive component A-B-C where A and C share nothing directly
 --   * a completed run that hit its cap, and a failed run
+--
+-- EVERY device below is tombstoned (`deleted_at` set), and that is load-bearing
+-- rather than incidental. `ocsf_devices` is shared, and existing tests assert
+-- exact totals over it: `in:devices` and the grouped-stats paths all push
+-- `deleted_at IS NULL`, so nine live rows here shifted the untagged "Unknown"
+-- bucket to 8, broke a `time:last_7d` count, and survived two negated tag
+-- filters. Tombstoning keeps these fixtures invisible to every default device
+-- query while leaving them fully visible to the identity entities, none of
+-- which filters on `deleted_at`.
+--
+-- The live-owner side of `matches_current_facts` and `owner_deleted` is covered
+-- by an identifier row on the pre-existing `device-alpha` instead of by adding
+-- another device.
 
 INSERT INTO public.ocsf_devices (uid, type_id, type, name, hostname, ip, mac,
         first_seen_time, last_seen_time, created_time, modified_time,
@@ -2160,7 +2173,7 @@ INSERT INTO public.ocsf_devices (uid, type_id, type, name, hostname, ip, mac,
 SELECT * FROM (VALUES
     ('identity-survivor', 12, 'Router', 'Identity Survivor', 'identity-survivor',
      '10.30.0.1', 'AA:BB:CC:00:00:01', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
-     'default', NULL::timestamptz, NULL::text, NULL::text, 'agent-identity-1'),
+     'default', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', 'agent-identity-1'),
     ('identity-src', 12, 'Router', 'Identity Source', 'identity-src',
      '10.30.0.2', 'AA:BB:CC:00:00:02', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
      'default', NOW() - INTERVAL '2 days', 'operator', 'merged into identity-survivor', NULL),
@@ -2169,22 +2182,22 @@ SELECT * FROM (VALUES
      'default', NOW() - INTERVAL '1 day', 'system', 'duplicate', NULL),
     ('identity-revived', 12, 'Router', 'Identity Revived', 'identity-revived',
      '169.254.0.1', 'AA:BB:CC:00:00:04', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
-     'default', NULL, NULL, NULL, NULL),
+     'default', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', NULL),
     ('identity-comp-a', 12, 'Router', 'Component A', 'identity-comp-a',
      '10.31.0.1', 'AA:BB:CC:00:00:0A', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
-     'default', NULL, NULL, NULL, NULL),
+     'default', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', NULL),
     ('identity-comp-b', 12, 'Router', 'Component B', 'identity-comp-b',
      '10.31.0.2', 'AA:BB:CC:00:00:0B', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
-     'default', NULL, NULL, NULL, NULL),
+     'default', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', NULL),
     ('identity-comp-c', 12, 'Router', 'Component C', 'identity-comp-c',
      '10.31.0.3', 'AA:BB:CC:00:00:0C', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
-     'edge-west', NULL, NULL, NULL, NULL),
+     'edge-west', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', NULL),
     ('identity-osc-a', 12, 'Router', 'Oscillating A', 'identity-osc-a',
      '10.32.0.1', 'AA:BB:CC:00:00:1A', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
-     'default', NULL, NULL, NULL, NULL),
+     'default', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', NULL),
     ('identity-osc-b', 12, 'Router', 'Oscillating B', 'identity-osc-b',
      '10.32.0.2', 'AA:BB:CC:00:00:1B', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
-     'default', NULL, NULL, NULL, NULL)
+     'default', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', NULL)
 ) AS v;
 
 -- A three-hop chain plus an unmerge row the default projection must hide.
@@ -2256,6 +2269,12 @@ VALUES
     -- Owned by a device that IS tombstoned: the row must still be returned, with
     -- owner_deleted true and the owner's deleted_reason carried through.
     ('identity-src', 'mac', 'AABBCC00DEAD', 'default', 'strong', 'armis',
+     NOW() - INTERVAL '20 days', NOW(), TRUE, '{}'::jsonb),
+    -- The live-owner case, hung off the PRE-EXISTING device-alpha rather than a
+    -- new device: every identity fixture device is tombstoned to stay out of the
+    -- shared device totals, so without this row `owner_deleted = false` and a
+    -- corroborated identifier on a live owner would go untested.
+    ('device-alpha', 'mac', 'AABBCCDDEE01', 'default', 'strong', 'mapper',
      NOW() - INTERVAL '20 days', NOW(), TRUE, '{}'::jsonb);
 
 INSERT INTO public.identity_reconciliation_runs

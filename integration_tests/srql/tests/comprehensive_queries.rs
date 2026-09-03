@@ -542,6 +542,20 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            // A live owner, and a MAC written with colons on the device but
+            // without them on the identifier: the projection normalises both
+            // sides, so this is the case that proves it does. Hung off the
+            // pre-existing device-alpha because every identity fixture device is
+            // tombstoned to stay out of the shared device totals.
+            query: "in:device_identifiers device_id:device-alpha identifier_type:mac",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["matches_current_facts"], true);
+                assert_eq!(body["results"][0]["owner_deleted"], false);
+                assert_eq!(body["results"][0]["owner_hostname"], "alpha-edge");
+            })),
+        },
+        TestCase {
             // A -- B -- C: A-B is direct evidence, B-C is transitive from A,
             // and there is no A-C edge because they share no identifier.
             query: "in:identity_evidence_edges device:identity-comp-a",
