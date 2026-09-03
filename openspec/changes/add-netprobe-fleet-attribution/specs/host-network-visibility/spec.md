@@ -25,22 +25,21 @@ arbitrary number of agents, without per-agent interface configuration.
 - **THEN** every compatible agent in the cohort runs attribution
 - **AND** the operator is not required to provide per-agent NIC names
 
-### Requirement: Host Visibility Routing Is Control-Plane Driven
-Host network visibility enablement and NetFlow host-slice routing SHALL be
-derived from persisted control-plane/settings state plus live agent registry
-metadata, not from per-agent Helm values. The settings UI SHALL update the
-authoritative host-network visibility assignment or profile state. The control
-plane SHALL compile effective agent config from that state and push config
-changes to connected agents through the agent-gateway command bus/control stream.
-Flow collectors SHALL consume a control-plane-generated routing snapshot or
-delta feed keyed by agent identity, partition, current host IPs, and visibility
-status so NetFlow host slices reach the owning agent without redeploying Helm.
+### Requirement: Host Visibility Assignment Is Control-Plane Driven
+Host network visibility enablement SHALL be derived from persisted
+control-plane/settings state rather than per-agent Helm values. The settings UI
+SHALL update the authoritative host-network visibility assignment or profile
+state. The control plane SHALL compile effective agent config from that state
+and push config changes to connected agents through the agent-gateway command
+bus/control stream. Attribution observations SHALL travel agent-up for core
+persistence and correlation with independently ingested NetFlow/IPFIX; the
+production design SHALL NOT require per-agent flow-collector host slices.
 
 #### Scenario: Large fleet enable without Helm growth
 - **WHEN** an operator enables host network visibility for 25,000 agents or a dynamic cohort
 - **THEN** the Helm release does not add one value entry per agent
 - **AND** the control plane stores the assignment/profile state in the database
-- **AND** flow collectors receive generated host-slice routing state from the control plane
+- **AND** enabled agents send local attribution observations through the normal agent-up path
 
 #### Scenario: Settings change reaches agents
 - **WHEN** an operator enables or disables host network visibility from settings
@@ -48,14 +47,14 @@ status so NetFlow host slices reach the owning agent without redeploying Helm.
 - **AND** agent-gateway pushes a config change over the existing command bus/control stream to each connected affected agent
 - **AND** disconnected agents receive the same effective config through normal startup/config polling after reconnect
 
-#### Scenario: Agent address changes without redeploy
-- **WHEN** an agent reports a new source IP, hostname, or host-network visibility status
-- **THEN** the control-plane routing feed updates the corresponding host-slice route
-- **AND** flow collectors start using the new route without a Helm upgrade or workload restart
+#### Scenario: Agent address changes without flow-collector routing state
+- **WHEN** an enabled agent reports a new source IP or hostname
+- **THEN** subsequent attribution observations carry the current local endpoints through the agent-up path
+- **AND** no flow-collector route or Helm redeploy is required
 
-#### Scenario: Temporary demo routes are not production architecture
+#### Scenario: Temporary demo routes remain retired
 - **GIVEN** static `host_slices` or `host_slice_allowlist` values exist in a demo Helm overlay
-- **WHEN** the control-plane routing feed is available
+- **WHEN** agent-up attribution and core-side correlation are enabled
 - **THEN** the static demo entries are removed or disabled
 - **AND** production installs are not required to maintain per-agent host-slice lists in Helm
 
@@ -107,35 +106,14 @@ snapshot production SHALL serialize cache state and SHALL NOT walk
 - **AND** ring-buffer drops do not persist
 - **AND** fresh flow-to-process attribution rows continue to be streamed
 
-### Requirement: Flow Correlation Is Protocol-Aware
-The system SHALL correlate netprobe attributions to OCSF NetFlow/sFlow records
-using protocol-specific tuple rules. TCP and UDP SHALL match bidirectional
-5-tuples. ICMP and ICMPv6 SHALL match protocol, endpoint IPs, and time without
-requiring equivalent port/type/code encoding. Node-SNAT and pod-local fallback
-SHALL preserve exact local matches as higher priority than fallback candidates.
-
-#### Scenario: UDP exact attribution
-- **WHEN** a UDP netflow record and a UDP process attribution have the same bidirectional 5-tuple inside the correlation time window
-- **THEN** the OCSF flow is stamped as `attributed_flow`
-- **AND** the attribution payload contains the process context from netprobe
-
-#### Scenario: ICMP exporter port mismatch
-- **WHEN** an ICMP netflow record uses exporter-specific type/code pseudo-ports
-- **AND** the netprobe attribution reports portless ICMP endpoints for the same local/remote IPs
-- **THEN** the OCSF flow is stamped as `attributed_flow`
-- **AND** the mismatch in pseudo-port encoding does not prevent attribution
-
-#### Scenario: Pod-local attribution behind node SNAT
-- **WHEN** the netflow record shows a Kubernetes node IP due to SNAT
-- **AND** the attribution is observed on the same agent with a pod-local source IP and matching remote endpoint
-- **THEN** the OCSF flow is stamped as `attributed_flow`
-- **AND** exact host-local tuple matches rank ahead of node-SNAT fallback matches
-
-### Requirement: Attribution Delivery Is Bounded And Observable
-The system SHALL keep every attribution delivery boundary bounded and SHALL expose
-drop, lag, and queue-depth signals sufficient for release gating. Burst handling
-MAY coalesce status or batch attribution frames, but SHALL NOT use unbounded
-queues or silently lose attribution events.
+### Requirement: Attribution Producer Delivery Is Bounded And Observable
+The producer path SHALL keep every boundary from the eBPF ring through netprobe
+IPC and into the agent's retained queue bounded and SHALL expose drop, lag, and
+queue-depth signals sufficient for release gating. Burst handling MAY coalesce
+or batch attribution frames, but SHALL NOT use unbounded queues or silently lose
+attribution events. Gateway acknowledgement, retry ownership, and core admission
+after the agent accepts an event are owned by the `flow-attribution` and
+`edge-architecture` capabilities rather than this requirement.
 
 #### Scenario: Slow IPC reader
 - **GIVEN** netprobe is producing attribution events faster than the local agent can read them

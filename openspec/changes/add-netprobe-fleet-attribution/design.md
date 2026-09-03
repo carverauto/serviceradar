@@ -43,11 +43,11 @@ Today the two are entangled at three layers:
   API. Core persists that assignment/profile state, derives affected agents from
   registry/status metadata, compiles effective agent config, and uses
   agent-gateway's existing command bus/control stream to push config changes to
-  connected agents. Flow collectors consume a generated routing snapshot or delta
-  feed keyed by agent identity, partition, current host IPs, and visibility
-  status. Static Helm `host_slices` may be used only as a demo canary while the
-  routing feed is being built; production scale cannot require one values entry
-  per agent.
+  connected agents. Local network/process observations travel agent-up for
+  bounded core persistence and correlation with independently ingested
+  NetFlow/IPFIX. Static Helm `host_slices` were a demo canary and are not a
+  production dependency; production scale cannot require one values entry per
+  agent.
 - **Manifest is the source of truth for version + schema.** The seeder reads
   `version` and `config_schema` from the in-image `addons/netprobe/addon.yaml` +
   `config.schema.json` (already compiled in via `@config_schema`). Signed artifact
@@ -91,12 +91,13 @@ Today the two are entangled at three layers:
   across PID reuse. Process metadata caches include pid/tgid plus a stable
   process-generation value such as kernel start time or an eBPF-observed
   exec/creation timestamp.
-- **Correlation is protocol-aware.** TCP and UDP use bidirectional 5-tuple
-  matching. ICMP and ICMPv6 use protocol + endpoint IP + time because exporters
-  may encode type/code differently or report zero ports. Node-SNAT fallback first
-  maps the attribution agent to its node IP, then matches the remote endpoint with
-  protocol-specific port requirements. Exact local matches rank ahead of node-SNAT
-  fallback candidates.
+- **Correlation ownership is centralized.** The deployed candidate families,
+  including wildcard listeners, UDP exporter ephemeral-port mismatch,
+  ICMP/ICMPv6 port independence, node-SNAT, and public-endpoint mapping, are
+  owned and verified by `harden-flow-attribution-pipeline`. That change also
+  resolves the current public-rank collision so exact local matches win
+  deterministically. This fleet proposal does not independently narrow or
+  reprioritize those rules.
 - **Every asynchronous boundary is bounded and observable.** eBPF ring buffers,
   netprobe in-process queues, local UDS delivery, agent sidecar buffers, and agent
   push batches use fixed capacity. When burst traffic exceeds capacity, the system

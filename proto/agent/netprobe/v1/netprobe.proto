@@ -49,6 +49,19 @@ message NetprobeFrame {
     DeviceCensusSnapshot device_census_snapshot = 30;
     MdnsSnapshot mdns_snapshot = 31;
   }
+
+  // Tag discipline for this oneof.
+  //
+  // There is no `reserved` statement because nothing has been removed yet.
+  // Removing an arm REQUIRES adding one here naming the freed tag and field
+  // name, per the convention at proto/monitoring.proto:218 and
+  // VisibilityAgentConfig below -- reservations go on the enclosing message,
+  // since proto3 forbids them inside a `oneof` block.
+  //
+  // This is enforced by `make proto-breaking` in CI, not by review: a
+  // released agent/netprobe pair may still encode a tag this repository has
+  // forgotten, and a future field silently reusing it would mis-decode
+  // against un-upgraded peers with no error on either side.
 }
 
 message ApplyConfig {
@@ -397,12 +410,101 @@ message ExternalFlowAck {
   uint64 invalid = 4;
 }
 
-message StartRemoteCapture {
-  // TODO(add-host-network-visibility-sidecar Phase 5): define capture request fields.
+// Which directions a capture session observes. AF_PACKET delivers
+// transmitted frames with PACKET_OUTGOING, so both directions are available
+// on any interface; a session may still narrow to one.
+enum CaptureDirection {
+  CAPTURE_DIRECTION_UNSPECIFIED = 0;
+  CAPTURE_DIRECTION_BOTH = 1;
+  CAPTURE_DIRECTION_INGRESS = 2;
+  CAPTURE_DIRECTION_EGRESS = 3;
 }
 
+// One instruction of a classic BPF program, matching libpcap's
+// `struct bpf_insn` and RPCAP's `struct rpcap_filterbpf_insn` field for
+// field. Carried verbatim so a program compiled by a remote client's own
+// libpcap is attached unchanged via SO_ATTACH_FILTER.
+//
+// `code`, `jt` and `jf` are narrower than uint32 on the wire
+// (uint16/uint8/uint8) but proto3 has no smaller integer type; values
+// outside those ranges MUST be rejected.
+message BpfInstruction {
+  uint32 code = 1;
+  uint32 jt = 2;
+  uint32 jf = 3;
+  int64 k = 4;
+}
+
+// Request to start a remote packet capture session.
+//
+// Exactly one filter form MUST be set. `filter_expression` is the operator
+// string form, compiled by netprobe from a documented tcpdump subset;
+// `filter_bpf` is a pre-compiled classic BPF program, which is what RPCAP
+// clients such as Wireshark send. Both end at the same SO_ATTACH_FILTER
+// call, so there is no second filter semantics.
+//
+// `session_id` and `actor` are issued by serviceradar-core. netprobe refuses
+// a request that carries neither, so a capture cannot be started by anything
+// that bypassed the control plane.
+message StartRemoteCapture {
+  string session_id = 1;
+  repeated string interfaces = 2;
+
+  oneof filter {
+    string filter_expression = 3;
+    BpfProgram filter_bpf = 4;
+  }
+
+  uint32 snaplen = 5;
+  uint32 duration_s = 6;
+  uint64 byte_cap = 7;
+  CaptureDirection direction = 8;
+  bool promiscuous = 9;
+
+  // Opaque identifier of the operator this session is attributed to, for the
+  // host-local log record. Never used for authorization, which happens in
+  // serviceradar-core before the request reaches the agent.
+  string actor = 10;
+}
+
+// A compiled classic BPF program. Wrapped in a message rather than a bare
+// repeated field so the oneof above can distinguish "no BPF filter" from
+// "an empty BPF program", which are different requests.
+message BpfProgram {
+  repeated BpfInstruction instructions = 1;
+}
+
+// Why a capture session ended. Carried on the terminal PcapngBlock.
+enum CaptureTerminationReason {
+  CAPTURE_TERMINATION_REASON_UNSPECIFIED = 0;
+  CAPTURE_TERMINATION_REASON_DURATION_CAP = 1;
+  CAPTURE_TERMINATION_REASON_BYTE_CAP = 2;
+  CAPTURE_TERMINATION_REASON_CLIENT_CANCEL = 3;
+  CAPTURE_TERMINATION_REASON_AGENT_DISCONNECT = 4;
+  CAPTURE_TERMINATION_REASON_FILTER_ERROR = 5;
+  CAPTURE_TERMINATION_REASON_INTERFACE_DOWN = 6;
+}
+
+// A chunk of the session's pcapng stream.
+//
+// `bytes` carries raw pcapng -- a Section Header Block, then one Interface
+// Description Block per captured interface, then Enhanced Packet Blocks. No
+// hop between netprobe and the client re-encodes it; a block boundary may
+// fall anywhere, so a reader MUST treat the concatenation of `bytes` across
+// the stream as the pcapng file, not each message as a whole block.
+//
+// The counters are cumulative for the session, so a client that joins or
+// reconnects mid-stream still sees totals rather than deltas.
+// `packets_dropped` is the kernel ring's drop count: a session that dropped
+// packets is not a complete capture and MUST NOT be presented as one.
 message PcapngBlock {
-  // TODO(add-host-network-visibility-sidecar Phase 5): define pcapng block fields.
+  string session_id = 1;
+  bytes bytes = 2;
+  bool final = 3;
+  CaptureTerminationReason termination_reason = 4;
+  uint64 packets_captured = 5;
+  uint64 packets_dropped = 6;
+  uint64 bytes_streamed = 7;
 }
 
 message BannerObservation {

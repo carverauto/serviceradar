@@ -240,14 +240,17 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   end
 
   # Resolve the device's canonical IP. Most plugins set `ip` directly. The AWX
-  # inventory-sync plugin runs under TinyGo/WASM, whose minimal `encoding/json`
-  # can fail to decode a host's nested `variables` blob (e.g. proxmox agent
-  # interfaces); it always captures the raw stringified JSON under
-  # `metadata.awx.variables` but may then emit an empty `ip`. When the direct
-  # `ip` is blank we recover it here with the full Jason decoder so AWX devices
-  # carry a canonical IP and reconcile with the same host seen by
-  # sweep/agent/proxmox. `ansible_host` is the intended field; a host without a
-  # valid-IP `ansible_host` stays IP-less — we never fabricate an address.
+  # inventory-sync plugin extracts `ansible_host` from the host's variables and
+  # stamps it on `metadata.awx.ansible_host`; it only copies that value onto
+  # `ip` when it looks like an address, and JSON may omit a blank `ip`. When
+  # the direct `ip` is blank we recover a valid-IP `ansible_host` from AWX
+  # metadata so the device reconciles with the same host seen by
+  # sweep/agent/proxmox.
+  #
+  # Current plugin payloads carry `ansible_host` as a sibling of the join keys
+  # and do not emit the secret-capable `variables` blob. Older in-flight
+  # payloads still wrap it in stringified `variables`. A host whose
+  # `ansible_host` is a DNS name stays IP-less — we never fabricate an address.
   defp device_ip(device) do
     case string_value(device, ["ip", "ip_address", "ipAddress"]) do
       ip when is_binary(ip) -> ip
@@ -257,12 +260,24 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   defp awx_ansible_host_ip(device) do
     with awx when is_map(awx) <- awx_metadata(device),
-         raw when is_binary(raw) <- string_value(awx, ["variables"]),
-         host when is_binary(host) <- ansible_host_from_variables(raw),
+         host when is_binary(host) <- awx_ansible_host_value(awx),
          true <- valid_ip?(host) do
       host
     else
       _ -> nil
+    end
+  end
+
+  defp awx_ansible_host_value(awx) do
+    case string_value(awx, ["ansible_host", "ansible_ssh_host"]) do
+      host when is_binary(host) ->
+        host
+
+      _ ->
+        case string_value(awx, ["variables"]) do
+          raw when is_binary(raw) -> ansible_host_from_variables(raw)
+          _ -> nil
+        end
     end
   end
 

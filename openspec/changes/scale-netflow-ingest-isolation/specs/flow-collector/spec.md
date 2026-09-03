@@ -1,13 +1,18 @@
 ## ADDED Requirements
 
 ### Requirement: Dedicated flows JetStream stream
-The flow-collector SHALL publish raw flow protobufs to a dedicated JetStream stream whose default name is `flows` (configurable via `stream_name`). The stream SHALL include at least the subjects `flows.raw.netflow` and `flows.raw.sflow` when those listeners are configured, and MAY include additional concrete `flows.raw.<name>` extension subjects. The dedicated flows stream SHALL NOT be the shared multi-signal `events` stream used for logs, Falco, or OTEL. EventWriter persistence consumers SHALL use concrete `flows.raw.<name>` leaves only. Whole-token wildcards under the flow namespace (e.g. `flows.raw.>`, `flows.>`, `*.>`) SHALL NOT be treated as EventWriter consumer filters and SHALL be rejected by collector config validation.
+The flow-collector SHALL publish raw flow protobufs to a dedicated JetStream stream whose default name is `flows` (configurable via `stream_name`). The stream SHALL include at least the subjects `flows.raw.netflow` and `flows.raw.sflow` when those listeners are configured, and MAY include additional configured concrete `flows.raw.<name>` extension subjects. The dedicated flows stream SHALL NOT be the shared multi-signal `events` stream used for logs, Falco, or OTEL. EventWriter persistence consumers SHALL use concrete `flows.raw.<name>` leaves only. Whole-token wildcards under the flow namespace (e.g. `flows.raw.>`, `flows.>`, `*.>`) SHALL NOT be treated as EventWriter consumer filters and SHALL be rejected by collector config validation.
 
-#### Scenario: Host-slice subjects are out of scope for this change
-- **WHEN** host-network-visibility host-slice publication is configured (`flow.host-slice.<agent_id>`)
-- **THEN** this change SHALL NOT claim an EventWriter consumer or a restored attribution joiner/subscriber for those subjects
-- **AND** host-slice joining/consumption is deferred to a follow-up change (the prior `HostSliceSubscriber` / `AttributedFlowJoiner` path is not present in this branch)
-- **AND** EventWriter configuration SHALL reject `flow.host-slice.*` and broader filters that cover it
+#### Scenario: Retired attribution canary subjects are not stream routes
+- **GIVEN** historical demo records or configuration mention
+  `flow.host-slice.<agent_id>` or `flow.attributed.<partition>`
+- **WHEN** flow-collector and EventWriter reconcile the dedicated flow stream
+- **THEN** they SHALL NOT publish, rehome, subscribe to, or consume either
+  retired namespace
+- **AND** they SHALL NOT reserve either namespace for a future attribution join
+- **AND** the current agent-up attribution and core-correlation contract SHALL
+  remain owned by `harden-flow-attribution-pipeline`, not this flow-collector
+  delta
 
 #### Scenario: Default stream name is flows
 - **WHEN** the collector starts without an explicit override that points at `events`
@@ -32,10 +37,17 @@ The flow-collector SHALL ensure the flows JetStream stream exists with configure
 - **THEN** the collector SHALL update the stream configuration to the configured values
 - **AND** it SHALL log the before/after retention settings at info level
 
-#### Scenario: Subject union preserved on update
+#### Scenario: Configured concrete raw subject union is preserved
 - **WHEN** the existing flows stream has subjects not listed in the current process config
-- **THEN** the collector SHALL retain existing subjects while ensuring its required listener subjects are present
-- **AND** it SHALL NOT remove unrelated `flows.raw.*` subjects required by other publishers
+- **THEN** the collector SHALL retain existing configured concrete
+  `flows.raw.<name>` subjects while ensuring its required listener subjects are
+  present
+- **AND** it SHALL NOT treat `flow.host-slice.*` or `flow.attributed.*` as raw
+  extension subjects or add either namespace while creating or transferring
+  subject ownership
+- **AND** any dormant pre-existing canary subject entry retained during safe
+  subject-union migration SHALL have no publisher or consumer and SHALL NOT be
+  treated as current or future routing
 
 ### Requirement: Flow stream config is not owned by log or OTEL collectors
 Log-collector and OTEL JetStream ensure paths SHALL NOT create or update the dedicated flows stream or attach `flows.raw.*` subjects to the shared `events` stream as part of their ensure routine.
