@@ -25,39 +25,56 @@ re-learning.
 
 Blocks every other slice.
 
-- [ ] 0.1 Add a `reserved` statement to `NetprobeFrame`
-  (`proto/agent/netprobe/v1/netprobe.proto:26-52`) with a comment naming
-  each reservation, following the convention at
-  `proto/monitoring.proto:218,254,276,307` and `netprobe.proto`'s own
-  `VisibilityAgentConfig:118-121`. Reservations go on the enclosing
-  message; proto3 forbids them inside a `oneof`. (GitHub #4026)
-- [ ] 0.2 Add a `breaking:` section to `buf.yaml` and a `buf breaking`
-  step to the proto CI gate, against the merge base. Today `buf.yaml`
-  declares `lint` only and `make proto-lint` is `buf lint`.
-- [ ] 0.3 Prove the gate can fail: a check that reuses a reserved tag and
-  asserts `buf breaking` rejects it. A gate nobody has seen fail is
-  indistinguishable from one that is not wired up.
-- [ ] 0.4 Add a loud unknown-arm branch to the agent `readLoop`
+- [x] 0.1 **CORRECTED while implementing.** The task said to add a
+  `reserved` statement to `NetprobeFrame`. That would have been wrong:
+  in this repository `reserved` names fields that were *removed*
+  (`proto/monitoring.proto:218` -- "Removed: deployment identifiers"),
+  and `NetprobeFrame` has removed nothing. Reserving its unused tags
+  8-19 would permanently burn tags that were never used. What landed
+  instead is a documented tag-discipline comment on the oneof stating
+  that removing an arm requires a reservation naming the freed tag, and
+  pointing at the gate that enforces it. The enforcement is 0.2-0.3.
+  (GitHub #4026)
+- [x] 0.2 Added a `breaking:` section to `buf.yaml` (`WIRE_JSON`, chosen
+  over `WIRE` because the generated Go and Elixir trees are committed, so
+  a rename is a real break here; and over `FILE`, which would forbid
+  moving a message between files) plus a `make proto-breaking` target and
+  a `buf breaking` step in `.github/workflows/golangci-lint.yml` beside
+  the existing `buf lint`. The checkout there needed `fetch-depth: 0`:
+  the default depth of 1 leaves the base ref absent and the comparison
+  silently has nothing to diff against.
+- [x] 0.3 Gate proven to fail, not merely to pass on a clean tree:
+  removing `start_remote_capture` and reusing tag 24 for a different
+  message type exits 2 with
+  `Field "24" ... changed type from ... StartRemoteCapture to ...
+  DpiEvent`, and restoring the arm returns it to exit 0.
+- [x] 0.4 Add a loud unknown-arm branch to the agent `readLoop`
   (`go/pkg/agent/netprobe/client.go`), which today has no default branch
   and would drop an unrecognized oneof arm with no log, no metric and no
   `recordEventDrop`. (GitHub #4026)
-- [ ] 0.5 Define `StartRemoteCapture`: `session_id` (ULID),
+- [x] 0.5 Define `StartRemoteCapture`: `session_id` (ULID),
   `interfaces` (repeated), `filter_expression` (string, the UI/API
   form), `filter_bpf` (repeated compiled instruction, the RPCAP form --
   exactly one of the two is set), `snaplen`, `duration_s`, `byte_cap`,
   `direction`, `promiscuous`. (22.1)
-- [ ] 0.6 Define `PcapngBlock`: `session_id`, `bytes` (raw pcapng,
+- [x] 0.6 Define `PcapngBlock`: `session_id`, `bytes` (raw pcapng,
   never re-encoded), `final`, `termination_reason` (enum:
   `duration_cap`, `byte_cap`, `client_cancel`, `agent_disconnect`,
   `filter_error`, `interface_down`), `packets_captured`,
   `packets_dropped`, `bytes_streamed`. (22.1)
-- [ ] 0.7 Regenerate both committed trees: `netprobe.pb.go`
+- [x] 0.7 Regenerate both committed trees: `netprobe.pb.go`
   (`Makefile:623-625`) and `netprobe.pb.ex` (`Makefile:677`). Rust needs
   no committed change; `rust/netprobe/build.rs` regenerates via prost at
   build time.
-- [ ] 0.8 `make proto-lint` and `make verify-proto-elixir` clean. The
+- [x] 0.8 `make proto-lint` and `make verify-proto-elixir` clean. The
   latter is a `git diff --exit-code` drift gate (`Makefile:685-690`) and
-  fails if 0.7 was skipped.
+  fails if 0.7 was skipped. Note for anyone repeating this in a fresh
+  worktree: run `mix deps.get` in `elixir/serviceradar_core` FIRST. Without
+  it the trailing `mix format` aborts with `Unknown dependency :ash` and
+  generation leaves raw `protoc-gen-elixir` output, which rewrites ten
+  unrelated `.pb.ex` files (`rpc(:Get, ...)` for the committed
+  `rpc :Get, ...`) and looks exactly like generator drift. Do not borrow
+  `deps` from another checkout -- a different Styler silently reformats.
 
 ## S1. netprobe AF_PACKET capture engine
 

@@ -39,6 +39,11 @@ jobs:
 
       - name: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          # `buf breaking` compares against the base branch, so the base ref has
+          # to exist locally. The default fetch-depth of 1 gives only the head
+          # commit and the comparison silently has nothing to diff against.
+          fetch-depth: 0
         
       - name: setup go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
@@ -75,6 +80,18 @@ jobs:
       # already installs;
       - name: buf lint
         run: make proto-lint
+
+      # Wire-compatibility gate (GitHub #4026). `buf lint` has nothing to say
+      # about tag reuse: a field reusing a tag freed by a removed field is
+      # accepted silently and mis-decodes against peers still running the old
+      # encoding, with no error on either side. Verified to fail on exactly
+      # that change, not just to pass on a clean tree.
+      - name: buf breaking
+        run: |
+          git fetch --no-tags origin "${PROTO_BREAKING_BASE#origin/}"
+          make proto-breaking
+        env:
+          PROTO_BREAKING_BASE: origin/${{ github.event_name == 'pull_request' && github.base_ref || 'staging' }}
 
       - name: go mod tidy check
         uses: katexochen/go-tidy-check@427c8c07d3d83ab8d7290cad04ce71c12eab3674
