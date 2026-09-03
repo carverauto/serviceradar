@@ -2,7 +2,7 @@
 
 ## Why
 
-The SFO Armis verifier showed that the aggregate OT isolation result is plausible, but the per-device ServiceRadar data layer is not trustworthy enough for northbound updates. A July 7, 2026 CNPG probe in `example-namespace` found Armis Device IDs split across different `armis_device_id` and `integration_id` identifier rows, active device rows with multiple Armis identifiers, and rows where metadata and authoritative identifiers disagree.
+The site Armis verifier showed that the aggregate OT isolation result is plausible, but the per-device ServiceRadar data layer is not trustworthy enough for northbound updates. A July 7, 2026 CNPG probe in `example-namespace` found Armis Device IDs split across different `armis_device_id` and `integration_id` identifier rows, active device rows with multiple Armis identifiers, and rows where metadata and authoritative identifiers disagree.
 
 The likely root cause is that strong integration identity can be remapped through active-IP conflict recovery in a DHCP-heavy environment, while Armis northbound candidate selection trusts stale metadata and generic integration IDs. That lets transient IP evidence overwrite stable source identity and can update the wrong Armis device or skip the correct one.
 
