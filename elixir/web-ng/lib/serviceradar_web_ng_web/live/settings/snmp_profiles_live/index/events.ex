@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events do
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Targets
   alias ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.TemplateBrowser
 
-  @profile_events ~w(validate_profile save_profile toggle_profile delete_profile set_default)
+  @profile_events ~w(validate_profile save_profile toggle_profile delete_profile set_default clear_default)
   @builder_events ~w(builder_toggle builder_change builder_add_filter builder_remove_filter builder_apply)
   @profile_template_events ~w(toggle_template remove_template)
   @target_events ~w(open_target_modal edit_target close_target_modal toggle_password_visibility validate_target save_target delete_target test_connection)
