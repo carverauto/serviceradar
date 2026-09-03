@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
   alias ServiceRadar.Identity.UserGroupMembership
   alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
 
+  require Ash.Query
+
   describe "record_successful_authentication/3" do
     test "persists the trusted OIDC and SAML authentication method" do
       actor = SystemActor.system(:test)
@@ -199,6 +201,21 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
       {:ok, _user} = sign_in("ops@example.com", "oidc|ops", [], actor)
 
       assert memberships(user.id, group.id, actor) == []
+    end
+
+    test "places the user in a group named after the mapped IdP group", %{actor: actor} do
+      group_name = "ops-#{System.unique_integer([:positive])}"
+      settings!([mapping(group_name, %{"role" => "operator"})], actor)
+
+      {:ok, user} = sign_in("ops-named@example.com", "oidc|ops-named", [group_name], actor)
+
+      assert {:ok, %UserGroup{} = group} =
+               UserGroup
+               |> Ash.Query.filter(name == ^group_name)
+               |> Ash.read_one(actor: actor)
+
+      assert [membership] = memberships(user.id, group.id, actor)
+      assert membership.source == :idp
     end
 
     test "the highest role among several matching groups wins", %{actor: actor} do

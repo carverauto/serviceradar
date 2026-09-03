@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
     resource_module: ServiceRadar.Identity.AuthorizationSettings
 
   alias ServiceRadar.Identity.AuthSettings
+  alias ServiceRadar.Identity.MappedUserGroups
   alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.RoleMappingSupport
   alias ServiceRadar.Identity.RoleProfile
@@ -593,6 +594,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
   end
 
   defp list_user_groups(scope) do
+    MappedUserGroups.ensure_from_settings(scope: scope)
+
     case Ash.read(UserGroup, scope: scope) do
       {:ok, groups} -> Enum.sort_by(groups, & &1.name)
       {:error, _reason} -> []
