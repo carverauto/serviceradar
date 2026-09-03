@@ -145,6 +145,37 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
 
   def enrichment_only_source?(_update), do: false
 
+  @doc """
+  True when this update may bring a device into existence.
+
+  This is the "is there enough evidence to justify a row?" question. Some
+  sources (`enrichment_only_source?/1`) may never create, regardless of
+  payload. Some observations are the wrong *kind of evidence* even from a
+  source that otherwise may: an RFC 5227 ARP probe is a MAC asking whether an
+  address is free, and must not mint a `platform.ocsf_devices` row.
+
+  The judgement is per source, not global. An AWX host addressed only by DNS
+  name is real inventory with no IP to record; refusing it would drop the
+  row. The ARP probe is the opposite case.
+
+  SyncIngestor consults this BEFORE BatchResolver mints a uid, so a "no"
+  cannot be bypassed by the raw-Ecto writer that follows.
+  """
+  @spec sufficient_to_create?(map() | term()) :: boolean()
+  def sufficient_to_create?(update) when is_map(update) do
+    not enrichment_only_source?(update) and not addressless_census?(update)
+  end
+
+  def sufficient_to_create?(_update), do: false
+
+  # A census observation with no address is an ARP/NDP probe, not a held
+  # address. Decoder keeps it (golden-pinned); this is what stops it becoming
+  # a device. Missing `:ip` is treated as addressless.
+  defp addressless_census?(update) do
+    ip = Map.get(update, :ip, Map.get(update, "ip"))
+    passive_census_source?(update) and not valid_ip?(ip)
+  end
+
   # A randomized MAC must never anchor a canonical device.
   #
   # iOS and Android rotate their MAC per SSID, so a passive census would mint a
