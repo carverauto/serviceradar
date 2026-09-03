@@ -34,7 +34,7 @@
       at the end of each run, inside the same swallow-on-failure wrapper.
 - [x] 1.10 Pass `trigger` (`scheduled` | `manual`) and `job_schedule_id` from
       `JobSchedule.run_identity_reconciliation` through `reconcile_opts`.
-- [ ] 1.11 Tests: run record written on success; on the rescue path;
+- [x] 1.11 Tests: run record written on success; on the rescue path;
       `merge_cap_reached` true exactly when merges reach the cap; a raising
       writer does not fail the sweep; retention prunes only rows outside the
       window; `report_blocked_components/1` returns `0` for `[]`.
