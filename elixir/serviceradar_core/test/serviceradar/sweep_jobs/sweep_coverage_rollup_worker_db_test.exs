@@ -66,6 +66,40 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
     assert {:ok, 0} = SweepCoverageRollupWorker.rollup_day(day)
   end
 
+  test "a host not yet matched to inventory (device_uid NULL) still gets its ports rolled up" do
+    day = Date.add(Date.utc_today(), -1)
+    group = Ash.UUID.generate()
+
+    # device_id_for_ip/2 returns nil for any swept IP not yet matched to an
+    # inventory device (sweep_results_ingestor.ex:1008-1013), so device_uid
+    # NULL on sweep_host_results is routine, not an edge case. The port-union
+    # and modes CTEs must still be found by the join keyed on NULL device_uid.
+    insert_result(day, nil, "10.0.0.9", group, "agent-a", [443, 8080], [443])
+
+    assert {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day)
+
+    [row] = coverage_rows_by_ip(day, "10.0.0.9")
+    assert Enum.sort(row.scanned_ports) == [443, 8080]
+    assert row.open_ports == [443]
+  end
+
+  test "modes_observed captures only the modes that actually succeeded" do
+    day = Date.add(Date.utc_today(), -1)
+    device_uid = "device-modes"
+    group = Ash.UUID.generate()
+
+    insert_result(day, device_uid, "10.0.0.11", group, "agent-a", [], [], %{
+      "icmp" => "success",
+      "tcp" => "no_response"
+    })
+
+    assert {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day)
+
+    [row] = coverage_rows(day, device_uid)
+    assert Enum.sort(row.modes_requested) == ["icmp", "tcp"]
+    assert row.modes_observed == ["icmp"]
+  end
+
   # Inserts one sweep_group_executions row plus one sweep_host_results row,
   # then backdates the result's inserted_at into `day`. Each call creates its
   # own execution (and its own disabled sweep group, to avoid the global Oban
@@ -74,7 +108,16 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
   # sweep_host_results_execution_ip_uidx unique index -- distinct executions
   # for the same ip within a day is exactly the "two sweeps ran" case the
   # rollup aggregates.
-  defp insert_result(day, device_uid, ip, group_id, agent_id, scanned_ports, open_ports) do
+  defp insert_result(
+         day,
+         device_uid,
+         ip,
+         group_id,
+         agent_id,
+         scanned_ports,
+         open_ports,
+         sweep_modes_results \\ %{}
+       ) do
     actor = SystemActor.system(:test)
     execution_id = insert_execution(actor)
 
@@ -88,7 +131,7 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
           device_id: device_uid,
           status: :available,
           response_time_ms: 5,
-          sweep_modes_results: %{},
+          sweep_modes_results: sweep_modes_results,
           open_ports: open_ports,
           scanned_ports: scanned_ports,
           agent_id: agent_id,
@@ -147,6 +190,32 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
       from(r in "sweep_coverage_daily",
         prefix: "platform",
         where: r.day == ^day and r.device_uid == ^device_uid,
+        select: %{
+          sweep_group_id: type(r.sweep_group_id, :binary_id),
+          agent_id: r.agent_id,
+          execution_count: r.execution_count,
+          available_count: r.available_count,
+          unavailable_count: r.unavailable_count,
+          error_count: r.error_count,
+          scanned_ports: r.scanned_ports,
+          open_ports: r.open_ports,
+          modes_requested: r.modes_requested,
+          modes_observed: r.modes_observed,
+          last_status: r.last_status,
+          last_response_time_ms: r.last_response_time_ms
+        }
+      )
+    )
+  end
+
+  # device_uid is nullable on the coverage table (a swept host not yet
+  # matched to inventory), so a device_uid equality filter cannot find those
+  # rows -- `x = NULL` never matches in SQL. Look up by ip instead.
+  defp coverage_rows_by_ip(day, ip) do
+    Repo.all(
+      from(r in "sweep_coverage_daily",
+        prefix: "platform",
+        where: r.day == ^day and r.ip == ^ip,
         select: %{
           sweep_group_id: type(r.sweep_group_id, :binary_id),
           agent_id: r.agent_id,

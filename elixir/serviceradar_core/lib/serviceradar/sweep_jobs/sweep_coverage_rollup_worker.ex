@@ -105,7 +105,7 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
       SELECT device_uid, ip, sweep_group_id, agent_id,
              ARRAY_AGG(DISTINCT m.key ORDER BY m.key) AS requested,
              ARRAY_AGG(DISTINCT m.key ORDER BY m.key)
-               FILTER (WHERE m.value::text NOT IN ('null', '"unknown"')) AS observed
+               FILTER (WHERE m.value::text = '"success"') AS observed
       FROM src, LATERAL jsonb_each(src.sweep_modes_results) AS m(key, value)
       GROUP BY device_uid, ip, sweep_group_id, agent_id
     )
@@ -127,9 +127,21 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
       s.last_status, s.last_response_time_ms,
       now(), now()
     FROM scalars s
-    LEFT JOIN scanned sc USING (device_uid, ip, sweep_group_id, agent_id)
-    LEFT JOIN opened op USING (device_uid, ip, sweep_group_id, agent_id)
-    LEFT JOIN modes md USING (device_uid, ip, sweep_group_id, agent_id)
+    LEFT JOIN scanned sc
+      ON s.device_uid IS NOT DISTINCT FROM sc.device_uid
+     AND s.ip IS NOT DISTINCT FROM sc.ip
+     AND s.sweep_group_id IS NOT DISTINCT FROM sc.sweep_group_id
+     AND s.agent_id IS NOT DISTINCT FROM sc.agent_id
+    LEFT JOIN opened op
+      ON s.device_uid IS NOT DISTINCT FROM op.device_uid
+     AND s.ip IS NOT DISTINCT FROM op.ip
+     AND s.sweep_group_id IS NOT DISTINCT FROM op.sweep_group_id
+     AND s.agent_id IS NOT DISTINCT FROM op.agent_id
+    LEFT JOIN modes md
+      ON s.device_uid IS NOT DISTINCT FROM md.device_uid
+     AND s.ip IS NOT DISTINCT FROM md.ip
+     AND s.sweep_group_id IS NOT DISTINCT FROM md.sweep_group_id
+     AND s.agent_id IS NOT DISTINCT FROM md.agent_id
     ON CONFLICT (
       day,
       COALESCE(device_uid, ''),
