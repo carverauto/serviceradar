@@ -116,7 +116,14 @@ defmodule ServiceRadarWebNGWeb.OIDCControllerTest do
     first = callback_conn(session, params)
     assert_received {:token_post, _, _}
 
-    _second = callback_conn(first.private[:plug_session] || %{}, params)
+    replay_session = %{
+      oidc_state: get_session(first, :oidc_state),
+      oidc_nonce: get_session(first, :oidc_nonce),
+      oidc_pkce: get_session(first, :oidc_pkce),
+      oidc_code_verifier: get_session(first, :oidc_code_verifier)
+    }
+
+    _second = callback_conn(replay_session, params)
     refute_received {:token_post, _, _}
   end
 

@@ -80,11 +80,10 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
     cond do
       not valid_oidc_callback_session?(state, stored_state, stored_nonce) ->
-        reject_invalid_state(conn)
+        reject_callback_session(conn, :invalid_state)
 
       pkce? and not valid_pkce_verifier?(stored_verifier) ->
-        Logger.warning("OIDC callback PKCE verifier missing after matching state")
-        reject_invalid_state(conn)
+        reject_callback_session(conn, :missing_pkce_verifier)
 
       true ->
         handle_code_exchange(conn, code, stored_nonce, pkce_verifier(pkce?, stored_verifier))
@@ -153,10 +152,10 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
     |> delete_session(:oidc_pkce)
   end
 
-  defp reject_invalid_state(conn) do
-    Logger.warning("OIDC callback state or nonce validation failed")
+  defp reject_callback_session(conn, reason) do
+    Logger.warning("OIDC callback rejected reason=#{inspect(reason)}")
 
-    Hooks.on_auth_failed(:invalid_state, %{
+    Hooks.on_auth_failed(reason, %{
       method: :oidc,
       ip: get_client_ip(conn),
       user_agent: conn |> get_req_header("user-agent") |> List.first()
