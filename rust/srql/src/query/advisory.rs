@@ -39,7 +39,10 @@ pub(super) async fn execute_json(
     conn: &mut AsyncPgConnection,
     built: BuiltSql,
 ) -> Result<Vec<Value>> {
-    let mut query = sql_query(&built.sql).into_boxed::<Pg>();
+    // BoxedSqlQuery sends SQL to Postgres verbatim. `?` is the jsonb exists
+    // operator, so `a.cve_id = ? AND a.current = TRUE` is a syntax error at AND.
+    let sql = rewrite_placeholders(&built.sql);
+    let mut query = sql_query(sql).into_boxed::<Pg>();
     for bind in built.binds {
         query = bind_sql_param(query, bind)?;
     }
