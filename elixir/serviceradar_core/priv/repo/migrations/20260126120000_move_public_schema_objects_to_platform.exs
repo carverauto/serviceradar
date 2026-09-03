@@ -44,7 +44,42 @@ defmodule ServiceRadar.Repo.Migrations.MovePublicSchemaObjectsToPlatform do
 
     execute("CREATE SCHEMA IF NOT EXISTS platform")
 
-    execute("""
+    execute(move_objects_sql(ledger_tables(repo().config()[:migration_source])))
+  end
+
+  @doc """
+  Tables holding migration bookkeeping, which this migration MUST NOT relocate.
+
+  Ecto names its ledger from the repo's `:migration_source`, defaulting to
+  `schema_migrations`. `elixir/web-ng/config/config.exs` sets it to
+  `ash_schema_migrations` for the shared `ServiceRadar.Repo`, so a hardcoded
+  exclusion is correct for one entry point and wrong for the other -- which is
+  exactly the bug in issue #4151.
+
+  Relocating the ledger cannot work while a migration is running, whatever it is
+  called. `Ecto.Migrator` takes `LOCK TABLE <ledger> IN SHARE UPDATE EXCLUSIVE`
+  on one connection and then runs the migration body in a `Task.async`, which is
+  a second connection. The body's `ALTER TABLE ... SET SCHEMA` needs
+  `ACCESS EXCLUSIVE`, so it waits on a lock that will not be released until the
+  body returns. Postgres cannot break it -- the holder is idle in transaction,
+  waiting on the BEAM rather than on the database, so there is no cycle to
+  detect -- and `Task.await(:infinity)` means the BEAM will not break it either.
+
+  Nothing is lost by leaving the ledger where Ecto put it:
+  `ServiceRadar.Cluster.StartupMigrations` already creates
+  `platform.ash_schema_migrations` and syncs rows into it.
+  """
+  def ledger_tables(migration_source) do
+    ["schema_migrations", migration_source]
+    |> Enum.reject(&(is_nil(&1) or &1 == ""))
+    |> Enum.uniq()
+  end
+
+  @doc false
+  def move_objects_sql(ledger_tables) do
+    ledger_list = Enum.map_join(ledger_tables, ", ", &"'#{String.replace(&1, "'", "''")}'")
+
+    """
     DO $$
     DECLARE
       rec record;
@@ -61,7 +96,7 @@ defmodule ServiceRadar.Repo.Migrations.MovePublicSchemaObjectsToPlatform do
         FROM pg_tables
         WHERE schemaname = 'public'
           AND tableowner = current_user
-          AND tablename <> 'schema_migrations'
+          AND tablename <> ALL (ARRAY[#{ledger_list}])
       LOOP
         IF to_regclass(format('platform.%I', rec.tablename)) IS NULL THEN
           -- lock_timeout turns an unbounded wait into an error; this block turns
@@ -195,7 +230,7 @@ defmodule ServiceRadar.Repo.Migrations.MovePublicSchemaObjectsToPlatform do
         END IF;
       END LOOP;
     END $$;
-    """)
+    """
   end
 
   def down do
