@@ -114,11 +114,24 @@
       empty, migrated and ambiguous, plus duplicate/unsorted versions,
       `migration_version_from_file/1`, and the committed baseline metadata. 21 tests green with
       the startup and migration suites.
-- [ ] 8.2 A committed database test asserting a fresh database bootstrapped through the migrator
-      path records the baseline-covered versions WITHOUT running them.
-      The behaviour IS verified (see 4.3) but only by a scratch script, not by anything that
-      runs in CI. Until this exists, a regression that silently reverts to a full replay would
-      pass every automated gate.
+- [x] 8.2 Added "the migrator path baselines instead of replaying the whole history" to
+      `test/serviceradar/cluster/database_bootstrap_integration_test.exs`, which already owns a
+      per-test scratch database and a subprocess harness. It asserts on `applied_count` -- how
+      many migrations `Ecto.Migrator` ACTUALLY ran -- because that is the only number that
+      separates the two paths: a baselined bootstrap and a full replay both end with every
+      version recorded in `schema_migrations`. Revert the wiring and `applied_count` becomes the
+      full on-disk count and the test fails. Carries a guard-the-guard assertion so it cannot
+      pass trivially if the baseline ever covers nothing.
+      Runs in `//elixir/serviceradar_core:large_ingestion_release_gate`.
+
+      NOT executed on this workstation, and deliberately not forced: that gate resolves its
+      endpoint from the typed `ci` identity, whose host is in-cluster and unreachable from a
+      workstation. `.agents/skills/srql-fixtures-db-tests/SKILL.md` says explicitly not to
+      recreate those inputs from `SRQL_FIXTURE_HOST`, a NodePort or a direct DSN, so CI is its
+      first real execution. De-risked instead by: the behaviour itself measured end to end
+      (4.3), the file compiling, and a checker confirming both composed subprocess scripts parse
+      as Elixir (the refactor that shares a preamble between them could otherwise have broken
+      the pre-existing test too).
 - [x] 8.3 A regression test that `20260126120000` leaves a pre-existing
       `public.ash_schema_migrations` alone. Unit coverage in
       `test/serviceradar/migrations/move_public_schema_objects_to_platform_test.exs`, plus a

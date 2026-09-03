@@ -27,6 +27,7 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   import ExUnit.Assertions
 
   alias ServiceRadar.DB.FixtureConfig
+  alias ServiceRadar.Repo.SchemaBootstrap
 
   @moduletag :integration
   @moduletag :requires_app
@@ -159,9 +160,62 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     assert second["auth_settings"] == first["auth_settings"]
   end
 
+  test "the migrator path baselines instead of replaying the whole history", %{
+    admin_url: admin_url,
+    scratch_db: scratch_db,
+    subprocess_ca_file: subprocess_ca_file
+  } do
+    # Regression cover for issue #4151. `mix ecto.migrate` and the fixture template target used
+    # to replay every migration on an empty database, including the 318 the committed baseline
+    # already contains -- which is what put `20260126120000` on the path at all.
+    #
+    # The decisive number is how many migrations Ecto ACTUALLY applied. Counting recorded
+    # versions cannot distinguish the two paths: a baselined bootstrap and a full replay both
+    # end with every version in `schema_migrations`. If the wiring is reverted, applied_count
+    # becomes the full on-disk count and this fails.
+    metadata = SchemaBootstrap.baseline_metadata!()
+    included_through = metadata["included_through"]
+
+    on_disk =
+      :serviceradar_core
+      |> Application.app_dir("priv/repo/migrations")
+      |> Path.join("*.exs")
+      |> Path.wildcard()
+      |> Enum.map(&SchemaBootstrap.migration_version_from_file/1)
+
+    expected_applied = Enum.count(on_disk, &(&1 > included_through))
+
+    # Guard the guard: if the baseline ever covered nothing, the assertion below would pass
+    # trivially against a full replay.
+    assert expected_applied < length(on_disk),
+           "baseline covers no migrations; this test could not detect a full replay"
+
+    result = run_migrator_bootstrap!(admin_url, scratch_db, subprocess_ca_file)
+
+    assert result["applied_count"] == expected_applied,
+           """
+           the migrator path applied #{result["applied_count"]} migrations, expected \
+           #{expected_applied}.
+
+           #{length(on_disk)} migrations exist on disk and the baseline covers through \
+           #{included_through}. Applying all of them means the baseline bootstrap was skipped \
+           and every fresh database is back to a full replay -- see issue #4151.
+           """
+
+    assert result["baseline_count"] == 1
+    assert result["recorded_count"] == length(on_disk)
+  end
+
+  defp run_migrator_bootstrap!(admin_url, database, subprocess_ca_file) do
+    run_subprocess!(admin_url, database, subprocess_ca_file, migrator_code())
+  end
+
   defp run_startup_migrations!(admin_url, database, subprocess_ca_file) do
+    run_subprocess!(admin_url, database, subprocess_ca_file, startup_code())
+  end
+
+  defp run_subprocess!(admin_url, database, subprocess_ca_file, code) do
     env = subprocess_env(admin_url, database, subprocess_ca_file)
-    code = startup_code()
 
     # `elixir -e`, not `mix run -e`.
     #
@@ -201,6 +255,16 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   end
 
   defp startup_code do
+    subprocess_preamble() <>
+      ~S'''
+      :ok = ServiceRadar.Cluster.StartupMigrations.run!()
+      ''' <> startup_tail()
+  end
+
+  # Everything up to and including `ServiceRadar.Repo.start_link()`. Shared by the startup path
+  # above and the migrator path below so the two cannot drift in how they boot the Repo -- the
+  # comments here were all earned by a specific failure and are worth having in one place.
+  defp subprocess_preamble do
     ~S'''
     {:ok, _} = Application.ensure_all_started(:postgrex)
     {:ok, _} = Application.ensure_all_started(:ecto_sql)
@@ -241,8 +305,40 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
     Application.put_env(:serviceradar_core, ServiceRadar.Repo, repo_opts)
     {:ok, _pid} = ServiceRadar.Repo.start_link()
-    :ok = ServiceRadar.Cluster.StartupMigrations.run!()
+    '''
+  end
 
+  # The migrator path: what `mix serviceradar.db.migrate` and
+  # //elixir/serviceradar_core:migrate_db do. Reports how many migrations `Ecto.Migrator`
+  # ACTUALLY applied, which is the number that distinguishes a baselined bootstrap from a full
+  # replay -- both end with every version recorded, so counting recorded versions cannot tell
+  # them apart.
+  defp migrator_code do
+    subprocess_preamble() <>
+      ~S'''
+      migrations_path = Application.app_dir(:serviceradar_core, "priv/repo/migrations")
+
+      :empty = ServiceRadar.Repo.SchemaBootstrap.classify(ServiceRadar.Repo)
+      :ok = ServiceRadar.Repo.SchemaBootstrap.apply_baseline!(ServiceRadar.Repo, migrations_path)
+
+      applied = Ecto.Migrator.run(ServiceRadar.Repo, :up, all: true)
+
+      %{rows: [[recorded_count]]} =
+        ServiceRadar.Repo.query!("SELECT count(*) FROM platform.schema_migrations")
+
+      %{rows: [[baseline_count]]} =
+        ServiceRadar.Repo.query!("SELECT count(*) FROM platform.serviceradar_schema_baselines")
+
+      IO.puts("BOOTSTRAP_RESULT:" <> Jason.encode!(%{
+        applied_count: length(applied),
+        recorded_count: recorded_count,
+        baseline_count: baseline_count
+      }))
+      '''
+  end
+
+  defp startup_tail do
+    ~S'''
     %{rows: [[migration_count]]} =
       ServiceRadar.Repo.query!("SELECT count(*) FROM platform.schema_migrations")
 
