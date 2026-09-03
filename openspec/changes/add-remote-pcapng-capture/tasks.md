@@ -76,6 +76,17 @@ Blocks every other slice.
   `rpc :Get, ...`) and looks exactly like generator drift. Do not borrow
   `deps` from another checkout -- a different Styler silently reformats.
 
+**Gap found while implementing S0, deliberately not fixed here.** There is
+a drift gate for the generated Elixir tree (`verify-proto-elixir`) and
+none for the generated Go tree. Bazel builds Go bindings from the
+`.proto` via `go_proto_library` and never reads the committed
+`netprobe.pb.go`, so a proto edit without `make generate-proto` leaves
+Bazel green while `go build` compiles a stale file. A `verify-proto-go`
+mirror is not a trivial addition: the Elixir gate is reproducible because
+its toolchain is pinned through mix, whereas `protoc` comes from the
+system and would have to be pinned in CI first. Worth its own change
+rather than a silent one here.
+
 ## S1. netprobe AF_PACKET capture engine
 
 The packet path. No IPC surface yet -- provable on its own.
