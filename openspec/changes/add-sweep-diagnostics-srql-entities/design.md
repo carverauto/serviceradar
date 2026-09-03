@@ -78,15 +78,51 @@ the netprobe proto, never as a database column.
 
 ### Authorization
 
-SRQL has no per-entity RBAC gate today. `fix-srql-query-rbac-catalog` (GitHub
-#4088) is an open, unimplemented proposal, so every entity is currently readable
-by any caller who reaches the shared execute path. The seven entities added here
-inherit that hole.
+An earlier draft of this design claimed SRQL had no per-entity RBAC gate and
+that `fix-srql-query-rbac-catalog` was unimplemented. Both claims were wrong.
+`ServiceRadarWebNG.SRQL.EntityAccess` exists and is live, mapping `in:<entity>`
+to an RBAC catalog key and returning `{:error, :forbidden}`. It is called from
+`Api.Access.execute_query/2`, which is the path HTTP `POST /api/query` and MCP
+`execute_srql` both take.
 
-This change does not fix that gap, but it does not widen it silently either:
-catalog keys for the new entities are defined here so they are mapped the moment
-that change lands, and `sweep_compiled_config` is gated admin-only from the
-start rather than waiting.
+Three consequences follow.
+
+**Mapping is mandatory, not optional.** `entity_access_test.exs` fails when any
+catalog entity other than `dashboards` has no permission mapping. An unmapped
+entity is `:passthrough`, meaning allowed, so that test is the only thing
+standing between a new entity and a silently ungated one. All seven sweep
+entities must be added to `EntityAccess` in the same change that adds them to
+the catalog. A second test asserts every catalog id parses through the Rust
+parser, so the Elixir and Rust entity lists cannot drift.
+
+**Gating `sweep_compiled_config` needs no new mechanism.** Add a permission to
+the RBAC catalog with admin default roles and list the entity under that key.
+`RoleProfileSeeder` re-syncs seeded profiles on boot, so there is no migration.
+There is no admin-only view key for sweeps today: `settings.networks.manage` is
+operator plus admin, so a new key is required rather than reused.
+
+**The gate has a token-order hole that this change must close.**
+`EntityAccess.extract_entity/1` anchors on `~r/^in:(\S+)/`, but the Rust parser
+accepts `in:` at any token position and the grammar documentation states tokens
+may appear in any order. `limit:1 in:sweep_compiled_config` therefore extracts
+`"limit:1"`, matches no permission, and passes through ungated. This is a
+pre-existing hole affecting every gated entity, not one this change introduces,
+but an admin-only compiled-config entity whose gate is bypassed by reordering
+two tokens is decorative. Closing it is a prerequisite here, not a nice-to-have.
+
+A second fail-open exists on the LiveView path, where `optional_scope: true`
+returns `:ok` for a nil scope. That one is out of scope: it is reached by
+in-process callers rather than by API or MCP requests, and closing it means
+auditing every scopeless internal caller. It is recorded here so the next
+person does not mistake the entity gate for a complete boundary.
+
+### Query window versus rollup retention
+
+`max_time_range_days_for_ast` caps any entity outside the hourly-CAGG allowlist
+at 90 days. `sweep_coverage_daily` is retained for 400, so the entity would
+reject exactly the historical queries it exists to serve. The cap must admit
+`sweep_coverage` explicitly. This is a real behavior change to a shared limit
+and is called out here rather than buried in the implementation.
 
 ## Risks
 

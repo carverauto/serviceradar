@@ -38,9 +38,17 @@ Tracks GitHub issue #4167.
 - Expose the compiled sweep configuration through a named-column allowlist that
   never carries the `compiled_config` blob, because that blob holds SNMP and
   mapper credential material for other compilers.
-- Register the new entities in the SRQL catalog and MCP cookbook. No new MCP
-  tools: `execute_srql`, `get_srql_catalog` and `lookup_srql_docs` are generic
-  and inherit the entities.
+- Register the new entities in the SRQL catalog, in the live `EntityAccess`
+  permission map, and in the MCP cookbook. No new MCP tools: `execute_srql`,
+  `get_srql_catalog` and `lookup_srql_docs` are generic and inherit the
+  entities.
+- Close the `EntityAccess` token-order bypass. The gate anchors on `^in:` while
+  the parser accepts `in:` anywhere, so `limit:1 in:<entity>` skips it. This is
+  pre-existing and affects every gated entity; it is a prerequisite here because
+  `sweep_compiled_config` is admin-gated and a bypassable gate is no gate.
+- Admit `sweep_coverage` to the time-window allowlist. Entities outside it are
+  capped at 90 days, which would reject the 400-day history the rollup exists
+  to serve.
 
 ## Impact
 

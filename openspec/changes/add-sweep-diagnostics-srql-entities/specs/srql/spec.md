@@ -110,3 +110,40 @@ attribution remain queryable beyond the raw host result retention window.
 - **GIVEN** a device swept by two groups on the same day
 - **WHEN** the coverage entity is queried
 - **THEN** the two groups SHALL be reported as separate rows
+
+### Requirement: Entity permission gate resolves the entity positionally
+
+The SRQL entity permission gate SHALL identify the queried entity the same way
+the parser does, regardless of where the `in:` token appears in the query.
+
+#### Scenario: Entity token is not first
+- **GIVEN** a caller lacking the permission for an admin-scoped entity
+- **WHEN** they submit a query whose `in:` token is not the first token, such as
+  `limit:1 in:sweep_compiled_config`
+- **THEN** the gate SHALL resolve the entity and deny the query
+- **AND** the denial SHALL match the denial for the same query with `in:` first
+
+#### Scenario: Gate and parser agree on the entity
+- **GIVEN** any query the parser accepts
+- **WHEN** the gate extracts the entity
+- **THEN** it SHALL extract the same entity the parser resolves
+- **AND** a query SHALL NOT reach the compiler having skipped the gate because
+  of token order
+
+### Requirement: Sweep coverage queries span the rollup retention
+
+SRQL SHALL allow a time window over the sweep coverage entity that reaches the
+full rollup retention, rather than the shorter default window applied to
+entities with no long-lived history.
+
+#### Scenario: Query older than the default window cap
+- **GIVEN** coverage rows retained for longer than the default maximum query
+  window
+- **WHEN** an operator queries the coverage entity across that longer span
+- **THEN** the query SHALL be accepted
+- **AND** SHALL return the rolled-up rows for the requested window
+
+#### Scenario: Raw result entities keep the default cap
+- **GIVEN** the per-host result entity, whose rows are short-lived
+- **WHEN** a query requests a window longer than the default cap
+- **THEN** the existing cap SHALL still apply

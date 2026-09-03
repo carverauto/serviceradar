@@ -50,29 +50,63 @@ For each of `sweep_groups`, `sweep_profiles`, `sweep_executions`,
 - [ ] 3.5 `rust/srql/src/query/<entity>.rs` plus `translate.rs`, `mod.rs` and
       `engine.rs` wiring.
 - [ ] 3.6 `rust/srql/src/query/viz/`: column metadata.
-- [ ] 3.7 `device_sweep_overlap`: view reporting every sweep group, agent and
-      profile targeting a device, plus the group and execution that currently
-      own the `device_agent_availability` row.
+- [ ] 3.7 `device_sweep_overlap`: a view reporting, per device, which sweep
+      groups were DECLARED to target it (from the compiled config's resolved
+      `targets` / `device_targets`) versus which actually produced results, plus
+      the group and execution that currently own the `device_agent_availability`
+      row. Declared-but-not-observed is the diagnostic that proves or kills the
+      reported symptom. Follow the `addon_fleet` view pattern: created by raw
+      `execute` in an Ecto migration, read through `diesel::sql_query` with a
+      `to_jsonb(alias) AS payload` projection, and deliberately NOT added to
+      `schema.rs`, which holds real tables only.
 - [ ] 3.8 `sweep_compiled_config`: named-column allowlist over sweep config
       instances only. The `compiled_config` document is never projected.
 - [ ] 3.9 `sweep_profiles`: expose banner grab as `enabled` and `protocols`
       only; omit the timeout, concurrency and rate tuning fields.
-- [ ] 3.10 Update Bazel `BUILD.bazel` for every new Rust source file. A green
-      `cargo test` does not prove the Bazel build.
+- [ ] 3.10 No Bazel edit is needed for new `.rs` files: `rust/srql/BUILD.bazel`
+      uses `srcs = glob(["src/**/*.rs"])`, and the NIF and web-ng test globs
+      behave the same way. Only a NEW crate dependency requires touching the
+      root `Cargo.toml` and the crate graph. Still run `bazel build //rust/...`,
+      because a green `cargo check` does not prove the Bazel build.
 - [ ] 3.11 Rust tests: parser alias coverage, translation, and an entry in
       `query/tests/entity_examples.rs` per entity.
 
 ## 4. Authorization
 
-- [ ] 4.1 Gate `sweep_compiled_config` to administrative scope from the start,
-      not deferred to the RBAC catalog change.
-- [ ] 4.2 Define catalog keys for all seven entities so
-      `fix-srql-query-rbac-catalog` (GitHub #4088) maps them when it lands.
-      Record the dependency in that change rather than duplicating its work.
-- [ ] 4.3 Test asserting the compiled config entity's exposed column set equals
+- [ ] 4.1 Close the `EntityAccess.extract_entity/1` token-order bypass: the gate
+      anchors on `^in:` while the parser accepts `in:` at any position, so
+      `limit:1 in:<entity>` passes through ungated. Extract the entity the same
+      way the parser does rather than by anchored regex. Regression test with
+      the entity token in first, middle and last position.
+- [ ] 4.2 Add a new admin-default RBAC catalog permission for compiled sweep
+      config. `settings.networks.manage` is operator plus admin and cannot be
+      reused. No migration: `RoleProfileSeeder` re-syncs on boot.
+- [ ] 4.3 Map all seven entities and every parser alias in
+      `EntityAccess.@permission_entities`. This is mandatory, not optional:
+      `entity_access_test.exs` fails on any unmapped catalog entity, and an
+      unmapped entity is `:passthrough`, meaning allowed.
+- [ ] 4.4 Test asserting the compiled config entity's exposed column set equals
       the allowlist exactly, so widening the projection fails a gate.
-- [ ] 4.4 Test asserting no sweep entity returns a `compiled_config` document or
+- [ ] 4.5 Test asserting no sweep entity returns a `compiled_config` document or
       credential-bearing field.
+- [ ] 4.6 Assert the MCP denial shape, which differs from HTTP: MCP returns
+      JSON-RPC 200 with `isError: true` and body text "forbidden", not a 403.
+
+## 4b. Query window and aggregation
+
+- [ ] 4b.1 Admit `sweep_coverage` to `max_time_range_days_for_ast` so a query
+      spanning the rollup's 400-day retention is not rejected by the 90-day cap
+      that applies to every non-CAGG entity.
+- [ ] 4b.2 Implement the time predicate in BOTH the row builder and the stats
+      builder for every entity that supports `stats:`. A predicate present in
+      only one silently ignores the window in the other.
+- [ ] 4b.3 Implement per-entity `stats:` support for `sweep_results` and
+      `sweep_coverage` following the `composite_results` two-module pattern, so
+      grouping by agent and sweep group works. Nothing about `stats:` is
+      automatic per entity.
+- [ ] 4b.4 Confirm `bucket:` is rejected for these entities rather than silently
+      ignored: downsample dispatch precedes the per-entity match and rejects
+      every non-metric entity.
 
 ## 5. Catalog and MCP docs
 
