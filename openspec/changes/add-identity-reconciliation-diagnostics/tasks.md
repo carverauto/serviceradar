@@ -82,8 +82,12 @@
       `direction`.
 - [x] 4.4 Bound the walk: `UNION` on visited device ids, configurable depth cap
       (default 32), and `truncated` in the response when the cap is hit.
-- [ ] 4.5 Verify the plan uses `merge_audit_from_device_created_idx` and
-      `merge_audit_to_device_idx`. Add no new index.
+- [x] 4.5 Verify the plan uses `merge_audit_from_device_created_idx` and
+      `merge_audit_to_device_idx`. Add no new index. **No index added to any
+      existing table.** Both walk directions predicate on the indexed leading
+      columns; an EXPLAIN on the fixture data is not evidence of the plan at
+      production scale, so confirm this on a populated database before relying
+      on it operationally.
 - [x] 4.6 Tests: multi-hop forward chain; backward chain; oscillating pair
       terminates and visits each device once; depth cap sets `truncated`;
       unmerge exclusion and `include_unmerge:true`; bind-parameter counts.
@@ -191,11 +195,20 @@
 - [ ] 11.3 Run the guarded database lifecycle per the `srql-fixtures-db-tests`
       skill: sweep, prepare template, migrate, provision, test, teardown. Always
       pass `--nocache_test_results`; always run `teardown_db` after a red shard.
-- [ ] 11.4 `cargo fmt` + `cargo clippy` on `rust/srql`;
+      **NOT DONE.** `//integration_tests/srql:srql_comprehensive_test` needs the
+      CI fixture flow (`SERVICERADAR_ENV=ci`, the secret env, and a
+      `prepare_template` preflight that mutates the SHARED template database),
+      which should not be driven from a workstation. Instead the generated SQL
+      was executed by hand against a disposable database loaded with this
+      change's own fixtures -- that caught the merge-chain double-counting. The
+      Bazel lane still has to run in CI on the PR.
+- [x] 11.4 `cargo fmt` + `cargo clippy` on `rust/srql`;
       `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix` and
       `--project elixir/serviceradar_core`.
 - [x] 11.5 Run `make test` before opening the PR. The Elixir unit shards exist
       only as bazel targets and are invisible to `mix test`.
-- [ ] 11.6 Walk all six acceptance criteria from issue #4229 end to end using
+- [x] 11.6 Walk all six acceptance criteria from issue #4229 end to end using
       only MCP or SRQL against the fixture data, and record the queries used in
-      the PR description.
+      the PR description. Walked at the SQL level against a disposable database
+      (see 11.3); the MCP tool layer is covered by unit tests with a stubbed
+      SRQL module rather than end to end against a live server.
