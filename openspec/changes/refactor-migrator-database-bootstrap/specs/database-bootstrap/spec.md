@@ -44,16 +44,24 @@ No entry point SHALL carry its own copy of that logic, in any language.
 
 ### Requirement: Migrations do not relocate the migration ledger tables
 A migration SHALL NOT take an exclusive lock on a migration ledger table that the running
-repository reads or writes. The ledger tables `schema_migrations` and `ash_schema_migrations`
-SHALL be excluded from schema-relocation migrations, which SHALL rely on the bootstrap path's
-existing creation of those tables in the platform schema instead.
+repository reads or writes. Schema-relocation migrations SHALL exclude the ledger table named by
+the repository's configured `migration_source` as well as the default `schema_migrations`, and
+SHALL rely on the bootstrap path's existing creation of those tables in the platform schema
+instead. The exclusion SHALL be derived from repository configuration, never from a hardcoded
+table name.
 
-#### Scenario: Schema relocation skips the ledger tables
-- **GIVEN** a database with `ash_schema_migrations` present in the public schema
+#### Scenario: Schema relocation skips the configured ledger table
+- **GIVEN** a repository configured with `migration_source` set to a non-default name
+- **AND** a database with that ledger table present in the public schema
 - **WHEN** the schema-relocation migration runs
 - **THEN** it SHALL leave that table in place
 - **AND** it SHALL NOT request `ACCESS EXCLUSIVE` on it
 - **AND** the platform-schema ledger SHALL still be created and populated by the bootstrap path
+
+#### Scenario: Schema relocation skips the default ledger table
+- **GIVEN** a repository with no `migration_source` configured
+- **WHEN** the schema-relocation migration runs
+- **THEN** it SHALL leave `schema_migrations` in place
 
 ### Requirement: Schema relocation bounds and attributes every lock wait
 A migration that relocates database objects SHALL bound its lock wait and SHALL, on timeout,

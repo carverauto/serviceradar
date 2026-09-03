@@ -53,9 +53,13 @@
 
 ## 5. Stop relocating the migration ledger tables
 
-- [ ] 5.1 Exclude `ash_schema_migrations` (alongside the already-excluded `schema_migrations`)
-      from the table loop in
+- [ ] 5.1 Exclude the ledger named by the repo's configured `migration_source` -- not a
+      hardcoded name -- from the table loop in
       `priv/repo/migrations/20260126120000_move_public_schema_objects_to_platform.exs`.
+      `Ecto.Migration.repo/0` is public API, so `repo().config()[:migration_source]` is
+      available inside the migration. The current literal `tablename <> 'schema_migrations'`
+      is correct only when `migration_source` is unset; web-ng sets it to
+      `ash_schema_migrations`. See `findings.md` E1.
 - [ ] 5.2 Confirm the exclusion is safe: `StartupMigrations` already creates
       `platform.ash_schema_migrations` and syncs rows into it, so nothing depends on the move
       to place it.
