@@ -38,8 +38,18 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
 
   ## Default Profile
 
-  Each instance has exactly one default profile (is_default: true). When no targeting
-  profile matches a device, the default profile is used (if SNMP monitoring is needed).
+  An instance has *at most* one default profile (is_default: true). When no
+  targeting profile matches a device, the default profile is used (if SNMP
+  monitoring is needed).
+
+  There may also be none. An instance with no default profile -- or with no
+  profiles at all -- simply does not do fallback SNMP polling, which is a
+  supported way to turn SNMP off. `SNMPCompiler` resolves that to
+  `disabled_config()` rather than treating it as an error, and nothing reseeds
+  a profile the operator removed (GitHub #4170).
+
+  A default profile cannot be destroyed while `is_default` is true. Retiring one
+  is deliberate: `:unset_default` first, then destroy.
 
   ## Usage
 
@@ -134,7 +144,7 @@ defmodule ServiceRadar.SNMPProfiles.SNMPProfile do
     end
 
     update :unset_default do
-      description "Remove this profile as the default (internal use only)"
+      description "Clear this profile's default flag, making it destroyable"
       accept []
       require_atomic? false
 
