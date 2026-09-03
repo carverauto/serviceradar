@@ -1,7 +1,8 @@
 import {expect, test} from "@playwright/test"
-import {mkdir, readdir} from "node:fs/promises"
+import {mkdir} from "node:fs/promises"
 import {resolve} from "node:path"
 
+import {createAcceptanceTimeline} from "./god_view_acceptance_timeline.js"
 import {
   groupGeometryViolations,
   routeInsideSafeRect,
@@ -281,20 +282,23 @@ function stableGroups(snapshot) {
   return snapshot.groups.map(({projectedBox: _projected, ...group}) => group)
 }
 
-async function phase(page, context, name, nextName) {
-  const screenshot = resolve(OUTPUT_DIR, `${name}.png`)
-  const trace = resolve(OUTPUT_DIR, `${name}.trace.zip`)
-  await page.screenshot({path: screenshot, animations: "disabled"})
-  await context.tracing.stop({path: trace})
-  if (nextName) {
-    await context.tracing.start({screenshots: true, snapshots: true, sources: true, title: nextName})
-  }
+function assertConcurrentScene(snapshot) {
+  assertClusterElaborated(snapshot, [
+    {anchorId: "farm01:gateway-01", summaryId: "farm01:endpoint-summary-01", memberPrefix: "farm01:endpoint-member-01-", count: 24},
+    {anchorId: "farm01:gateway-02", summaryId: "farm01:endpoint-summary-02", memberPrefix: "farm01:endpoint-member-02-", count: 24},
+  ])
+  assertScene(snapshot, {
+    semanticNodes: 58, semanticEdges: 60, attachmentEdges: 0, renderedRoutes: 57,
+    physicalRoutes: 57, renderedPhysicalRoutes: 57, manifolds: 0, renderedGlyphs: 58, admittedLabels: 49,
+  })
 }
 
-test("gates the canonical God-View ELK scene through the production renderer", async ({page, context}) => {
-  await mkdir(OUTPUT_DIR, {recursive: true})
-  await context.tracing.start({screenshots: true, snapshots: true, sources: true, title: "collapsed"})
-  await page.setContent(`<!doctype html>
+async function runStep(measure, name, operation, describeResult) {
+  return test.step(name, () => measure(name, operation, describeResult))
+}
+
+async function preparePage(page, measure) {
+  await runStep(measure, "install fixture DOM", () => page.setContent(`<!doctype html>
     <meta charset="utf-8">
     <style>
       * { animation: none !important; transition: none !important; caret-color: transparent !important; }
@@ -306,96 +310,144 @@ test("gates the canonical God-View ELK scene through the production renderer", a
       .sr-god-view-map-controls { position: absolute; right: 12px; bottom: 12px; z-index: 40; display: inline-flex; gap: 6px; }
       .sr-ops-map-control-button { min-width: 30px; height: 30px; }
     </style>
-    <div id="god-view-fixture"></div>`)
-  await page.addScriptTag({path: BUNDLE})
-  await page.waitForFunction(() => window.__SR_GOD_VIEW_HARNESS__)
-  await page.evaluate(() => document.fonts.ready)
+    <div id="god-view-fixture"></div>`))
+  await runStep(measure, "load production renderer bundle", () => page.addScriptTag({path: BUNDLE}))
+  await runStep(measure, "wait for acceptance harness", () => page.waitForFunction(() => window.__SR_GOD_VIEW_HARNESS__))
+  await runStep(measure, "wait for document fonts", () => page.evaluate(() => document.fonts.ready))
+}
 
-  const collapsedResult = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("collapsed"))
-  assertScene(collapsedResult.snapshot, {
-    semanticNodes: 12, semanticEdges: 14, attachmentEdges: 0, renderedRoutes: 11,
-    physicalRoutes: 11, renderedPhysicalRoutes: 11, manifolds: 0, renderedGlyphs: 12, admittedLabels: 12,
+async function renderFixture(page, measure, fixture, step = `render ${fixture}`) {
+  return runStep(
+    measure,
+    step,
+    () => page.evaluate((name) => window.__SR_GOD_VIEW_HARNESS__.renderFixture(name), fixture),
+    ({elapsedMs}) => ({rendererElapsedMs: Math.round(elapsedMs * 100) / 100}),
+  )
+}
+
+async function capturePhase(page, measure, name) {
+  await runStep(measure, `capture ${name} screenshot`, () => page.screenshot({
+    path: resolve(OUTPUT_DIR, `${name}.png`),
+    animations: "disabled",
+  }))
+}
+
+function timeline(name) {
+  return createAcceptanceTimeline({path: resolve(OUTPUT_DIR, `${name}.timings.jsonl`)})
+}
+
+test("gates collapsed, expanded, fit, focus, and concurrent roundtrip geometry", async ({page}) => {
+  await mkdir(OUTPUT_DIR, {recursive: true})
+  const measure = timeline("layout-focus")
+  await preparePage(page, measure)
+
+  const collapsedResult = await renderFixture(page, measure, "collapsed")
+  await runStep(measure, "assert collapsed geometry", () => {
+    assertScene(collapsedResult.snapshot, {
+      semanticNodes: 12, semanticEdges: 14, attachmentEdges: 0, renderedRoutes: 11,
+      physicalRoutes: 11, renderedPhysicalRoutes: 11, manifolds: 0, renderedGlyphs: 12, admittedLabels: 12,
+    })
   })
-  await phase(page, context, "collapsed", "expanded")
+  await capturePhase(page, measure, "collapsed")
 
-  const expandedResult = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("expanded"))
-  assertClusterElaborated(expandedResult.snapshot, [
-    {anchorId: "farm01:gateway-01", summaryId: "farm01:endpoint-summary-01", memberPrefix: "farm01:endpoint-member-", count: 24},
-  ])
-  assertScene(expandedResult.snapshot, {
-    semanticNodes: 35, semanticEdges: 37, attachmentEdges: 0, renderedRoutes: 34,
-    physicalRoutes: 34, renderedPhysicalRoutes: 34, manifolds: 0, renderedGlyphs: 35, admittedLabels: 33,
+  const expandedResult = await renderFixture(page, measure, "expanded")
+  await runStep(measure, "assert expanded geometry", () => {
+    assertClusterElaborated(expandedResult.snapshot, [
+      {anchorId: "farm01:gateway-01", summaryId: "farm01:endpoint-summary-01", memberPrefix: "farm01:endpoint-member-", count: 24},
+    ])
+    assertScene(expandedResult.snapshot, {
+      semanticNodes: 35, semanticEdges: 37, attachmentEdges: 0, renderedRoutes: 34,
+      physicalRoutes: 34, renderedPhysicalRoutes: 34, manifolds: 0, renderedGlyphs: 35, admittedLabels: 33,
+    })
   })
-  await phase(page, context, "expanded", "fit")
+  await capturePhase(page, measure, "expanded")
 
-  const firstFit = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.fit())
-  const secondFit = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.fit())
-  expect(secondFit.viewState).toEqual(firstFit.viewState)
-  expect(secondFit.glyphs).toEqual(firstFit.glyphs)
-  expect(secondFit.labels).toEqual(firstFit.labels)
-  assertProjectedGlyphsDisjoint(firstFit, "first Fit")
-  assertProjectedGlyphsDisjoint(secondFit, "second Fit")
-  await phase(page, context, "fit", "concurrent-expanded")
-
-  const focused = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.focus())
-  expect(focused.viewState).not.toEqual(secondFit.viewState)
-  expect(stableGroups(focused)).toEqual(stableGroups(expandedResult.snapshot))
-  expect(focused.nodes).toEqual(expandedResult.snapshot.nodes)
-  expect(stableGeometry(focused).routes).toEqual(stableGeometry(expandedResult.snapshot).routes)
-  assertFocusedNeighborhood(focused, {anchorId: "farm01:gateway-01", memberPrefix: "farm01:endpoint-member-"})
-
-  const concurrentResult = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("concurrent"))
-  assertClusterElaborated(concurrentResult.snapshot, [
-    {anchorId: "farm01:gateway-01", summaryId: "farm01:endpoint-summary-01", memberPrefix: "farm01:endpoint-member-01-", count: 24},
-    {anchorId: "farm01:gateway-02", summaryId: "farm01:endpoint-summary-02", memberPrefix: "farm01:endpoint-member-02-", count: 24},
-  ])
-  assertScene(concurrentResult.snapshot, {
-    semanticNodes: 58, semanticEdges: 60, attachmentEdges: 0, renderedRoutes: 57,
-    physicalRoutes: 57, renderedPhysicalRoutes: 57, manifolds: 0, renderedGlyphs: 58, admittedLabels: 49,
+  const firstFit = await runStep(measure, "run first managed fit", () => (
+    page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.fit())
+  ))
+  const secondFit = await runStep(measure, "run second managed fit", () => (
+    page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.fit())
+  ))
+  await runStep(measure, "assert managed fit idempotence", () => {
+    expect(secondFit.viewState).toEqual(firstFit.viewState)
+    expect(secondFit.glyphs).toEqual(firstFit.glyphs)
+    expect(secondFit.labels).toEqual(firstFit.labels)
+    assertProjectedGlyphsDisjoint(firstFit, "first Fit")
+    assertProjectedGlyphsDisjoint(secondFit, "second Fit")
   })
-  const concurrentGeometry = stableGeometry(concurrentResult.snapshot)
-  await phase(page, context, "concurrent-expanded", "collapse-reexpand-profile-threshold")
+  await capturePhase(page, measure, "fit")
 
-  const firstCollapsed = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("second"))
-  assertClusterElaborated(firstCollapsed.snapshot, [
-    {anchorId: "farm01:gateway-02", summaryId: "farm01:endpoint-summary-02", memberPrefix: "farm01:endpoint-member-02-", count: 24},
-  ])
-  assertScene(firstCollapsed.snapshot, {
-    semanticNodes: 35, semanticEdges: 37, attachmentEdges: 0, renderedRoutes: 34,
-    physicalRoutes: 34, renderedPhysicalRoutes: 34, manifolds: 0, renderedGlyphs: 35, admittedLabels: 33,
+  const focused = await runStep(measure, "focus gateway neighborhood", () => (
+    page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.focus())
+  ))
+  await runStep(measure, "assert focused geometry", () => {
+    expect(focused.viewState).not.toEqual(secondFit.viewState)
+    expect(stableGroups(focused)).toEqual(stableGroups(expandedResult.snapshot))
+    expect(focused.nodes).toEqual(expandedResult.snapshot.nodes)
+    expect(stableGeometry(focused).routes).toEqual(stableGeometry(expandedResult.snapshot).routes)
+    assertFocusedNeighborhood(focused, {anchorId: "farm01:gateway-01", memberPrefix: "farm01:endpoint-member-"})
   })
 
-  const reexpanded = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderFixture("concurrent"))
-  expect(stableGeometry(reexpanded.snapshot)).toEqual(concurrentGeometry)
-  assertScene(reexpanded.snapshot, {
-    semanticNodes: 58, semanticEdges: 60, attachmentEdges: 0, renderedRoutes: 57,
-    physicalRoutes: 57, renderedPhysicalRoutes: 57, manifolds: 0, renderedGlyphs: 58, admittedLabels: 49,
+  const concurrentAfterFocus = await renderFixture(
+    page,
+    measure,
+    "concurrent",
+    "render concurrent after focus",
+  )
+  const concurrentGeometry = await runStep(measure, "assert concurrent geometry after focus", () => {
+    assertConcurrentScene(concurrentAfterFocus.snapshot)
+    return stableGeometry(concurrentAfterFocus.snapshot)
+  })
+  await capturePhase(page, measure, "concurrent-after-focus")
+
+  const firstCollapsed = await renderFixture(page, measure, "second")
+  await runStep(measure, "assert second cluster geometry", () => {
+    assertClusterElaborated(firstCollapsed.snapshot, [
+      {anchorId: "farm01:gateway-02", summaryId: "farm01:endpoint-summary-02", memberPrefix: "farm01:endpoint-member-02-", count: 24},
+    ])
+    assertScene(firstCollapsed.snapshot, {
+      semanticNodes: 35, semanticEdges: 37, attachmentEdges: 0, renderedRoutes: 34,
+      physicalRoutes: 34, renderedPhysicalRoutes: 34, manifolds: 0, renderedGlyphs: 35, admittedLabels: 33,
+    })
   })
 
-  const portrait = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.profile(800, 1000))
-  // The radial atlas reports a constant profileKey -- per-viewport density profiles were a
-  // bounded-detail concept -- so assert what portrait actually changes: the same scene is still
-  // laid out in full, and the narrower viewport admits no more labels than the wide one did.
-  expect(portrait.counts.semanticNodes).toEqual(concurrentResult.snapshot.counts.semanticNodes)
-  expect(portrait.counts.admittedLabels).toBeLessThanOrEqual(concurrentResult.snapshot.counts.admittedLabels)
-  // admittedLabels rose from 17 to 28 when resizeCanvas started adopting the new size into
-  // Deck's own viewport. Before that, a resized surface projected glyphs through the PREVIOUS
-  // viewport while clipping labels to the new safe rect, so labels were rejected for leaving a
-  // rect their glyph had never actually left. 28 of 58 admitted, against 49 at 1920x1080.
-  assertScene(portrait, {
-    semanticNodes: 58, semanticEdges: 60, attachmentEdges: 0, renderedRoutes: 57,
-    physicalRoutes: 57, renderedPhysicalRoutes: 57, manifolds: 0, renderedGlyphs: 58, admittedLabels: 28,
+  const reexpanded = await renderFixture(page, measure, "concurrent", "render concurrent roundtrip")
+  await runStep(measure, "assert concurrent roundtrip geometry", () => {
+    expect(stableGeometry(reexpanded.snapshot)).toEqual(concurrentGeometry)
+    assertScene(reexpanded.snapshot, {
+      semanticNodes: 58, semanticEdges: 60, attachmentEdges: 0, renderedRoutes: 57,
+      physicalRoutes: 57, renderedPhysicalRoutes: 57, manifolds: 0, renderedGlyphs: 58, admittedLabels: 49,
+    })
   })
-  await context.tracing.stop({path: resolve(OUTPUT_DIR, "collapse-reexpand-profile-threshold.trace.zip")})
-  expect((await readdir(OUTPUT_DIR)).sort()).toEqual([
-    "collapse-reexpand-profile-threshold.trace.zip",
-    "collapsed.png",
-    "collapsed.trace.zip",
-    "concurrent-expanded.png",
-    "concurrent-expanded.trace.zip",
-    "expanded.png",
-    "expanded.trace.zip",
-    "fit.png",
-    "fit.trace.zip",
-  ])
+})
+
+test("gates concurrent portrait geometry", async ({page}) => {
+  await mkdir(OUTPUT_DIR, {recursive: true})
+  const measure = timeline("portrait-profile")
+  await preparePage(page, measure)
+
+  const concurrentResult = await renderFixture(page, measure, "concurrent")
+  await runStep(measure, "assert concurrent geometry", () => {
+    assertConcurrentScene(concurrentResult.snapshot)
+  })
+  await capturePhase(page, measure, "concurrent-expanded")
+
+  const portrait = await runStep(measure, "render portrait profile", () => (
+    page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.profile(800, 1000))
+  ))
+  await runStep(measure, "assert portrait geometry", () => {
+    // The radial atlas reports a constant profileKey -- per-viewport density profiles were a
+    // bounded-detail concept -- so assert what portrait actually changes: the same scene is still
+    // laid out in full, and the narrower viewport admits no more labels than the wide one did.
+    expect(portrait.counts.semanticNodes).toEqual(concurrentResult.snapshot.counts.semanticNodes)
+    expect(portrait.counts.admittedLabels).toBeLessThanOrEqual(concurrentResult.snapshot.counts.admittedLabels)
+    // admittedLabels rose from 17 to 28 when resizeCanvas started adopting the new size into
+    // Deck's own viewport. Before that, a resized surface projected glyphs through the PREVIOUS
+    // viewport while clipping labels to the new safe rect, so labels were rejected for leaving a
+    // rect their glyph had never actually left. 28 of 58 admitted, against 49 at 1920x1080.
+    assertScene(portrait, {
+      semanticNodes: 58, semanticEdges: 60, attachmentEdges: 0, renderedRoutes: 57,
+      physicalRoutes: 57, renderedPhysicalRoutes: 57, manifolds: 0, renderedGlyphs: 58, admittedLabels: 28,
+    })
+  })
 })

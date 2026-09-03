@@ -108,7 +108,7 @@ nothing that changes when a payload type is added.
 | device-update translation (3 translators, ~430 lines) | core, next to `SourcePolicy` |
 | skip rules (no-MAC, `off_segment`, no-evidence, ambiguous-model, banner confidence floor) | core — these are identity-safety rules |
 | suppression / rate limiting | unchanged, already in netprobe |
-| flow-attribution ack + quarantine queue | unchanged, stays at the agent on the generalized relay |
+| flow-attribution ack + terminal poison handling | unchanged: stays agent-owned on its dedicated ordered-prefix `StreamStatus` path, never the generic telemetry relay; invalid bytes are dropped with telemetry rather than copied into a quarantine store |
 
 **Chunk reassembly is not deferrable.** `push_loop_addon_telemetry.go:71-78` `continue`s past a
 batch over 6 MiB — the *entire* census is dropped with a Warn and no re-queue. The failure mode is
@@ -216,17 +216,20 @@ exist to hold.
    and a rollout. Confirm what an `AddonService`-serving netprobe reports as state/active and that
    `supervision_state_ready?` accepts it, before the first netprobe release in this stack.
 8. **Loss semantics.** `StreamTelemetry` is lossy. Census supersedes every 120 s and mDNS every
-   300 s, so a dropped snapshot self-heals. Flow attribution does not — which is why it goes on the
-   acked relay. Convenience must not move it.
+   300 s, so a dropped snapshot self-heals. Flow attribution does not, so it remains on the existing
+   agent-owned ordered-prefix/`StreamStatus` path. Convenience must not move it to `StreamTelemetry`
+   or `RelayOtlp`; `harden-flow-attribution-pipeline` owns truthful negative acknowledgement and
+   bounded core admission for that path.
 9. **Pre-existing TC/XDP leak.** `attach_tc_programs` / `attach_xdp_program` never detach stale
    programs (only `start_census_only` does). Unrelated to this change but worth fixing first.
 
 ## Migration Plan
 
 Behavior-preserving groundwork first (nothing deployed changes), then per-payload cutovers with the
-single-consumer rule above, then deletion. Flow attribution goes last: it is the only payload with a
-real delivery contract, the only one hand-decoded in Elixir, and the only one where a drop does not
-self-heal.
+single-consumer rule above, then deletion. Flow attribution's local producer transport goes last: it
+is the only payload with a real delivery contract, the only one hand-decoded in Elixir, and the only
+one where a drop does not self-heal. Its agent-to-platform ordered-prefix/`StreamStatus` contract is
+preserved rather than replaced by a generic relay.
 
 Golden fixtures are captured from the current Go translators **before** anything is deleted; they
 are the only evidence that the move is behavior-preserving.

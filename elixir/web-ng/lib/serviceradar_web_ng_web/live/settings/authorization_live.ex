@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
     resource_module: ServiceRadar.Identity.AuthorizationSettings
 
   alias ServiceRadar.Identity.AuthSettings
+  alias ServiceRadar.Identity.MappedUserGroups
   alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.RoleMappingSupport
   alias ServiceRadar.Identity.RoleProfile
@@ -42,6 +43,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
           {:ok, settings} -> {settings, nil}
           {:error, error} -> {%{default_role: :viewer, role_mappings: []}, format_ash_error(error)}
         end
+
+      if connected?(socket) do
+        MappedUserGroups.ensure_from_settings()
+      end
 
       {:ok,
        socket
@@ -126,12 +131,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLive do
          {:ok, attrs} <- normalize_attrs(params, mappings),
          {:ok, _auth_settings} <- persist_sso_auto_provision(scope, sso_auto_provision),
          {:ok, updated} <- AdminApi.update_authorization_settings(scope, attrs) do
+      MappedUserGroups.ensure_from_settings()
+
       {:noreply,
        socket
        |> assign(:settings, updated)
        |> assign(:form, to_form(settings_form(updated, sso_auto_provision), as: :settings))
        |> assign(:mapping_rows, mapping_rows(updated))
        |> assign(:mapping_error, nil)
+       |> assign(:user_groups, list_user_groups(scope))
        |> assign(:groups_claim_notices, groups_claim_notices(updated))
        |> put_flash(:info, "Authorization settings updated")}
     else

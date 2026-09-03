@@ -1,3 +1,12 @@
+> **SUPERSEDED 2026-09-02 by `add-remote-pcapng-capture`.** These
+> requirements were written against libpcap, which no shipped netprobe
+> build contains (`rust/netprobe/Cargo.toml:67` gates `pcap` behind a
+> cargo feature that `rust/netprobe/BUILD.bazel:11-15` never enables).
+> The corrected, authoritative delta for this capability lives in
+> `openspec/changes/add-remote-pcapng-capture/specs/`. Apply that
+> capability from there when archiving this change; the text below is
+> kept as the record of what was originally specified.
+
 ## ADDED Requirements
 
 ### Requirement: Remote Packet Capture Session Resource

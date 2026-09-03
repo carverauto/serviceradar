@@ -109,8 +109,9 @@ kubectl exec -n demo serviceradar-tools -- nats consumer rm events \
 
 Nothing re-adds the subject afterwards: the helm `serviceradar-config.yaml` events subject list no longer includes `signals.analytics.>` (this change), and the otel collector's reconciler only removes subjects covered by its own wildcards. Verdicts already sitting in `events` under `signals.analytics.*` age out via that stream's retention; the new stream starts from new publishes.
 
-### 7.2 404-ing consumer cleanup
+### 7.2 Consumer ownership and retired-attribution cleanup
 
 - `falco_events` fixes itself with this release: the core_elx FALCO consumer was realigned to the provisioned `events` stream / `falco.logs` subject (was `falco_events` / `falco.>`, which never exists). Verify the 404 polls stop post-roll; if a stale `falco_events` stream exists, `nats stream rm falco_events -f` and restart core so the durable converges onto `events`.
-- Remove or provision the remaining consumers with undeployed producers: `ATTRIBUTED_FLOW`, `SFLOW_RAW`, `NETFLOW_RAW` (~2.3 error polls/min each; their producers provision the streams when deployed, so only remove them if the pipelines stay undeployed).
-- Investigate `attributed_flow` stream: recreated 2026-07-11 04:18:50 and has never received a message — the attributed-flows pipeline may be dead (separate issue from this change).
+- Task 8.3 left `ATTRIBUTED_FLOW` as-is; its checked state is not evidence that this cleanup happened. After task 8.3a lands, verify the release no longer registers `flow.attributed.>` and the associated 404 poll does not return after a core restart. The subject has no production publisher or supported consumer: do not create a stream or durable to silence the error.
+- If an orphan `attributed_flow` stream or attributed-flow durable exists, first verify that it is empty and scoped only to the retired `flow.attributed.>` canary namespace, then remove it after the release registration is absent. The string `attributed_flow` remains valid as the CNPG OCSF row's `event_type`; it is not a NATS route.
+- Do not remove or provision `NETFLOW_RAW` / `SFLOW_RAW` here. They are logical EventWriter consumer names for the active raw subjects `flows.raw.netflow` / `flows.raw.sflow`, and `scale-netflow-ingest-isolation` owns their dedicated `flows` stream migration, obsolete-`events` durable drain, and rollback checks.

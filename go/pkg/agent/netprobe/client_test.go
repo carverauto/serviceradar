@@ -719,3 +719,72 @@ func (r *testEventDropRecorder) assertOne(t *testing.T, stream, reason string) {
 		t.Fatalf("recorded event drop = (%q, %q), want (%q, %q)", r.events[0].stream, r.events[0].reason, stream, reason)
 	}
 }
+
+// TestClientRecordsUnhandledUnsolicitedFrames pins the loud-unknown-arm
+// behaviour required by GitHub #4026.
+//
+// Before this, the unsolicited branch of readLoop was a chain of `if x != nil`
+// with no default: a frame carrying an arm the agent does not handle fell
+// through to `continue` with no log, no metric and no recordEventDrop. That
+// matters most in exactly the case it is hardest to notice -- a netprobe newer
+// than its agent, emitting an arm the agent was built without, losing every
+// such frame silently on both sides.
+func TestClientRecordsUnhandledUnsolicitedFrames(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer func() { _ = serverConn.Close() }()
+
+	recorder := &testEventDropRecorder{}
+	client := NewClient(clientConn, 4, WithEventDropRecorder(recorder))
+	defer func() { _ = client.Close() }()
+
+	// PcapngBlock is a real arm the agent has no handler for. Sequence 0 marks
+	// it unsolicited, which is the path with no default branch.
+	if err := writeFrame(serverConn, &netprobepb.NetprobeFrame{
+		Payload: &netprobepb.NetprobeFrame_PcapngBlock{
+			PcapngBlock: &netprobepb.PcapngBlock{SessionId: "session-1"},
+		},
+	}); err != nil {
+		t.Fatalf("write unsolicited frame: %v", err)
+	}
+
+	deadline := time.After(2 * time.Second)
+	for client.DroppedUnknownFrames() != 1 {
+		select {
+		case <-deadline:
+			t.Fatalf("DroppedUnknownFrames() = %d, want 1", client.DroppedUnknownFrames())
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+
+	recorder.assertOne(t, EventStreamUnknown, EventDropUnhandledArm)
+}
+
+// TestClientDoesNotRecordHandledUnsolicitedFrames is the negative control: a
+// counter that only ever goes up would pass the test above while reporting
+// every healthy frame as unknown.
+func TestClientDoesNotRecordHandledUnsolicitedFrames(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer func() { _ = serverConn.Close() }()
+
+	recorder := &testEventDropRecorder{}
+	client := NewClient(clientConn, 4, WithEventDropRecorder(recorder))
+	defer func() { _ = client.Close() }()
+
+	if err := writeFrame(serverConn, &netprobepb.NetprobeFrame{
+		Payload: &netprobepb.NetprobeFrame_DpiEvent{
+			DpiEvent: &netprobepb.DpiEvent{Protocol: testDNSProtocol},
+		},
+	}); err != nil {
+		t.Fatalf("write dpi frame: %v", err)
+	}
+
+	select {
+	case <-client.DpiEvents():
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected the DPI event to be delivered")
+	}
+
+	if got := client.DroppedUnknownFrames(); got != 0 {
+		t.Fatalf("DroppedUnknownFrames() = %d after a handled frame, want 0", got)
+	}
+}

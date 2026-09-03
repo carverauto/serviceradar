@@ -74,6 +74,17 @@ in:devices discovery_sources:(armis)
 
 `discovery_sources` is an array field; the list form matches containment.
 
+### Devices with a CVE or KEV match
+
+```srql
+in:devices cve:CVE-2024-1234
+in:devices kev:true
+```
+
+Device grain: one row per host that has an **active** matcher hit. There is
+no `in:devices cpe:`; use `in:endpoint_packages` for installed CPEs. See
+[Threat Investigation](./threat-investigation.md).
+
 ### Devices imported by an Armis integration query
 
 ```srql
@@ -668,8 +679,60 @@ Open alerts, most recently triggered first.
 
 ---
 
+## Threat investigation
+
+Fleet queries for CVE, CPE, KEV, and matcher exposure. Full walkthrough:
+[Threat Investigation](./threat-investigation.md).
+
+### Look up a CVE in the catalog
+
+```srql
+in:cves cve:CVE-2024-1234
+```
+
+NVD/KEV advisory metadata. Default `current:true`. Not "is this on our
+fleet."
+
+### List KEV advisories by CVSS
+
+```srql
+in:advisories kev:true cvss_score:>=9.0 sort:cvss_score:desc
+```
+
+### List CPE applicability for a CVE
+
+```srql
+in:advisory_cpes cve:CVE-2024-1234 coordinate_type:cpe
+```
+
+Catalog coordinates with version bounds. SRQL does not evaluate whether an
+installed version is in range.
+
+### Hosts currently running a CPE
+
+```srql
+in:endpoint_packages cpe:cpe:2.3:a:nginx:nginx:% current:true
+```
+
+Array overlap on installed package CPEs. Each row has `device_uid`.
+
+### Packages and devices the matcher marked affected
+
+```srql
+in:cve_matches kev:true sort:cvss_score:desc
+in:cve_matches cve:CVE-2024-1234
+in:endpoint_packages cve:CVE-2024-1234 current:true
+```
+
+`in:security_findings cve:` is the OCSF occurrence stream, not this table.
+Do not use `in:cpes` as an entity.
+
+---
+
 ## See also
 
 - [SRQL Tutorial](./srql-tutorial.md) — guided, beginner-friendly introduction.
 - [SRQL Reference](./srql-language-reference.md) — complete grammar, entities, and
   fields.
+- [Threat Investigation](./threat-investigation.md) — CVE, CPE, KEV, and matcher
+  queries.

@@ -11,6 +11,8 @@ mod types;
 
 mod addon_fleet;
 mod addon_statuses;
+mod advisory;
+mod advisory_coordinates;
 mod agents;
 mod alerts;
 mod bmp_events;
@@ -26,6 +28,7 @@ mod downsample;
 mod endpoint_inventory_scans;
 mod endpoint_package_catalog;
 mod endpoint_packages;
+mod endpoint_vulnerability_matches;
 mod events;
 mod field_survey;
 mod flows;
@@ -47,6 +50,7 @@ mod trace_summaries;
 mod traces;
 mod virtualization;
 mod viz;
+mod vulnerability_advisories;
 mod wifi_map;
 
 #[cfg(test)]
