@@ -2,8 +2,17 @@ defmodule ServiceRadar.AdmissionLaneTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Admission.FlowLane
+  alias ServiceRadar.Admission.FlowLeaseSupervisor
+  alias ServiceRadar.Admission.FlowSupervisor
+  alias ServiceRadar.Admission.FlowTaskSupervisor
   alias ServiceRadar.Admission.Lane
   alias ServiceRadar.Admission.RetainedPluginLane
+  alias ServiceRadar.Admission.RetainedPluginLeaseSupervisor
+  alias ServiceRadar.Admission.RetainedPluginSupervisor
+  alias ServiceRadar.Admission.RetainedPluginTaskSupervisor
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
+  alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
+  alias ServiceRadar.Cluster.CoordinatorChildren
 
   test "count, byte, per-agent, and source limits return distinct reasons" do
     parent = self()
@@ -237,8 +246,64 @@ defmodule ServiceRadar.AdmissionLaneTest do
     for iteration <- 1..100 do
       reply_ref = admit(lane, status("agent-a", "fast-#{iteration}"))
       assert_receive {^reply_ref, :ok}
+      assert_empty(lane)
     end
+  end
 
+  test "lease death after an accepted worker result falls back to the original caller" do
+    parent = self()
+    lane = start_lane(held_processor(parent), max_items: 1)
+    reply_ref = admit(lane, status("agent-a", "committed"))
+    assert_receive {:started, "committed", worker}
+
+    [%{lease: lease}] = lane |> :sys.get_state() |> Map.fetch!(:jobs) |> Map.values()
+    true = :erlang.suspend_process(lease)
+    send(worker, :release)
+
+    assert_eventually(fn ->
+      case lane |> :sys.get_state() |> Map.fetch!(:jobs) |> Map.values() do
+        [] -> true
+        [%{phase: :delivering}] -> true
+        _jobs -> false
+      end
+    end)
+
+    Process.exit(lease, :kill)
+
+    assert_receive {^reply_ref, :ok}, 250
+    assert_empty(lane)
+  end
+
+  test "lease death after a worker crash falls back to the original caller" do
+    parent = self()
+
+    lane =
+      start_lane(fn status ->
+        send(parent, {:started, status.message, self()})
+
+        receive do
+          :crash -> exit(:synthetic_worker_crash)
+        end
+      end)
+
+    reply_ref = admit(lane, status("agent-a", "crashing"))
+    assert_receive {:started, "crashing", worker}
+
+    [%{lease: lease}] = lane |> :sys.get_state() |> Map.fetch!(:jobs) |> Map.values()
+    true = :erlang.suspend_process(lease)
+    send(worker, :crash)
+
+    assert_eventually(fn ->
+      case lane |> :sys.get_state() |> Map.fetch!(:jobs) |> Map.values() do
+        [] -> true
+        [%{phase: :delivering}] -> true
+        _jobs -> false
+      end
+    end)
+
+    Process.exit(lease, :kill)
+
+    assert_receive {^reply_ref, {:error, :worker_crash}}, 250
     assert_empty(lane)
   end
 
@@ -397,24 +462,105 @@ defmodule ServiceRadar.AdmissionLaneTest do
              )
   end
 
-  test "coordinator supervises both lane coordinators and their task supervisors" do
+  test "coordinator couples each lane to its worker supervisor" do
     previous = Application.get_env(:serviceradar_core, :status_handler_enabled)
     Application.put_env(:serviceradar_core, :status_handler_enabled, true)
     on_exit(fn -> restore_env(:status_handler_enabled, previous) end)
 
     specs =
       Enum.map(
-        ServiceRadar.Cluster.CoordinatorChildren.children(),
+        CoordinatorChildren.children(),
         &Supervisor.child_spec(&1, [])
       )
 
     ids = Enum.map(specs, & &1.id)
 
-    assert ServiceRadar.Admission.FlowTaskSupervisor in ids
-    assert ServiceRadar.Admission.RetainedPluginTaskSupervisor in ids
-    assert FlowLane in ids
-    assert RetainedPluginLane in ids
+    assert FlowLeaseSupervisor in ids
+    assert RetainedPluginLeaseSupervisor in ids
+    assert FlowSupervisor in ids
+    assert RetainedPluginSupervisor in ids
+    refute FlowTaskSupervisor in ids
+    refute RetainedPluginTaskSupervisor in ids
+    refute FlowLane in ids
+    refute RetainedPluginLane in ids
     assert length(ids) == length(Enum.uniq(ids))
+  end
+
+  test "a supervised lane restart cannot overlap its previous persistence worker" do
+    worker_table = :ets.new(:admission_restart_workers, [:set, :public])
+    start_admission_topology(worker_table)
+
+    first_ref = make_ref()
+    assert :ok = FlowLane.admit(flow_status("synthetic-first"), {self(), first_ref})
+
+    assert_receive {:flow_persistence_started, "synthetic-first", first_worker, false}
+
+    [%{lease: first_lease}] =
+      FlowLane
+      |> :sys.get_state()
+      |> Map.fetch!(:jobs)
+      |> Map.values()
+
+    true = :erlang.suspend_process(first_lease)
+    old_lane = Process.whereis(FlowLane)
+    Process.exit(old_lane, :kill)
+
+    parent = self()
+
+    spawn(fn ->
+      admit_flow_eventually(flow_status("synthetic-second"), parent, 100)
+    end)
+
+    assert_receive {:flow_persistence_started, "synthetic-second", second_worker, false}, 1_000
+
+    if Process.alive?(first_lease), do: :erlang.resume_process(first_lease)
+    assert_receive {^first_ref, {:error, :coordinator_restart}}, 500
+
+    send(second_worker, {:release_flow, "synthetic-second"})
+    assert_receive {:second_admission_result, :ok}, 500
+    refute Process.alive?(first_worker)
+  end
+
+  test "worker task supervisor restart cannot lose a committed terminal reply" do
+    worker_table = :ets.new(:admission_task_restart_workers, [:set, :public])
+    start_admission_topology(worker_table)
+
+    reply_ref = make_ref()
+
+    assert :ok =
+             FlowLane.admit(flow_status("synthetic-task-restart"), {self(), reply_ref})
+
+    assert_receive {:flow_persistence_started, "synthetic-task-restart", worker, false}
+
+    [%{lease: lease}] =
+      FlowLane
+      |> :sys.get_state()
+      |> Map.fetch!(:jobs)
+      |> Map.values()
+
+    true = :erlang.suspend_process(lease)
+    send(worker, {:release_flow, "synthetic-task-restart"})
+
+    assert_eventually(fn ->
+      case FlowLane |> :sys.get_state() |> Map.fetch!(:jobs) |> Map.values() do
+        [] -> true
+        [%{phase: :delivering}] -> true
+        _jobs -> false
+      end
+    end)
+
+    old_lane = Process.whereis(FlowLane)
+    worker_supervisor = Process.whereis(FlowTaskSupervisor)
+    Process.exit(worker_supervisor, :kill)
+
+    if Process.alive?(lease), do: :erlang.resume_process(lease)
+
+    assert_receive {^reply_ref, :ok}, 500
+
+    assert_eventually(fn ->
+      restarted_lane = Process.whereis(FlowLane)
+      is_pid(restarted_lane) and restarted_lane != old_lane
+    end)
   end
 
   test "lane wrapper concurrency cannot be overridden at runtime" do
@@ -507,6 +653,118 @@ defmodule ServiceRadar.AdmissionLaneTest do
   end
 
   defp status(agent_id, message), do: %{agent_id: agent_id, message: message}
+
+  defp flow_status(partition) do
+    %{
+      source: "flow-attribution",
+      service_type: "passive-netprobe",
+      service_name: "flow-attribution",
+      agent_id: "agent-synthetic",
+      partition: partition,
+      message:
+        FlowAttributionEventBatch.encode(%FlowAttributionEventBatch{
+          events: [
+            %FlowAttributionEvent{
+              local_ip: "192.0.2.10",
+              local_port: 50_000,
+              remote_ip: "198.51.100.20",
+              remote_port: 443,
+              transport_protocol: "TCP",
+              pid: 42,
+              comm: "synthetic-client"
+            }
+          ]
+        })
+    }
+  end
+
+  def hold_flow_persistence(_events, partition, _agent_id, parent, worker_table) do
+    previous_worker_alive? =
+      case partition do
+        "synthetic-first" ->
+          true = :ets.insert(worker_table, {:previous_worker, self()})
+          false
+
+        "synthetic-second" ->
+          [{:previous_worker, previous_worker}] = :ets.lookup(worker_table, :previous_worker)
+          Process.alive?(previous_worker)
+
+        _partition ->
+          false
+      end
+
+    send(
+      parent,
+      {:flow_persistence_started, partition, self(), previous_worker_alive?}
+    )
+
+    receive do
+      {:release_flow, ^partition} -> :ok
+    end
+  end
+
+  defp admit_flow_eventually(_status, parent, 0),
+    do: send(parent, {:second_admission_result, :unavailable})
+
+  defp admit_flow_eventually(status, parent, attempts) do
+    reply_ref = make_ref()
+
+    case FlowLane.admit(status, {self(), reply_ref}) do
+      :ok ->
+        receive do
+          {^reply_ref, result} -> send(parent, {:second_admission_result, result})
+        end
+
+      {:error, {:admission_lane_unavailable, _reason}} ->
+        Process.sleep(10)
+        admit_flow_eventually(status, parent, attempts - 1)
+    end
+  end
+
+  defp start_admission_topology(worker_table) do
+    previous_handler = Application.get_env(:serviceradar_core, ServiceRadar.StatusHandler)
+    previous_enabled = Application.get_env(:serviceradar_core, :status_handler_enabled)
+
+    Application.put_env(:serviceradar_core, :status_handler_enabled, true)
+
+    handler_config =
+      (previous_handler || [])
+      |> Keyword.delete(:flow_lane)
+      |> Keyword.put(
+        :flow_attribution_persister,
+        {__MODULE__, :hold_flow_persistence, [self(), worker_table]}
+      )
+
+    Application.put_env(:serviceradar_core, ServiceRadar.StatusHandler, handler_config)
+
+    on_exit(fn ->
+      restore_env(ServiceRadar.StatusHandler, previous_handler)
+      restore_env(:status_handler_enabled, previous_enabled)
+    end)
+
+    admission_ids = [
+      FlowTaskSupervisor,
+      RetainedPluginTaskSupervisor,
+      FlowLeaseSupervisor,
+      RetainedPluginLeaseSupervisor,
+      FlowSupervisor,
+      RetainedPluginSupervisor,
+      FlowLane,
+      RetainedPluginLane
+    ]
+
+    admission_children =
+      CoordinatorChildren.children()
+      |> Enum.map(&Supervisor.child_spec(&1, []))
+      |> Enum.filter(&(&1.id in admission_ids))
+
+    topology = %{
+      id: make_ref(),
+      start: {Supervisor, :start_link, [admission_children, [strategy: :one_for_one]]}
+    }
+
+    start_supervised!(topology)
+  end
 
   defp held_processor(parent) do
     fn status ->

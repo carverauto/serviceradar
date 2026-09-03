@@ -8,8 +8,10 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
 
   use Supervisor
 
-  alias ServiceRadar.Admission.FlowTaskSupervisor
-  alias ServiceRadar.Admission.RetainedPluginTaskSupervisor
+  alias ServiceRadar.Admission.FlowLeaseSupervisor
+  alias ServiceRadar.Admission.FlowSupervisor
+  alias ServiceRadar.Admission.RetainedPluginLeaseSupervisor
+  alias ServiceRadar.Admission.RetainedPluginSupervisor
   alias ServiceRadar.Observability.LogPromotionConsumer
 
   def start_link(opts \\ []) do
@@ -27,10 +29,10 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
       [
         cluster_health_child(),
         state_monitor_child(),
-        flow_admission_task_supervisor_child(),
-        retained_plugin_admission_task_supervisor_child(),
-        flow_admission_lane_child(),
-        retained_plugin_admission_lane_child(),
+        flow_admission_lease_supervisor_child(),
+        retained_plugin_admission_lease_supervisor_child(),
+        flow_admission_supervisor_child(),
+        retained_plugin_admission_supervisor_child(),
         status_handler_child(),
         command_result_coordination_supervisor_child(),
         command_status_handler_child(),
@@ -109,33 +111,33 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
     end
   end
 
-  defp flow_admission_task_supervisor_child do
+  defp flow_admission_lease_supervisor_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       Supervisor.child_spec(
-        {Task.Supervisor, name: FlowTaskSupervisor},
-        id: FlowTaskSupervisor
+        {Task.Supervisor, name: FlowLeaseSupervisor},
+        id: FlowLeaseSupervisor
       )
     end
   end
 
-  defp retained_plugin_admission_task_supervisor_child do
+  defp retained_plugin_admission_lease_supervisor_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       Supervisor.child_spec(
-        {Task.Supervisor, name: RetainedPluginTaskSupervisor},
-        id: RetainedPluginTaskSupervisor
+        {Task.Supervisor, name: RetainedPluginLeaseSupervisor},
+        id: RetainedPluginLeaseSupervisor
       )
     end
   end
 
-  defp flow_admission_lane_child do
+  defp flow_admission_supervisor_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
-      ServiceRadar.Admission.FlowLane
+      FlowSupervisor
     end
   end
 
-  defp retained_plugin_admission_lane_child do
+  defp retained_plugin_admission_supervisor_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
-      ServiceRadar.Admission.RetainedPluginLane
+      RetainedPluginSupervisor
     end
   end
 

@@ -17,6 +17,7 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
     :concurrency,
     :processor,
     :on_accepted_result,
+    :lease_supervisor,
     :source_max_bytes,
     :gateway_max_ms
   ]
@@ -25,6 +26,15 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
     config =
       @default_config |> Keyword.merge(configured_limits()) |> Keyword.merge(opts[:config] || [])
 
+    lease_supervisor =
+      Keyword.get_lazy(opts, :lease_supervisor, fn ->
+        if Keyword.has_key?(opts, :task_supervisor) do
+          opts[:task_supervisor]
+        else
+          ServiceRadar.Admission.RetainedPluginLeaseSupervisor
+        end
+      end)
+
     Lane.start_link(
       Keyword.merge(
         [
@@ -32,6 +42,7 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
           lane: :retained_plugin_result,
           concurrency: 2,
           task_supervisor: ServiceRadar.Admission.RetainedPluginTaskSupervisor,
+          lease_supervisor: lease_supervisor,
           processor: {ServiceRadar.ResultsRouter, :process_retained_plugin, []},
           source_max_bytes: 16 * 1_024 * 1_024,
           gateway_max_ms: 30_000,

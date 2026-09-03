@@ -55,6 +55,8 @@ defmodule ServiceRadar.Admission.Lane do
           lane: Keyword.fetch!(opts, :lane),
           concurrency: Keyword.fetch!(opts, :concurrency),
           task_supervisor: Keyword.fetch!(opts, :task_supervisor),
+          lease_supervisor:
+            Keyword.get(opts, :lease_supervisor, Keyword.fetch!(opts, :task_supervisor)),
           processor: Keyword.fetch!(opts, :processor),
           on_accepted_result: Keyword.get(opts, :on_accepted_result),
           source_max_bytes: Keyword.fetch!(opts, :source_max_bytes),
@@ -95,8 +97,6 @@ defmodule ServiceRadar.Admission.Lane do
   def handle_info({:queue_timeout, id}, state) do
     case Map.get(state.jobs, id) do
       %{phase: :queued} = job ->
-        send(job.lease, {:deliver, {:error, :admission_timeout}})
-
         emit(
           state.lane,
           :timeout,
@@ -106,7 +106,7 @@ defmodule ServiceRadar.Admission.Lane do
 
         emit_completion(state.lane, job, :admission_timeout)
 
-        {:noreply, state |> remove_job(job) |> dispatch()}
+        {:noreply, begin_delivery(state, job, {:error, :admission_timeout}, :none, nil, true)}
 
       _ ->
         {:noreply, state}
@@ -132,20 +132,27 @@ defmodule ServiceRadar.Admission.Lane do
         if duration_ms >= state.config[:worker_timeout_ms] do
           {:noreply, begin_execution_termination(state, job, :execution_timeout)}
         else
-          notify_accepted_result(state.on_accepted_result, result)
-          send(job.lease, {:deliver, normalize_result(result)})
-
-          emit(
-            state.lane,
-            :execution,
-            execution_measurements(job, result, duration_ms),
-            %{result: result_label(result)}
-          )
-
-          emit_completion(state.lane, job, result_label(result))
-
-          {:noreply, state |> remove_job(job) |> dispatch()}
+          {:noreply,
+           begin_delivery(
+             state,
+             job,
+             normalize_result(result),
+             {:accepted, result},
+             duration_ms,
+             false
+           )}
         end
+
+      _ ->
+        {:noreply, state}
+    end
+  end
+
+  def handle_info({:lease_delivered, id, lease}, state) do
+    case Map.get(state.jobs, id) do
+      %{phase: :delivering, lease: ^lease, delivery_acknowledged: false} = job ->
+        send(lease, {:delivery_recorded, id})
+        {:noreply, finalize_delivery(state, job)}
 
       _ ->
         {:noreply, state}
@@ -169,6 +176,7 @@ defmodule ServiceRadar.Admission.Lane do
         {:noreply, %{state | monitors: Map.delete(state.monitors, ref)}}
 
       %{phase: :queued} = job ->
+        reply(job.reply_to, {:error, :worker_crash})
         report_worker_crash(state, job, reason)
         {:noreply, state |> remove_job(job) |> dispatch()}
 
@@ -188,6 +196,13 @@ defmodule ServiceRadar.Admission.Lane do
          |> drop_monitor(ref)
          |> put_job(terminating)}
 
+      %{phase: :delivering, delivery_acknowledged: false} = job ->
+        reply(job.reply_to, job.delivery_result)
+        {:noreply, state |> drop_monitor(ref) |> finalize_delivery(job)}
+
+      %{phase: :delivering, delivery_acknowledged: true} ->
+        {:noreply, drop_monitor(state, ref)}
+
       %{phase: :terminating} ->
         {:noreply, drop_monitor(state, ref)}
     end
@@ -202,20 +217,29 @@ defmodule ServiceRadar.Admission.Lane do
         Process.exit(job.lease, :kill)
         {:noreply, state |> remove_job(job) |> dispatch()}
 
-      %{phase: :running} = job ->
-        Process.cancel_timer(job.execution_timer)
+      %{phase: phase} = job when phase in [:running, :delivering] ->
+        if is_reference(Map.get(job, :execution_timer)) do
+          Process.cancel_timer(job.execution_timer)
+        end
+
         Process.exit(job.lease, :kill)
-        Process.exit(job.worker, :kill)
+
+        if is_pid(Map.get(job, :worker)) and Process.alive?(job.worker) do
+          Process.exit(job.worker, :kill)
+        end
 
         terminating =
           job
           |> Map.put(:phase, :terminating)
           |> Map.put(:reply_to, nil)
 
-        {:noreply,
-         state
-         |> drop_monitor(ref)
-         |> put_job(terminating)}
+        next_state = drop_monitor(state, ref)
+
+        if Map.get(job, :worker_down, false) do
+          {:noreply, next_state |> remove_job(terminating) |> dispatch()}
+        else
+          {:noreply, put_job(next_state, terminating)}
+        end
 
       %{phase: :terminating} ->
         {:noreply, drop_monitor(state, ref)}
@@ -231,9 +255,64 @@ defmodule ServiceRadar.Admission.Lane do
         {:noreply, state |> remove_job(job) |> dispatch()}
 
       %{phase: :running} = job ->
-        send(job.lease, {:deliver, {:error, :worker_crash}})
         report_worker_crash(state, job, reason)
-        {:noreply, state |> remove_job(job) |> dispatch()}
+
+        {:noreply,
+         state
+         |> drop_monitor(ref)
+         |> begin_delivery(job, {:error, :worker_crash}, :none, nil, true)}
+
+      %{phase: :delivering, delivery_acknowledged: true} = job ->
+        {:noreply, state |> drop_monitor(ref) |> remove_job(job) |> dispatch()}
+
+      %{phase: :delivering} = job ->
+        worker_down = Map.put(job, :worker_down, true)
+        {:noreply, state |> drop_monitor(ref) |> put_job(worker_down)}
+    end
+  end
+
+  defp begin_delivery(state, job, delivery_result, accepted_result, duration_ms, worker_down) do
+    delivering =
+      Map.merge(job, %{
+        phase: :delivering,
+        delivery_result: delivery_result,
+        accepted_result: accepted_result,
+        delivery_duration_ms: duration_ms,
+        delivery_acknowledged: false,
+        worker_down: worker_down
+      })
+
+    send(job.lease, {:deliver, job.id, delivery_result})
+    put_job(state, delivering)
+  end
+
+  defp finalize_delivery(state, job) do
+    case job.accepted_result do
+      {:accepted, result} ->
+        notify_accepted_result(state.on_accepted_result, result)
+
+        emit(
+          state.lane,
+          :execution,
+          execution_measurements(job, result, job.delivery_duration_ms),
+          %{result: result_label(result)}
+        )
+
+        emit_completion(state.lane, job, result_label(result))
+
+      :none ->
+        :ok
+    end
+
+    delivered =
+      job
+      |> Map.put(:delivery_acknowledged, true)
+      |> Map.put(:reply_to, nil)
+
+    if job.worker_down do
+      state |> remove_job(delivered) |> dispatch()
+    else
+      put_job(state, delivered)
     end
   end
 
@@ -333,7 +412,7 @@ defmodule ServiceRadar.Admission.Lane do
     # The lightweight lease exists for queued as well as running work. It owns
     # the eventual GenServer.reply/2 and monitors the coordinator, so a lane
     # restart cannot strand a caller whose admission was already accepted.
-    case Task.Supervisor.start_child(state.task_supervisor, fn ->
+    case Task.Supervisor.start_child(state.lease_supervisor, fn ->
            lease(coordinator, reply_to)
          end) do
       {:ok, pid} -> {:ok, pid}
@@ -346,34 +425,47 @@ defmodule ServiceRadar.Admission.Lane do
 
     receive do
       {:lease_id, id} ->
-        lease_wait(id, coordinator_ref, reply_to)
+        lease_wait(id, coordinator, coordinator_ref, reply_to)
 
       {:DOWN, ^coordinator_ref, :process, _pid, _reason} ->
         reply(reply_to, {:error, :coordinator_restart})
     end
   end
 
-  defp lease_wait(id, coordinator_ref, reply_to) do
+  defp lease_wait(id, coordinator, coordinator_ref, reply_to) do
     receive do
       {:worker, ^id, worker} ->
-        lease_running(coordinator_ref, worker, reply_to)
+        lease_running(id, coordinator, coordinator_ref, worker, reply_to)
 
-      {:deliver, result} ->
-        reply(reply_to, result)
+      {:deliver, ^id, result} ->
+        deliver_from_lease(id, coordinator, coordinator_ref, reply_to, result)
 
       {:DOWN, ^coordinator_ref, :process, _pid, _reason} ->
         reply(reply_to, {:error, :coordinator_restart})
     end
   end
 
-  defp lease_running(coordinator_ref, worker, reply_to) do
+  defp lease_running(id, coordinator, coordinator_ref, worker, reply_to) do
     receive do
-      {:deliver, result} ->
-        reply(reply_to, result)
+      {:deliver, ^id, result} ->
+        deliver_from_lease(id, coordinator, coordinator_ref, reply_to, result)
 
       {:DOWN, ^coordinator_ref, :process, _pid, _reason} ->
         Process.exit(worker, :kill)
         reply(reply_to, {:error, :coordinator_restart})
+    end
+  end
+
+  defp deliver_from_lease(id, coordinator, coordinator_ref, reply_to, result) do
+    reply(reply_to, result)
+    send(coordinator, {:lease_delivered, id, self()})
+
+    receive do
+      {:delivery_recorded, ^id} ->
+        :ok
+
+      {:DOWN, ^coordinator_ref, :process, _pid, _reason} ->
+        :ok
     end
   end
 
@@ -401,8 +493,6 @@ defmodule ServiceRadar.Admission.Lane do
         wait_ms = elapsed_ms(job.admitted_at)
 
         if wait_ms >= state.config[:queue_wait_ms] do
-          send(job.lease, {:deliver, {:error, :admission_timeout}})
-
           emit(
             state.lane,
             :timeout,
@@ -411,7 +501,15 @@ defmodule ServiceRadar.Admission.Lane do
           )
 
           emit_completion(state.lane, job, :admission_timeout)
-          next_state |> remove_job(job) |> dispatch()
+
+          begin_delivery(
+            next_state,
+            job,
+            {:error, :admission_timeout},
+            :none,
+            nil,
+            true
+          )
         else
           Process.cancel_timer(job.queue_timer)
 
@@ -457,9 +555,16 @@ defmodule ServiceRadar.Admission.Lane do
               dispatch(dispatched)
 
             {:error, reason} ->
-              send(job.lease, {:deliver, {:error, :worker_crash}})
               report_worker_crash(state, job, reason)
-              next_state |> remove_job(job) |> dispatch()
+
+              begin_delivery(
+                next_state,
+                job,
+                {:error, :worker_crash},
+                :none,
+                nil,
+                true
+              )
           end
         end
     end

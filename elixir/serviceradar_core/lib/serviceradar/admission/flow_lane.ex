@@ -17,6 +17,7 @@ defmodule ServiceRadar.Admission.FlowLane do
     :concurrency,
     :processor,
     :on_accepted_result,
+    :lease_supervisor,
     :source_max_bytes,
     :gateway_max_ms
   ]
@@ -25,6 +26,15 @@ defmodule ServiceRadar.Admission.FlowLane do
     config =
       @default_config |> Keyword.merge(configured_limits()) |> Keyword.merge(opts[:config] || [])
 
+    lease_supervisor =
+      Keyword.get_lazy(opts, :lease_supervisor, fn ->
+        if Keyword.has_key?(opts, :task_supervisor) do
+          opts[:task_supervisor]
+        else
+          ServiceRadar.Admission.FlowLeaseSupervisor
+        end
+      end)
+
     Lane.start_link(
       Keyword.merge(
         [
@@ -32,6 +42,7 @@ defmodule ServiceRadar.Admission.FlowLane do
           lane: :flow_attribution,
           concurrency: 1,
           task_supervisor: ServiceRadar.Admission.FlowTaskSupervisor,
+          lease_supervisor: lease_supervisor,
           processor: {ServiceRadar.StatusHandler, :process_flow_attribution, []},
           on_accepted_result: {ServiceRadar.StatusHandler, :emit_flow_attribution_committed, []},
           source_max_bytes: 6 * 1_024 * 1_024,
