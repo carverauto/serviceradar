@@ -408,7 +408,8 @@ async fn comprehensive_queries_match_fixtures() {
         },
         TestCase {
             // Four merge rows between the same two devices, in both directions.
-            // A walk without a visited-set guard does not terminate on this.
+            // A walk without a visited-set guard does not terminate on this, and
+            // one keyed on (event_id, direction) returns each row twice.
             query: "in:merge_audit chain:identity-osc-a",
             expected_count: 4,
             validator: Some(Box::new(|body| {
@@ -417,6 +418,13 @@ async fn comprehensive_queries_match_fixtures() {
                     rows.iter().all(|row| row["depth"].as_i64().unwrap() <= 2),
                     "oscillating pair should not accumulate depth: {}",
                     body["results"]
+                );
+                let ids: std::collections::HashSet<_> =
+                    rows.iter().map(|row| row["event_id"].clone()).collect();
+                assert_eq!(
+                    ids.len(),
+                    rows.len(),
+                    "each audit row must appear once, not once per direction"
                 );
             })),
         },

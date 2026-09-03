@@ -182,6 +182,13 @@ fn flat_filter_condition(filter: &Filter, binds: &mut Vec<BindParam>) -> Result<
 /// condition. The `visited` array plus `UNION` handles the cycle; the depth cap
 /// handles a legitimately deep chain, and `truncated` tells the caller when the
 /// cap bit rather than handing back a partial chain that looks complete.
+///
+/// One row per audit record, at its SHORTEST path from the seed. Distinguishing
+/// rows by `(event_id, direction)` instead double-counts an oscillating pair:
+/// the walk reaches `a -> b` going forward from `a` and again going backward
+/// from `b`, so the same audit row came back twice carrying opposite
+/// directions, which reads as two merges that never happened. Measured against
+/// the fixture pair: 8 rows for 4 audit records.
 fn build_chain_sql(plan: &QueryPlan, seed: &str) -> Result<BuiltSql> {
     let mut binds = Vec::new();
     let cap = depth_cap(&plan.filters)?;
@@ -242,7 +249,7 @@ fn build_chain_sql(plan: &QueryPlan, seed: &str) -> Result<BuiltSql> {
          anchor AS (SELECT ?::text AS uid), \
          capped AS (SELECT bool_or(depth >= ?) AS hit FROM walk) \
          SELECT to_jsonb(sub) AS payload FROM (\
-           SELECT DISTINCT ON (walk.event_id, walk.direction) \
+           SELECT DISTINCT ON (walk.event_id) \
                   walk.event_id, walk.from_device_id, walk.to_device_id, walk.reason, \
                   walk.confidence_score, walk.source, \
                   {details_walk} AS details, walk.created_at, \
@@ -250,7 +257,7 @@ fn build_chain_sql(plan: &QueryPlan, seed: &str) -> Result<BuiltSql> {
                   COALESCE((SELECT hit FROM capped), false) AS truncated, \
                   (SELECT uid FROM anchor) AS chain_seed \
            FROM walk \
-           ORDER BY walk.event_id, walk.direction, walk.depth \
+           ORDER BY walk.event_id, walk.depth \
          ) sub \
          ORDER BY sub.depth, sub.created_at \
          LIMIT ? OFFSET ?",
@@ -341,6 +348,20 @@ mod tests {
                 ]
             ),
             "{binds:?}"
+        );
+    }
+
+    #[test]
+    fn chain_returns_each_audit_row_once() {
+        // DISTINCT ON must be the event alone. Adding `direction` to the key
+        // lets an oscillating pair report the same merge twice with opposite
+        // directions -- two merges that never happened.
+        let (sql, _) =
+            to_sql_and_params(&plan_for("in:merge_audit chain:sr:aaa limit:50")).unwrap();
+        assert!(sql.contains("DISTINCT ON (walk.event_id)"), "{sql}");
+        assert!(
+            !sql.contains("DISTINCT ON (walk.event_id, walk.direction)"),
+            "{sql}"
         );
     }
 
