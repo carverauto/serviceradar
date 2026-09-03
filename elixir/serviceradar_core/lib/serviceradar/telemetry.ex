@@ -326,7 +326,81 @@ defmodule ServiceRadar.Telemetry do
       event_writer_metrics() ++
       prefix_tag_metrics() ++
       capacity_forecasting_metrics() ++
-      stateful_alert_engine_metrics() ++ notification_metrics()
+      stateful_alert_engine_metrics() ++ admission_lane_metrics() ++ notification_metrics()
+  end
+
+  @doc "Returns bounded core admission lane depth, latency, and outcome metrics."
+  @spec admission_lane_metrics() :: list()
+  def admission_lane_metrics do
+    import Telemetry.Metrics
+
+    state_event = [:serviceradar, :admission_lane, :state]
+    admission_event = [:serviceradar, :admission_lane, :admission]
+    execution_event = [:serviceradar, :admission_lane, :execution]
+    completion_event = [:serviceradar, :admission_lane, :completion]
+
+    [
+      last_value("serviceradar.admission_lane.pending.count",
+        event_name: state_event,
+        measurement: :pending_count,
+        tags: [:lane]
+      ),
+      last_value("serviceradar.admission_lane.pending.bytes",
+        event_name: state_event,
+        measurement: :pending_bytes,
+        tags: [:lane]
+      ),
+      last_value("serviceradar.admission_lane.in_flight.count",
+        event_name: state_event,
+        measurement: :in_flight_count,
+        tags: [:lane]
+      ),
+      last_value("serviceradar.admission_lane.in_flight.bytes",
+        event_name: state_event,
+        measurement: :in_flight_bytes,
+        tags: [:lane]
+      ),
+      distribution("serviceradar.admission_lane.admission.wait.milliseconds",
+        event_name: admission_event,
+        measurement: :wait_ms,
+        tags: [:lane]
+      ),
+      distribution("serviceradar.admission_lane.execution.duration.milliseconds",
+        event_name: execution_event,
+        measurement: :duration_ms,
+        tags: [:lane, :result]
+      ),
+      distribution("serviceradar.admission_lane.execution.event.count",
+        event_name: execution_event,
+        measurement: :event_count,
+        tags: [:lane, :result]
+      ),
+      distribution("serviceradar.admission_lane.acknowledgement.milliseconds",
+        event_name: completion_event,
+        measurement: :acknowledgement_ms,
+        tags: [:lane, :result]
+      ),
+      distribution("serviceradar.admission_lane.payload.bytes",
+        event_name: completion_event,
+        measurement: :payload_bytes,
+        tags: [:lane, :result]
+      ),
+      counter("serviceradar.admission_lane.rejected.count",
+        event_name: [:serviceradar, :admission_lane, :rejected],
+        measurement: :count,
+        tags: [:lane, :reason]
+      ),
+      counter("serviceradar.admission_lane.timeout.count",
+        event_name: [:serviceradar, :admission_lane, :timeout],
+        measurement: :count,
+        tags: [:lane, :reason]
+      ),
+      counter("serviceradar.admission_lane.crash.count",
+        event_name: [:serviceradar, :admission_lane, :crash],
+        measurement: :count,
+        tags: [:lane, :reason, :exit_reason]
+      )
+    ]
   end
 
   @doc """
