@@ -30,7 +30,9 @@ The client MUST NOT send `code_challenge_method=plain`. The client
 MUST NOT log the verifier, include it in identity claims, or copy it
 into audit metadata.
 
-PKCE mode is `auto` (default), `required`, or `disabled`:
+PKCE mode is stored on AuthSettings as `oidc_pkce_mode` and MUST be
+editable under Settings -> Authentication on the OIDC form. Values are
+`auto` (default), `required`, or `disabled`:
 
 - `auto`: send S256 when discovery `code_challenge_methods_supported`
   includes `S256`, or when that field is absent. If the field is
@@ -80,6 +82,12 @@ Existing `state` and `nonce` checks remain mandatory on every callback.
 - **AND** the token request omits `code_verifier`
 - **AND** `plain` is never sent
 
+#### Scenario: Operators set PKCE mode in authentication settings
+- **GIVEN** Direct SSO OIDC is the configured login
+- **WHEN** an administrator opens Settings -> Authentication
+- **THEN** the OIDC form offers Auto, Required, and Disabled PKCE modes
+- **AND** saving the form persists `oidc_pkce_mode` on AuthSettings
+
 #### Scenario: Methods field absent still uses S256 under auto
 - **GIVEN** PKCE mode is `auto`
 - **AND** discovery metadata omits `code_challenge_methods_supported`
@@ -87,7 +95,7 @@ Existing `state` and `nonce` checks remain mandatory on every callback.
 - **THEN** the authorization request includes `code_challenge_method=S256`
 
 #### Scenario: Disabled mode skips PKCE
-- **GIVEN** `SERVICERADAR_OIDC_PKCE_MODE=disabled`
+- **GIVEN** AuthSettings `oidc_pkce_mode` is `disabled`
 - **WHEN** a user starts OIDC login
 - **THEN** the authorization request omits `code_challenge`
 - **AND** the token request omits `code_verifier`

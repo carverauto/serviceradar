@@ -39,15 +39,14 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   @doc """
   Initiates OIDC authentication by redirecting to the IdP.
 
-  Stores state and nonce in session for validation on callback.
+  Stores state, nonce, and PKCE verifier in session for validation on callback.
   """
   def request(conn, _params) do
     if OIDCStrategy.enabled?() do
       case OIDCClient.authorize_url() do
-        {:ok, url, %{state: state, nonce: nonce}} ->
+        {:ok, url, session} ->
           conn
-          |> put_session(:oidc_state, state)
-          |> put_session(:oidc_nonce, nonce)
+          |> put_oidc_session(session)
           |> redirect(external: url)
 
         {:error, reason} ->
@@ -73,27 +72,22 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
   def callback(conn, %{"code" => code, "state" => state}) do
     stored_state = get_session(conn, :oidc_state)
     stored_nonce = get_session(conn, :oidc_nonce)
+    stored_verifier = get_session(conn, :oidc_code_verifier)
+    pkce? = get_session(conn, :oidc_pkce) == true
 
-    # Clear OIDC session data
-    conn =
-      conn
-      |> delete_session(:oidc_state)
-      |> delete_session(:oidc_nonce)
+    # Consume login secrets before any token request so a replay cannot reuse them.
+    conn = clear_oidc_session(conn)
 
-    if valid_oidc_callback_session?(state, stored_state, stored_nonce) do
-      handle_code_exchange(conn, code, stored_nonce)
-    else
-      Logger.warning("OIDC callback state or nonce validation failed")
+    cond do
+      not valid_oidc_callback_session?(state, stored_state, stored_nonce) ->
+        reject_invalid_state(conn)
 
-      Hooks.on_auth_failed(:invalid_state, %{
-        method: :oidc,
-        ip: get_client_ip(conn),
-        user_agent: conn |> get_req_header("user-agent") |> List.first()
-      })
+      pkce? and not valid_pkce_verifier?(stored_verifier) ->
+        Logger.warning("OIDC callback PKCE verifier missing after matching state")
+        reject_invalid_state(conn)
 
-      conn
-      |> put_flash(:error, "Authentication failed: invalid state. Please try again.")
-      |> redirect(to: ~p"/users/log-in")
+      true ->
+        handle_code_exchange(conn, code, stored_nonce, pkce_verifier(pkce?, stored_verifier))
     end
   end
 
@@ -108,8 +102,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
     })
 
     conn
-    |> delete_session(:oidc_state)
-    |> delete_session(:oidc_nonce)
+    |> clear_oidc_session()
     |> put_flash(:error, "Authentication failed: #{description}")
     |> redirect(to: ~p"/users/log-in")
   end
@@ -124,8 +117,7 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
     })
 
     conn
-    |> delete_session(:oidc_state)
-    |> delete_session(:oidc_nonce)
+    |> clear_oidc_session()
     |> put_flash(:error, "Authentication failed. Please try again.")
     |> redirect(to: ~p"/users/log-in")
   end
@@ -139,15 +131,58 @@ defmodule ServiceRadarWebNGWeb.OIDCController do
 
   defp valid_oidc_callback_session?(_state, _stored_state, _stored_nonce), do: false
 
-  defp handle_code_exchange(conn, code, nonce) do
-    case exchange_and_verify(code, nonce) do
+  defp valid_pkce_verifier?(verifier) when is_binary(verifier) and verifier != "", do: true
+  defp valid_pkce_verifier?(_verifier), do: false
+
+  defp pkce_verifier(true, verifier), do: verifier
+  defp pkce_verifier(_pkce?, _verifier), do: nil
+
+  defp put_oidc_session(conn, session) do
+    conn
+    |> put_session(:oidc_state, session.state)
+    |> put_session(:oidc_nonce, session.nonce)
+    |> put_session(:oidc_code_verifier, session.code_verifier)
+    |> put_session(:oidc_pkce, session.pkce?)
+  end
+
+  defp clear_oidc_session(conn) do
+    conn
+    |> delete_session(:oidc_state)
+    |> delete_session(:oidc_nonce)
+    |> delete_session(:oidc_code_verifier)
+    |> delete_session(:oidc_pkce)
+  end
+
+  defp reject_invalid_state(conn) do
+    Logger.warning("OIDC callback state or nonce validation failed")
+
+    Hooks.on_auth_failed(:invalid_state, %{
+      method: :oidc,
+      ip: get_client_ip(conn),
+      user_agent: conn |> get_req_header("user-agent") |> List.first()
+    })
+
+    conn
+    |> put_flash(:error, "Authentication failed: invalid state. Please try again.")
+    |> redirect(to: ~p"/users/log-in")
+  end
+
+  defp handle_code_exchange(conn, code, nonce, code_verifier) do
+    case exchange_and_verify(code, nonce, code_verifier) do
       {:ok, claims, tokens} -> complete_oidc_login(conn, claims, tokens)
       {:error, reason} -> reject_oidc_pre_verify(conn, reason)
     end
   end
 
-  defp exchange_and_verify(code, nonce) do
-    with {:ok, tokens} <- OIDCClient.exchange_code(code),
+  defp exchange_and_verify(code, nonce, code_verifier) do
+    exchange_opts =
+      if is_binary(code_verifier) and code_verifier != "" do
+        [code_verifier: code_verifier]
+      else
+        []
+      end
+
+    with {:ok, tokens} <- OIDCClient.exchange_code(code, exchange_opts),
          {:ok, claims} <- OIDCClient.verify_id_token(tokens["id_token"], nonce: nonce) do
       {:ok, claims, tokens}
     end

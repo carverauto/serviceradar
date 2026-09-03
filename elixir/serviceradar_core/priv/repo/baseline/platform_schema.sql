@@ -3150,6 +3150,7 @@ CREATE TABLE platform.auth_settings (
     encrypted_oidc_client_secret_encrypted bytea,
     oidc_discovery_url character varying(255),
     oidc_scopes character varying(255) DEFAULT 'openid email profile'::character varying,
+    oidc_pkce_mode character varying(255) DEFAULT 'auto'::character varying NOT NULL,
     saml_idp_metadata_url character varying(255),
     saml_idp_metadata_xml text,
     saml_sp_entity_id character varying(255),

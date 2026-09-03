@@ -36,7 +36,8 @@ talking to Entra / Authentik / a generic IdP. Do not conflate the two.
   belongs to another attempt. A callback that still has a valid `state` /
   `nonce` after the verifier was consumed MUST NOT fall through to
   `exchange_code/2`.
-- Provider compatibility is explicit and configurable:
+- Provider compatibility is explicit and configurable on AuthSettings
+  (`oidc_pkce_mode`) and **Settings -> Authentication** (OIDC form):
   - Default `auto`: send S256 when discovery advertises it **or** omits
     `code_challenge_methods_supported`. If discovery lists methods and
     omits `S256`, skip PKCE (never `plain`) and warn.
@@ -48,10 +49,8 @@ talking to Entra / Authentik / a generic IdP. Do not conflate the two.
   distinguish it from MCP OAuth PKCE. Validate the flow against a Microsoft
   Entra Web application registration.
 
-**Not in this change:** MCP OAuth, CLI `--web` PKCE, SAML, AuthSettings UI,
-or a database column for the compatibility mode. The escape hatch is an
-application env (`SERVICERADAR_OIDC_PKCE_MODE`), matching the existing
-local-login break-glass pattern.
+**Not in this change:** MCP OAuth, CLI `--web` PKCE, or SAML. PKCE mode is
+not an env var; operators set it next to the OIDC client id and secret.
 
 ## Impact
 
@@ -63,7 +62,8 @@ local-login break-glass pattern.
     helper lift only; MCP authorize/token behavior unchanged)
   - `elixir/web-ng/test/phoenix/auth/oidc_client_test.exs`
   - `elixir/web-ng/test/phoenix/controllers/oidc_controller_test.exs`
-  - `elixir/web-ng/config/runtime.exs`
+  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/authentication_live.ex`
+  - `elixir/serviceradar_core` AuthSettings + migration
   - `docs/docs/auth-configuration.md`
-- No schema or Helm values change.
+- Schema: `platform.auth_settings.oidc_pkce_mode` (default `auto`).
 - Existing `state` / `nonce` tests MUST keep passing.

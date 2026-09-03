@@ -39,20 +39,21 @@ cannot drift; do not route OIDC login through the MCP OAuth server.
 
 ## Decisions
 
-- Decision: PKCE mode is application env `SERVICERADAR_OIDC_PKCE_MODE`,
-  default `auto`, values `auto` | `required` | `disabled`.
-  - Rationale: the escape hatch is rare (a provider that rejects
-    `code_verifier`). AuthSettings already holds discovery URL, client id,
-    and secret; adding a column and a settings control is out of proportion
-    for a one-line compatibility override. This matches
-    `SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN`.
+- Decision: PKCE mode is `AuthSettings.oidc_pkce_mode` (`auto` | `required`
+  | `disabled`, default `auto`), edited under **Settings -> Authentication**
+  on the OIDC form.
+  - Rationale: every other OIDC knob (discovery URL, client id, secret,
+    scopes) already lives there. Operators should not need a process env
+    to pick Auto vs Required vs Disabled. Env vars stay for break-glass
+    (`SERVICERADAR_AUTH_FORCE_LOCAL_LOGIN`), not for IdP compatibility.
   - Alternatives considered:
     - Always-on, no flag: simpler, but silently breaks a generic OIDC
       install whose token endpoint rejects unknown form fields.
     - Hard-fail when discovery omits S256: too strict. Many metadata
       documents omit `code_challenge_methods_supported` while still
       accepting S256 (including older Entra documents).
-    - AuthSettings enum + UI: correct long-term product surface, deferred.
+    - Application env `SERVICERADAR_OIDC_PKCE_MODE`: rejected. It hides a
+      login-policy choice from the authentication UI.
 
 - Decision: `auto` sends S256 when discovery advertises `S256` **or** when
   `code_challenge_methods_supported` is absent. If the field is present and
@@ -101,9 +102,9 @@ cannot drift; do not route OIDC login through the MCP OAuth server.
 
 - A provider that omits `code_challenge_methods_supported` and then
   rejects `code_verifier` will fail login under default `auto`.
-  → Mitigation: documented `SERVICERADAR_OIDC_PKCE_MODE=disabled`, plus a
-  unit test that `disabled` omits challenge and verifier. Operators hit
-  this only on old/broken token endpoints.
+  → Mitigation: set PKCE mode to Disabled under Settings -> Authentication,
+  plus a unit test that `disabled` omits challenge and verifier. Operators
+  hit this only on old/broken token endpoints.
 - Session cookie grows by ~43 bytes plus the boolean. Encrypted cookie
   budget is already used for `state`/`nonce`.
   → Mitigation: verifier is comparable to existing `state`; no extra
@@ -114,15 +115,16 @@ cannot drift; do not route OIDC login through the MCP OAuth server.
 
 ## Migration Plan
 
-- Deploy web-ng. Default `auto` starts sending S256 on the next login.
-  No data migration. Rolling a pod mid-login still fails the in-flight
-  callback the same way a lost session already does (`invalid state`).
+- Run the AuthSettings migration (`oidc_pkce_mode` default `auto`) then
+  deploy web-ng. Existing rows get Auto. The next login sends S256 under
+  Auto. Rolling a pod mid-login still fails the in-flight callback the
+  same way a lost session already does (`invalid state`).
 - Rollback: revert the web-ng image. In-flight PKCE logins fail; users
-  retry. Set `SERVICERADAR_OIDC_PKCE_MODE=disabled` only if a provider
-  rejects the new token request and rollback is not immediate.
+  retry. Set PKCE to Disabled in Settings if a provider rejects the new
+  token request and image rollback is not immediate. The column can stay;
+  unused extra varchar is harmless.
 
 ## Open Questions
 
 None. Entra Web-app validation is an acceptance task, not an open
-product question. Settings-UI for PKCE mode is a follow-up if operators
-need it without env access.
+product question.

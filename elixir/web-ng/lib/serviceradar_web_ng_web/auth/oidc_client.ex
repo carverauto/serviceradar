@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   by the ConfigCache for performance.
   """
 
+  alias ServiceRadarWebNG.Pkce
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy
   alias ServiceRadarWebNGWeb.Auth.OutboundFetch
@@ -35,14 +36,15 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   @doc """
   Generates the authorization URL for initiating OIDC login.
 
-  Returns `{:ok, url, state}` where state should be stored in session
-  for CSRF protection.
+  Returns `{:ok, url, session}` where session includes `state`, `nonce`,
+  `code_verifier`, and `pkce?` and must be stored for callback validation.
   """
   def authorize_url(opts \\ []) do
     with {:ok, config} <- get_config(),
          {:ok, metadata} <- fetch_discovery_metadata(config.discovery_url),
          {:ok, authorization_endpoint} <-
-           validate_redirect_endpoint(metadata["authorization_endpoint"]) do
+           validate_redirect_endpoint(metadata["authorization_endpoint"]),
+         {:ok, pkce_decision} <- pkce_decision(config, metadata) do
       state = generate_state()
       nonce = generate_nonce()
 
@@ -55,9 +57,10 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
         nonce: nonce
       }
 
+      {params, session} = maybe_put_pkce(params, pkce_decision, state, nonce)
       url = "#{authorization_endpoint}?#{URI.encode_query(params)}"
 
-      {:ok, url, %{state: state, nonce: nonce}}
+      {:ok, url, session}
     end
   end
 
@@ -73,13 +76,17 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   def exchange_code(code, opts \\ []) do
     with {:ok, config} <- get_config(),
          {:ok, metadata} <- fetch_discovery_metadata(config.discovery_url) do
-      body = %{
-        grant_type: "authorization_code",
-        code: code,
-        client_id: config.client_id,
-        client_secret: config.client_secret,
-        redirect_uri: opts[:redirect_uri] || config.redirect_uri
-      }
+      body =
+        maybe_put_code_verifier(
+          %{
+            grant_type: "authorization_code",
+            code: code,
+            client_id: config.client_id,
+            client_secret: config.client_secret,
+            redirect_uri: opts[:redirect_uri] || config.redirect_uri
+          },
+          opts[:code_verifier]
+        )
 
       exchange_tokens(metadata["token_endpoint"], body)
     end
@@ -361,7 +368,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   defp exchange_tokens(token_endpoint, body), do: exchange_tokens(token_endpoint, body, 1)
 
   defp exchange_tokens(token_endpoint, body, attempt) do
-    case OutboundFetch.post(token_endpoint, form: body) do
+    case token_post(token_endpoint, form: body) do
       {:ok, %{status: 200, body: tokens}} ->
         {:ok, tokens}
 
@@ -547,5 +554,62 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
 
   defp generate_nonce do
     32 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
+  end
+
+  defp pkce_decision(config, metadata) do
+    methods = metadata["code_challenge_methods_supported"]
+
+    case Map.get(config, :pkce_mode, :auto) do
+      :disabled ->
+        {:ok, :omit}
+
+      :required ->
+        if methods_present_without_s256?(methods) do
+          {:error, :pkce_s256_unsupported}
+        else
+          {:ok, :s256}
+        end
+
+      _auto ->
+        if methods_present_without_s256?(methods) do
+          Logger.warning("OIDC provider does not advertise PKCE S256; omitting PKCE and not using plain")
+
+          {:ok, :omit}
+        else
+          {:ok, :s256}
+        end
+    end
+  end
+
+  defp methods_present_without_s256?(methods) when is_list(methods), do: "S256" not in methods
+  defp methods_present_without_s256?(_methods), do: false
+
+  defp maybe_put_pkce(params, :s256, state, nonce) do
+    verifier = Pkce.generate_verifier()
+
+    params =
+      Map.merge(params, %{
+        code_challenge: Pkce.challenge_s256(verifier),
+        code_challenge_method: "S256"
+      })
+
+    {params, %{state: state, nonce: nonce, code_verifier: verifier, pkce?: true}}
+  end
+
+  defp maybe_put_pkce(params, :omit, state, nonce) do
+    {params, %{state: state, nonce: nonce, code_verifier: nil, pkce?: false}}
+  end
+
+  defp maybe_put_code_verifier(body, verifier) when is_binary(verifier) and verifier != "" do
+    Map.put(body, :code_verifier, verifier)
+  end
+
+  defp maybe_put_code_verifier(body, _verifier), do: body
+
+  defp token_post(url, opts) do
+    case Application.get_env(:serviceradar_web_ng, :oidc_token_poster) do
+      fun when is_function(fun, 2) -> fun.(url, opts)
+      _ -> OutboundFetch.post(url, opts)
+    end
   end
 end
