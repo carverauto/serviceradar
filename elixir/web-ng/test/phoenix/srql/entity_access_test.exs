@@ -35,6 +35,63 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     assert unsupported == []
   end
 
+  # The parser accepting `in:merge_audit` is not the same thing as the gate
+  # knowing about it. `permission_for_query/1` returns `:passthrough` for
+  # unknown entities so the SRQL compiler stays the source of that error -- which
+  # means an alias the Rust parser accepts but this map omits is an UNGATED
+  # entity on the HTTP and MCP paths, and it fails open silently. Enumerate every
+  # alias rather than spot-checking one per entity.
+  @identity_diagnostic_aliases [
+    {"merge_audit", ~w(merge_audit device_merges merges)},
+    {"device_revival_audit", ~w(device_revival_audit device_revivals revivals)},
+    {"device_identifiers", ~w(device_identifiers identifiers device_identity)},
+    {"identity_reconciliation_runs", ~w(identity_reconciliation_runs reconciliation_runs dire_runs)},
+    {"identity_evidence_edges", ~w(identity_evidence_edges identity_evidence evidence_edges)}
+  ]
+
+  test "every identity diagnostic alias is gated by devices.view, never passthrough" do
+    unmapped =
+      for {_canonical, aliases} <- @identity_diagnostic_aliases,
+          entity <- aliases,
+          EntityAccess.permission_for_entity(entity) != {:ok, "devices.view"} do
+        {entity, EntityAccess.permission_for_entity(entity)}
+      end
+
+    assert unmapped == [],
+           "identity diagnostic aliases missing from the RBAC map: #{inspect(unmapped)}"
+  end
+
+  test "every identity diagnostic alias the RBAC map claims is accepted by the parser" do
+    # The inverse direction: a map entry for an alias the parser rejects is dead
+    # weight that hides a typo.
+    unsupported =
+      for {_canonical, aliases} <- @identity_diagnostic_aliases,
+          entity <- aliases,
+          not match?({:ok, _}, Native.parse_ast("in:#{entity} limit:1")) do
+        entity
+      end
+
+    assert unsupported == []
+  end
+
+  test "a query naming an identity diagnostic entity resolves through permission_for_query" do
+    assert {:ok, "devices.view"} =
+             EntityAccess.permission_for_query("in:merge_audit chain:sr:aaa")
+
+    assert {:ok, "devices.view"} =
+             EntityAccess.permission_for_query("in:evidence_edges device:sr:aaa limit:10")
+  end
+
+  test "a caller without devices.view is refused an identity diagnostic query" do
+    scope = %Scope{user: nil, permissions: MapSet.new(["observability.logs.view"])}
+
+    assert {:error, :forbidden} =
+             EntityAccess.authorize("in:merge_audit limit:10", scope)
+
+    assert {:error, :forbidden} =
+             EntityAccess.authorize("in:identity_reconciliation_runs limit:10", scope)
+  end
+
   test "parser aliases resolve to the same catalog key as the canonical entity" do
     assert EntityAccess.permission_for_entity("device") ==
              EntityAccess.permission_for_entity("devices")

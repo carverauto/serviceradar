@@ -864,3 +864,86 @@ CREATE TABLE source_fact_disagreements (
 
 CREATE OR REPLACE VIEW platform.source_fact_disagreements AS
     SELECT * FROM public.source_fact_disagreements;
+
+-- Identity reconciliation diagnostics (GitHub #4229).
+--
+-- Five SRQL entities read from four tables. `device_identifiers` already exists
+-- above for the logs correlation path; the rest are created here, in public with
+-- a platform view, exactly as everything else in this file is.
+--
+-- `device_interface_macs` is not itself an SRQL entity. It is joined by
+-- `in:device_identifiers` to decide `matches_current_facts`: a MAC identifier is
+-- corroborated when the owner reports it either as its current `mac` column OR on
+-- one of its interfaces. Without this table that projection silently reports
+-- every interface-only MAC as historical.
+DROP TABLE IF EXISTS merge_audit CASCADE;
+
+CREATE TABLE merge_audit (
+    event_id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    from_device_id      TEXT        NOT NULL,
+    to_device_id        TEXT        NOT NULL,
+    reason              TEXT,
+    confidence_score    NUMERIC,
+    source              TEXT,
+    details             JSONB       DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ
+);
+
+CREATE OR REPLACE VIEW platform.merge_audit AS
+    SELECT * FROM public.merge_audit;
+
+DROP TABLE IF EXISTS device_revival_audit CASCADE;
+
+CREATE TABLE device_revival_audit (
+    event_id                BIGSERIAL   PRIMARY KEY,
+    device_uid              TEXT        NOT NULL,
+    previous_deleted_at     TIMESTAMPTZ NOT NULL,
+    previous_deleted_by     TEXT,
+    previous_deleted_reason TEXT,
+    revived_at              TIMESTAMPTZ NOT NULL,
+    revived_by_application  TEXT
+);
+
+CREATE OR REPLACE VIEW platform.device_revival_audit AS
+    SELECT * FROM public.device_revival_audit;
+
+DROP TABLE IF EXISTS device_interface_macs CASCADE;
+
+CREATE TABLE device_interface_macs (
+    device_id   TEXT        NOT NULL,
+    mac         TEXT        NOT NULL,
+    partition   TEXT,
+    first_seen  TIMESTAMPTZ,
+    last_seen   TIMESTAMPTZ,
+    PRIMARY KEY (device_id, mac)
+);
+
+CREATE OR REPLACE VIEW platform.device_interface_macs AS
+    SELECT * FROM public.device_interface_macs;
+
+DROP TABLE IF EXISTS identity_reconciliation_runs CASCADE;
+
+CREATE TABLE identity_reconciliation_runs (
+    run_id                      UUID        PRIMARY KEY,
+    started_at                  TIMESTAMPTZ NOT NULL,
+    completed_at                TIMESTAMPTZ,
+    duration_ms                 BIGINT,
+    status                      TEXT        NOT NULL,
+    error_summary               TEXT,
+    duplicate_identifier_count  INT         NOT NULL DEFAULT 0,
+    duplicate_components        INT         NOT NULL DEFAULT 0,
+    mergeable_components        INT         NOT NULL DEFAULT 0,
+    blocked_components          INT         NOT NULL DEFAULT 0,
+    blocked_devices             INT         NOT NULL DEFAULT 0,
+    largest_blocked_component   INT         NOT NULL DEFAULT 0,
+    merges                      INT         NOT NULL DEFAULT 0,
+    errors                      INT         NOT NULL DEFAULT 0,
+    max_merges_configured       INT,
+    merge_cap_reached           BOOLEAN     NOT NULL DEFAULT FALSE,
+    blocked_component_devices   JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    trigger                     TEXT        NOT NULL DEFAULT 'scheduled',
+    job_schedule_id             BIGINT
+);
+
+CREATE OR REPLACE VIEW platform.identity_reconciliation_runs AS
+    SELECT * FROM public.identity_reconciliation_runs;

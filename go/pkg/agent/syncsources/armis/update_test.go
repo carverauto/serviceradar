@@ -54,13 +54,13 @@ func buildNormalizedUpdateWithSource(item device, source models.SourceConfig) ma
 
 func TestFilterDevicesNormalizesCommaSeparatedIPs(t *testing.T) {
 	got := filterDevices([]device{
-		{ID: 101, IPAddress: "10.122.77.227, 10.65.210.86", Name: "multi-ip"},
+		{ID: 101, IPAddress: "192.0.2.227, 198.51.100.86", Name: "multi-ip"},
 	}, nil)
 
 	if len(got) != 1 {
 		t.Fatalf("filtered device count = %d, want 1", len(got))
 	}
-	if got[0].IPAddress != "10.122.77.227" {
+	if got[0].IPAddress != "192.0.2.227" {
 		t.Fatalf("filtered IP = %q, want first valid IP", got[0].IPAddress)
 	}
 	if got[0].ID != 101 {
@@ -70,15 +70,15 @@ func TestFilterDevicesNormalizesCommaSeparatedIPs(t *testing.T) {
 
 func TestFilterDevicesDropsBlacklistedCommaSeparatedIPs(t *testing.T) {
 	got := filterDevices([]device{
-		{ID: 101, IPAddress: "10.122.77.227, 10.65.210.86", Name: "all-blacklisted"},
-		{ID: 102, IPAddress: "10.122.77.228, 192.0.2.10", Name: "mixed"},
+		{ID: 101, IPAddress: "192.0.2.227, 198.51.100.86", Name: "all-blacklisted"},
+		{ID: 102, IPAddress: "192.0.2.228, 203.0.113.10", Name: "mixed"},
 		{ID: 103, IPAddress: "not-an-ip", Name: "invalid"},
 	}, []string{"192.0.2.0/24", "198.51.100.0/24"})
 
 	if len(got) != 1 {
 		t.Fatalf("filtered device count = %d, want 1: %#v", len(got), got)
 	}
-	if got[0].ID != 102 || got[0].IPAddress != "192.0.2.10" {
+	if got[0].ID != 102 || got[0].IPAddress != "203.0.113.10" {
 		t.Fatalf("filtered device = %#v, want allowed IP from mixed device", got[0])
 	}
 }

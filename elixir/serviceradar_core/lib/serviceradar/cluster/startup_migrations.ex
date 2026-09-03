@@ -9,13 +9,13 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   cannot be applied.
   """
 
+  alias ServiceRadar.Repo.SchemaBootstrap
+
   require Logger
 
   @default_marker_path "/tmp/serviceradar_migrations_complete"
   @default_search_path "platform, public, ag_catalog"
   @default_app_user "serviceradar"
-  @baseline_dir "priv/repo/baseline"
-  @baseline_metadata_file "metadata.json"
   @max_migration_repair_attempts 500
   @managed_public_function "public.age_device_neighborhood(text,boolean,boolean)"
   @cnpg_pooler_auth_function "public.user_search(text)"
@@ -40,22 +40,9 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   @doc false
-  def classify_bootstrap_state(migration_versions, platform_object_count)
-      when is_list(migration_versions) and is_integer(platform_object_count) do
-    versions = migration_versions |> Enum.uniq() |> Enum.sort()
-
-    cond do
-      versions != [] ->
-        :migrated
-
-      platform_object_count == 0 ->
-        :empty
-
-      true ->
-        {:ambiguous,
-         %{platform_object_count: platform_object_count, migration_versions: versions}}
-    end
-  end
+  defdelegate classify_bootstrap_state(migration_versions, platform_object_count),
+    to: SchemaBootstrap,
+    as: :classify_state
 
   @spec run!(keyword()) :: :ok
   def run!(opts \\ []) do
@@ -1127,7 +1114,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
           "[StartupMigrations] Empty platform database detected; applying schema baseline"
         )
 
-        apply_schema_baseline!(migrations_path)
+        SchemaBootstrap.apply_baseline!(ServiceRadar.Repo, migrations_path)
         run_migrations_with_repair!()
 
       :migrated ->
@@ -1149,195 +1136,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   end
 
   defp database_bootstrap_state do
-    classify_bootstrap_state(migration_ledger_versions(), platform_owned_object_count())
-  end
-
-  defp migration_ledger_versions do
-    ["platform.schema_migrations", "platform.ash_schema_migrations", "public.schema_migrations"]
-    |> Enum.flat_map(&migration_versions_from_table/1)
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
-
-  defp migration_versions_from_table(table) do
-    if table_exists?(table) do
-      %{rows: rows} = ServiceRadar.Repo.query!("SELECT version FROM #{table}")
-      Enum.map(rows, fn [version] -> version end)
-    else
-      []
-    end
-  end
-
-  defp platform_owned_object_count do
-    if schema_exists?("platform") do
-      %{rows: [[count]]} =
-        ServiceRadar.Repo.query!("""
-        SELECT count(*)
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        LEFT JOIN pg_depend d
-          ON d.classid = 'pg_class'::regclass
-         AND d.objid = c.oid
-         AND d.deptype = 'e'
-        WHERE n.nspname = 'platform'
-        AND c.relkind IN ('r', 'p', 'S', 'v', 'm', 'f')
-        AND c.relname NOT IN (
-          'schema_migrations',
-          'ash_schema_migrations',
-          'serviceradar_schema_baselines'
-        )
-        AND d.objid IS NULL
-        """)
-
-      count
-    else
-      0
-    end
-  end
-
-  defp apply_schema_baseline!(migrations_path) do
-    metadata = baseline_metadata!()
-    schema_file = baseline_schema_file!(metadata)
-    verify_baseline_checksum!(schema_file, metadata)
-
-    run_schema_file!(schema_file)
-    mark_baseline_migrations_applied!(migrations_path, metadata)
-    record_schema_baseline!(metadata)
-  end
-
-  defp baseline_metadata! do
-    path = baseline_path(@baseline_metadata_file)
-
-    with {:ok, body} <- File.read(path),
-         {:ok, metadata} <- Jason.decode(body) do
-      metadata
-    else
-      {:error, reason} ->
-        raise RuntimeError, "failed to read schema baseline metadata #{path}: #{inspect(reason)}"
-    end
-  end
-
-  defp baseline_schema_file!(%{"schema_file" => schema_file}) do
-    path = baseline_path(schema_file)
-
-    if File.regular?(path) do
-      path
-    else
-      raise RuntimeError, "schema baseline file not found: #{path}"
-    end
-  end
-
-  defp baseline_schema_file!(_metadata) do
-    raise RuntimeError, "schema baseline metadata missing schema_file"
-  end
-
-  defp verify_baseline_checksum!(schema_file, %{"schema_sha256" => expected}) do
-    actual =
-      schema_file
-      |> File.stream!(2048, [])
-      |> Enum.reduce(:crypto.hash_init(:sha256), &:crypto.hash_update(&2, &1))
-      |> :crypto.hash_final()
-      |> Base.encode16(case: :lower)
-
-    if actual != expected do
-      raise RuntimeError,
-            "schema baseline checksum mismatch for #{schema_file}: expected #{expected}, got #{actual}"
-    end
-  end
-
-  defp verify_baseline_checksum!(_schema_file, _metadata) do
-    raise RuntimeError, "schema baseline metadata missing schema_sha256"
-  end
-
-  defp baseline_path(file) do
-    Application.app_dir(:serviceradar_core, Path.join(@baseline_dir, file))
-  end
-
-  defp run_schema_file!(schema_file) do
-    statements =
-      ServiceRadar.Postgres.SchemaSql.load_statements(schema_file,
-        normalize_timescaledb_schema?: true,
-        timescaledb_search_path: search_path()
-      )
-
-    Logger.info(
-      "[StartupMigrations] Applying schema baseline from #{schema_file} (#{length(statements)} statements)"
-    )
-
-    ServiceRadar.Repo.transaction(
-      fn ->
-        Enum.each(statements, fn statement ->
-          ServiceRadar.Repo.query!(statement, [], timeout: :infinity)
-        end)
-
-        seed_required_baseline_data!()
-      end,
-      timeout: :infinity
-    )
-  end
-
-  # The supported baseline generator deliberately uses pg_dump --schema-only.
-  # Keep required singleton data in the application-owned bootstrap transaction
-  # so regenerating the baseline cannot silently discard it.
-  defp seed_required_baseline_data! do
-    ServiceRadar.Repo.query!("""
-    INSERT INTO platform.auth_settings (
-      id,
-      mode,
-      is_enabled,
-      allow_password_fallback,
-      sso_auto_provision
-    )
-    VALUES (gen_random_uuid(), 'password_only', false, true, false)
-    ON CONFLICT DO NOTHING
-    """)
-  end
-
-  defp mark_baseline_migrations_applied!(migrations_path, %{
-         "included_through" => included_through
-       }) do
-    ServiceRadar.Repo.query!("""
-    CREATE TABLE IF NOT EXISTS platform.schema_migrations (
-      version bigint NOT NULL PRIMARY KEY,
-      inserted_at timestamp(0) without time zone
-    )
-    """)
-
-    versions =
-      migrations_path
-      |> Path.join("*.exs")
-      |> Path.wildcard()
-      |> Enum.map(&migration_version_from_file/1)
-      |> Enum.filter(&(&1 <= included_through))
-      |> Enum.sort()
-
-    Enum.each(versions, &mark_platform_migration_applied!/1)
-  end
-
-  defp mark_baseline_migrations_applied!(_migrations_path, _metadata) do
-    raise RuntimeError, "schema baseline metadata missing included_through"
-  end
-
-  defp record_schema_baseline!(metadata) do
-    ServiceRadar.Repo.query!("""
-      CREATE TABLE IF NOT EXISTS platform.serviceradar_schema_baselines (
-      version integer NOT NULL PRIMARY KEY,
-      included_through bigint NOT NULL,
-      schema_sha256 text NOT NULL,
-      applied_at timestamp(0) without time zone NOT NULL DEFAULT NOW()
-    )
-    """)
-
-    ServiceRadar.Repo.query!(
-      """
-      INSERT INTO platform.serviceradar_schema_baselines (version, included_through, schema_sha256)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (version) DO UPDATE
-      SET included_through = EXCLUDED.included_through,
-          schema_sha256 = EXCLUDED.schema_sha256
-      """,
-      [metadata["version"], metadata["included_through"], metadata["schema_sha256"]]
-    )
+    SchemaBootstrap.classify(ServiceRadar.Repo)
   end
 
   defp do_run_migrations_with_repair!(_migrations_path, 0) do
@@ -1392,13 +1191,7 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     |> List.first()
   end
 
-  defp migration_version_from_file(path) do
-    path
-    |> Path.basename()
-    |> String.split("_", parts: 2)
-    |> hd()
-    |> String.to_integer()
-  end
+  defp migration_version_from_file(path), do: SchemaBootstrap.migration_version_from_file(path)
 
   defp duplicate_ddl_error?(%Postgrex.Error{postgres: %{code: code}}) do
     code in [:duplicate_column, :duplicate_table, :duplicate_object, :duplicate_function] or
