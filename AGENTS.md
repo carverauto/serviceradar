@@ -266,6 +266,13 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - Lint: `make lint`.
 - Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
+- **Bringing a database up to date: `mix serviceradar.db.migrate`, NOT `mix ecto.migrate`.**
+  An empty database is built from the committed baseline
+  (`elixir/serviceradar_core/priv/repo/baseline/`) and the migrations it contains are recorded
+  as applied; only newer ones run. `mix ecto.migrate` replays all 436 migrations instead, which
+  is slow and against a remote instance has failed outright. Pass `--no-baseline` only when you
+  deliberately want the full replay. Service startup has always baselined; this task is the same
+  code path (`ServiceRadar.Repo.SchemaBootstrap`).
 - Bazel images: `bazel run //docker/images:<target>_push`. A worktree without
   `.bazelrc.remote` is not on RBE — copy the gitignored rc files first (Hard Rules).
 - First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins`. Bazel fetches the pinned TinyGo toolchain automatically; local `oras` is still required for publish/inspect workflows. `make push_all` is the container-image path; `make push_all_release` adds the Wasm publish/sign/verify path for release-style runs.

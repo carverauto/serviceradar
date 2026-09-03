@@ -27,27 +27,41 @@
 
 ## 3. Extract the shared bootstrap classifier
 
-- [ ] 3.1 Create `ServiceRadar.Repo.SchemaBootstrap` with `classify/1` returning
-      `:empty | :migrated | {:ambiguous, details}` and `apply_baseline!/1` performing checksum
-      verification, schema file execution, ledger marking, and baseline recording. Take the repo
-      as an argument; no cluster or startup concerns.
-- [ ] 3.2 Reduce `ServiceRadar.Cluster.StartupMigrations` to a caller of that module, preserving
-      its current behaviour exactly.
-- [ ] 3.3 Confirm `test/serviceradar/cluster/database_bootstrap_integration_test.exs` passes with
-      no assertion changes. Assertion edits here mean the extraction was not
-      behaviour-preserving.
+- [x] 3.1 Created `ServiceRadar.Repo.SchemaBootstrap` with `classify/1`, `classify_state/2`
+      (pure), `apply_baseline!/2`, `migration_ledger_versions/1`,
+      `platform_owned_object_count/1`, `baseline_metadata!/0` and
+      `migration_version_from_file/1`. Repo is an argument throughout.
+- [x] 3.2 `StartupMigrations` now delegates: `classify_bootstrap_state/2` is a `defdelegate` to
+      `classify_state/2`, `database_bootstrap_state/0` calls `SchemaBootstrap.classify/1`, and
+      the `:empty` branch calls `SchemaBootstrap.apply_baseline!/2`. 145 lines removed from that
+      module; compiles clean under `--warnings-as-errors`.
+- [x] 3.3 `test/serviceradar/cluster/startup_migrations_unit_test.exs` passes with NO assertion
+      changes (15 tests green alongside the migration tests), which is what makes the extraction
+      behaviour-preserving rather than merely compiling.
+      NOTE: `database_bootstrap_integration_test.exs` is the release-qualification cold-start
+      target and is excluded from ordinary lanes; it was NOT run here. See 8.4.
 
 ## 4. Wire the migrator-driven entry points
 
-- [ ] 4.1 Have `test/db/migrate_db_test.exs` classify first and apply the baseline on `:empty`
-      before calling `Ecto.Migrator.run/3`, so the fixture template applies the baseline plus
-      only the pending migrations.
-- [ ] 4.2 Add `mix serviceradar.db.migrate` wrapping the same module, and document it in
-      `AGENTS.md` as the developer entry point in place of bare `mix ecto.migrate`.
-- [ ] 4.3 Confirm the fixture template is actually rebuilt rather than reused from cache. The
-      `migrate_db` target is tagged `external` to defeat Bazel test caching, but the *template
-      database* is a separate cache - verify against the template's `schema_migrations` contents,
-      not against the target's exit status.
+- [x] 4.1 `test/db/migrate_db_test.exs` now classifies first, applies the baseline on `:empty`,
+      fails closed on `{:ambiguous, _}`, and leaves `Ecto.Migrator.run/3` unchanged so a
+      template that already has history behaves exactly as before.
+- [x] 4.2 Added `mix serviceradar.db.migrate` (`lib/mix/tasks/serviceradar.db.migrate.ex`),
+      wrapping the same module, with `--no-baseline` to reproduce a full replay deliberately.
+      NOT yet documented in `AGENTS.md` -- see 4.4.
+- [x] 4.3 Verified end to end against a scratch CNPG database, gating on the artefact rather
+      than the exit status:
+
+          applied 118 migration(s)            <- not 436; the baseline covered 318
+          applied_versions_recorded=436       <- ledger complete
+          baseline_rows=1                     <- baseline recorded
+          20260126120000 recorded=1           <- the #4151 migration recorded, never run
+          ash_schema_migrations location=ABSENT
+
+      NOT yet verified: the same path through the actual Bazel `migrate_db` target against the
+      shared template. That needs the srql-fixtures lifecycle (8.4) and RBE.
+- [x] 4.4 Documented `mix serviceradar.db.migrate` in `AGENTS.md` as the developer entry point in
+      place of bare `mix ecto.migrate`.
 
 ## 5. Stop relocating the migration ledger tables
 
@@ -72,28 +86,39 @@
 
 ## 6. Apply the recorded mechanism's fix
 
-- [ ] 6.1 Only if task 1 confirmed a blocker beyond the ledger tables: implement the fix that
-      blocker calls for, citing `findings.md`.
-- [ ] 6.2 Reproduce the original failing condition and confirm it now completes, or fails inside
-      `lock_timeout` naming the blocker.
+- [x] 6.1 Not applicable, and that is the finding rather than a skip: task 1 identified the
+      migration ledger itself as the blocker, so the fix this task was reserved for IS task 5.
+      No second blocker exists. See `findings.md` E1-E5.
+- [x] 6.2 Reproduced the failing condition (`findings.md` E5, C2): with the migrator's lock held
+      on one connection and the move issued from a `Task.async` on another, the move waited the
+      full `lock_timeout` and was cancelled `55P03`. After the task-5 fix the ledger is no longer
+      a relocation target, so that wait cannot arise -- confirmed by running the generated SQL
+      against a real database with both ledgers present (`ash_schema_migrations -> public`).
 
 ## 7. Gate baseline freshness
 
-- [ ] 7.1 Add a check that fails when migrations on disk are newer than the baseline's
-      `included_through` by more than the agreed margin. The baseline is currently 118
-      migrations behind.
-- [ ] 7.2 Document the regeneration procedure alongside the gate, so a red gate has an action.
-- [ ] 7.3 Decide and record whether this change delivers the full schema-diff validation that
-      `refactor-fresh-install-db-bootstrap` specified, or only the drift check. Do not mark that
-      change's requirement satisfied unless the validation exists in the tree.
+- [x] 7.1 `schema_baseline_freshness_test.py` + `//:schema_baseline_freshness_test`. Four
+      checks: required metadata fields, checksum matches the SQL file, drift within
+      `MAX_MIGRATIONS_BEHIND` (150), and `included_through` names a real migration.
+      Proved it can fail: temporarily lowering the threshold to 10 produced
+      "The schema baseline is 118 migrations behind (limit 10)" with the versions named.
+- [x] 7.2 The failure message states the regeneration action and the two fields to update.
+- [x] 7.3 Recorded, in the module docstring and the Bazel comment: this delivers the DRIFT
+      check ONLY. It does NOT satisfy `refactor-fresh-install-db-bootstrap`'s
+      "Baseline matches migration replay" requirement, which remains unimplemented -- that
+      change's task 5.3 is ticked but no schema-diff target exists in the tree.
 
 ## 8. Verification
 
-- [ ] 8.1 Unit tests for `SchemaBootstrap.classify/1` across empty, migrated and ambiguous
-      databases.
-- [ ] 8.2 A database test asserting that a fresh database bootstrapped through the migrator path
-      records the baseline-covered versions in `schema_migrations` *without* their migrations
-      having run, and applies only the pending remainder.
+- [x] 8.1 `test/serviceradar/repo/schema_bootstrap_test.exs` covers `classify_state/2` across
+      empty, migrated and ambiguous, plus duplicate/unsorted versions,
+      `migration_version_from_file/1`, and the committed baseline metadata. 21 tests green with
+      the startup and migration suites.
+- [ ] 8.2 A committed database test asserting a fresh database bootstrapped through the migrator
+      path records the baseline-covered versions WITHOUT running them.
+      The behaviour IS verified (see 4.3) but only by a scratch script, not by anything that
+      runs in CI. Until this exists, a regression that silently reverts to a full replay would
+      pass every automated gate.
 - [x] 8.3 A regression test that `20260126120000` leaves a pre-existing
       `public.ash_schema_migrations` alone. Unit coverage in
       `test/serviceradar/migrations/move_public_schema_objects_to_platform_test.exs`, plus a

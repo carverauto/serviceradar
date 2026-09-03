@@ -6,7 +6,7 @@
 *service startup* to use it. Nothing else learned. The two paths that developers and CI
 actually run - `mix ecto.migrate`, and the Bazel fixture template target
 `//elixir/serviceradar_core:migrate_db` - still call `Ecto.Migrator.run(repo, :up, all: true)`
-and replay all 435 migrations on an empty database, including the 318 the committed baseline
+and replay all 436 migrations on an empty database, including the 318 the committed baseline
 already contains.
 
 That replay is what puts issue #4151 on the path. `MovePublicSchemaObjectsToPlatform`
@@ -39,7 +39,7 @@ a fresh database runs that migration at all.
   with `ALTER TABLE ... SET SCHEMA` under a live repo buys nothing and needs
   `ACCESS EXCLUSIVE`.
 - Gate baseline freshness. The baseline is currently 118 migrations behind the tip
-  (`included_through: 20260707120000`, 435 migrations on disk) and nothing detects that.
+  (`included_through: 20260707120000`, 436 migrations on disk) and nothing detects that.
 
 ## Impact
 
