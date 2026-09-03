@@ -2,7 +2,7 @@
 
 ## 1. Reconciliation run persistence (core)
 
-- [ ] 1.1 Add a named Elixir migration creating
+- [x] 1.1 Add a named Elixir migration creating
       `platform.identity_reconciliation_runs` with `prefix: "platform"`:
       `run_id` uuid pk, `started_at`, `completed_at`, `duration_ms`, `status`,
       `error_summary`, `duplicate_identifier_count`, `duplicate_components`,
@@ -11,28 +11,28 @@
       `max_merges_configured`, `merge_cap_reached`,
       `blocked_component_devices` jsonb, `trigger`, `job_schedule_id`.
       Indexes on `(started_at DESC)` and `(status, started_at DESC)`.
-- [ ] 1.2 Add `ServiceRadar.Inventory.Identity.ReconciliationRun` Ash resource
+- [x] 1.2 Add `ServiceRadar.Inventory.Identity.ReconciliationRun` Ash resource
       with `migrate? false`, a `:record` create action and a `:read`. System
       actor writes; `read_viewer_plus()` reads.
-- [ ] 1.3 Change `DuplicateSweep.report_blocked_components/1` to return the
+- [x] 1.3 Change `DuplicateSweep.report_blocked_components/1` to return the
       largest component size (`0` for the empty clause) instead of `:ok`, and
       thread it into the stats map as `largest_blocked_component`.
-- [ ] 1.4 Add `max_merges_configured` and `merge_cap_reached` to the stats map.
+- [x] 1.4 Add `max_merges_configured` and `merge_cap_reached` to the stats map.
       `merge_cap_reached` is `merge_cap_reached?(max_merges, merges)` evaluated
       once at the end of the run, not inferred by the caller.
-- [ ] 1.5 Collect blocked-component device uid arrays into
+- [x] 1.5 Collect blocked-component device uid arrays into
       `blocked_component_devices`, capped at a configurable number of
       components (default 100) with a `truncated` marker in the jsonb.
-- [ ] 1.6 Write the run record on the success path of
+- [x] 1.6 Write the run record on the success path of
       `reconcile_duplicates/1`.
-- [ ] 1.7 Write the run record on the `rescue` path with status `failed` and an
+- [x] 1.7 Write the run record on the `rescue` path with status `failed` and an
       `error_summary`, preserving the counters established before the raise.
       Do not change the existing `{:error, error}` return.
-- [ ] 1.8 Wrap the run-record write so a write failure is logged and swallowed
+- [x] 1.8 Wrap the run-record write so a write failure is logged and swallowed
       and can never fail, roll back, or abort the sweep.
-- [ ] 1.9 Prune run records older than a configurable window (default 30 days)
+- [x] 1.9 Prune run records older than a configurable window (default 30 days)
       at the end of each run, inside the same swallow-on-failure wrapper.
-- [ ] 1.10 Pass `trigger` (`scheduled` | `manual`) and `job_schedule_id` from
+- [x] 1.10 Pass `trigger` (`scheduled` | `manual`) and `job_schedule_id` from
       `JobSchedule.run_identity_reconciliation` through `reconcile_opts`.
 - [ ] 1.11 Tests: run record written on success; on the rescue path;
       `merge_cap_reached` true exactly when merges reach the cap; a raising
