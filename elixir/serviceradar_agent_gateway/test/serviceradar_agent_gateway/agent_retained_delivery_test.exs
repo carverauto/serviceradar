@@ -239,10 +239,17 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
     assert error.message =~ "payload_too_large"
   end
 
-  test "unary RPC applies the retained capability negotiated by this gateway", context do
+  test "unary RPC scopes retained capability negotiation by authenticated partition", context do
     agent_id = "unary-retained-#{System.unique_integer([:positive])}"
-    :ok = AgentRegistryProxy.touch_agent(agent_id, %{capabilities: [@retained_plugin_capability]})
-    _handler = start_status_handler([{:error, :lane_full}])
+
+    :ok =
+      AgentRegistryProxy.touch_agent(agent_id, %{
+        partition_id: "default",
+        capabilities: [@retained_plugin_capability]
+      })
+
+    :ok = AgentRegistryProxy.touch_agent(agent_id, %{partition_id: "other", capabilities: []})
+    _handler = start_status_handler([{:error, :lane_full}, {:error, :lane_full}])
 
     request = %Monitoring.GatewayStatusRequest{
       agent_id: agent_id,
@@ -252,17 +259,31 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
 
     assert %Monitoring.GatewayStatusResponse{received: false, directives: []} =
              AgentGatewayServer.push_status(request, cert_stream(issue_cert_der!(agent_id, context)))
+
+    assert %Monitoring.GatewayStatusResponse{received: true, directives: []} =
+             AgentGatewayServer.push_status(
+               request,
+               cert_stream(issue_cert_der!(agent_id, context, "other"))
+             )
   end
 
   test "heartbeat preserves capabilities while a later hello can clear them" do
     agent_id = "capability-state-#{System.unique_integer([:positive])}"
 
-    :ok = AgentRegistryProxy.touch_agent(agent_id, %{capabilities: [@retained_plugin_capability]})
-    :ok = AgentRegistryProxy.touch_agent(agent_id, %{status: :connected})
-    assert AgentRegistryProxy.delivery_capabilities(agent_id) == [@retained_plugin_capability]
+    :ok =
+      AgentRegistryProxy.touch_agent(agent_id, %{
+        partition_id: "partition-a",
+        capabilities: [@retained_plugin_capability]
+      })
 
-    :ok = AgentRegistryProxy.touch_agent(agent_id, %{capabilities: []})
-    assert AgentRegistryProxy.delivery_capabilities(agent_id) == []
+    :ok = AgentRegistryProxy.touch_agent(agent_id, %{partition_id: "partition-a", status: :connected})
+
+    assert AgentRegistryProxy.delivery_capabilities("partition-a", agent_id) == [
+             @retained_plugin_capability
+           ]
+
+    :ok = AgentRegistryProxy.touch_agent(agent_id, %{partition_id: "partition-a", capabilities: []})
+    assert AgentRegistryProxy.delivery_capabilities("partition-a", agent_id) == []
   end
 
   test "stream RPC rejects a chunk after final before forwarding", context do
@@ -406,11 +427,11 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
     %GRPC.Server.Stream{adapter: PeerCertAdapter, payload: {:cert, cert_der}}
   end
 
-  defp issue_cert_der!(component_id, context) do
+  defp issue_cert_der!(component_id, context, partition_id \\ "default") do
     {:ok, bundle} =
       CertIssuer.issue_agent_bundle(
         component_id,
-        "default",
+        partition_id,
         :agent,
         ca_cert_file: context.ca_cert,
         ca_key_file: context.ca_key,

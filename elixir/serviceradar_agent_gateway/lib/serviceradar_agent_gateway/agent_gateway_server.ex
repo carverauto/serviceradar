@@ -410,7 +410,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     partition = resolve_partition(identity)
 
     refresh_agent_heartbeat(identity, agent_id, partition, request, stream)
-    delivery_capabilities = AgentRegistryProxy.delivery_capabilities(agent_id)
+    delivery_capabilities = AgentRegistryProxy.delivery_capabilities(partition, agent_id)
 
     Logger.info("Received status push from agent #{agent_id}: #{service_count} services")
 
