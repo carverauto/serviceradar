@@ -289,6 +289,7 @@ fn apply_ordering<'a>(mut query: AlertsQuery<'a>, order: &[OrderClause]) -> Aler
     query
 }
 
+
 /// A grouped `stats:` request against the alerts entity.
 ///
 /// Only `count()` is supported. Alerts have no numeric measure worth averaging
@@ -374,20 +375,13 @@ fn parse_stats_spec(raw: &str) -> Result<AlertStatsSpec> {
         ));
     }
 
-    Ok(AlertStatsSpec {
-        alias,
-        group_fields,
-    })
+    Ok(AlertStatsSpec { alias, group_fields })
 }
 
 /// The alias becomes a JSON key and is interpolated into SQL, so it is
 /// restricted to identifier characters.
 fn sanitize_stats_alias(raw: &str) -> Result<String> {
-    let alias = raw
-        .trim()
-        .trim_matches('"')
-        .trim_matches('\'')
-        .to_lowercase();
+    let alias = raw.trim().trim_matches('"').trim_matches('\'').to_lowercase();
 
     if alias.is_empty()
         || alias.len() > 64
@@ -435,10 +429,7 @@ fn build_stats_sql(plan: &QueryPlan, spec: &AlertStatsSpec) -> Result<String> {
     let limit = plan.limit.clamp(1, 1000);
 
     Ok([
-        format!(
-            "SELECT jsonb_build_object({projection}, '{}', COUNT(*)) AS payload",
-            spec.alias
-        ),
+        format!("SELECT jsonb_build_object({projection}, '{}', COUNT(*)) AS payload", spec.alias),
         format!("FROM ({inner}) src"),
         format!("GROUP BY {group_by}"),
         // Largest groups first: a truncated result then keeps the ones an
@@ -448,6 +439,7 @@ fn build_stats_sql(plan: &QueryPlan, spec: &AlertStatsSpec) -> Result<String> {
     ]
     .join("\n"))
 }
+
 
 #[derive(diesel::QueryableByName)]
 struct AlertStatsPayload {

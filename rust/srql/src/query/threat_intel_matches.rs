@@ -1,6 +1,6 @@
 //! SRQL `in:threat_intel_matches` — current IP/CIDR cache-to-indicator memberships.
 
-use super::{BindParam, QueryPlan, bind_sql_param};
+use super::{bind_sql_param, BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -476,7 +476,7 @@ mod tests {
     use crate::{
         config::AppConfig,
         parser,
-        query::{QueryRequest, build_query_plan},
+        query::{build_query_plan, QueryRequest},
     };
 
     fn plan(query: &str) -> QueryPlan {
@@ -507,11 +507,9 @@ mod tests {
         assert!(sql.contains("c.matched"));
         assert!(sql.contains("evaluated_at"));
         assert!(sql.contains("i.source = $"));
-        assert!(
-            binds
-                .iter()
-                .any(|bind| matches!(bind, BindParam::Text(value) if value == "alienvault_otx"))
-        );
+        assert!(binds
+            .iter()
+            .any(|bind| matches!(bind, BindParam::Text(value) if value == "alienvault_otx")));
         assert!(!sql.contains("observed_at"));
     }
 

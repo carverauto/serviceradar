@@ -100,16 +100,12 @@ fn devices_external_inventory_source_and_metadata_filters_are_bound() {
     assert!(params.iter().any(
         |param| matches!(param, BindParam::TextArray(values) if values == &vec!["example-inventory".to_string()])
     ));
-    assert!(
-        params
-            .iter()
-            .any(|param| matches!(param, BindParam::Text(value) if value == "example-prod"))
-    );
-    assert!(
-        params
-            .iter()
-            .any(|param| matches!(param, BindParam::Text(value) if value == "IAD"))
-    );
+    assert!(params
+        .iter()
+        .any(|param| matches!(param, BindParam::Text(value) if value == "example-prod")));
+    assert!(params
+        .iter()
+        .any(|param| matches!(param, BindParam::Text(value) if value == "IAD")));
 }
 
 #[test]
@@ -143,11 +139,10 @@ fn devices_awx_managed_true_builds_metadata_predicate() {
     let plan = plan_for(query);
 
     assert!(matches!(plan.entity, Entity::Devices));
-    assert!(
-        plan.filters
-            .iter()
-            .any(|filter| filter.field == "awx_managed" && matches!(filter.op, FilterOp::Eq))
-    );
+    assert!(plan
+        .filters
+        .iter()
+        .any(|filter| filter.field == "awx_managed" && matches!(filter.op, FilterOp::Eq)));
 
     // to_sql_and_params reconciles diesel bind count against collected params, so
     // a successful build proves the derived predicate contributes zero binds.
@@ -357,11 +352,9 @@ fn devices_ip_cidr_filter_generates_inet_clause() {
         "expected CIDR inet containment, got: {sql}"
     );
 
-    assert!(
-        params
-            .iter()
-            .any(|param| { matches!(param, BindParam::Text(value) if value == "10.0.0.0/8") })
-    );
+    assert!(params
+        .iter()
+        .any(|param| { matches!(param, BindParam::Text(value) if value == "10.0.0.0/8") }));
 }
 
 #[test]
@@ -379,16 +372,12 @@ fn devices_ip_range_filter_generates_range_clause() {
         "expected IP range inet comparison, got: {sql}"
     );
 
-    assert!(
-        params
-            .iter()
-            .any(|param| { matches!(param, BindParam::Text(value) if value == "10.0.0.10") })
-    );
-    assert!(
-        params
-            .iter()
-            .any(|param| { matches!(param, BindParam::Text(value) if value == "10.0.0.50") })
-    );
+    assert!(params
+        .iter()
+        .any(|param| { matches!(param, BindParam::Text(value) if value == "10.0.0.10") }));
+    assert!(params
+        .iter()
+        .any(|param| { matches!(param, BindParam::Text(value) if value == "10.0.0.50") }));
 }
 
 #[test]
@@ -1060,11 +1049,10 @@ fn devices_first_seen_relative_window_filters_first_seen_time() {
     let plan = plan_for(query);
 
     assert!(plan.time_range.is_none(), "first_seen must not reuse time:");
-    assert!(
-        plan.filters
-            .iter()
-            .any(|filter| filter.field == "first_seen" && matches!(filter.op, FilterOp::Eq))
-    );
+    assert!(plan
+        .filters
+        .iter()
+        .any(|filter| filter.field == "first_seen" && matches!(filter.op, FilterOp::Eq)));
     assert_eq!(plan.order[0].field, "first_seen");
 
     let (sql, params) = devices::to_sql_and_params(&plan).expect("should build first_seen SQL");

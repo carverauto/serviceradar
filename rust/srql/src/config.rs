@@ -260,8 +260,8 @@ pub struct DatabaseTls {
 impl DatabaseTls {
     pub fn resolve() -> Result<Self> {
         use serviceradar_config_manager::{
-            ConfigManager, DATABASE_CA_CERT, DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY, Filesystem,
-            Identity, built_ins, fetch_ca_bundle,
+            built_ins, fetch_ca_bundle, ConfigManager, Filesystem, Identity, DATABASE_CA_CERT,
+            DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY,
         };
         use serviceradar_config_schema::TlsMode;
         use serviceradar_secret_manager::{EnvironmentProvider, Manifest, SecretManager};
@@ -308,11 +308,9 @@ impl DatabaseTls {
             Manifest::new([DATABASE_CA_CERT, DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY]),
         );
 
-        let ca = secrets.resolve(DATABASE_CA_CERT).map_err(|e| {
-            anyhow::anyhow!(
-                "database.tls_mode verifies the server, so {DATABASE_CA_CERT} is required: {e}"
-            )
-        })?;
+        let ca = secrets
+            .resolve(DATABASE_CA_CERT)
+            .map_err(|e| anyhow::anyhow!("database.tls_mode verifies the server, so {DATABASE_CA_CERT} is required: {e}"))?;
 
         // Client certificates are optional: a server that does not ask for one is the common
         // case. Both or neither -- srql::tls rejects half an identity rather than silently
@@ -328,3 +326,4 @@ impl DatabaseTls {
         })
     }
 }
+
