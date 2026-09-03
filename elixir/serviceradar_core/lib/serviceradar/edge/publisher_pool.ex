@@ -117,6 +117,18 @@ defmodule ServiceRadar.Edge.PublisherPool do
 
   A refusal is final for THIS call: it never borrows from another class, and the pool's state is
   untouched.
+
+  ## THE CALLING PROCESS BECOMES THE ATTEMPT'S OWNER
+
+  Taken from the call's `from`, so there is no argument in which a caller could name a different
+  process. It is the ONLY process that may later end this attempt -- `settle/3`, `attempt_failed/2`
+  and `rearm/3` all refuse anyone else, which is what fences a retry on the previous request
+  rather than on a deadline.
+
+  The practical constraint that follows: ADMIT, PUBLISH AND SETTLE MUST HAPPEN IN THE SAME
+  PROCESS. Handing a reservation to a different process to publish leaves the admitter as the
+  owner, and only the admitter can report the outcome. `JetStreamPublisher` does all three inline,
+  which is why this holds today.
   """
   def admit(pool, key, bytes, ack_timeout_ms) do
     # An admission the CALLER never receives must not stay charged. GenServer.call/3 gives up
@@ -207,23 +219,27 @@ defmodule ServiceRadar.Edge.PublisherPool do
     end
   end
 
-  def handle_call({:attempt_failed, reservation}, _from, state) do
-    case PublishWindow.attempt_failed(state.window, reservation) do
+  # `from` is the OWNER, and it is taken from the message rather than from the request body so a
+  # caller cannot name a process other than itself. Every function below that ends or extends a
+  # STARTED attempt passes it, which is what makes termination the owner's to report and nobody
+  # else's -- see PublishWindow's "fencing a started attempt".
+  def handle_call({:attempt_failed, reservation}, {owner, _tag}, state) do
+    case PublishWindow.attempt_failed(state.window, reservation, owner) do
       {:ok, window} -> {:reply, :ok, %{state | window: window}}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
-  def handle_call({:settle, reservation, outcome}, _from, state) do
-    case PublishWindow.settle(state.window, reservation, outcome) do
+  def handle_call({:settle, reservation, outcome}, {owner, _tag}, state) do
+    case PublishWindow.settle(state.window, reservation, outcome, owner) do
       {:ok, window} -> {:reply, :ok, %{state | window: window}}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
 
-  def handle_call({:rearm, reservation, ack_timeout_ms}, _from, state) do
+  def handle_call({:rearm, reservation, ack_timeout_ms}, {owner, _tag}, state) do
     with {:ok, deadline_at} <- deadline(ack_timeout_ms),
-         {:ok, window} <- PublishWindow.rearm(state.window, reservation, deadline_at) do
+         {:ok, window} <- PublishWindow.rearm(state.window, reservation, deadline_at, owner) do
       {:reply, :ok, %{state | window: window}}
     else
       :error -> {:reply, {:error, :deadline}, state}
@@ -299,7 +315,7 @@ defmodule ServiceRadar.Edge.PublisherPool do
     # reservation and let the lane publish past its grant.
     kind = if PublishWindow.outstanding?(state.window, key), do: :rearmed, else: :created
 
-    case PublishWindow.admit(state.window, key, bytes, deadline_at) do
+    case PublishWindow.admit(state.window, key, bytes, deadline_at, caller) do
       {:ok, window, {_key, token} = reservation} ->
         pending = %{key: key, token: token, kind: kind, monitor: Process.monitor(caller)}
 

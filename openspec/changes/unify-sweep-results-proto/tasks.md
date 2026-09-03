@@ -878,17 +878,28 @@
   validation and prefix advancement). This task MAY NOT be checked until BOTH
   hold, each covered by a scenario under `ingestion-routing`'s "Backpressure and
   fairness are bounded at every hop":
-  (i) RESTART OVERLAP -- a lane restart MUST NOT reopen capacity an in-flight
-  request still occupies, so old and replacement requests together cannot exceed
-  the grant. Eventual supervisor restart of a sibling does not satisfy this:
-  restarts are ordered but not instantaneous, and a request may complete inside
-  that interval.
-  (ii) POST-HANDOFF FENCING -- once a reservation is handed to a caller, a retry
-  MUST NOT be admitted until the previous attempt is fenced by its REQUEST (owner,
-  start, termination). A passed deadline or an absent PubAck is NOT sufficient
-  evidence: neither distinguishes "never sent" from "in flight", "delayed", or
-  "acknowledged with the acknowledgement lost". Correlation from 3.5 may assist
-  RECOVERY but does not discharge this obligation.
+  (i) RESTART OVERLAP -- STILL OPEN. A lane restart MUST NOT reopen capacity that
+  an in-flight request still occupies, so old and replacement requests together
+  cannot exceed the grant. Eventual supervisor restart of a sibling does not
+  satisfy this: restarts are ordered but not instantaneous, and a request may
+  complete inside that interval. A replacement `PublisherPool` still starts with
+  an empty window and therefore its full grant.
+  (ii) POST-HANDOFF FENCING -- CLOSED. Once a reservation is handed to a caller, a
+  retry MUST NOT be admitted until the previous attempt is fenced by its REQUEST
+  (owner, start, termination). A passed deadline or an absent PubAck is NOT
+  sufficient evidence: neither distinguishes "never sent" from "in flight",
+  "delayed", or "acknowledged with the acknowledgement lost". Correlation from 3.5
+  may assist RECOVERY but does not discharge this obligation.
+  How it is discharged: `PublishWindow` records the OWNER pid at `admit/5`; the
+  START is the `:pending` -> `:active` transition in `activate/2`, before which no
+  request can have been issued; TERMINATION is the owner itself calling
+  `attempt_failed/3` or `settle/4`, both of which match on `^owner`.
+  `PublisherPool` takes the owner from the call's `from`, so a caller has no
+  parameter in which to name a different process. `expired/2` stays reports-only
+  and a sweep holding `{key, token}` cannot act on it -- the deadline is now
+  observable but never authorising. Owner DEATH is deliberately NOT treated as
+  termination, because a process can die after its request reached the socket;
+  that leaves a dead owner's reservation charged, which (i) is what will free.
 - [ ] 3.4 Bounded-decode and verify the bounded binary record against the mTLS
   session, grant, registry, route, cost, size, and digest, but publish the exact
   `EdgeDeliveryFrameV1.record_bytes` unchanged to JetStream, never the delivery
