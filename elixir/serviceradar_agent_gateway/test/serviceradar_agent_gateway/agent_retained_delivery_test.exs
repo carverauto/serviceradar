@@ -1,11 +1,13 @@
 defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.ProcessRegistry
   alias ServiceRadarAgentGateway.AgentGatewayServer
   alias ServiceRadarAgentGateway.AgentRegistryProxy
   alias ServiceRadarAgentGateway.CertificateTestHelpers
   alias ServiceRadarAgentGateway.CertIssuer
   alias ServiceRadarAgentGateway.Config
+  alias ServiceRadarAgentGateway.ControlStreamSession
   alias ServiceRadarAgentGateway.StatusHandlerTestHelpers
 
   @retained_plugin_capability "plugin-result-retained:v1"
@@ -43,8 +45,8 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
       start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
     end
 
-    if !Process.whereis(ServiceRadar.ProcessRegistry.registry_name()) do
-      Enum.each(ServiceRadar.ProcessRegistry.child_specs(), &start_supervised!/1)
+    if !Process.whereis(ProcessRegistry.registry_name()) do
+      Enum.each(ProcessRegistry.child_specs(), &start_supervised!/1)
     end
 
     if !Process.whereis(AgentRegistryProxy) do
@@ -227,6 +229,61 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
     refute_receive :unexpected_forward
   end
 
+  test "stream RPC rejects an excessive declared chunk count before consuming its tail", context do
+    agent_id = "chunk-count-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    first = status_chunk(agent_id, 0, 5_001, [], [])
+
+    tail =
+      Stream.map([:sentinel], fn :sentinel ->
+        send(parent, :excessive_chunk_tail_consumed)
+        status_chunk(agent_id, 1, 5_001, [], [])
+      end)
+
+    assert_raise GRPC.RPCError, ~r/exceeds 5000 chunks/, fn ->
+      AgentGatewayServer.stream_status(
+        Stream.concat([first], tail),
+        cert_stream(issue_cert_der!(agent_id, context))
+      )
+    end
+
+    refute_receive :excessive_chunk_tail_consumed
+  end
+
+  test "stream RPC applies the retained ten-chunk bound when a later chunk reveals the source", context do
+    agent_id = "retained-chunk-count-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    prefix = [
+      status_chunk(agent_id, 0, 11, [], [@retained_plugin_capability]),
+      status_chunk(agent_id, 1, 11, [plugin_service("first")], [@retained_plugin_capability])
+    ]
+
+    tail =
+      Stream.map(2..10, fn index ->
+        send(parent, :retained_chunk_tail_consumed)
+
+        status_chunk(
+          agent_id,
+          index,
+          11,
+          [],
+          [@retained_plugin_capability],
+          index == 10
+        )
+      end)
+
+    assert_raise GRPC.RPCError, ~r/exceeds ten chunks/, fn ->
+      AgentGatewayServer.stream_status(
+        Stream.concat(prefix, tail),
+        cert_stream(issue_cert_der!(agent_id, context))
+      )
+    end
+
+    refute_receive :retained_chunk_tail_consumed
+  end
+
   test "flow source contract rejects payloads above six MiB" do
     oversized = %{flow_service() | message: :binary.copy(<<0>>, 6 * 1024 * 1024 + 1)}
 
@@ -284,6 +341,123 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
 
     :ok = AgentRegistryProxy.touch_agent(agent_id, %{partition_id: "partition-a", capabilities: []})
     assert AgentRegistryProxy.delivery_capabilities("partition-a", agent_id) == []
+  end
+
+  test "live control-session hello is the capability authority" do
+    agent_id = "live-capability-state-#{System.unique_integer([:positive])}"
+    partition_id = "partition-a"
+    identity = control_identity_context(agent_id, partition_id)
+
+    :ok = AgentRegistryProxy.touch_agent(agent_id, %{partition_id: partition_id, capabilities: []})
+
+    session = start_temporary_control_session!()
+    assert :ok = ControlStreamSession.register(session, agent_id, partition_id, [], identity)
+
+    ControlStreamSession.handle_message(
+      session,
+      control_hello(agent_id, [@retained_plugin_capability]),
+      identity
+    )
+
+    assert_control_capabilities(session, partition_id, agent_id, [@retained_plugin_capability])
+
+    assert AgentRegistryProxy.delivery_capabilities(partition_id, agent_id) == [
+             @retained_plugin_capability
+           ]
+
+    :ok =
+      AgentRegistryProxy.touch_agent(agent_id, %{
+        partition_id: partition_id,
+        capabilities: [@retained_plugin_capability]
+      })
+
+    ControlStreamSession.handle_message(session, control_hello(agent_id, []), identity)
+    assert_control_capabilities(session, partition_id, agent_id, [])
+    assert AgentRegistryProxy.delivery_capabilities(partition_id, agent_id) == []
+    kill_control_session!(session, partition_id, agent_id)
+    assert AgentRegistryProxy.delivery_capabilities(partition_id, agent_id) == []
+  end
+
+  test "verified retained capability remains authoritative after the control session ends", context do
+    agent_id = "ended-session-capability-#{System.unique_integer([:positive])}"
+    partition_id = "default"
+    identity = control_identity_context(agent_id, partition_id)
+
+    :ok = AgentRegistryProxy.touch_agent(agent_id, %{partition_id: partition_id, capabilities: []})
+
+    session = start_temporary_control_session!()
+    assert :ok = ControlStreamSession.register(session, agent_id, partition_id, [], identity)
+
+    ControlStreamSession.handle_message(
+      session,
+      control_hello(agent_id, [@retained_plugin_capability]),
+      identity
+    )
+
+    assert_control_capabilities(session, partition_id, agent_id, [@retained_plugin_capability])
+    kill_control_session!(session, partition_id, agent_id)
+
+    _handler = start_status_handler([{:error, :lane_full}])
+
+    request = %Monitoring.GatewayStatusRequest{
+      agent_id: agent_id,
+      services: [plugin_service("retained-after-control")],
+      timestamp: System.os_time(:second)
+    }
+
+    assert %Monitoring.GatewayStatusResponse{received: false, directives: []} =
+             AgentGatewayServer.push_status(request, cert_stream(issue_cert_der!(agent_id, context)))
+  end
+
+  test "live control-session capabilities survive an independent proxy restart" do
+    agent_id = "proxy-restart-capability-#{System.unique_integer([:positive])}"
+    partition_id = "partition-a"
+    identity = control_identity_context(agent_id, partition_id)
+
+    :ok =
+      AgentRegistryProxy.touch_agent(agent_id, %{
+        partition_id: partition_id,
+        capabilities: []
+      })
+
+    session = start_temporary_control_session!()
+
+    assert :ok =
+             ControlStreamSession.register(
+               session,
+               agent_id,
+               partition_id,
+               [@retained_plugin_capability],
+               identity
+             )
+
+    assert_control_capabilities(session, partition_id, agent_id, [@retained_plugin_capability])
+    restart_agent_registry_proxy!()
+    kill_control_session!(session, partition_id, agent_id)
+
+    assert AgentRegistryProxy.delivery_capabilities(partition_id, agent_id) == [
+             @retained_plugin_capability
+           ]
+  end
+
+  test "stream RPC preserves forward order with linear chunk accumulation", context do
+    agent_id = "stream-order-#{System.unique_integer([:positive])}"
+    _handler = start_recording_status_handler(self())
+
+    chunks = [
+      status_chunk(agent_id, 0, 2, [best_effort_service("first")], []),
+      status_chunk(agent_id, 1, 2, [best_effort_service("second")], [], true)
+    ]
+
+    assert %Monitoring.GatewayStatusResponse{received: true, directives: directives} =
+             AgentGatewayServer.stream_status(
+               chunks,
+               cert_stream(issue_cert_der!(agent_id, context))
+             )
+
+    assert directives == []
+    assert_receive {:forwarded, "first"}
+    assert_receive {:forwarded, "second"}
   end
 
   test "stream RPC rejects a chunk after final before forwarding", context do
@@ -350,6 +524,24 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
     pid
   end
 
+  defp start_recording_status_handler(parent) do
+    pid = spawn(fn -> recording_status_handler_loop(parent) end)
+    Process.register(pid, ServiceRadar.StatusHandler)
+    on_exit(fn -> StatusHandlerTestHelpers.kill_and_await(pid) end)
+    pid
+  end
+
+  defp recording_status_handler_loop(parent) do
+    receive do
+      {:"$gen_cast", {:status_update, %{service_name: service_name}}} ->
+        send(parent, {:forwarded, service_name})
+        recording_status_handler_loop(parent)
+
+      :stop ->
+        :ok
+    end
+  end
+
   defp controlled_handler_loop(parent, pending) do
     receive do
       {:"$gen_call", from, {:status_update, %{service_name: service_name}}} ->
@@ -390,9 +582,9 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
     }
   end
 
-  defp best_effort_service do
+  defp best_effort_service(name \\ "agent") do
     %Monitoring.GatewayServiceStatus{
-      service_name: "agent",
+      service_name: name,
       service_type: "agent",
       source: "status",
       available: true,
@@ -421,6 +613,112 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
     chunk_index
     |> metadata(total_chunks)
     |> Map.put(:delivery_capabilities, [@retained_plugin_capability])
+  end
+
+  defp status_chunk(agent_id, chunk_index, total_chunks, services, capabilities, is_final \\ false) do
+    %Monitoring.GatewayStatusChunk{
+      agent_id: agent_id,
+      services: services,
+      capabilities: capabilities,
+      chunk_index: chunk_index,
+      total_chunks: total_chunks,
+      is_final: is_final
+    }
+  end
+
+  defp control_hello(agent_id, capabilities) do
+    %Monitoring.ControlStreamRequest{
+      payload:
+        {:hello,
+         %Monitoring.ControlStreamHello{
+           agent_id: agent_id,
+           capabilities: capabilities
+         }}
+    }
+  end
+
+  defp control_identity_context(agent_id, partition_id) do
+    %{
+      component_id: agent_id,
+      partition_id: partition_id,
+      component_type: :agent,
+      cert_fingerprint_sha256: "synthetic-fingerprint-#{agent_id}-#{partition_id}"
+    }
+  end
+
+  defp assert_control_capabilities(session, partition_id, agent_id, capabilities, attempts \\ 40)
+
+  defp assert_control_capabilities(_session, _partition_id, _agent_id, _capabilities, 0) do
+    flunk("timed out waiting for control-session capability evidence")
+  end
+
+  defp assert_control_capabilities(session, partition_id, agent_id, capabilities, attempts) do
+    evidence = ProcessRegistry.lookup({:agent_control, partition_id, agent_id, node()})
+
+    if Enum.any?(evidence, fn
+         {^session, %{capabilities: ^capabilities}} -> true
+         _entry -> false
+       end) do
+      :ok
+    else
+      Process.sleep(25)
+      assert_control_capabilities(session, partition_id, agent_id, capabilities, attempts - 1)
+    end
+  end
+
+  defp assert_control_session_absent(partition_id, agent_id, attempts \\ 40)
+
+  defp assert_control_session_absent(_partition_id, _agent_id, 0) do
+    flunk("timed out waiting for control-session evidence removal")
+  end
+
+  defp assert_control_session_absent(partition_id, agent_id, attempts) do
+    case ProcessRegistry.lookup({:agent_control, partition_id, agent_id, node()}) do
+      [] ->
+        :ok
+
+      _entries ->
+        Process.sleep(25)
+        assert_control_session_absent(partition_id, agent_id, attempts - 1)
+    end
+  end
+
+  defp start_temporary_control_session! do
+    {ControlStreamSession, stream: nil}
+    |> Supervisor.child_spec(restart: :temporary)
+    |> start_supervised!()
+  end
+
+  defp kill_control_session!(session, partition_id, agent_id) do
+    monitor = Process.monitor(session)
+    Process.exit(session, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^session, :killed}, 1_000
+    assert_control_session_absent(partition_id, agent_id)
+  end
+
+  defp restart_agent_registry_proxy! do
+    previous = Process.whereis(AgentRegistryProxy)
+    monitor = Process.monitor(previous)
+    Process.exit(previous, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^previous, :killed}, 1_000
+    assert_new_agent_registry_proxy(previous)
+  end
+
+  defp assert_new_agent_registry_proxy(previous, attempts \\ 40)
+
+  defp assert_new_agent_registry_proxy(_previous, 0) do
+    flunk("timed out waiting for AgentRegistryProxy restart")
+  end
+
+  defp assert_new_agent_registry_proxy(previous, attempts) do
+    case Process.whereis(AgentRegistryProxy) do
+      current when is_pid(current) and current != previous ->
+        :ok
+
+      _other ->
+        Process.sleep(25)
+        assert_new_agent_registry_proxy(previous, attempts - 1)
+    end
   end
 
   defp cert_stream(cert_der) do

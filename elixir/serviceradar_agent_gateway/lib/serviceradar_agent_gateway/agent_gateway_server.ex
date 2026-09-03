@@ -54,6 +54,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   # Maximum services per push request to prevent resource exhaustion
   @max_services_per_request 5_000
+  @max_stream_status_chunks 5_000
+  @max_retained_plugin_status_chunks 10
   @max_status_message_bytes 4_096
   @max_results_message_bytes 15 * 1024 * 1024
   @max_sysmon_message_bytes 15 * 1024 * 1024
@@ -469,7 +471,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     Logger.info("Completed streaming status reception: #{state.total_services} total services")
 
-    response = process_status_stream(state.status_chunks)
+    response = process_status_stream(Enum.reverse(state.status_chunks))
     record_push_metrics(state.stream_agent_id, state.total_services)
     reconcile_agent_release(state.stream_agent_id)
     response
@@ -1569,11 +1571,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       pin_stream_capabilities(state.pinned_delivery_capabilities, chunk.capabilities)
 
     chunk_index = validate_chunk_index!(chunk.chunk_index || 0, total_chunks, state.expected_idx)
-
-    Logger.debug("Received chunk #{chunk_index + 1}/#{total_chunks} from agent #{agent_id}")
-
     partition = resolve_partition(identity)
-    ensure_stream_registration(state.registered?, identity, agent_id, partition, chunk, stream)
 
     metadata =
       chunk_metadata(
@@ -1586,6 +1584,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         total_chunks,
         pinned_delivery_capabilities
       )
+
+    validate_retained_plugin_chunk_count!(services, metadata, total_chunks)
+
+    Logger.debug("Received chunk #{chunk_index + 1}/#{total_chunks} from agent #{agent_id}")
+
+    ensure_stream_registration(state.registered?, identity, agent_id, partition, chunk, stream)
 
     next_stream_status_state(state, chunk, %{
       agent_id: agent_id,
@@ -1734,6 +1738,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
 
     new_total
+  end
+
+  defp require_total_chunks(total_chunks) when total_chunks > @max_stream_status_chunks do
+    raise GRPC.RPCError,
+      status: :invalid_argument,
+      message: "status stream exceeds #{@max_stream_status_chunks} chunks"
   end
 
   defp require_total_chunks(total_chunks) when total_chunks > 0, do: total_chunks
@@ -1916,13 +1926,27 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           status: :invalid_argument,
           message: "flow-attribution stream must contain exactly one non-empty chunk"
 
-      source == @plugin_result_source and length(all_chunks) > 10 ->
+      source == @plugin_result_source and length(all_chunks) > @max_retained_plugin_status_chunks ->
         raise GRPC.RPCError,
           status: :invalid_argument,
           message: "retained plugin-result stream exceeds ten chunks"
 
       true ->
         :ok
+    end
+  end
+
+  defp validate_retained_plugin_chunk_count!(services, metadata, total_chunks) do
+    retained_plugin? =
+      Enum.any?(services, fn service ->
+        agent_retained_service?(service, metadata) and
+          normalize_service_field(service.source) == @plugin_result_source
+      end)
+
+    if retained_plugin? and total_chunks > @max_retained_plugin_status_chunks do
+      raise GRPC.RPCError,
+        status: :invalid_argument,
+        message: "retained plugin-result stream exceeds ten chunks"
     end
   end
 
@@ -1955,7 +1979,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       status_chunk: status_chunk
     } = transition
 
-    status_chunks = state.status_chunks ++ [status_chunk]
+    status_chunks = [status_chunk | state.status_chunks]
 
     if chunk.is_final do
       validate_final_chunk!(chunk_index, pinned_total_chunks)
