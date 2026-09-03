@@ -8,6 +8,16 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
   day, device and agent but differing in sweep group is exactly the overlap
   case that `device_agent_availability` cannot represent, because it keeps
   only the last writer.
+
+  ## Scheduling
+
+  `ensure_scheduled/0` is called wherever
+  `ServiceRadar.SweepJobs.SweepDataCleanupWorker.ensure_scheduled/0` is
+  called, and before it, so this worker has a chance to run ahead of
+  cleanup's daily cycle. That ordering is only an optimization:
+  `SweepDataCleanupWorker` never relies on it, because a failed or skipped
+  rollup run must still block the delete through its own watermark guard
+  (`SELECT MAX(day) FROM platform.sweep_coverage_daily`).
   """
 
   use Oban.Worker,
@@ -15,9 +25,43 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
     max_attempts: 3,
     unique: [period: 3600, fields: [:worker, :args]]
 
+  import Ecto.Query
+
+  alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
+
+  # Run daily (24 hours), same cadence as SweepDataCleanupWorker.
+  @reschedule_interval_seconds 86_400
+
+  @doc """
+  Schedules the daily coverage rollup if not already scheduled.
+  """
+  @spec ensure_scheduled() :: {:ok, Oban.Job.t()} | {:ok, :already_scheduled} | {:error, term()}
+  def ensure_scheduled do
+    if ObanSupport.available?() do
+      if check_existing_job() do
+        {:ok, :already_scheduled}
+      else
+        %{} |> new() |> ObanSupport.safe_insert()
+      end
+    else
+      {:error, :oban_unavailable}
+    end
+  end
+
+  defp check_existing_job do
+    query =
+      from(j in Oban.Job,
+        where: j.worker == ^to_string(__MODULE__),
+        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        limit: 1
+      )
+
+    Repo.exists?(query, prefix: ObanSupport.prefix())
+  end
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -27,17 +71,35 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
         value -> Date.from_iso8601!(value)
       end
 
-    case rollup_day(day) do
-      {:ok, count} ->
-        Logger.info("SweepCoverageRollup: wrote #{count} row(s) for #{Date.to_iso8601(day)}")
+    result =
+      case rollup_day(day) do
+        {:ok, count} ->
+          Logger.info("SweepCoverageRollup: wrote #{count} row(s) for #{Date.to_iso8601(day)}")
+          :ok
+
+        {:error, reason} = error ->
+          Logger.error(
+            "SweepCoverageRollup: failed for #{Date.to_iso8601(day)}: #{inspect(reason)}"
+          )
+
+          error
+      end
+
+    schedule_next_rollup()
+
+    result
+  end
+
+  defp schedule_next_rollup do
+    case ObanSupport.safe_insert(
+           SelfScheduling.successor_changeset(__MODULE__, %{}, @reschedule_interval_seconds)
+         ) do
+      {:ok, _job} ->
         :ok
 
-      {:error, reason} = error ->
-        Logger.error(
-          "SweepCoverageRollup: failed for #{Date.to_iso8601(day)}: #{inspect(reason)}"
-        )
-
-        error
+      {:error, reason} ->
+        Logger.warning("Sweep coverage rollup reschedule deferred", reason: inspect(reason))
+        :ok
     end
   end
 
