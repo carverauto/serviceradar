@@ -19,21 +19,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthorizationLiveTest do
 
   defp settings!(mappings) do
     actor = SystemActor.system(:authorization_live_test)
+    attrs = %{default_role: :viewer, role_mappings: mappings}
 
     case AuthorizationSettings.get_settings(actor: actor) do
-      {:ok, nil} ->
-        {:ok, settings} =
-          AuthorizationSettings.create_settings(
-            %{default_role: :viewer, role_mappings: mappings},
-            actor: actor
-          )
-
+      {:ok, %AuthorizationSettings{} = existing} ->
+        {:ok, settings} = AuthorizationSettings.update_settings(existing, attrs, actor: actor)
         settings
 
-      {:ok, existing} ->
-        {:ok, settings} =
-          AuthorizationSettings.update_settings(existing, %{role_mappings: mappings}, actor: actor)
-
+      _not_found ->
+        {:ok, settings} = AuthorizationSettings.create_settings(attrs, actor: actor)
         settings
     end
   end

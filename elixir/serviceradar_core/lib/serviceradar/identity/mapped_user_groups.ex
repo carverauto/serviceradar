@@ -192,14 +192,27 @@ defmodule ServiceRadar.Identity.MappedUserGroups do
   end
 
   defp groups_source?(mapping) do
-    RoleMappingSupport.get_key(mapping, "source") in ["groups", :groups]
+    # Authorization settings treat a blank source as "groups" (the form default).
+    # Older rows can omit source entirely; those still imply a user group.
+    case mapping
+         |> RoleMappingSupport.get_key("source")
+         |> stringify()
+         |> RoleMappingSupport.presence() do
+      nil -> true
+      "groups" -> true
+      _other -> false
+    end
   end
 
   defp actor(opts) when is_list(opts) do
-    Keyword.get(opts, :actor) || SystemActor.system(:mapped_user_groups)
+    Keyword.get(opts, :actor) || actor_from_scope(Keyword.get(opts, :scope)) ||
+      SystemActor.system(:mapped_user_groups)
   end
 
   defp actor(_opts), do: SystemActor.system(:mapped_user_groups)
+
+  defp actor_from_scope(%{user: user}) when not is_nil(user), do: user
+  defp actor_from_scope(_scope), do: nil
 
   defp get(map, key) when is_atom(key) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))

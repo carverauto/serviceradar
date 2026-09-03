@@ -82,23 +82,58 @@ defmodule ServiceRadar.Identity.MappedUserGroupsTest do
     assert ids == [group.id]
   end
 
-  defp settings!(actor, mappings) do
-    case AuthorizationSettings.get_settings(actor: actor) do
-      {:ok, nil} ->
-        {:ok, settings} =
-          AuthorizationSettings.create_settings(
-            %{default_role: :viewer, role_mappings: mappings},
-            actor: actor
-          )
+  test "ids_for_resolution treats a missing mapping source as groups", %{actor: actor} do
+    missing_name = "legacy-#{System.unique_integer([:positive])}"
+    blank_name = "blank-#{System.unique_integer([:positive])}"
 
+    ids =
+      MappedUserGroups.ids_for_resolution(
+        %{
+          user_group_ids: [],
+          matched: [
+            %{"value" => missing_name, "role" => "operator"},
+            %{"source" => "", "value" => blank_name, "role" => "operator"}
+          ]
+        },
+        actor: actor
+      )
+
+    assert {:ok, %UserGroup{id: missing_id, name: ^missing_name}} =
+             UserGroup
+             |> Ash.Query.filter(name == ^missing_name)
+             |> Ash.read_one(actor: actor)
+
+    assert {:ok, %UserGroup{id: blank_id, name: ^blank_name}} =
+             UserGroup
+             |> Ash.Query.filter(name == ^blank_name)
+             |> Ash.read_one(actor: actor)
+
+    assert Enum.sort(ids) == Enum.sort([missing_id, blank_id])
+  end
+
+  test "ids_for_resolution does not create a group for a non-groups mapping", %{actor: actor} do
+    domain = "example-#{System.unique_integer([:positive])}.test"
+
+    assert [] =
+             MappedUserGroups.ids_for_resolution(
+               %{
+                 user_group_ids: [],
+                 matched: [%{"source" => "email_domain", "value" => domain, "role" => "operator"}]
+               },
+               actor: actor
+             )
+  end
+
+  defp settings!(actor, mappings) do
+    attrs = %{default_role: :viewer, role_mappings: mappings}
+
+    case AuthorizationSettings.get_settings(actor: actor) do
+      {:ok, %AuthorizationSettings{} = existing} ->
+        {:ok, settings} = AuthorizationSettings.update_settings(existing, attrs, actor: actor)
         settings
 
-      {:ok, existing} ->
-        {:ok, settings} =
-          AuthorizationSettings.update_settings(existing, %{role_mappings: mappings},
-            actor: actor
-          )
-
+      _not_found ->
+        {:ok, settings} = AuthorizationSettings.create_settings(attrs, actor: actor)
         settings
     end
   end

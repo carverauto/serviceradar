@@ -249,7 +249,7 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
 
   defp load_access_controls(scope, assigns) do
     if assigns.can_manage_groups? or assigns.can_view_share_principals? do
-      MappedUserGroups.reconcile(scope: scope)
+      MappedUserGroups.reconcile()
     end
 
     users = if assigns.can_view_share_principals?, do: Dashboards.list_share_principals(scope), else: []
