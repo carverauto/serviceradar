@@ -334,7 +334,11 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
       last_status, last_response_time_ms, inserted_at, updated_at
     )
     SELECT
-      gen_random_uuid(), $1::date, s.device_uid, s.ip, s.sweep_group_id, s.agent_id,
+      gen_random_uuid(), $1::date,
+      NULLIF(s.device_uid, ''),
+      s.ip,
+      NULLIF(s.sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid),
+      NULLIF(s.agent_id, ''),
       s.execution_count, s.available_count, s.unavailable_count, s.error_count,
       s.first_seen_at, s.last_seen_at,
       COALESCE(sc.ports, '{}'::bigint[]),
