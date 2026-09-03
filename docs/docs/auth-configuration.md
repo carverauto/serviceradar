@@ -82,6 +82,29 @@ Redirect URI:
 
 - `https://<web-host>/auth/oidc/callback`
 
+web-ng is a confidential OIDC client: token exchange still sends the client
+secret. It also uses Proof Key for Code Exchange (PKCE) with
+`code_challenge_method=S256` on the authorization-code login at
+`GET /auth/oidc`. Configure the PKCE mode under **Settings -> Authentication**
+on the OIDC form. That is **not** the same flow as ServiceRadar's MCP OAuth
+authorization server (`GET /oauth/authorize`), where ServiceRadar is the
+authorization server and MCP clients must present PKCE.
+
+PKCE modes:
+
+- **Auto** (default) — send S256 when the IdP advertises
+  `code_challenge_methods_supported` including `S256`, or when that field is
+  absent. If the field is present and does not include `S256`, PKCE is omitted
+  (`plain` is never sent).
+- **Required** — always send S256; refuse to start login if discovery advertises
+  challenge methods without `S256`.
+- **Disabled** — never send PKCE. Use this only for a provider that rejects
+  `code_verifier` on the token endpoint.
+
+The code verifier is stored only in the encrypted login session, bound to
+`state`, consumed on callback, and is not copied into identity claims or
+logs.
+
 ### SAML 2.0
 
 Use either an IdP metadata URL or paste metadata XML.
