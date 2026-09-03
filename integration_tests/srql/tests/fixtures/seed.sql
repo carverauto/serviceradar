@@ -2053,6 +2053,11 @@ VALUES
      NOW() - INTERVAL '90 days', NOW() - INTERVAL '60 days', FALSE, '{}'::jsonb),
     ('identity-survivor', 'agent_id', 'agent-identity-1', 'default', 'strong', 'agent',
      NOW() - INTERVAL '20 days', NOW(), TRUE, '{}'::jsonb),
+    -- An external system's key. No column on ocsf_devices can equal it, so
+    -- matches_current_facts is null rather than false: "not applicable", not
+    -- "stale".
+    ('identity-survivor', 'armis_device_id', '99887766', 'default', 'strong', 'armis',
+     NOW() - INTERVAL '20 days', NOW(), TRUE, '{}'::jsonb),
     -- A-B share a MAC; B-C share a different MAC; A and C share nothing.
     ('identity-comp-a', 'mac', 'AABBCC00AB01', 'default', 'strong', 'mapper',
      NOW() - INTERVAL '20 days', NOW(), TRUE, '{}'::jsonb),

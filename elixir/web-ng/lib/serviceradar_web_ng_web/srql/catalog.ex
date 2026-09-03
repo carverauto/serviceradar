@@ -305,7 +305,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
           "netbox_device_id",
           "hardware_serial",
           "mac",
-          "ip"
+          "ip",
+          "passive_fingerprint"
         ],
         "confidence" => ["strong", "medium", "weak"]
       },
@@ -356,7 +357,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
           "netbox_device_id",
           "hardware_serial",
           "mac",
-          "ip"
+          "ip",
+          "passive_fingerprint"
         ]
       },
       downsample: false

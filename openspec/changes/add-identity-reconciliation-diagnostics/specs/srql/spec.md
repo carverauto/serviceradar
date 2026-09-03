@@ -73,7 +73,8 @@ SRQL SHALL provide `in:device_identifiers` as a queryable identifier-ownership e
 #### Scenario: Value lookup without a type stays index-backed
 - **GIVEN** a `mac` identifier with value `001122334455`
 - **WHEN** a client queries `in:identifiers value:001122334455`
-- **THEN** SRQL SHALL constrain `identifier_type` to the closed set of declared identifier types
+- **THEN** SRQL SHALL constrain `identifier_type` to the complete closed set of declared identifier types
+- **AND** the set SHALL include every type `DeviceIdentifier` declares, so a lookup for any type finds its rows
 - **AND** the plan SHALL be able to use the leading column of the unique identifier index
 - **AND** SRQL SHALL NOT emit a predicate on `identifier_value` alone
 
@@ -84,7 +85,9 @@ SRQL SHALL provide `in:device_identifiers` as a queryable identifier-ownership e
 - **AND** the row SHALL include the owner `deleted_at`, `deleted_by`, and `deleted_reason`
 
 ### Requirement: SRQL Identifier Currency Projection
-SRQL SHALL project `matches_current_facts` on `in:device_identifiers`, computed by comparing the identifier value against the owning device's current facts for the corresponding identifier type. A `mac` identifier SHALL match when it equals the owner's current `mac` or appears among the owner's discovered interface MACs. An `agent_id`, `hostname`, or address identifier SHALL match when it equals the corresponding current device column. The projection SHALL distinguish an identifier that reflects current corroborated ownership from one that is only historical.
+SRQL SHALL project `matches_current_facts` on `in:device_identifiers`, computed by comparing the identifier value against the owning device's current facts for the corresponding identifier type. A `mac` identifier SHALL match when it equals the owner's current `mac` or appears among the owner's interface MACs. An `agent_id`, `hostname`, or `ip` identifier SHALL match when it equals the corresponding current device column. The projection SHALL distinguish an identifier that reflects current corroborated ownership from one that is only historical.
+
+The projection SHALL be three-valued. It SHALL be null for an identifier type that has no corresponding current fact on the device, and SHALL NOT report such an identifier as false. External-system keys (`armis_device_id`, `netbox_device_id`, `integration_id`), `hardware_serial`, and `passive_fingerprint` have no comparable device column, and reporting them as false would assert that they are stale.
 
 #### Scenario: Current MAC is corroborated
 - **GIVEN** device `sr:aaa` has current `mac` `001122334455` and an identifier row with the same value
@@ -96,6 +99,12 @@ SRQL SHALL project `matches_current_facts` on `in:device_identifiers`, computed 
 - **WHEN** a client queries `in:device_identifiers device_id:sr:aaa identifier_type:mac`
 - **THEN** that row SHALL report `matches_current_facts` as false
 - **AND** the row SHALL still be returned rather than filtered out
+
+#### Scenario: An external-system key is not reported as stale
+- **GIVEN** device `sr:aaa` owns an `armis_device_id` identifier
+- **WHEN** a client queries `in:device_identifiers device_id:sr:aaa identifier_type:armis_device_id`
+- **THEN** the row SHALL report `matches_current_facts` as null
+- **AND** the row SHALL NOT report `matches_current_facts` as false
 
 ### Requirement: SRQL Identity Evidence Edge Entity
 SRQL SHALL provide `in:identity_evidence_edges` as a derived entity returning the connected component of devices joined by shared `(identifier_type, identifier_value, partition)` tuples in `platform.device_identifiers`. Parser aliases SHALL include `identity_evidence` and `evidence_edges`. Each row SHALL represent one edge and SHALL project `device_a`, `device_b`, `identifier_type`, `identifier_value`, `partition_a`, `partition_b`, `confidence`, `depth`, `direct`, and `cross_partition`. `direct` SHALL be true when the edge is incident to the seed device. `cross_partition` SHALL be true when the two endpoint devices have different partitions. The walk SHALL terminate on already-visited device ids and SHALL enforce the same configurable depth cap as merge chain resolution.

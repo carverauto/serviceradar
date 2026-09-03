@@ -94,6 +94,7 @@ pub(super) const IDENTIFIER_TYPES: &[&str] = &[
     "hardware_serial",
     "mac",
     "ip",
+    "passive_fingerprint",
 ];
 
 /// Build the SQL fragment that filters a jsonb column down to an allowlist.
@@ -356,12 +357,25 @@ mod tests {
     }
 
     #[test]
-    fn identifier_types_are_the_closed_set() {
-        // The ANY() expansion is only index-safe while this list stays closed
-        // and matches DeviceIdentifier's declared types.
-        assert!(IDENTIFIER_TYPES.contains(&"mac"));
-        assert!(IDENTIFIER_TYPES.contains(&"agent_id"));
-        assert!(IDENTIFIER_TYPES.contains(&"hardware_serial"));
-        assert_eq!(IDENTIFIER_TYPES.len(), 7);
+    fn identifier_types_match_device_identifier_exactly() {
+        // The ANY() expansion is only index-safe while this list stays closed,
+        // and it is only CORRECT while it matches DeviceIdentifier's declared
+        // types. A type missing here makes a bare `value:` lookup for that type
+        // silently return nothing -- the query succeeds and finds no rows, which
+        // is indistinguishable from the identifier not existing.
+        //
+        // Source of truth: @identifier_types in
+        // elixir/serviceradar_core/lib/serviceradar/inventory/device_identifier.ex
+        let expected = [
+            "agent_id",
+            "armis_device_id",
+            "integration_id",
+            "netbox_device_id",
+            "hardware_serial",
+            "mac",
+            "ip",
+            "passive_fingerprint",
+        ];
+        assert_eq!(IDENTIFIER_TYPES, &expected);
     }
 }

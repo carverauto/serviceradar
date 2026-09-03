@@ -460,6 +460,19 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            query: "in:device_identifiers device_id:identity-survivor identifier_type:armis_device_id",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                // Null, not false. Reporting an external system's key as false
+                // would assert it is stale, which is a different and wrong claim.
+                assert!(
+                    body["results"][0]["matches_current_facts"].is_null(),
+                    "an armis_device_id has no comparable current fact: {}",
+                    body["results"][0]
+                );
+            })),
+        },
+        TestCase {
             query: "in:device_identifiers value:AABBCC00DEAD",
             expected_count: 1,
             validator: Some(Box::new(|body| {

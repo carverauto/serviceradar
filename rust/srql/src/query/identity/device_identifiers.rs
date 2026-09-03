@@ -35,6 +35,21 @@ const ORDERABLE: &[(&str, &str)] = &[
 
 /// Does this identifier still match what its owner reports?
 ///
+/// Three-valued on purpose:
+///
+/// * `true`  -- the owner reports this value as a current fact
+/// * `false` -- the owner exists and does NOT report it: a historical identifier
+/// * NULL    -- the question does not apply, because this identifier type has no
+///   corresponding current fact on the device at all
+///
+/// The NULL case is the one worth being careful about. An `armis_device_id` or a
+/// `netbox_device_id` is an external system's key; there is no column on
+/// `ocsf_devices` it could equal. Reporting `false` for those would read as
+/// "this identifier is stale", which is a different and wrong claim, and it is
+/// exactly the sort of confident-but-wrong signal an identity investigation
+/// cannot afford. `hardware_serial` is NULL for the same reason: the serial
+/// lives inside the `hw_info` JSON under no guaranteed key.
+///
 /// Deliberately computed rather than stored. The alternative -- a
 /// `corroborated_at` column maintained by the registrar -- edits the write path
 /// of the highest-volume table in the identity system to serve a diagnostic.
@@ -55,7 +70,8 @@ CASE \
   ) \
   WHEN di.identifier_type = 'agent_id' THEN COALESCE(d.agent_id, '') = di.identifier_value \
   WHEN di.identifier_type = 'ip' THEN COALESCE(d.ip, '') = di.identifier_value \
-  ELSE COALESCE(d.hostname, '') = di.identifier_value \
+  WHEN di.identifier_type = 'hostname' THEN COALESCE(d.hostname, '') = di.identifier_value \
+  ELSE NULL::boolean \
 END";
 
 pub(in crate::query) async fn execute(
@@ -240,7 +256,7 @@ mod tests {
             BindParam::TextArray(values) => Some(values.clone()),
             _ => None,
         });
-        assert_eq!(types.map(|t| t.len()), Some(IDENTIFIER_TYPES.len()));
+        assert_eq!(types.map(|t| t.len()), Some(8));
     }
 
     #[test]
@@ -257,6 +273,24 @@ mod tests {
         let (sql, _) = to_sql_and_params(&plan_for("in:identifiers limit:10")).unwrap();
         assert!(sql.contains("jsonb_each"), "{sql}");
         assert!(!sql.contains("di.metadata AS metadata"), "{sql}");
+    }
+
+    #[test]
+    fn types_without_a_comparable_current_fact_are_null_not_false() {
+        // An armis/netbox/integration id has no column on ocsf_devices it could
+        // equal. Reporting false would read as "stale", which is a different
+        // and wrong claim.
+        let (sql, _) = to_sql_and_params(&plan_for("in:identifiers limit:10")).unwrap();
+        assert!(sql.contains("ELSE NULL::boolean"), "{sql}");
+        // The types that DO have a comparable fact are still compared.
+        assert!(sql.contains("di.identifier_type = 'agent_id'"), "{sql}");
+        assert!(sql.contains("di.identifier_type = 'ip'"), "{sql}");
+        assert!(sql.contains("di.identifier_type = 'mac'"), "{sql}");
+        // hostname must not be the catch-all for every remaining type.
+        assert!(
+            !sql.contains("ELSE COALESCE(d.hostname"),
+            "hostname must not be the ELSE branch: {sql}"
+        );
     }
 
     #[test]
