@@ -27,6 +27,9 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       endpoint_packages endpoint_package endpoint_inventory_packages endpoint_inventory packages
       endpoint_package_catalog endpoint_package_catalogs endpoint_software_packages
       endpoint_software_package package_catalog package_catalogs
+      vulnerability_advisories vulnerability_advisory advisories cves
+      advisory_coordinates advisory_cpes cpe_coordinates
+      endpoint_vulnerability_matches vulnerability_matches cve_matches advisory_matches
       device_graph devicegraph graph graph_cypher graphcypher cypher
       field_survey_sessions fieldsurvey_sessions survey_sessions
       field_survey_rasters fieldsurvey_rasters survey_coverage_rasters survey_rasters

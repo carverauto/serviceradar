@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
 
   alias ServiceRadar.Identity.AuthSettings
   alias ServiceRadar.Identity.IdpGroupMemberships
+  alias ServiceRadar.Identity.MappedUserGroups
   alias ServiceRadar.Identity.RoleMapping
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.Users
@@ -161,7 +162,8 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
   # created memberships are never touched -- see `IdpGroupMemberships`.
   defp maybe_sync_group_memberships({:ok, user}, resolution, actor) do
     record_mapping_provenance(user, resolution)
-    result = IdpGroupMemberships.sync(user.id, resolution.user_group_ids, actor: actor)
+    group_ids = MappedUserGroups.ids_for_resolution(resolution, actor: actor)
+    result = IdpGroupMemberships.sync(user.id, group_ids, actor: actor)
 
     if result.added != [] or result.withdrawn != [] do
       Logger.info(

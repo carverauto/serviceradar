@@ -692,10 +692,56 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
       update
     end
 
-    # The AWX inventory-sync plugin captures the raw host `variables` as a
-    # stringified JSON object under `metadata.awx.variables` but (under TinyGo)
-    # can leave `ip` empty. This nested blob mirrors the live demo shape that
-    # trips the plugin's minimal JSON decoder; the ingestor must recover the IP.
+    # Current plugin payload: `1856332974` stopped emitting `metadata.awx.variables`
+    # (secret-capable) and stamps the extracted value on `metadata.awx.ansible_host`.
+    # `ip` is blank when the plugin could not copy that value onto the device IP
+    # field. Recovery that only reads `variables` never fires on this shape.
+    test "recovers the canonical IP from metadata.awx.ansible_host when ip is blank" do
+      update =
+        ingest_awx_host(%{
+          "device_id" => "awx:ctrl-1:host:42",
+          "hostname" => "alma-test",
+          "ip" => "",
+          "type" => "host",
+          "role" => "ansible_host",
+          "metadata" => %{
+            "integration_id" => "awx:v2:ctrl-1:host:42",
+            "awx" => %{
+              "controller_id" => "ctrl-1",
+              "host_id" => 42,
+              "host_name" => "alma-test",
+              "ansible_host" => "192.168.2.235"
+            }
+          }
+        })
+
+      assert update["ip"] == "192.168.2.235"
+
+      ids =
+        update
+        |> Normalize.normalize_update()
+        |> IdentityReconciler.extract_strong_identifiers()
+
+      assert ids.ip == "192.168.2.235"
+      assert ids.integration_id == "awx:v2:ctrl-1:host:42"
+    end
+
+    test "does not treat a DNS metadata.awx.ansible_host as an IP" do
+      update =
+        ingest_awx_host(%{
+          "device_id" => "awx:ctrl-1:host:100",
+          "hostname" => "freebsd-01",
+          "ip" => "",
+          "metadata" => %{
+            "awx" => %{"ansible_host" => "freebsd-01.lab.example.com"}
+          }
+        })
+
+      assert is_nil(update["ip"])
+    end
+
+    # Older in-flight payloads still wrap ansible_host in a stringified
+    # `variables` blob. Keep recovering from that shape until those are gone.
     @awx_variables_json ~s({"ansible_host": "192.168.2.235", ) <>
                           ~s("proxmox_agent_interfaces": [{"name": "eth0", ) <>
                           ~s("ip_addresses": ["192.168.2.235/24"]}], "ansible_user": "root"})

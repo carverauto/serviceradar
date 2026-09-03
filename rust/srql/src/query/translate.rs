@@ -1,12 +1,13 @@
 use super::{
-    addon_fleet, addon_statuses, agents, alerts, bmp_events, build_query_plan, capacity_forecasts,
+    PaginationMeta, QueryRequest, TranslateResponse, addon_fleet, addon_statuses,
+    advisory_coordinates, agents, alerts, bmp_events, build_query_plan, capacity_forecasts,
     composite_results, cpu_metrics, dashboard_service_views, dashboards, device_graph, devices,
     disk_metrics, downsample, endpoint_inventory_scans, endpoint_package_catalog,
-    endpoint_packages, events, field_survey, flows, gateways, graph_cypher, identity, interfaces,
-    is_full_profile_query, logs, memory_metrics, mtr_traces, otel_metric_points, otel_metrics,
-    process_metrics, public_endpoints, services, source_fact_disagreements, threat_intel_matches,
-    timeseries_metrics, trace_summaries, traces, virtualization, viz, wifi_map, PaginationMeta,
-    QueryRequest, TranslateResponse,
+    endpoint_packages, endpoint_vulnerability_matches, events, field_survey, flows, gateways,
+    graph_cypher, identity, interfaces, is_full_profile_query, logs, memory_metrics, mtr_traces,
+    otel_metric_points, otel_metrics, process_metrics, public_endpoints, services,
+    source_fact_disagreements, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
+    virtualization, viz, vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -111,6 +112,11 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             | Entity::VirtualizationStorageSystems => virtualization::to_sql_and_params(&plan)?,
             Entity::ThreatIntelMatches => threat_intel_matches::to_sql_and_params(&plan)?,
             Entity::SourceFactDisagreements => source_fact_disagreements::to_sql_and_params(&plan)?,
+            Entity::VulnerabilityAdvisories => vulnerability_advisories::to_sql_and_params(&plan)?,
+            Entity::AdvisoryCoordinates => advisory_coordinates::to_sql_and_params(&plan)?,
+            Entity::EndpointVulnerabilityMatches => {
+                endpoint_vulnerability_matches::to_sql_and_params(&plan)?
+            }
         }
     };
 

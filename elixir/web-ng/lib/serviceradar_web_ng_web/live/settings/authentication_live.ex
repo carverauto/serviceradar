@@ -33,6 +33,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
     {"SAML 2.0", :saml}
   ]
 
+  @pkce_modes [
+    {"Auto (recommended)", :auto,
+     "Send S256 when the identity provider advertises it, or when discovery omits PKCE methods."},
+    {"Required", :required, "Always send S256. Login fails if discovery lists PKCE methods without S256."},
+    {"Disabled", :disabled, "Never send PKCE. Use only if the provider rejects code_verifier on token exchange."}
+  ]
+
   @impl true
   def event_mapping do
     Map.merge(Permit.Phoenix.LiveView.default_event_mapping(), %{
@@ -227,7 +234,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
               </.ui_panel>
 
               <%= if to_string(@form[:provider_type].value) == "oidc" do %>
-                <.oidc_config_panel form={@form} idp_preset={@idp_preset} />
+                <.oidc_config_panel form={@form} idp_preset={@idp_preset} pkce_modes={@pkce_modes} />
               <% end %>
 
               <%= if to_string(@form[:provider_type].value) == "saml" do %>
@@ -529,6 +536,32 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
             </span>
           </label>
         </div>
+
+        <fieldset class="fieldset">
+          <legend class="fieldset-legend text-sm font-medium text-sr-ink">PKCE (S256)</legend>
+          <p class="label text-xs text-sr-muted mb-2">
+            Proof Key for Code Exchange on the ServiceRadar login client. This is
+            not MCP OAuth PKCE (<code class="font-mono">/oauth/authorize</code>).
+            The client secret is always sent. <code class="font-mono">plain</code> is never used.
+          </p>
+          <div class="flex flex-col gap-2">
+            <%= for {label, value, help} <- @pkce_modes do %>
+              <label class={"flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors #{if to_string(@form[:oidc_pkce_mode].value || :auto) == to_string(value), do: "border-sr-brand bg-sr-brand/5", else: "border-sr-line hover:border-sr-brand/50"}"}>
+                <input
+                  type="radio"
+                  name="settings[oidc_pkce_mode]"
+                  value={value}
+                  checked={to_string(@form[:oidc_pkce_mode].value || :auto) == to_string(value)}
+                  class="radio radio-primary mt-0.5"
+                />
+                <span>
+                  <span class="text-sm font-medium text-sr-ink">{label}</span>
+                  <span class="block text-xs text-sr-muted mt-0.5">{help}</span>
+                </span>
+              </label>
+            <% end %>
+          </div>
+        </fieldset>
 
         <div class={ui_alert_class("info")}>
           <svg
@@ -955,6 +988,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
         |> assign(:loading, true)
         |> assign(:modes, @modes)
         |> assign(:provider_types, @provider_types)
+        |> assign(:pkce_modes, @pkce_modes)
         |> assign(:idp_preset, "generic")
         |> assign(:form, nil)
 
@@ -1328,6 +1362,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       "oidc_client_id" => Map.get(settings, :oidc_client_id),
       "oidc_client_secret" => "",
       "oidc_scopes" => Map.get(settings, :oidc_scopes, "openid profile email"),
+      "oidc_pkce_mode" => Map.get(settings, :oidc_pkce_mode, :auto),
       # SAML settings
       "saml_sp_entity_id" => Map.get(settings, :saml_sp_entity_id),
       "saml_idp_metadata_url" => Map.get(settings, :saml_idp_metadata_url),
@@ -1381,6 +1416,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
       |> maybe_put(:oidc_discovery_url, params["oidc_discovery_url"])
       |> maybe_put(:oidc_client_id, params["oidc_client_id"])
       |> maybe_put(:oidc_scopes, params["oidc_scopes"])
+      |> maybe_put_pkce_mode(params["oidc_pkce_mode"])
 
     # Only update secret if provided
     base =
@@ -1419,6 +1455,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AuthenticationLive do
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, ""), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp maybe_put_pkce_mode(map, mode) when mode in ["auto", "required", "disabled"] do
+    Map.put(map, :oidc_pkce_mode, String.to_existing_atom(mode))
+  end
+
+  defp maybe_put_pkce_mode(map, mode) when mode in [:auto, :required, :disabled] do
+    Map.put(map, :oidc_pkce_mode, mode)
+  end
+
+  defp maybe_put_pkce_mode(map, _mode), do: map
 
   defp sso_enabled?(enabled, mode)
        when enabled in [true, "true"] and mode in [:active_sso, "active_sso", :passive_proxy, "passive_proxy"], do: true

@@ -179,7 +179,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "include_inactive",
         "include_deleted",
         "first_seen",
-        "first_seen_time"
+        "first_seen_time",
+        "cve",
+        "cve_id",
+        "kev"
       ],
       boolean_fields: [
         "is_available",
@@ -193,7 +196,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         # `discovery_sources:(awx)` and semantically "manageable by AWX".
         "awx_managed",
         "include_inactive",
-        "include_deleted"
+        "include_deleted",
+        "kev"
       ],
       # Fields backed by array columns - builder will always use list syntax for these
       array_fields: ["discovery_sources", "tags"],
@@ -1500,10 +1504,124 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "source",
         "current",
         "cpe",
-        "cpes"
+        "cpes",
+        "cve",
+        "cve_id",
+        "kev"
       ],
-      boolean_fields: ["current"],
+      boolean_fields: ["current", "kev"],
       array_fields: ["cpes"],
+      downsample: false
+    },
+    %{
+      id: "vulnerability_advisories",
+      label: "Vulnerability Advisories",
+      route: "/dashboards/endpoint-inventory",
+      default_time: "",
+      default_sort_field: "published_at",
+      default_sort_dir: "desc",
+      default_filter_field: "cve_id",
+      filter_fields: [
+        "cve",
+        "cve_id",
+        "advisory_id",
+        "provider",
+        "feed_key",
+        "severity",
+        "title",
+        "kev",
+        "exploit_available",
+        "current",
+        "cvss_score",
+        "cpe",
+        "cpe_vendor",
+        "cpe_product",
+        "cpe_part"
+      ],
+      boolean_fields: ["kev", "exploit_available", "current"],
+      numeric_fields: ["cvss_score"],
+      stats_fields: [
+        "severity",
+        "kev",
+        "exploit_available",
+        "provider",
+        "feed_key",
+        "cve_id"
+      ],
+      downsample: false
+    },
+    %{
+      id: "advisory_coordinates",
+      label: "Advisory Coordinates",
+      route: "/dashboards/endpoint-inventory",
+      default_time: "",
+      default_sort_field: "cpe_vendor",
+      default_sort_dir: "asc",
+      default_filter_field: "cve_id",
+      filter_fields: [
+        "cve",
+        "cve_id",
+        "coordinate_type",
+        "value",
+        "cpe",
+        "cpe_part",
+        "cpe_vendor",
+        "cpe_product",
+        "cpe_version",
+        "advisory_ref",
+        "provider",
+        "feed_key",
+        "kev",
+        "current"
+      ],
+      boolean_fields: ["kev", "current"],
+      numeric_fields: ["cvss_score"],
+      downsample: false
+    },
+    %{
+      id: "endpoint_vulnerability_matches",
+      label: "Vulnerability Matches",
+      route: "/dashboards/endpoint-inventory",
+      default_time: "",
+      default_sort_field: "cvss_score",
+      default_sort_dir: "desc",
+      default_filter_field: "cve_id",
+      filter_fields: [
+        "device_uid",
+        "device_id",
+        "agent_id",
+        "cve",
+        "cve_id",
+        "advisory_id",
+        "provider",
+        "feed_key",
+        "coordinate_type",
+        "coordinate_value",
+        "cpe",
+        "status",
+        "severity",
+        "confidence",
+        "kev",
+        "exploit_available",
+        "cvss_score",
+        "package_id",
+        "endpoint_package_ref",
+        "epss_score",
+        "due_date",
+        "ransomware_use"
+      ],
+      boolean_fields: ["kev", "exploit_available"],
+      numeric_fields: ["cvss_score", "epss_score"],
+      stats_fields: [
+        "severity",
+        "kev",
+        "exploit_available",
+        "provider",
+        "cve_id",
+        "device_uid",
+        "status",
+        "confidence"
+      ],
       downsample: false
     },
     %{

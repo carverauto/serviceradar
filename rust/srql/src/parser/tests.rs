@@ -208,6 +208,33 @@ fn parses_every_identity_diagnostic_entity_alias() {
 }
 
 #[test]
+fn parses_advisory_entity_aliases() {
+    let cases = [
+        ("vulnerability_advisories", Entity::VulnerabilityAdvisories),
+        ("vulnerability_advisory", Entity::VulnerabilityAdvisories),
+        ("advisories", Entity::VulnerabilityAdvisories),
+        ("cves", Entity::VulnerabilityAdvisories),
+        ("advisory_coordinates", Entity::AdvisoryCoordinates),
+        ("advisory_cpes", Entity::AdvisoryCoordinates),
+        ("cpe_coordinates", Entity::AdvisoryCoordinates),
+        (
+            "endpoint_vulnerability_matches",
+            Entity::EndpointVulnerabilityMatches,
+        ),
+        (
+            "vulnerability_matches",
+            Entity::EndpointVulnerabilityMatches,
+        ),
+        ("cve_matches", Entity::EndpointVulnerabilityMatches),
+        ("advisory_matches", Entity::EndpointVulnerabilityMatches),
+    ];
+    for (raw, expected) in cases {
+        let ast = parse(&format!("in:{raw} limit:1")).unwrap();
+        assert_eq!(ast.entity, expected, "entity alias {raw}");
+    }
+}
+
+#[test]
 fn identity_entities_reject_unknown_aliases() {
     // `identity_merges` and `device_evidence` look plausible and are not real.
     for alias in ["identity_merges", "device_evidence", "revival_audit"] {
@@ -231,6 +258,15 @@ fn parses_merge_audit_chain_and_evidence_seed_tokens() {
         crate::parser::Entity::IdentityEvidenceEdges
     ));
     assert_eq!(ast.filters[0].field, "device");
+}
+
+#[test]
+fn rejects_cpes_as_an_advisory_entity_alias() {
+    let err = parse("in:cpes limit:1").unwrap_err();
+    assert!(
+        matches!(err, ServiceError::InvalidRequest(ref message) if message.contains("unsupported entity")),
+        "in:cpes must not alias advisory coordinates, got {err:?}"
+    );
 }
 
 #[test]

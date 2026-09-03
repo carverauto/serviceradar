@@ -75,6 +75,9 @@ pub enum Entity {
     DeviceIdentifiers,
     IdentityReconciliationRuns,
     IdentityEvidenceEdges,
+    VulnerabilityAdvisories,
+    AdvisoryCoordinates,
+    EndpointVulnerabilityMatches,
     ThreatIntelMatches,
 }
 

@@ -22,8 +22,9 @@ defmodule ServiceRadarWebNGWeb.Endpoint do
   # OAuth/OIDC redirect login: the IdP (Authentik) bounces the browser
   # back to `/auth/oidc/callback` as a top-level cross-site GET, and
   # `Strict` would withhold the session cookie on that navigation,
-  # dropping the `:oidc_state`/`:oidc_nonce` we stored at `/auth/oidc`
-  # and failing state validation with `:invalid_state`. `Lax` still
+  # dropping the `:oidc_state`/`:oidc_nonce`/`:oidc_code_verifier` we
+  # stored at `/auth/oidc` and failing state validation with
+  # `:invalid_state`. `Lax` still
   # withholds the cookie on cross-site subresource loads and POSTs, and
   # CSRF on state-changing requests is already covered by Phoenix's
   # `csrf_token`.

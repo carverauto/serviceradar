@@ -4,8 +4,8 @@ package(default_visibility = ["//visibility:public"])
 
 playwright_bin.playwright_test(
     name = "god_view_elk_scene_acceptance",
-    # The full six-phase WebGL geometry gate plus trace artifact upload exceeds
-    # the medium class's 300-second budget on cold RBE executors.
+    # Keep a 900-second outer allowance around the two 300-second Playwright
+    # contracts so a failure trace can flush before Bazel terminates the process.
     size = "large",
     args = [
         "test",
