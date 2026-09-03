@@ -14,9 +14,10 @@
 ## 2. Authorize and token exchange
 
 - [x] 2.1 Add `AuthSettings.oidc_pkce_mode` (`:auto` | `:required` |
-      `:disabled`, default `:auto`), a platform migration, and the
-      baseline schema column. Surface it on **Settings -> Authentication**
-      as OIDC PKCE radios (Auto / Required / Disabled).
+      `:disabled`, default `:auto`) and a platform migration. Surface it
+      on **Settings -> Authentication** as OIDC PKCE radios (Auto /
+      Required / Disabled). Do not patch `platform_schema.sql`; the
+      baseline marker is older than this migration.
 - [x] 2.2 Teach `OIDCClient.authorize_url/1` to decide PKCE from mode +
       discovery `code_challenge_methods_supported`:
       - `auto` + (S256 advertised or methods absent) → include

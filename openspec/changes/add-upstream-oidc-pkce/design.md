@@ -116,9 +116,11 @@ cannot drift; do not route OIDC login through the MCP OAuth server.
 ## Migration Plan
 
 - Run the AuthSettings migration (`oidc_pkce_mode` default `auto`) then
-  deploy web-ng. Existing rows get Auto. The next login sends S256 under
-  Auto. Rolling a pod mid-login still fails the in-flight callback the
-  same way a lost session already does (`invalid state`).
+  deploy web-ng. Existing rows get Auto. Fresh installs apply the
+  committed baseline, then this post-baseline migration. The next login
+  sends S256 under Auto. Rolling a pod mid-login still fails the
+  in-flight callback the same way a lost session already does
+  (`invalid state`).
 - Rollback: revert the web-ng image. In-flight PKCE logins fail; users
   retry. Set PKCE to Disabled in Settings if a provider rejects the new
   token request and image rollback is not immediate. The column can stay;

@@ -65,5 +65,9 @@ not an env var; operators set it next to the OIDC client id and secret.
   - `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/authentication_live.ex`
   - `elixir/serviceradar_core` AuthSettings + migration
   - `docs/docs/auth-configuration.md`
-- Schema: `platform.auth_settings.oidc_pkce_mode` (default `auto`).
+- Schema: Ecto migration adds `platform.auth_settings.oidc_pkce_mode`
+  (default `auto`). The committed baseline dump is older than this
+  migration (`included_through` 20260707120000), so the column is not
+  patched into `platform_schema.sql`; fresh installs get it from the
+  post-baseline migration.
 - Existing `state` / `nonce` tests MUST keep passing.
