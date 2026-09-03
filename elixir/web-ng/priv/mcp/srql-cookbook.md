@@ -54,6 +54,19 @@ in:flows time:last_1h stats:sum(bytes_total) as bytes by app sort:bytes:desc
 in:flows time:last_6h bucket:5m agg:sum value_field:bytes_total
 ```
 
+## Threat intel
+
+```
+in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100
+in:threat_intel_matches observed_ip:198.51.100.10
+in:flows threat_matched:true time:last_24h sort:time:desc limit:100
+in:flows threat_indicator:"198.51.100.0/24" time:last_24h sort:time:desc limit:100
+in:attributed_flows threat_source:alienvault_otx time:last_24h sort:time:desc limit:100
+```
+
+Current matches are cache memberships, not flow counts. Threat-aware `in:flows`
+defaults to `time:last_24h` when `time:` is omitted.
+
 `ip:` / `port:` / `cidr:` / `tag:` match **either** endpoint. Directional forms
 are `src_*` / `dst_*`. `port:22` is “SSH either direction”.
 

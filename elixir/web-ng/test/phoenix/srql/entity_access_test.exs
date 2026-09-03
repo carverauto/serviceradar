@@ -58,6 +58,12 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     assert {:ok, "devices.view"} = EntityAccess.permission_for_entity("advisory_cpes")
     assert {:ok, "devices.view"} = EntityAccess.permission_for_entity("cve_matches")
 
+    assert EntityAccess.permission_for_entity("ioc_matches") ==
+             EntityAccess.permission_for_entity("threat_intel_matches")
+
+    assert {:ok, "observability.netflow.view"} =
+             EntityAccess.permission_for_entity("threat_intel_matches")
+
     assert {:ok, "observability.logs.view"} = EntityAccess.permission_for_entity("logs")
     assert {:ok, "services.view"} = EntityAccess.permission_for_entity("services")
     assert :passthrough = EntityAccess.permission_for_entity("dashboards")

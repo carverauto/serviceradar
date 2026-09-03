@@ -9,11 +9,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   ## Skipping unchanged advisories
 
   A feed re-publishes its whole corpus every run, but only a handful of
-  advisories actually change. `unchanged_advisory?/2` compares the incoming
-  `modified_at` against what is already stored and drops the record before it
-  ever reaches an `insert_all`. This is the difference between rewriting ~360k
-  advisories / ~2.5M coordinates every 6 hours and writing almost nothing:
-  measured at ~5.9 TB of WAL per steady state before the guard worked.
+  advisories actually change. The comparison is feed-specific: `cisa-kev` and
+  `vulncheck-kev` use a stable SHA-256 hash of the persisted advisory and
+  coordinates, while other feeds compare `modified_at`. Matching records are
+  dropped before they ever reach an `insert_all`. Legacy KEV rows without a
+  hash are treated as changed and rewritten once to backfill it. This is the
+  difference between rewriting ~360k advisories / ~2.5M coordinates every 6
+  hours and writing almost nothing: measured at ~5.9 TB of WAL per steady state
+  before the guard worked.
 
   The guard is load-bearing, not an optimisation. `feed_worker` logs
   `advisories_skipped` and alarms when it is zero against a non-empty corpus,
@@ -55,6 +58,38 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   # every batch. Size this against transaction cost, not the wire protocol.
   @max_coordinate_insert 500
   @schema "platform"
+  @content_hash_feeds MapSet.new(~w(cisa-kev vulncheck-kev))
+  @advisory_content_fields [
+    :source_object_id,
+    :advisory_id,
+    :cve_id,
+    :title,
+    :description,
+    :severity,
+    :cvss_score,
+    :cvss_vector,
+    :published_at,
+    :modified_at,
+    :kev,
+    :exploit_available,
+    :affected_coordinates,
+    :references,
+    :raw,
+    :metadata
+  ]
+  @coordinate_content_fields [
+    :coordinate_type,
+    :value,
+    :cpe_part,
+    :cpe_vendor,
+    :cpe_product,
+    :cpe_version,
+    :version_start,
+    :version_start_inclusive,
+    :version_end,
+    :version_end_inclusive,
+    :metadata
+  ]
 
   @type load_result :: %{
           advisories_upserted: non_neg_integer(),
@@ -84,11 +119,16 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   Load a stream of parsed records for one feed run.
 
   `records` is an enumerable of `%{advisory: map, coordinates: [map]}`.
-  Records whose `modified_at` already matches the stored row are skipped
-  entirely — see the "Skipping unchanged advisories" note above.
+  Records matching the stored comparison state are skipped entirely. KEV feeds
+  compare a stable hash of persisted advisory and coordinate content; other
+  feeds compare `modified_at`. A KEV row with no stored hash is rewritten once
+  to backfill it. See the "Skipping unchanged advisories" note above.
 
   Options: `:provider`, `:feed_key` (required), `:generation`, `:chunk_size`,
-  `:now`, `:existing_modified`.
+  `:now`, `:existing_comparison_state`, `:existing_modified`.
+
+  `:existing_comparison_state` takes precedence. `:existing_modified` remains
+  supported for timestamp-only callers and is wrapped as comparison state.
   """
   @spec load_stream(Enumerable.t(), keyword()) :: load_result()
   def load_stream(records, opts) do
@@ -101,10 +141,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     chunk_size = Keyword.get(opts, :chunk_size, @default_chunk_size)
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
-    existing_modified =
-      Keyword.get_lazy(opts, :existing_modified, fn ->
-        existing_modified_at(provider, feed_key)
-      end)
+    existing_state = existing_state_from_opts(opts, provider, feed_key)
+
+    comparison = comparison_for_feed(feed_key)
 
     init = %{
       advisories_upserted: 0,
@@ -117,7 +156,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     |> Stream.chunk_every(chunk_size)
     |> Enum.reduce(init, fn chunk, acc ->
       {changed, skipped} =
-        Enum.split_with(chunk, &(not unchanged_advisory?(&1, existing_modified)))
+        Enum.split_with(
+          chunk,
+          &(not unchanged_advisory?(&1, existing_state, comparison: comparison))
+        )
 
       {adv, coord} = flush_chunk(changed, provider, feed_key, generation, now)
 
@@ -131,14 +173,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   end
 
   @doc """
-  Map of `source_object_id => modified_at` for the feed's live advisories.
+  Map of `source_object_id => %{modified_at: modified_at, content_hash: content_hash}`
+  for the feed's live advisories.
 
   Scoped to `current == true` on purpose: a row that is not current is either
   half-written by an aborted run or already demoted, and must be rewritten
   rather than skipped.
   """
-  @spec existing_modified_at(String.t(), String.t()) :: %{optional(String.t()) => DateTime.t()}
-  def existing_modified_at(provider, feed_key) do
+  @spec existing_comparison_state(String.t(), String.t()) :: %{
+          optional(String.t()) => %{
+            modified_at: DateTime.t() | nil,
+            content_hash: String.t() | nil
+          }
+        }
+  def existing_comparison_state(provider, feed_key) do
     # `modified_at` is a `timestamp without time zone` column and this is a
     # schemaless query, so Ecto types the field as :any and hands back Postgrex's
     # raw %NaiveDateTime{}. type/2 loads it as a UTC DateTime to match the
@@ -149,7 +197,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     query =
       from(a in "vulnerability_advisories",
         where: a.provider == ^provider and a.feed_key == ^feed_key and a.current == true,
-        select: {a.source_object_id, type(a.modified_at, :utc_datetime_usec)}
+        select:
+          {a.source_object_id,
+           %{modified_at: type(a.modified_at, :utc_datetime_usec), content_hash: a.content_hash}}
       )
 
     query
@@ -157,19 +207,65 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     |> Map.new()
   end
 
-  @doc "True when the stored advisory already carries the incoming `modified_at`."
-  @spec unchanged_advisory?(map(), map()) :: boolean()
-  def unchanged_advisory?(%{advisory: advisory}, existing_modified) do
-    source_object_id = fetch(advisory, :source_object_id)
-    incoming = parse_datetime(fetch(advisory, :modified_at))
+  @doc "Map of live advisory source IDs to `modified_at` values, retained for timestamp callers."
+  @spec existing_modified_at(String.t(), String.t()) :: %{
+          optional(String.t()) => DateTime.t() | nil
+        }
+  def existing_modified_at(provider, feed_key) do
+    provider
+    |> existing_comparison_state(feed_key)
+    |> Map.new(fn {source_object_id, %{modified_at: modified_at}} ->
+      {source_object_id, modified_at}
+    end)
+  end
 
-    case Map.fetch(existing_modified, source_object_id) do
-      {:ok, existing} -> same_modified?(existing, incoming)
-      :error -> false
+  @doc "True when the stored advisory already matches the incoming comparison mode."
+  @spec unchanged_advisory?(map(), map()) :: boolean()
+  def unchanged_advisory?(record, existing_state),
+    do: unchanged_advisory?(record, existing_state, comparison: :modified_at)
+
+  @spec unchanged_advisory?(map(), map(), keyword()) :: boolean()
+  def unchanged_advisory?(%{advisory: advisory} = record, existing_state, opts) do
+    source_object_id = fetch(advisory, :source_object_id)
+
+    case {Keyword.get(opts, :comparison, :modified_at),
+          Map.fetch(existing_state, source_object_id)} do
+      {:modified_at, {:ok, existing}} ->
+        same_modified?(
+          existing_modified_at(existing),
+          parse_datetime(fetch(advisory, :modified_at))
+        )
+
+      {:content_hash, {:ok, %{content_hash: stored_hash}}} when is_binary(stored_hash) ->
+        stored_hash == content_hash(record)
+
+      {_, :error} ->
+        false
+
+      _ ->
+        false
     end
   end
 
-  def unchanged_advisory?(_record, _existing_modified), do: false
+  def unchanged_advisory?(_record, _existing_state, _opts), do: false
+
+  @doc "Number of live rows whose state can participate in the feed's skip guard."
+  @spec comparable_count(String.t(), map()) :: non_neg_integer()
+  def comparable_count(feed_key, existing_state) do
+    state_key =
+      if comparison_for_feed(feed_key) == :content_hash, do: :content_hash, else: :modified_at
+
+    Enum.count(existing_state, fn {_source_object_id, state} ->
+      not is_nil(Map.get(state, state_key))
+    end)
+  end
+
+  defp existing_modified_at(%{modified_at: modified_at}), do: modified_at
+  defp existing_modified_at(modified_at), do: modified_at
+
+  defp comparison_for_feed(feed_key) do
+    if MapSet.member?(@content_hash_feeds, feed_key), do: :content_hash, else: :modified_at
+  end
 
   # nil means "unknown", never "unchanged" — a feed that omits modified_at (KEV
   # does) must keep writing rather than silently stop updating.
@@ -334,10 +430,16 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   end
 
   defp flush_chunk_body(chunk, provider, feed_key, generation, now) do
+    hash_content? = comparison_for_feed(feed_key) == :content_hash
+
     advisory_rows =
       chunk
-      |> Enum.map(fn %{advisory: advisory} ->
-        advisory_row(advisory, provider, feed_key, generation, now)
+      |> Enum.map(fn %{advisory: advisory} = record ->
+        Map.put(
+          advisory_row(advisory, provider, feed_key, generation, now),
+          :content_hash,
+          if(hash_content?, do: content_hash(record))
+        )
       end)
       |> dedupe_advisory_rows()
 
@@ -356,6 +458,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
              :cvss_vector,
              :published_at,
              :modified_at,
+             :content_hash,
              :kev,
              :exploit_available,
              :references,
@@ -407,18 +510,22 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   # matchCriteriaId values, so the parser's Enum.uniq/1 is not enough.
   @doc false
   def dedupe_coordinate_rows(rows) do
-    rows
-    |> Enum.reduce(%{}, fn row, acc -> Map.put(acc, coordinate_conflict_key(row), row) end)
-    |> Map.values()
+    canonicalize_coordinate_winners(rows, &coordinate_conflict_key/1)
   end
 
   defp coordinate_conflict_key(row) do
     {
       Map.fetch!(row, :advisory_ref),
-      Map.fetch!(row, :coordinate_type),
-      Map.fetch!(row, :value),
-      Map.get(row, :version_start),
-      Map.get(row, :version_end)
+      coordinate_identity(row)
+    }
+  end
+
+  defp coordinate_identity(coordinate) do
+    {
+      fetch(coordinate, :coordinate_type),
+      fetch(coordinate, :value),
+      fetch(coordinate, :version_start),
+      fetch(coordinate, :version_end)
     }
   end
 
@@ -477,8 +584,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
       severity: fetch(advisory, :severity),
       cvss_score: fetch(advisory, :cvss_score),
       cvss_vector: fetch(advisory, :cvss_vector),
-      published_at: parse_datetime(fetch(advisory, :published_at)),
-      modified_at: parse_datetime(fetch(advisory, :modified_at)),
+      published_at: persisted_datetime(fetch(advisory, :published_at)),
+      modified_at: persisted_datetime(fetch(advisory, :modified_at)),
       kev: fetch(advisory, :kev) || false,
       exploit_available: fetch(advisory, :exploit_available) || false,
       affected_coordinates: [],
@@ -490,6 +597,83 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
       inserted_at: now,
       updated_at: now
     }
+  end
+
+  @doc "Stable SHA-256 hash of the advisory and coordinates persisted for a feed record."
+  @spec content_hash(map()) :: String.t()
+  def content_hash(%{advisory: advisory} = record) do
+    coordinate_binaries =
+      record
+      |> Map.get(:coordinates, [])
+      |> normalized_coordinate_tuples()
+      |> Enum.map(&:erlang.term_to_binary(&1, [:deterministic]))
+      |> Enum.sort()
+
+    {normalized_advisory_tuple(advisory), coordinate_binaries}
+    |> :erlang.term_to_binary([:deterministic])
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp normalized_advisory_tuple(advisory) do
+    @advisory_content_fields
+    |> Enum.map(&normalized_advisory_value(advisory, &1))
+    |> List.to_tuple()
+  end
+
+  defp normalized_advisory_value(advisory, field) when field in [:published_at, :modified_at],
+    do: persisted_datetime(fetch(advisory, field))
+
+  defp normalized_advisory_value(advisory, field) when field in [:kev, :exploit_available],
+    do: fetch(advisory, field) || false
+
+  defp normalized_advisory_value(_advisory, :affected_coordinates), do: []
+
+  defp normalized_advisory_value(advisory, field) when field in [:references, :raw, :metadata],
+    do: fetch(advisory, field) || default_advisory_value(field)
+
+  defp normalized_advisory_value(advisory, field), do: fetch(advisory, field)
+
+  defp default_advisory_value(:references), do: []
+  defp default_advisory_value(_field), do: %{}
+
+  defp normalized_coordinate_tuples(coordinates) do
+    coordinates
+    |> canonicalize_coordinate_winners(&coordinate_identity/1)
+    |> Enum.map(&normalized_coordinate_tuple/1)
+  end
+
+  defp normalized_coordinate_tuple(coordinate) do
+    @coordinate_content_fields
+    |> Enum.map(&normalized_coordinate_value(coordinate, &1))
+    |> List.to_tuple()
+  end
+
+  defp normalized_coordinate_value(coordinate, :metadata), do: fetch(coordinate, :metadata) || %{}
+  defp normalized_coordinate_value(coordinate, field), do: fetch(coordinate, field)
+
+  # A collision keeps the smallest deterministic persisted payload so hash calculation and
+  # inserted coordinate rows select the same winner regardless of source ordering.
+  defp canonicalize_coordinate_winners(coordinates, identity_fun) do
+    coordinates
+    |> Enum.reduce(%{}, fn coordinate, acc ->
+      Map.update(acc, identity_fun.(coordinate), coordinate, fn current ->
+        canonical_coordinate_winner(current, coordinate)
+      end)
+    end)
+    |> Map.values()
+  end
+
+  defp canonical_coordinate_winner(left, right) do
+    if canonical_coordinate_binary(left) <= canonical_coordinate_binary(right),
+      do: left,
+      else: right
+  end
+
+  defp canonical_coordinate_binary(coordinate) do
+    coordinate
+    |> normalized_coordinate_tuple()
+    |> :erlang.term_to_binary([:deterministic])
   end
 
   defp coordinate_row(coordinate, advisory_ref, provider, feed_key, generation, now) do
@@ -533,6 +717,37 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   defp parse_datetime(%NaiveDateTime{} = naive), do: DateTime.from_naive!(naive, "Etc/UTC")
 
   defp parse_datetime(_), do: nil
+
+  defp persisted_datetime(value) do
+    case parse_datetime(value) do
+      %DateTime{microsecond: {microsecond, _precision}} = datetime ->
+        %{datetime | microsecond: {microsecond, 6}}
+
+      nil ->
+        nil
+    end
+  end
+
+  defp existing_state_from_opts(opts, provider, feed_key) do
+    cond do
+      Keyword.has_key?(opts, :existing_comparison_state) ->
+        Keyword.fetch!(opts, :existing_comparison_state)
+
+      Keyword.has_key?(opts, :existing_modified) ->
+        opts
+        |> Keyword.fetch!(:existing_modified)
+        |> legacy_comparison_state()
+
+      true ->
+        existing_comparison_state(provider, feed_key)
+    end
+  end
+
+  defp legacy_comparison_state(existing_modified) do
+    Map.new(existing_modified, fn {source_object_id, modified_at} ->
+      {source_object_id, %{modified_at: modified_at, content_hash: nil}}
+    end)
+  end
 
   defp parse_naive(value) do
     case NaiveDateTime.from_iso8601(value) do

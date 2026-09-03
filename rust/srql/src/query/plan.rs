@@ -53,7 +53,7 @@ pub(crate) fn build_query_plan(
         .time_filter
         .map(|spec| spec.resolve_with_max_days(now, max_time_range_days))
         .transpose()?;
-    let time_range = default_time_range_for_entity(&ast.entity, time_range, now);
+    let time_range = default_time_range_for_entity(&ast.entity, time_range, now, &ast.filters);
 
     let (filters, order, downsample) =
         normalize_device_aliases(&ast.entity, ast.filters, ast.order, ast.downsample);
@@ -138,14 +138,34 @@ fn default_time_range_for_entity(
     entity: &Entity,
     time_range: Option<TimeRange>,
     now: chrono::DateTime<Utc>,
+    filters: &[Filter],
 ) -> Option<TimeRange> {
     match (entity, time_range) {
         (Entity::Logs, None) => Some(TimeRange {
             start: now - ChronoDuration::hours(24),
             end: now,
         }),
+        (Entity::Flows | Entity::AttributedFlows, None) if has_threat_filter(filters) => {
+            Some(TimeRange {
+                start: now - ChronoDuration::hours(24),
+                end: now,
+            })
+        }
         (_, range) => range,
     }
+}
+
+fn has_threat_filter(filters: &[Filter]) -> bool {
+    filters.iter().any(|filter| {
+        matches!(
+            filter.field.as_str(),
+            "threat_matched"
+                | "threat_source"
+                | "threat_indicator"
+                | "threat_observed_ip"
+                | "threat_severity"
+        )
+    })
 }
 
 fn determine_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {

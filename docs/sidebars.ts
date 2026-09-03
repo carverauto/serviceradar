@@ -108,8 +108,8 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Security',
       items: [
-        {type: 'doc', id: 'endpoint-software-security', label: 'Endpoint Software Security'},
         {type: 'doc', id: 'threat-investigation', label: 'Threat Investigation'},
+        {type: 'doc', id: 'endpoint-software-security', label: 'Endpoint Software Security'},
         {type: 'doc', id: 'falco', label: 'Falco Runtime Detection'},
         {type: 'doc', id: 'trivy-integration', label: 'Trivy Vulnerability Reports'},
         {type: 'doc', id: 'bumblebee', label: 'Bumblebee Exposure Scanning'},

@@ -91,6 +91,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
     "observability.netflow.view" => ~w(
       flows flow network_activity
       attributed_flows attributed_flow flow_attributions flow_attribution
+      threat_intel_matches threat_intel_match ioc_matches ioc_match
     ),
     "observability.alerts.view" => ~w(alerts alert)
   }

@@ -985,6 +985,37 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "threat_intel_matches",
+      label: "Threat Intel Matches",
+      route: "/security/threat-intel",
+      default_time: "",
+      default_sort_field: "evaluated_at",
+      default_sort_dir: "desc",
+      default_filter_field: "source",
+      filter_fields: [
+        "observed_ip",
+        "ip",
+        "source",
+        "label",
+        "indicator",
+        "indicator_id",
+        "indicator_type",
+        "severity",
+        "confidence",
+        "match_kind",
+        "stale",
+        "status"
+      ],
+      numeric_fields: ["severity", "confidence"],
+      address_fields: ["observed_ip", "ip", "indicator"],
+      examples: [
+        "in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100",
+        "in:threat_intel_matches observed_ip:198.51.100.10",
+        "in:flows threat_matched:true time:last_24h sort:time:desc limit:100"
+      ],
+      downsample: false
+    },
+    %{
       id: "flows",
       label: "Flows",
       route: "/observability/netflows",
@@ -1037,7 +1068,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_tag",
         "near",
         "src_near",
-        "dst_near"
+        "dst_near",
+        "threat_matched",
+        "threat_source",
+        "threat_indicator",
+        "threat_observed_ip",
+        "threat_severity"
       ],
       # Chart / `bucket:` path only — must stay a projection of
       # rust/srql/.../downsample/filters.rs `flows_filter_clause` arms.
@@ -1159,7 +1195,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "sampler_address",
         "tag",
         "src_tag",
-        "dst_tag"
+        "dst_tag",
+        "threat_matched",
+        "threat_source",
+        "threat_indicator",
+        "threat_observed_ip",
+        "threat_severity"
       ],
       numeric_fields: [
         "pid",

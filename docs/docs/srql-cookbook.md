@@ -205,6 +205,42 @@ How much of each severity you are producing.
 
 ---
 
+## Threat intel investigation
+
+Current IP/CIDR matches are cache memberships, not flow hits. The investigation
+UI is `/security/threat-intel`. Feed configuration stays at
+**Settings → Networks → Threat Intel**.
+
+### List current OTX matches
+
+```srql
+in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100
+```
+
+One row per endpoint-to-indicator membership. `evaluated_at` is when the cache
+was last evaluated.
+
+### Flows that currently match threat intel
+
+```srql
+in:flows threat_matched:true time:last_24h sort:time:desc limit:100
+```
+
+Each flow appears once even if several indicators cover an endpoint. Omitting
+`time:` defaults to the last 24 hours.
+
+### Flows for one indicator CIDR
+
+```srql
+in:flows threat_indicator:"198.51.100.0/24" time:last_24h sort:time:desc limit:100
+```
+
+### Attributed threat-matched flows
+
+```srql
+in:attributed_flows threat_source:alienvault_otx time:last_24h sort:time:desc limit:100
+```
+
 ## NetFlow traffic queries
 
 ### Top talkers by bytes

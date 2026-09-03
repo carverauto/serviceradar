@@ -4,6 +4,70 @@ use chrono::Duration as ChronoDuration;
 use chrono::{TimeZone, Utc};
 
 #[test]
+fn threat_matched_exists_against_live_cache() {
+    let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+    let end = start + ChronoDuration::hours(1);
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "threat_matched".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("true".to_string()),
+        }],
+        order: Vec::new(),
+        limit: 100,
+        offset: 0,
+        time_range: Some(TimeRange { start, end }),
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+    let (sql, _) = to_sql_and_params(&plan).expect("threat_matched sql");
+    assert!(
+        sql.contains("ip_threat_intel_cache"),
+        "expected live-cache EXISTS, got {sql}"
+    );
+    assert!(
+        sql.contains("src_endpoint_ip") && sql.contains("dst_endpoint_ip"),
+        "expected either-endpoint match, got {sql}"
+    );
+}
+
+#[test]
+fn threat_indicator_excludes_expired_indicators() {
+    let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+    let end = start + ChronoDuration::hours(1);
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "threat_indicator".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("198.51.100.0/24".to_string()),
+        }],
+        order: Vec::new(),
+        limit: 100,
+        offset: 0,
+        time_range: Some(TimeRange { start, end }),
+        stats: None,
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+    };
+    let (sql, _) = to_sql_and_params(&plan).expect("threat_indicator sql");
+    assert!(
+        sql.contains("threat_intel_indicators"),
+        "expected indicator join, got {sql}"
+    );
+    assert!(
+        sql.contains("i.expires_at IS NULL OR i.expires_at > NOW()"),
+        "expected active-indicator predicate, got {sql}"
+    );
+}
+
+#[test]
 fn unknown_filter_field_returns_error() {
     let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
     let end = start + ChronoDuration::hours(1);

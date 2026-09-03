@@ -132,6 +132,28 @@ fn implicitly_promotes_dynamic_jsonb_wildcards_to_like() {
 }
 
 #[test]
+fn parses_threat_intel_matches_entity() {
+    let ast =
+        parse("in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100")
+            .unwrap();
+    assert!(matches!(
+        ast.entity,
+        crate::parser::Entity::ThreatIntelMatches
+    ));
+    assert_eq!(ast.filters[0].field, "source");
+    assert_eq!(ast.order[0].field, "evaluated_at");
+}
+
+#[test]
+fn parses_ioc_matches_alias() {
+    let ast = parse("in:ioc_matches ip:198.51.100.10").unwrap();
+    assert!(matches!(
+        ast.entity,
+        crate::parser::Entity::ThreatIntelMatches
+    ));
+}
+
+#[test]
 fn parses_source_fact_disagreement_entity() {
     let ast = parse(
         "in:source_fact_disagreements fact_key:switch_port_attachment status:open sort:last_detected_at:desc",

@@ -1,11 +1,16 @@
 # Publishes only the fixture CA certificate (ca.crt) on the in-cluster
-# ClusterIP Service. Do not store that PEM in a CI secret. Do not attach
-# this namespace to the shared public gateway.
+# ClusterIP Service. Clients do not dial this Service. They dial the LAN
+# HTTPS route:
 #
-#   http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt
+#   https://srql-fixture-ca.carverauto.dev/ca.crt
 #
-# The fixture CA private key is not in any volume here. The publisher is
-# HTTP-only. Do not put nginx back on this path.
+# Do not store that PEM in a CI secret. Do not attach this namespace to the
+# shared public gateway; lan-shared-gateway is the HTTPS edge.
+#
+# Caddy stays HTTP. Envoy terminates TLS with the Let's Encrypt wildcard
+# already trusted by scratch images. The custom CA is the document being
+# served, not the certificate that terminates the fetch. Do not put nginx
+# back on this path. The fixture CA private key is not in any volume here.
 apiVersion: v1
 kind: ConfigMap
 metadata:

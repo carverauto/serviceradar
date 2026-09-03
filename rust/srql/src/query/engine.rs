@@ -6,8 +6,9 @@ use super::{
     endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
     field_survey, flows, gateways, graph_cypher, interfaces, is_full_profile_query, logs,
     memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
-    public_endpoints, services, source_fact_disagreements, timeseries_metrics, trace_summaries,
-    traces, translate_request, virtualization, vulnerability_advisories, wifi_map,
+    public_endpoints, services, source_fact_disagreements, threat_intel_matches,
+    timeseries_metrics, trace_summaries, traces, translate_request, virtualization,
+    vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -136,6 +137,9 @@ impl QueryEngine {
                 | Entity::VirtualizationNetworkInterfaces
                 | Entity::VirtualizationStorageSystems => {
                     virtualization::execute(&mut conn, &plan).await?
+                }
+                Entity::ThreatIntelMatches => {
+                    threat_intel_matches::execute(&mut conn, &plan).await?
                 }
                 Entity::SourceFactDisagreements => {
                     source_fact_disagreements::execute(&mut conn, &plan).await?

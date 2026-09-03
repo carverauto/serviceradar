@@ -6,14 +6,14 @@ sidebar_label: Threat Investigation
 
 # Threat Investigation
 
-Use this page when you need to answer "is this CVE, CPE, or KEV entry on our
-fleet?" from SRQL. The Software tab on a device still shows matches for that
-host. SRQL is the fleet query.
+Use this page for two related questions:
 
-This page covers **vulnerability catalog and matcher** queries. IP/CIDR IOC
-investigation (`in:threat_intel_matches`, threat-aware `in:flows`) is a
-follow-on; do not treat imported OTX indicators as local sightings until that
-surface ships. Settings for OTX remain at **Settings -> Networks -> Threat Intel**.
+- "Is this CVE, CPE, or KEV entry on our fleet?" -- the vulnerability catalog and
+  matcher queries below.
+- "Which indicator matched which endpoint?" -- the IP/CIDR IOC section at the end.
+
+The Software tab on a device still shows matches for that host. SRQL is the fleet
+query. Settings for OTX are at **Settings -> Networks -> Threat Intel**.
 
 ## Which query to run
 
@@ -107,3 +107,37 @@ filter (CVE, vendor+product, or CPE value). `time:` on advisories is
 Copy-paste variants also live in the [SRQL Cookbook](./srql-cookbook.md#threat-investigation)
 and the MCP cookbook (`serviceradar://srql/cookbook`). Entity fields are in the
 [SRQL Reference](./srql-language-reference.md#vulnerability_advisories).
+## IP/CIDR indicator matches
+
+Imported OTX indicators are inventory. A current cache row is a live match.
+Retrohunt findings are historical evidence. None of those are canonical
+security findings.
+
+### Which query to run
+
+| Question | Query or route |
+|----------|----------------|
+| Current matched endpoints | `/security/threat-intel` |
+| Current matches in SRQL | `in:threat_intel_matches source:alienvault_otx` |
+| Flows for a live match | `in:flows threat_matched:true time:last_24h` |
+| Flows for one indicator | `in:flows threat_indicator:"198.51.100.0/24" time:last_24h` |
+| Attributed threat flows | `in:attributed_flows threat_source:alienvault_otx time:last_24h` |
+| Feed configuration | **Settings → Networks → Threat Intel** |
+
+Dashboard **Matched IPs** is distinct live cache endpoints.
+**Indicator matches** is endpoint-to-indicator memberships, not flow
+occurrences.
+
+### Current matches versus inventory
+
+`in:threat_intel_matches` joins live `ip_threat_intel_cache` rows to active
+indicator CIDRs. Expired cache or indicator rows are excluded unless you
+ask for `stale:true`. Provider pulse context is omitted unless an unambiguous
+source-object relationship exists.
+
+Interactive threat-aware flow queries require a bounded time window and
+default to `last_24h`. Longer searches belong on the retrohunt job, not a
+synchronous browser query.
+
+Requires `observability.netflow.view`. Feed mutations stay behind
+`plugins.assign`.

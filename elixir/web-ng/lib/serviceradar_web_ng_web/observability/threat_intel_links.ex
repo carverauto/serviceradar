@@ -18,8 +18,27 @@ defmodule ServiceRadarWebNGWeb.Observability.ThreatIntelLinks do
       URI.encode_query(%{"view" => "explorer", "q" => ~s(in:netflows ip:"#{escape_srql_value(ip)}")})
   end
 
+  @spec investigation_path(keyword()) :: String.t()
+  def investigation_path(params \\ []) do
+    query =
+      params
+      |> Enum.filter(fn {_key, value} -> present?(value) end)
+      |> Map.new(fn {key, value} -> {to_string(key), to_string(value)} end)
+
+    if query == %{} do
+      "/security/threat-intel"
+    else
+      "/security/threat-intel?" <> URI.encode_query(query)
+    end
+  end
+
   @spec settings_path() :: String.t()
   def settings_path, do: "/settings/networks/threat-intel"
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(value) when is_integer(value), do: true
+  defp present?(value) when is_boolean(value), do: true
+  defp present?(_), do: false
 
   defp escape_srql_value(value) do
     value

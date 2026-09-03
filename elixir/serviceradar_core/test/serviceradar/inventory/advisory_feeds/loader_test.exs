@@ -86,10 +86,286 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderTest do
     end
   end
 
+  describe "KEV content comparison" do
+    test "hashes normalized advisory content deterministically" do
+      assert Loader.content_hash(kev_record()) =~ ~r/^[0-9a-f]{64}$/
+      assert Loader.content_hash(kev_record()) == Loader.content_hash(reordered_kev_record())
+
+      refute Loader.content_hash(kev_record()) ==
+               Loader.content_hash(changed_description_record())
+
+      refute Loader.content_hash(kev_record()) ==
+               Loader.content_hash(changed_coordinate_record())
+    end
+
+    test "canonicalizes duplicate coordinate winners independently of input order" do
+      assert Loader.content_hash(duplicate_coordinate_record()) ==
+               Loader.content_hash(reversed_duplicate_coordinate_record())
+
+      [forward_winner] = Loader.dedupe_coordinate_rows(duplicate_coordinate_rows())
+      [reverse_winner] = Loader.dedupe_coordinate_rows(Enum.reverse(duplicate_coordinate_rows()))
+
+      assert forward_winner == reverse_winner
+      assert forward_winner.cpe_product == "zeta"
+      assert forward_winner.metadata == %{"match_criteria_id" => "alternate-coordinate"}
+    end
+
+    test "hashes persisted-equivalent timestamp precision identically" do
+      assert Loader.content_hash(timestamp_precision_record("2026-01-15T12:34:56.123Z")) ==
+               Loader.content_hash(timestamp_precision_record("2026-01-15T12:34:56.123000Z"))
+    end
+
+    test "skips only a KEV record whose stored content hash matches" do
+      record = kev_record()
+
+      state = %{
+        "CVE-2026-0001" => %{modified_at: nil, content_hash: Loader.content_hash(record)}
+      }
+
+      assert Loader.unchanged_advisory?(record, state, comparison: :content_hash)
+
+      refute Loader.unchanged_advisory?(changed_description_record(), state,
+               comparison: :content_hash
+             )
+
+      refute Loader.unchanged_advisory?(
+               record,
+               %{"CVE-2026-0001" => %{modified_at: nil, content_hash: nil}},
+               comparison: :content_hash
+             )
+    end
+
+    test "timestamp comparison remains unsafe when either timestamp is nil" do
+      record = kev_record()
+      matching_hash = Loader.content_hash(record)
+
+      refute Loader.unchanged_advisory?(
+               record,
+               %{"CVE-2026-0001" => %{modified_at: nil, content_hash: matching_hash}},
+               comparison: :modified_at
+             )
+
+      refute Loader.unchanged_advisory?(
+               record,
+               %{
+                 "CVE-2026-0001" => %{
+                   modified_at: ~U[2026-01-15 12:34:56Z],
+                   content_hash: matching_hash
+                 }
+               },
+               comparison: :modified_at
+             )
+    end
+
+    test "counts only state comparable by the feed's selected guard" do
+      state = %{
+        "content-only" => %{modified_at: nil, content_hash: String.duplicate("a", 64)},
+        "timestamp-only" => %{modified_at: ~U[2026-01-15 12:34:56Z], content_hash: nil},
+        "legacy" => %{modified_at: nil, content_hash: nil}
+      }
+
+      assert Loader.comparable_count("cisa-kev", state) == 1
+      assert Loader.comparable_count("vulncheck-kev", state) == 1
+      assert Loader.comparable_count("nist-nvd2", state) == 1
+    end
+
+    test "load_stream uses legacy modified state when comparison state is omitted" do
+      result =
+        Loader.load_stream([record("CVE-2026-0002", "2026-01-15T12:34:56.123")],
+          provider: "test-provider",
+          feed_key: "nist-nvd2",
+          generation: 1,
+          existing_modified: %{"CVE-2026-0002" => ~U[2026-01-15 12:34:56.123Z]}
+        )
+
+      assert result.advisories_upserted == 0
+      assert result.advisories_skipped == 1
+    end
+
+    test "load_stream prefers explicit comparison state over legacy modified state" do
+      result =
+        Loader.load_stream([record("CVE-2026-0003", "2026-01-15T12:34:56.123")],
+          provider: "test-provider",
+          feed_key: "nist-nvd2",
+          generation: 1,
+          existing_modified: %{"CVE-2026-0003" => ~U[2026-02-01 00:00:00Z]},
+          existing_comparison_state: %{
+            "CVE-2026-0003" => %{
+              modified_at: ~U[2026-01-15 12:34:56.123Z],
+              content_hash: nil
+            }
+          }
+        )
+
+      assert result.advisories_upserted == 0
+      assert result.advisories_skipped == 1
+    end
+  end
+
   defp refute_skip(existing, rec), do: not Loader.unchanged_advisory?(rec, existing)
 
   defp record(source_object_id, modified_at) do
     %{advisory: %{source_object_id: source_object_id, modified_at: modified_at}, coordinates: []}
+  end
+
+  defp kev_record do
+    %{
+      advisory: %{
+        source_object_id: "CVE-2026-0001",
+        advisory_id: "CVE-2026-0001",
+        cve_id: "CVE-2026-0001",
+        title: "Example KEV advisory",
+        description: "An exploitable vulnerability.",
+        severity: "critical",
+        cvss_score: 9.8,
+        cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        published_at: "2026-01-15T12:34:56Z",
+        modified_at: nil,
+        kev: true,
+        exploit_available: true,
+        references: ["https://www.cisa.gov/known-exploited-vulnerabilities-catalog"],
+        raw: %{"vendorProject" => "Example", "product" => "Widget"},
+        metadata: %{"catalogVersion" => "2026.01.15"}
+      },
+      coordinates: [
+        %{
+          coordinate_type: "cpe",
+          value: "cpe:2.3:a:example:widget:1.0:*:*:*:*:*:*:*",
+          cpe_part: "a",
+          cpe_vendor: "example",
+          cpe_product: "widget",
+          cpe_version: "1.0",
+          version_start: "1.0",
+          version_start_inclusive: true,
+          version_end: "1.4",
+          version_end_inclusive: false,
+          metadata: %{"match_criteria_id" => "coordinate-a"}
+        },
+        %{
+          coordinate_type: "cpe",
+          value: "cpe:2.3:a:example:widget:2.0:*:*:*:*:*:*:*",
+          cpe_part: "a",
+          cpe_vendor: "example",
+          cpe_product: "widget",
+          cpe_version: "2.0",
+          version_start: "2.0",
+          version_start_inclusive: true,
+          version_end: nil,
+          version_end_inclusive: nil,
+          metadata: %{"match_criteria_id" => "coordinate-b"}
+        }
+      ]
+    }
+  end
+
+  # Deliberately rebuilt rather than derived from kev_record/0 so this verifies
+  # map insertion order and coordinate order cannot change the persisted hash.
+  defp reordered_kev_record do
+    %{
+      coordinates: [
+        %{
+          metadata: %{"match_criteria_id" => "coordinate-b"},
+          version_end_inclusive: nil,
+          version_end: nil,
+          version_start_inclusive: true,
+          version_start: "2.0",
+          cpe_version: "2.0",
+          cpe_product: "widget",
+          cpe_vendor: "example",
+          cpe_part: "a",
+          value: "cpe:2.3:a:example:widget:2.0:*:*:*:*:*:*:*",
+          coordinate_type: "cpe"
+        },
+        %{
+          metadata: %{"match_criteria_id" => "coordinate-a"},
+          version_end_inclusive: false,
+          version_end: "1.4",
+          version_start_inclusive: true,
+          version_start: "1.0",
+          cpe_version: "1.0",
+          cpe_product: "widget",
+          cpe_vendor: "example",
+          cpe_part: "a",
+          value: "cpe:2.3:a:example:widget:1.0:*:*:*:*:*:*:*",
+          coordinate_type: "cpe"
+        }
+      ],
+      advisory: %{
+        metadata: %{"catalogVersion" => "2026.01.15"},
+        raw: %{"product" => "Widget", "vendorProject" => "Example"},
+        references: ["https://www.cisa.gov/known-exploited-vulnerabilities-catalog"],
+        exploit_available: true,
+        kev: true,
+        modified_at: nil,
+        published_at: "2026-01-15T12:34:56Z",
+        cvss_vector: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
+        cvss_score: 9.8,
+        severity: "critical",
+        description: "An exploitable vulnerability.",
+        title: "Example KEV advisory",
+        cve_id: "CVE-2026-0001",
+        advisory_id: "CVE-2026-0001",
+        source_object_id: "CVE-2026-0001"
+      }
+    }
+  end
+
+  defp changed_description_record do
+    put_in(kev_record(), [:advisory, :description], "A changed exploitable vulnerability.")
+  end
+
+  defp changed_coordinate_record do
+    put_in(kev_record(), [:coordinates, Access.at(0), :cpe_version], "1.0.1")
+  end
+
+  defp duplicate_coordinate_record do
+    put_in(kev_record(), [:coordinates], duplicate_coordinates())
+  end
+
+  defp reversed_duplicate_coordinate_record do
+    put_in(kev_record(), [:coordinates], Enum.reverse(duplicate_coordinates()))
+  end
+
+  defp duplicate_coordinates do
+    [
+      %{
+        coordinate_type: "cpe",
+        value: "cpe:2.3:a:example:widget:1.0:*:*:*:*:*:*:*",
+        cpe_part: "a",
+        cpe_vendor: "example",
+        cpe_product: "zeta",
+        cpe_version: "1.0",
+        version_start: "1.0",
+        version_start_inclusive: true,
+        version_end: "1.4",
+        version_end_inclusive: false,
+        metadata: %{"match_criteria_id" => "alternate-coordinate"}
+      },
+      %{
+        coordinate_type: "cpe",
+        value: "cpe:2.3:a:example:widget:1.0:*:*:*:*:*:*:*",
+        cpe_part: "a",
+        cpe_vendor: "example",
+        cpe_product: "alpha",
+        cpe_version: "1.0",
+        version_start: "1.0",
+        version_start_inclusive: true,
+        version_end: "1.4",
+        version_end_inclusive: false,
+        metadata: %{"match_criteria_id" => "canonical-coordinate"}
+      }
+    ]
+  end
+
+  defp duplicate_coordinate_rows do
+    Enum.map(
+      duplicate_coordinates(),
+      &Map.put(&1, :advisory_ref, "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    )
+  end
+
+  defp timestamp_precision_record(published_at) do
+    put_in(kev_record(), [:advisory, :published_at], published_at)
   end
 
   defp coord(advisory_ref, value, version_start, version_end, match_id) do

@@ -1,6 +1,7 @@
 # Publishes only the Dgraph CI CA certificate (ca.crt) on an in-cluster ClusterIP Service.
+# Clients do not dial this Service. They dial the LAN HTTPS route:
 #
-#   http://dgraph-ca-incluster.dgraph-ci.svc.cluster.local/ca.crt
+#   https://dgraph-ci-ca.carverauto.dev/ca.crt
 #
 # WHY THIS EXISTS: config/environments/ci.textproto sets dgraph.tls_mode to VERIFY_CA against a
 # certificate issued by the in-cluster `dgraph-ci-ca`. No public authority signs a
@@ -8,9 +9,10 @@
 # any stored copy correct only until it silently is not. Naming the endpoint in the config means
 # every client reads the CURRENT bundle and nobody rotates a secret by hand.
 #
-# HTTP-ONLY, NECESSARILY. A CA bundle is what a client needs BEFORE it can verify anything, so
-# serving it over TLS would require the very bundle being fetched. Its integrity comes from the
-# endpoint being in-cluster and unroutable from outside. Do not put TLS on this path.
+# Caddy stays HTTP. Envoy on lan-shared-gateway terminates TLS with the Let's Encrypt wildcard
+# already trusted by scratch images. The custom CA is the document being served, not the
+# certificate that terminates the fetch. Wrapping this hop in a cert issued by dgraph-ci-ca
+# is the circular case; wrapping it in a public CA is not. Do not put nginx on this path.
 #
 # The CA PRIVATE KEY IS NOT IN ANY VOLUME HERE: the secret carries ca.crt, tls.crt and tls.key,
 # and the volume projects ca.crt alone. That projection is the guarantee, not the Caddyfile route.
@@ -160,8 +162,7 @@ spec:
         - name: tmp
           emptyDir: {}
 ---
-# In-cluster only. GitHub ARC and the BuildBuddy workflow pool fetch the CA
-# here so they do not need kubectl or a public VIP.
+# Envoy backend only. Clients fetch https://dgraph-ci-ca.carverauto.dev/ca.crt.
 apiVersion: v1
 kind: Service
 metadata:
