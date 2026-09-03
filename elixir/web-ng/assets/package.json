@@ -43,7 +43,7 @@
     "jmuxer": "^2.1.0",
     "mapbox-gl": "^3.18.1",
     "monaco-editor": "^0.52.2",
-    "phoenix": "^1.8.5",
+    "phoenix": "^1.8.9",
     "phoenix_html": "^4.3.0",
     "phoenix_live_view": "^1.1.27",
     "react": "19.2.8",
