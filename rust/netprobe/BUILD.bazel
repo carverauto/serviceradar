@@ -154,7 +154,8 @@ rust_test(
 # intentionally separate from :netprobe_test: it needs a Linux host with
 # CAP_BPF, CAP_PERFMON, and CAP_NET_ADMIN, loads the exact eBPF object shipped
 # in the native add-on, and exercises real loopback sockets rather than
-# synthetic records.
+# synthetic records. Keep it manual so capability-free wildcard test lanes do
+# not turn a missing worker prerequisite into a product failure.
 rust_test(
     name = "loaded_tcp_attribution_test",
     args = [
@@ -171,6 +172,7 @@ rust_test(
     },
     tags = [
         "integration_test",
+        "manual",
         "requires_cap_bpf",
         "requires_cap_net_admin",
         "requires_cap_perfmon",
