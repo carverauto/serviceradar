@@ -24,6 +24,59 @@ in:devices stats:count() as total by tags.gate limit:100
 
 `time:` on devices still means last-seen. Newly added devices use `first_seen:`.
 
+## Identity reconciliation diagnostics
+
+Explaining an inventory change: which devices are tombstoned, what merged into
+what, whether an identifier is still real, and what a scheduled reconciliation
+run actually did.
+
+Prefer the task tools `trace_device_identity` and `explain_identity_reconciliation`
+over composing these by hand; the recipes below are for the cases they do not
+cover.
+
+```
+in:devices deleted:true sort:last_seen:desc limit:50
+in:devices deleted:true hostname:%farm% limit:25
+in:merge_audit device_id:sr:<uuid> sort:created_at:desc limit:25
+in:merge_audit chain:sr:<uuid> limit:50
+in:merge_audit reason:duplicate_mac time:last_7d limit:50
+in:device_revival_audit device_uid:sr:<uuid> limit:25
+in:revivals time:last_24h sort:revived_at:desc limit:50
+in:device_identifiers device_id:sr:<uuid> limit:100
+in:device_identifiers identifier_type:mac value:001122334455 limit:25
+in:device_identifiers device_id:sr:<uuid> matches_current_facts:false limit:50
+in:identity_evidence_edges device:sr:<uuid> limit:100
+in:identity_reconciliation_runs time:last_24h limit:25
+in:identity_reconciliation_runs merge_cap_reached:true time:last_7d limit:25
+in:dire_runs status:failed time:last_7d limit:25
+```
+
+`in:devices deleted:true` returns tombstoned devices with `deleted_at`,
+`deleted_by`, and `deleted_reason`. Plain `in:devices` hides them.
+
+`chain:` walks the merge graph in BOTH directions from one uid: `direction` is
+`merged_into` (where this device went) or `merged_from` (what came into it), and
+`depth` is hops from the seed. If `truncated` is true the chain hit its depth cap
+and there is more; raise it with `depth:64`.
+
+`matches_current_facts` on `in:device_identifiers` is the difference between an
+identifier the owning device still reports and one that is only history. A merge
+justified by a MAC whose `matches_current_facts` is false was justified by an old
+fact.
+
+`in:identity_evidence_edges` requires a `device:` seed and will refuse an
+unseeded query -- it is a self-join across millions of identifier rows. `direct`
+means the edge touches the seed; `direct:false` at `depth` 2 or more is
+transitive connectivity, which is why the scheduled sweep refuses to merge
+components larger than a pair. `cross_partition` flags an edge whose two devices
+disagree on partition.
+
+On a run that reports `merge_cap_reached:true`, the sweep stopped at its
+configured `max_merges_configured` and more mergeable duplicates may remain for
+the next run. `blocked_component_devices` lists the device uids of each component
+it declined to merge; seed `in:identity_evidence_edges device:` with one of them
+to see why.
+
 ## Events and logs
 
 ```

@@ -823,3 +823,86 @@ diesel::table! {
         updated_at -> Timestamptz,
     }
 }
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    /// Audit trail for device identity merges (`platform.merge_audit`).
+    merge_audit (event_id) {
+        event_id -> Uuid,
+        from_device_id -> Text,
+        to_device_id -> Text,
+        reason -> Nullable<Text>,
+        confidence_score -> Nullable<Numeric>,
+        source -> Nullable<Text>,
+        details -> Nullable<Jsonb>,
+        created_at -> Nullable<Timestamptz>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    /// Append-only record of every soft-deleted device brought back to life.
+    ///
+    /// Written by the `trg_ocsf_devices_revival_audit` trigger, which captures
+    /// the tombstone the revival is about to destroy.
+    device_revival_audit (event_id) {
+        event_id -> Int8,
+        device_uid -> Text,
+        previous_deleted_at -> Timestamptz,
+        previous_deleted_by -> Nullable<Text>,
+        previous_deleted_reason -> Nullable<Text>,
+        revived_at -> Timestamptz,
+        revived_by_application -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    /// Identifier ownership: which device owns a MAC, agent id, serial, or
+    /// integration id, within a partition.
+    device_identifiers (id) {
+        id -> Int8,
+        device_id -> Text,
+        identifier_type -> Text,
+        identifier_value -> Text,
+        partition -> Text,
+        confidence -> Nullable<Text>,
+        source -> Nullable<Text>,
+        first_seen -> Nullable<Timestamptz>,
+        last_seen -> Nullable<Timestamptz>,
+        verified -> Nullable<Bool>,
+        metadata -> Nullable<Jsonb>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    /// One row per scheduled identity reconciliation run.
+    identity_reconciliation_runs (run_id) {
+        run_id -> Uuid,
+        started_at -> Timestamptz,
+        completed_at -> Nullable<Timestamptz>,
+        duration_ms -> Nullable<Int8>,
+        status -> Text,
+        error_summary -> Nullable<Text>,
+        duplicate_identifier_count -> Int4,
+        duplicate_components -> Int4,
+        mergeable_components -> Int4,
+        blocked_components -> Int4,
+        blocked_devices -> Int4,
+        largest_blocked_component -> Int4,
+        merges -> Int4,
+        errors -> Int4,
+        max_merges_configured -> Nullable<Int4>,
+        merge_cap_reached -> Bool,
+        blocked_component_devices -> Jsonb,
+        trigger -> Text,
+        job_schedule_id -> Nullable<Int8>,
+    }
+}
+
+diesel::allow_tables_to_appear_in_same_query!(device_identifiers, ocsf_devices);

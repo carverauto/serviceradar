@@ -179,6 +179,140 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
     end
   end
 
+  describe "report_blocked_components/1" do
+    test "returns the largest blocked component size instead of :ok" do
+      # The size was computed for a log line and then discarded, so nothing
+      # downstream could record it. Returning it is the whole point.
+      components = [
+        %{device_ids: ["sr:a", "sr:b", "sr:c"], evidence: []},
+        %{device_ids: ["sr:d", "sr:e", "sr:f", "sr:g"], evidence: []}
+      ]
+
+      assert DuplicateSweep.report_blocked_components(components) == 4
+    end
+
+    test "is zero when nothing was blocked" do
+      assert DuplicateSweep.report_blocked_components([]) == 0
+    end
+  end
+
+  describe "blocked_component_membership/2" do
+    test "captures the device uids of each blocked component" do
+      components = [
+        %{device_ids: ["sr:a", "sr:b", "sr:c"], evidence: []},
+        %{device_ids: ["sr:d", "sr:e"], evidence: []}
+      ]
+
+      assert DuplicateSweep.blocked_component_membership(components, 10) == [
+               %{"device_ids" => ["sr:a", "sr:b", "sr:c"]},
+               %{"device_ids" => ["sr:d", "sr:e"]}
+             ]
+    end
+
+    test "caps capture and says so rather than silently eliding components" do
+      components =
+        for n <- 1..5 do
+          %{device_ids: ["sr:#{n}a", "sr:#{n}b"], evidence: []}
+        end
+
+      captured = DuplicateSweep.blocked_component_membership(components, 2)
+
+      assert length(captured) == 3
+
+      assert Enum.take(captured, 2) == [
+               %{"device_ids" => ["sr:1a", "sr:1b"]},
+               %{"device_ids" => ["sr:2a", "sr:2b"]}
+             ]
+
+      assert List.last(captured) == %{"truncated" => true, "omitted_components" => 3}
+    end
+
+    test "is an empty list when nothing was blocked" do
+      assert DuplicateSweep.blocked_component_membership([], 10) == []
+    end
+  end
+
+  describe "normalize_trigger/1" do
+    test "accepts the two declared triggers and defaults everything else" do
+      assert DuplicateSweep.normalize_trigger(:manual) == :manual
+      assert DuplicateSweep.normalize_trigger("manual") == :manual
+      assert DuplicateSweep.normalize_trigger(:scheduled) == :scheduled
+      assert DuplicateSweep.normalize_trigger(nil) == :scheduled
+      assert DuplicateSweep.normalize_trigger("nonsense") == :scheduled
+      assert DuplicateSweep.normalize_trigger(42) == :scheduled
+    end
+  end
+
+  describe "build_run_stats/2" do
+    test "records the configured cap and whether the run reached it" do
+      # Neither fact is derivable after the run from anything else that is
+      # persisted: the cap is normalised once and then only read inside the
+      # merge reduce.
+      acc = %{
+        DuplicateSweep.initial_accumulator()
+        | duplicate_identifier_count: 12,
+          duplicate_components: 4,
+          mergeable_components: 3,
+          blocked_components: 1,
+          blocked_devices: 5,
+          largest_blocked_component: 5,
+          merges: 50,
+          errors: 2
+      }
+
+      stats = DuplicateSweep.build_run_stats(acc, %{max_merges: 50, started_monotonic: 0})
+
+      assert stats.max_merges_configured == 50
+      assert stats.merge_cap_reached
+      assert stats.merges == 50
+      assert stats.errors == 2
+      assert stats.largest_blocked_component == 5
+      assert is_integer(stats.duration_ms)
+    end
+
+    test "a run below its cap is not reported as capped" do
+      acc = %{DuplicateSweep.initial_accumulator() | merges: 49}
+
+      stats = DuplicateSweep.build_run_stats(acc, %{max_merges: 50, started_monotonic: 0})
+
+      refute stats.merge_cap_reached
+    end
+
+    test "keeps every counter the previous stats map carried" do
+      # Callers and log scrapers already read these keys; adding fields must not
+      # remove any.
+      stats =
+        DuplicateSweep.build_run_stats(
+          DuplicateSweep.initial_accumulator(),
+          %{max_merges: 200, started_monotonic: 0}
+        )
+
+      for key <- [
+            :duplicate_identifier_count,
+            :duplicate_components,
+            :mergeable_components,
+            :blocked_components,
+            :blocked_devices,
+            :merges,
+            :errors,
+            :duration_ms
+          ] do
+        assert Map.has_key?(stats, key), "stats map lost #{key}"
+      end
+    end
+
+    test "does not carry blocked component membership into the logged stats" do
+      # The membership list goes to the run record, not into a log line.
+      stats =
+        DuplicateSweep.build_run_stats(
+          DuplicateSweep.initial_accumulator(),
+          %{max_merges: 200, started_monotonic: 0}
+        )
+
+      refute Map.has_key?(stats, :blocked_component_devices)
+    end
+  end
+
   test "does not use hardware serial ambiguity for unattended merges" do
     types = DuplicateSweep.automatic_merge_identifier_types()
 
