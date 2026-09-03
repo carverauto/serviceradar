@@ -14,6 +14,8 @@ defmodule ServiceRadar.StatusHandler do
 
   use GenServer
 
+  alias ServiceRadar.Admission.FlowLane
+  alias ServiceRadar.Admission.RetainedPluginLane
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch
@@ -27,6 +29,7 @@ defmodule ServiceRadar.StatusHandler do
   require Logger
 
   @flow_attribution_source "flow-attribution"
+  @retained_plugin_capability "plugin-result-retained:v1"
   @workload_identity_source "workload-identity"
   @addon_source_prefix "addon:"
   @plugin_source_prefix "plugin:"
@@ -88,7 +91,7 @@ defmodule ServiceRadar.StatusHandler do
 
   @impl true
   def handle_cast({:status_update, status}, state) do
-    case process_status_update(status, sync_results?: false) do
+    case process_cast_status_update(status) do
       :ok ->
         :ok
 
@@ -104,19 +107,35 @@ defmodule ServiceRadar.StatusHandler do
 
   @impl true
   def handle_call({:status_update, status}, from, state) do
-    if endpoint_inventory_result_status?(status) do
-      # Endpoint inventory has its own bounded admission queue. Admitting through
-      # the singleton ResultsRouter first couples scan acknowledgements to every
-      # unrelated result handler and lets slow plugin ingestion block the fleet.
-      case ResultsRouter.admit_endpoint_inventory(status, from) do
-        :ok -> {:noreply, state}
-        {:error, _reason} = error -> {:reply, error, state}
-        {:ok, _result} = ok -> {:reply, ok, state}
-      end
-    else
-      {:reply, process_status_update(status, sync_results?: true), state}
+    cond do
+      flow_attribution_status?(status) ->
+        admission_reply(FlowLane.admit(status, from), state)
+
+      retained_plugin_result_status?(status) ->
+        admission_reply(RetainedPluginLane.admit(status, from), state)
+
+      endpoint_inventory_result_status?(status) ->
+        # Endpoint inventory has its own bounded admission queue. Admitting through
+        # the singleton ResultsRouter first couples scan acknowledgements to every
+        # unrelated result handler and lets slow plugin ingestion block the fleet.
+        admission_reply(ResultsRouter.admit_endpoint_inventory(status, from), state)
+
+      true ->
+        {:reply, process_status_update(status, sync_results?: true), state}
     end
   end
+
+  defp process_cast_status_update(status) do
+    cond do
+      flow_attribution_status?(status) -> FlowLane.admit_cast(status)
+      retained_plugin_result_status?(status) -> RetainedPluginLane.admit_cast(status)
+      true -> process_status_update(status, sync_results?: false)
+    end
+  end
+
+  defp admission_reply(:ok, state), do: {:noreply, state}
+  defp admission_reply({:error, _reason} = error, state), do: {:reply, error, state}
+  defp admission_reply({:ok, _result} = ok, state), do: {:reply, ok, state}
 
   defp process_status_update(status, opts) do
     # No per-message log here — this is the hot ingestion path. Useful breadcrumbs
@@ -146,7 +165,7 @@ defmodule ServiceRadar.StatusHandler do
 
   defp process(%{source: source} = status, _opts)
        when source in [@flow_attribution_source, :flow_attribution] do
-    handle_flow_attribution(status)
+    process_flow_attribution(status)
   end
 
   defp process(%{source: source} = status, _opts)
@@ -190,13 +209,34 @@ defmodule ServiceRadar.StatusHandler do
 
   defp endpoint_inventory_result_status?(_status), do: false
 
+  defp flow_attribution_status?(%{source: source})
+       when source in [@flow_attribution_source, :flow_attribution], do: true
+
+  defp flow_attribution_status?(_status), do: false
+
+  defp retained_plugin_result_status?(%{source: source} = status)
+       when source in ["plugin-result", :plugin_result] do
+    retained_plugin_admission_enabled?() and
+      @retained_plugin_capability in (status[:delivery_capabilities] ||
+                                        status["delivery_capabilities"] || [])
+  end
+
+  defp retained_plugin_result_status?(_status), do: false
+
+  defp retained_plugin_admission_enabled? do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:retained_plugin_admission_enabled, false)
+  end
+
   defp results_router_timeout_ms do
     :serviceradar_core
     |> Application.get_env(__MODULE__, [])
     |> Keyword.get(:results_router_timeout_ms, @results_router_timeout_ms)
   end
 
-  defp handle_flow_attribution(status) do
+  @doc false
+  def process_flow_attribution(status) do
     partition_id = status[:partition] || "default"
     agent_id = status[:agent_id]
     message = status[:message]
@@ -209,11 +249,11 @@ defmodule ServiceRadar.StatusHandler do
         case persist_flow_attribution(events || [], partition_id, agent_id) do
           :ok ->
             emit_flow_attribution_batch_received(events, dropped, partition_id, agent_id)
-            :ok
+            {:ok, %{event_count: length(events || [])}}
 
           {:ok, _result} ->
             emit_flow_attribution_batch_received(events, dropped, partition_id, agent_id)
-            :ok
+            {:ok, %{event_count: length(events || [])}}
 
           {:error, _reason} = error ->
             error

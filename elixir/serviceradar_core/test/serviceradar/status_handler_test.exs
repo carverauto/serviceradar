@@ -52,6 +52,22 @@ defmodule ServiceRadar.StatusHandlerTest do
     assert_receive {:forwarded, ^status}
   end
 
+  test "retained plugin admission compatibility gate defaults to the legacy path" do
+    original = Application.get_env(:serviceradar_core, StatusHandler)
+    Application.put_env(:serviceradar_core, StatusHandler, [])
+    on_exit(fn -> restore_env(StatusHandler, original) end)
+
+    status = %{
+      source: "plugin-result",
+      service_type: "plugin",
+      delivery_capabilities: ["plugin-result-retained:v1"],
+      message: Jason.encode!(%{"status" => "OK"})
+    }
+
+    assert {:reply, :ok, %{}} =
+             StatusHandler.handle_call({:status_update, status}, self(), %{})
+  end
+
   test "endpoint inventory admission bypasses a busy ResultsRouter" do
     parent = self()
 
@@ -171,9 +187,26 @@ defmodule ServiceRadar.StatusHandlerTest do
   describe "flow-attribution source" do
     setup do
       original = Application.get_env(:serviceradar_core, StatusHandler, [])
+      task_supervisor = start_supervised!({Task.Supervisor, []})
+
+      lane =
+        start_supervised!(
+          {ServiceRadar.Admission.FlowLane,
+           name: unique_name(:flow_lane),
+           task_supervisor: task_supervisor,
+           config: [
+             max_items: 16,
+             max_bytes: 64 * 1_024 * 1_024,
+             max_items_per_agent: 4,
+             queue_wait_ms: 100,
+             worker_timeout_ms: 1_000,
+             gateway_call_timeout_ms: 4_100
+           ]}
+        )
 
       Application.put_env(:serviceradar_core, StatusHandler,
-        flow_attribution_persister: {__MODULE__, :persist_flow_attribution, [self()]}
+        flow_attribution_persister: {__MODULE__, :persist_flow_attribution, [self()]},
+        flow_lane: lane
       )
 
       on_exit(fn ->
@@ -222,9 +255,14 @@ defmodule ServiceRadar.StatusHandlerTest do
     test "returns a synchronous failure when flow attribution persistence fails" do
       original = Application.get_env(:serviceradar_core, StatusHandler, [])
 
-      Application.put_env(:serviceradar_core, StatusHandler,
-        flow_attribution_persister:
+      Application.put_env(
+        :serviceradar_core,
+        StatusHandler,
+        Keyword.put(
+          original,
+          :flow_attribution_persister,
           {__MODULE__, :persist_flow_attribution_result, [self(), {:error, :deadlock_exhausted}]}
+        )
       )
 
       on_exit(fn -> Application.put_env(:serviceradar_core, StatusHandler, original) end)
@@ -253,8 +291,7 @@ defmodule ServiceRadar.StatusHandlerTest do
         message: batch
       }
 
-      assert {:reply, {:error, :deadlock_exhausted}, %{}} =
-               StatusHandler.handle_call({:status_update, status}, self(), %{})
+      assert {:error, :deadlock_exhausted} = admit_status(status)
 
       assert_receive {:flow_attribution_persisted, _events, "prod-east", "agent-a"}
     end
@@ -262,9 +299,14 @@ defmodule ServiceRadar.StatusHandlerTest do
     test "emits dropped-event telemetry only after a failed prefix retry persists" do
       {:ok, attempt_counter} = Agent.start_link(fn -> 0 end)
 
-      Application.put_env(:serviceradar_core, StatusHandler,
-        flow_attribution_persister:
+      Application.put_env(
+        :serviceradar_core,
+        StatusHandler,
+        Keyword.put(
+          Application.get_env(:serviceradar_core, StatusHandler, []),
+          :flow_attribution_persister,
           {__MODULE__, :persist_flow_attribution_fail_once, [self(), attempt_counter]}
+        )
       )
 
       handler_id = {__MODULE__, self(), make_ref()}
@@ -304,14 +346,12 @@ defmodule ServiceRadar.StatusHandlerTest do
         message: batch
       }
 
-      assert {:reply, {:error, :deadlock_exhausted}, %{}} =
-               StatusHandler.handle_call({:status_update, status}, self(), %{})
+      assert {:error, :deadlock_exhausted} = admit_status(status)
 
       assert_receive {:flow_attribution_persist_attempt, 1, _events, "prod-east", "agent-a"}
       refute_receive {:flow_attribution_batch_received, _, _, _}, 20
 
-      assert {:reply, :ok, %{}} =
-               StatusHandler.handle_call({:status_update, status}, self(), %{})
+      assert :ok = admit_status(status)
 
       assert_receive {:flow_attribution_persist_attempt, 2, _events, "prod-east", "agent-a"}
 
@@ -335,6 +375,19 @@ defmodule ServiceRadar.StatusHandlerTest do
       assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
     end
   end
+
+  defp admit_status(status) do
+    reply_ref = make_ref()
+
+    assert {:noreply, %{}} =
+             StatusHandler.handle_call({:status_update, status}, {self(), reply_ref}, %{})
+
+    assert_receive {^reply_ref, result}, 1_500
+    result
+  end
+
+  defp unique_name(suffix),
+    do: Module.concat(__MODULE__, "#{suffix}_#{System.unique_integer([:positive])}")
 
   defp start_endpoint_inventory_queue(parent) do
     spawn(fn -> endpoint_inventory_queue_loop(parent) end)

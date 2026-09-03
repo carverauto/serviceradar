@@ -8,6 +8,8 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
 
   use Supervisor
 
+  alias ServiceRadar.Admission.FlowTaskSupervisor
+  alias ServiceRadar.Admission.RetainedPluginTaskSupervisor
   alias ServiceRadar.Observability.LogPromotionConsumer
 
   def start_link(opts \\ []) do
@@ -25,6 +27,10 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
       [
         cluster_health_child(),
         state_monitor_child(),
+        flow_admission_task_supervisor_child(),
+        retained_plugin_admission_task_supervisor_child(),
+        flow_admission_lane_child(),
+        retained_plugin_admission_lane_child(),
         status_handler_child(),
         command_result_coordination_supervisor_child(),
         command_status_handler_child(),
@@ -100,6 +106,36 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp status_handler_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.StatusHandler
+    end
+  end
+
+  defp flow_admission_task_supervisor_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      Supervisor.child_spec(
+        {Task.Supervisor, name: FlowTaskSupervisor},
+        id: FlowTaskSupervisor
+      )
+    end
+  end
+
+  defp retained_plugin_admission_task_supervisor_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      Supervisor.child_spec(
+        {Task.Supervisor, name: RetainedPluginTaskSupervisor},
+        id: RetainedPluginTaskSupervisor
+      )
+    end
+  end
+
+  defp flow_admission_lane_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      ServiceRadar.Admission.FlowLane
+    end
+  end
+
+  defp retained_plugin_admission_lane_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      ServiceRadar.Admission.RetainedPluginLane
     end
   end
 
