@@ -51,18 +51,24 @@
 
 ## 5. Stop relocating the migration ledger tables
 
-- [ ] 5.1 Exclude the ledger named by the repo's configured `migration_source` -- not a
+- [x] 5.1 Exclude the ledger named by the repo's configured `migration_source` -- not a
       hardcoded name -- from the table loop in
       `priv/repo/migrations/20260126120000_move_public_schema_objects_to_platform.exs`.
-      `Ecto.Migration.repo/0` is public API, so `repo().config()[:migration_source]` is
-      available inside the migration. The current literal `tablename <> 'schema_migrations'`
-      is correct only when `migration_source` is unset; web-ng sets it to
-      `ash_schema_migrations`. See `findings.md` E1.
-- [ ] 5.2 Confirm the exclusion is safe: `StartupMigrations` already creates
-      `platform.ash_schema_migrations` and syncs rows into it, so nothing depends on the move
-      to place it.
-- [ ] 5.3 Extend the `lock_timeout` guard and diagnostic exception handler to the sequence, view
-      and materialized-view loops, which are currently unwrapped.
+      Done via `ledger_tables/1` + `move_objects_sql/1`, called from `up/0` as
+      `move_objects_sql(ledger_tables(repo().config()[:migration_source]))`.
+      Covered by `test/serviceradar/migrations/move_public_schema_objects_to_platform_test.exs`
+      (7 tests) and verified behaviourally against a real database: both ledgers stay in
+      `public`, an ordinary table still moves to `platform`.
+- [x] 5.2 Confirmed: `StartupMigrations` already creates `platform.ash_schema_migrations`
+      (`startup_migrations.ex:1099`) and syncs rows into it, so nothing depends on the move to
+      place it.
+- [ ] 5.3 Add the diagnostic exception handler to the sequence, view and materialized-view
+      loops. NOTE: the premise this task was written with was wrong -- `SET LOCAL lock_timeout`
+      is transaction-scoped, so those loops are ALREADY bounded by it. What they lack is only
+      the handler that names the blocking object and its lock holders. Lower value than the
+      table loop (a sequence or view is never the migration ledger), and a naive fix
+      triplicates ~25 lines of PL/pgSQL, so prefer unifying the four loops into one
+      `(kind, name)` pass with a single handler.
 
 ## 6. Apply the recorded mechanism's fix
 
@@ -88,8 +94,12 @@
 - [ ] 8.2 A database test asserting that a fresh database bootstrapped through the migrator path
       records the baseline-covered versions in `schema_migrations` *without* their migrations
       having run, and applies only the pending remainder.
-- [ ] 8.3 A regression test that `20260126120000` leaves a pre-existing
-      `public.ash_schema_migrations` alone.
+- [x] 8.3 A regression test that `20260126120000` leaves a pre-existing
+      `public.ash_schema_migrations` alone. Unit coverage in
+      `test/serviceradar/migrations/move_public_schema_objects_to_platform_test.exs`, plus a
+      behavioural run of the generated SQL against a scratch CNPG database asserting
+      `ash_schema_migrations -> public`, `schema_migrations -> public`,
+      `some_app_table -> platform`.
 - [ ] 8.4 Run the srql-fixtures database-test lifecycle in order
       (sweep, prepare template, migrate, provision, test, teardown) per the
       `srql-fixtures-db-tests` skill, and confirm teardown ran even on a red shard.
