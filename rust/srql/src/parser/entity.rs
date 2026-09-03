@@ -148,6 +148,15 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "source_fact_disagreements" | "source_fact_disagreement" | "fact_disagreements" => {
             Ok(Entity::SourceFactDisagreements)
         }
+        "merge_audit" | "device_merges" | "merges" => Ok(Entity::MergeAudit),
+        "device_revival_audit" | "device_revivals" | "revivals" => Ok(Entity::DeviceRevivalAudit),
+        "device_identifiers" | "identifiers" | "device_identity" => Ok(Entity::DeviceIdentifiers),
+        "identity_reconciliation_runs" | "reconciliation_runs" | "dire_runs" => {
+            Ok(Entity::IdentityReconciliationRuns)
+        }
+        "identity_evidence_edges" | "identity_evidence" | "evidence_edges" => {
+            Ok(Entity::IdentityEvidenceEdges)
+        }
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),

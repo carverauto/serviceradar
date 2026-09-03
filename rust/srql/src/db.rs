@@ -1,9 +1,9 @@
 use crate::config::AppConfig;
 use anyhow::{Context, Result};
-use std::borrow::Cow;
 use async_trait::async_trait;
 use bb8::{ManageConnection, Pool};
 use diesel_async::{AsyncPgConnection, SimpleAsyncConnection};
+use std::borrow::Cow;
 use std::time::Duration;
 use tokio_postgres::{Config as PgConfig, NoTls};
 use tracing::{error, info};
@@ -46,7 +46,6 @@ pub fn strip_sslmode(url: &str) -> Cow<'_, str> {
     }
     Cow::Owned(format!("{base}?{}", kept.join("&")))
 }
-
 
 pub async fn connect_pool(config: &AppConfig) -> Result<PgPool> {
     let manager = PgConnectionManager::new(
@@ -169,8 +168,9 @@ mod parse_pg_config_tests {
     /// `parse::<PgConfig>()` rejects it, which meant srql could not open its own pool.
     #[test]
     fn verifying_sslmode_is_accepted() {
-        let config = parse_pg_config("postgres://srql:pw@db.example:5432/serviceradar?sslmode=verify-full")
-            .expect("srql must parse the DSN it builds");
+        let config =
+            parse_pg_config("postgres://srql:pw@db.example:5432/serviceradar?sslmode=verify-full")
+                .expect("srql must parse the DSN it builds");
         assert_eq!(config.get_dbname(), Some("serviceradar"));
         assert_eq!(config.get_user(), Some("srql"));
     }

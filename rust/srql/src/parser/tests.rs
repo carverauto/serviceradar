@@ -168,6 +168,72 @@ fn parses_source_fact_disagreement_entity() {
 }
 
 #[test]
+fn parses_every_identity_diagnostic_entity_alias() {
+    use crate::parser::Entity;
+
+    // Every alias here must ALSO appear in the web-ng SRQL EntityAccess map.
+    // `permission_for_query/1` returns :passthrough for entities it does not
+    // know, so an alias the parser accepts but the map omits is an ungated
+    // entity on the HTTP and MCP paths, failing open and silently.
+    let cases: &[(&str, Entity)] = &[
+        ("merge_audit", Entity::MergeAudit),
+        ("device_merges", Entity::MergeAudit),
+        ("merges", Entity::MergeAudit),
+        ("device_revival_audit", Entity::DeviceRevivalAudit),
+        ("device_revivals", Entity::DeviceRevivalAudit),
+        ("revivals", Entity::DeviceRevivalAudit),
+        ("device_identifiers", Entity::DeviceIdentifiers),
+        ("identifiers", Entity::DeviceIdentifiers),
+        ("device_identity", Entity::DeviceIdentifiers),
+        (
+            "identity_reconciliation_runs",
+            Entity::IdentityReconciliationRuns,
+        ),
+        ("reconciliation_runs", Entity::IdentityReconciliationRuns),
+        ("dire_runs", Entity::IdentityReconciliationRuns),
+        ("identity_evidence_edges", Entity::IdentityEvidenceEdges),
+        ("identity_evidence", Entity::IdentityEvidenceEdges),
+        ("evidence_edges", Entity::IdentityEvidenceEdges),
+    ];
+
+    for (alias, expected) in cases {
+        let ast = parse(&format!("in:{alias} limit:5"))
+            .unwrap_or_else(|err| panic!("alias {alias} failed to parse: {err:?}"));
+        assert_eq!(
+            std::mem::discriminant(&ast.entity),
+            std::mem::discriminant(expected),
+            "alias {alias} resolved to the wrong entity"
+        );
+    }
+}
+
+#[test]
+fn identity_entities_reject_unknown_aliases() {
+    // `identity_merges` and `device_evidence` look plausible and are not real.
+    for alias in ["identity_merges", "device_evidence", "revival_audit"] {
+        assert!(
+            parse(&format!("in:{alias} limit:5")).is_err(),
+            "{alias} must not parse"
+        );
+    }
+}
+
+#[test]
+fn parses_merge_audit_chain_and_evidence_seed_tokens() {
+    let ast = parse("in:merge_audit chain:sr:aaa depth:8").unwrap();
+    assert!(matches!(ast.entity, crate::parser::Entity::MergeAudit));
+    assert_eq!(ast.filters[0].field, "chain");
+    assert_eq!(ast.filters[1].field, "depth");
+
+    let ast = parse("in:identity_evidence_edges device:sr:bbb").unwrap();
+    assert!(matches!(
+        ast.entity,
+        crate::parser::Entity::IdentityEvidenceEdges
+    ));
+    assert_eq!(ast.filters[0].field, "device");
+}
+
+#[test]
 fn preserves_dynamic_jsonb_key_casing_in_sort_fields() {
     let ast = parse("in:devices stats:count() as total by tags.Gate,tags.gate sort:tags.gate:asc")
         .unwrap();

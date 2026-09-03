@@ -2487,7 +2487,6 @@ mod tests {
     use crate::parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection};
     use chrono::{Duration as ChronoDuration, TimeZone, Utc};
 
-
     /// Build a plan for the stats path with the supplied filters.
     fn stats_plan(filters: Vec<Filter>, group: &str) -> (QueryPlan, TimeseriesStatsSpec) {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
@@ -2581,7 +2580,12 @@ mod tests {
             sql.sql
         );
         // Two time bounds plus the site value.
-        assert_eq!(sql.binds.len(), 3, "site value should be bound: {}", sql.sql);
+        assert_eq!(
+            sql.binds.len(),
+            3,
+            "site value should be bound: {}",
+            sql.sql
+        );
     }
 
     #[test]

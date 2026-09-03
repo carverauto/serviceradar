@@ -1535,7 +1535,10 @@ fn translate_alerts_stats_actually_aggregates() {
         .expect("alerts stats should translate");
 
     assert!(sql.contains("COUNT(*)"), "no aggregate in: {sql}");
-    assert!(sql.contains("GROUP BY src.severity"), "no grouping in: {sql}");
+    assert!(
+        sql.contains("GROUP BY src.severity"),
+        "no grouping in: {sql}"
+    );
     assert!(
         sql.contains("jsonb_build_object('severity'"),
         "the group value must be projected: {sql}"
@@ -1549,7 +1552,10 @@ fn translate_alerts_stats_keeps_the_row_filters() {
     let sql = translate_query("in:alerts severity:critical stats:count() as n by status")
         .expect("filtered alerts stats should translate");
 
-    assert!(sql.contains("\"alerts\".\"severity\""), "filter dropped: {sql}");
+    assert!(
+        sql.contains("\"alerts\".\"severity\""),
+        "filter dropped: {sql}"
+    );
     assert!(sql.contains("GROUP BY src.status"));
 }
 
@@ -1586,7 +1592,11 @@ fn translate_alerts_stats_rejects_ungroupable_fields() {
 /// rules is a number nobody should act on.
 #[test]
 fn translate_alerts_stats_rejects_non_count_aggregations() {
-    for agg in ["avg(metric_value)", "sum(metric_value)", "max(metric_value)"] {
+    for agg in [
+        "avg(metric_value)",
+        "sum(metric_value)",
+        "max(metric_value)",
+    ] {
         let query = format!("in:alerts stats:{agg} as n by severity");
         assert!(translate_query(&query).is_err(), "{agg} must be rejected");
     }
@@ -1616,7 +1626,10 @@ fn translate_alerts_stats_rejects_unsafe_aliases() {
 fn translate_alerts_rows_are_unchanged_without_stats() {
     let sql = translate_query("in:alerts severity:critical").expect("row query still translates");
 
-    assert!(!sql.contains("COUNT(*)"), "a row query must not aggregate: {sql}");
+    assert!(
+        !sql.contains("COUNT(*)"),
+        "a row query must not aggregate: {sql}"
+    );
     assert!(!sql.contains("jsonb_build_object"), "{sql}");
 }
 

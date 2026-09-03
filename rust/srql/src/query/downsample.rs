@@ -55,7 +55,6 @@ mod tests {
     };
     use chrono::{Duration as ChronoDuration, TimeZone, Utc};
 
-
     /// Plan a bucketed, aggregated timeseries query split by `series`.
     fn series_plan(entity: Entity, series: &str) -> QueryPlan {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
@@ -119,7 +118,10 @@ mod tests {
             .unwrap()
             .0;
 
-        assert_eq!(via_alias, via_tag, "the alias and the explicit tag must agree");
+        assert_eq!(
+            via_alias, via_tag,
+            "the alias and the explicit tag must agree"
+        );
     }
 
     /// The series expression lands in the SELECT and GROUP BY lists, so an
@@ -154,7 +156,6 @@ mod tests {
         let plan = series_plan(Entity::TimeseriesMetrics, "not_a_field");
         assert!(to_sql_and_params(&plan).is_err());
     }
-
 
     fn rate_plan(agg: DownsampleAgg, series: &str) -> QueryPlan {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();

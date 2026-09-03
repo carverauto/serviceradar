@@ -41,104 +41,104 @@
 
 ## 2. SRQL schema and models
 
-- [ ] 2.1 Add `merge_audit`, `device_revival_audit`, `device_identifiers`, and
+- [x] 2.1 Add `merge_audit`, `device_revival_audit`, `device_identifiers`, and
       `identity_reconciliation_runs` to `rust/srql/src/schema.rs`.
 - [ ] 2.2 Add row models and `into_json` in `rust/srql/src/models/inventory.rs`
       (or a new `identity.rs` module if inventory.rs grows past a comfortable
       size).
-- [ ] 2.3 Define the `details` and `metadata` key allowlists in one place and
+- [x] 2.3 Define the `details` and `metadata` key allowlists in one place and
       apply them from every projection that touches those columns.
 
 ## 3. SRQL parser and dispatch
 
-- [ ] 3.1 Add `Entity::MergeAudit`, `Entity::DeviceRevivalAudit`,
+- [x] 3.1 Add `Entity::MergeAudit`, `Entity::DeviceRevivalAudit`,
       `Entity::DeviceIdentifiers`, `Entity::IdentityReconciliationRuns`, and
       `Entity::IdentityEvidenceEdges` to `parser/ast.rs`.
-- [ ] 3.2 Register canonical names and aliases in `parser/entity.rs`:
+- [x] 3.2 Register canonical names and aliases in `parser/entity.rs`:
       `merge_audit|device_merges|merges`,
       `device_revival_audit|device_revivals|revivals`,
       `device_identifiers|identifiers|device_identity`,
       `identity_reconciliation_runs|reconciliation_runs|dire_runs`,
       `identity_evidence_edges|identity_evidence|evidence_edges`.
-- [ ] 3.3 Add the `chain:`, `device:`, `include_unmerge:`, and `value:` filter
+- [x] 3.3 Add the `chain:`, `device:`, `include_unmerge:`, and `value:` filter
       tokens to `parser/filters.rs`; extend `supports_implicit_like` for
       `identifier_value`, `reason`, `source`, and `revived_by_application`.
-- [ ] 3.4 Dispatch the five entities in `query/engine.rs` and
+- [x] 3.4 Dispatch the five entities in `query/engine.rs` and
       `query/translate.rs`.
-- [ ] 3.5 Parser tests for every canonical name, every alias, and the
+- [x] 3.5 Parser tests for every canonical name, every alias, and the
       unknown-entity error path.
 
 ## 4. Merge audit entity and chain resolution
 
-- [ ] 4.1 Implement `query/merge_audit.rs` (`execute` + `to_sql_and_params`).
+- [x] 4.1 Implement `query/merge_audit.rs` (`execute` + `to_sql_and_params`).
       Default sort `created_at desc`; `time:` maps to `created_at`; exclude
       `reason = 'unmerge'` unless `include_unmerge:true`.
-- [ ] 4.2 Filters: `from_device_id`, `to_device_id`, `device_id` (either side),
+- [x] 4.2 Filters: `from_device_id`, `to_device_id`, `device_id` (either side),
       `reason`, `source`, `confidence_score` numeric comparisons.
-- [ ] 4.3 Implement `chain:<uid>` as a recursive CTE walking forward on
+- [x] 4.3 Implement `chain:<uid>` as a recursive CTE walking forward on
       `from_device_id` and backward on `to_device_id`, projecting `depth` and
       `direction`.
-- [ ] 4.4 Bound the walk: `UNION` on visited device ids, configurable depth cap
+- [x] 4.4 Bound the walk: `UNION` on visited device ids, configurable depth cap
       (default 32), and `truncated` in the response when the cap is hit.
 - [ ] 4.5 Verify the plan uses `merge_audit_from_device_created_idx` and
       `merge_audit_to_device_idx`. Add no new index.
-- [ ] 4.6 Tests: multi-hop forward chain; backward chain; oscillating pair
+- [x] 4.6 Tests: multi-hop forward chain; backward chain; oscillating pair
       terminates and visits each device once; depth cap sets `truncated`;
       unmerge exclusion and `include_unmerge:true`; bind-parameter counts.
 
 ## 5. Revival audit entity
 
-- [ ] 5.1 Implement `query/device_revival_audit.rs`. Default sort
+- [x] 5.1 Implement `query/device_revival_audit.rs`. Default sort
       `revived_at desc`; `time:` maps to `revived_at`.
-- [ ] 5.2 Filters: `device_uid`, `revived_by_application`,
+- [x] 5.2 Filters: `device_uid`, `revived_by_application`,
       `previous_deleted_by`, `previous_deleted_reason`.
-- [ ] 5.3 Tests: per-device lookup; time-window filter; parameterization.
+- [x] 5.3 Tests: per-device lookup; time-window filter; parameterization.
 
 ## 6. Device identifiers entity
 
-- [ ] 6.1 Implement `query/device_identifiers.rs` with the `ocsf_devices` owner
+- [x] 6.1 Implement `query/device_identifiers.rs` with the `ocsf_devices` owner
       join. Default sort `last_seen desc`; `time:` maps to `last_seen`.
-- [ ] 6.2 Filters: `device_id`, `identifier_type`, `value`/`identifier_value`,
+- [x] 6.2 Filters: `device_id`, `identifier_type`, `value`/`identifier_value`,
       `partition`, `confidence`, `source`, `verified`.
-- [ ] 6.3 A bare `value:` with no `identifier_type:` expands to
+- [x] 6.3 A bare `value:` with no `identifier_type:` expands to
       `identifier_type = ANY(<closed enum>)` so the plan uses the leading
       column of `device_identifiers_unique_identifier_index`. Never emit a
       predicate on `identifier_value` alone.
-- [ ] 6.4 Project `matches_current_facts`: `mac` matches the owner's current
+- [x] 6.4 Project `matches_current_facts`: `mac` matches the owner's current
       `mac` or a discovered interface MAC; `agent_id`, hostname, and address
       types match the corresponding current device column.
-- [ ] 6.5 Project `owner_deleted`, `owner_deleted_at`, `owner_deleted_by`,
+- [x] 6.5 Project `owner_deleted`, `owner_deleted_at`, `owner_deleted_by`,
       `owner_deleted_reason`, `owner_hostname`, `owner_ip`, `owner_partition`.
-- [ ] 6.6 Apply the `metadata` key allowlist.
-- [ ] 6.7 Tests: ownership by device; corroborated vs historical MAC;
+- [x] 6.6 Apply the `metadata` key allowlist.
+- [x] 6.7 Tests: ownership by device; corroborated vs historical MAC;
       tombstoned owner surfaces; value-without-type emits the ANY expansion;
       allowlist drops unknown metadata keys.
 
 ## 7. Identity evidence edge entity
 
-- [ ] 7.1 Implement `query/identity_evidence_edges.rs` as a recursive CTE
+- [x] 7.1 Implement `query/identity_evidence_edges.rs` as a recursive CTE
       self-joining `device_identifiers` on
       `(identifier_type, identifier_value, partition)` where `device_id`
       differs.
-- [ ] 7.2 Project `device_a`, `device_b`, `identifier_type`,
+- [x] 7.2 Project `device_a`, `device_b`, `identifier_type`,
       `identifier_value`, `partition_a`, `partition_b`, `confidence`, `depth`,
       `direct`, `cross_partition`.
-- [ ] 7.3 Require a `device:` (or component) seed. An unseeded query returns a
+- [x] 7.3 Require a `device:` (or component) seed. An unseeded query returns a
       typed invalid-request error and executes nothing.
-- [ ] 7.4 Bound the walk with the same `UNION`-on-visited and depth cap as the
+- [x] 7.4 Bound the walk with the same `UNION`-on-visited and depth cap as the
       merge chain.
-- [ ] 7.5 Tests: A-B-C component yields direct A-B and transitive B-C and no
+- [x] 7.5 Tests: A-B-C component yields direct A-B and transitive B-C and no
       A-C edge; cross-partition flag; unseeded query refused; cycle
       termination.
 
 ## 8. Reconciliation runs entity
 
-- [ ] 8.1 Implement `query/identity_reconciliation_runs.rs`. Default sort
+- [x] 8.1 Implement `query/identity_reconciliation_runs.rs`. Default sort
       `started_at desc`; `time:` maps to `started_at`.
-- [ ] 8.2 Filters: `run_id`, `status`, `trigger`, `merge_cap_reached`,
+- [x] 8.2 Filters: `run_id`, `status`, `trigger`, `merge_cap_reached`,
       numeric comparisons on `merges`, `errors`, `blocked_components`,
       `largest_blocked_component`, `duration_ms`.
-- [ ] 8.3 Tests: cap-reached run; failed run with error summary; blocked
+- [x] 8.3 Tests: cap-reached run; failed run with error summary; blocked
       component membership projected.
 
 ## 9. RBAC, catalog, and docs

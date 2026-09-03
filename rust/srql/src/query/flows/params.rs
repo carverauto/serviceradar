@@ -102,10 +102,9 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
         "threat_matched" => Ok(()),
         "threat_source" => match filter.op {
             FilterOp::Eq => {
-                params.push(BindParam::TextArray(vec![filter
-                    .value
-                    .as_scalar()?
-                    .to_string()]));
+                params.push(BindParam::TextArray(vec![
+                    filter.value.as_scalar()?.to_string(),
+                ]));
                 Ok(())
             }
             FilterOp::In => {
