@@ -47,6 +47,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.AvailabilityEvents
   alias ServiceRadar.SweepJobs.MapperPromotion
+  alias ServiceRadar.SweepJobs.PortCoverage
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepHostResult
@@ -673,7 +674,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       |> Map.merge(created_device_map)
 
     # Step 7: Build host result records
-    {host_results, stats} = build_host_results(results, execution_id, all_devices)
+    {host_results, stats} =
+      build_host_results(results, execution_id, all_devices,
+        agent_id: reporter_context.reporter_agent_id,
+        sweep_group_id: reporter_context.resolved_group_id
+      )
 
     # Step 8: Bulk insert host results
     case bulk_insert_host_results(host_results) do
@@ -947,7 +952,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   @doc false
-  def build_host_results(results, execution_id, device_map) do
+  def build_host_results(results, execution_id, device_map, context \\ []) do
+    agent_id = context[:agent_id]
+    sweep_group_id = context[:sweep_group_id]
+
     initial_stats = %{
       hosts_total: 0,
       hosts_available: 0,
@@ -962,7 +970,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         device_id = device_id_for_ip(device_map, ip)
 
         record =
-          build_host_record(result, execution_id, ip, status, device_id)
+          build_host_record(
+            result,
+            execution_id,
+            ip,
+            status,
+            device_id,
+            {agent_id, sweep_group_id}
+          )
 
         updated_stats = update_host_stats(stats, is_available)
 
@@ -997,7 +1012,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp build_host_record(result, execution_id, ip, status, device_id) do
+  defp build_host_record(result, execution_id, ip, status, device_id, {agent_id, sweep_group_id}) do
     # DB connection's search_path determines the schema
     %{
       id: Ash.UUID.generate(),
@@ -1007,8 +1022,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       status: status,
       response_time_ms: response_time_ms(result),
       open_ports: open_ports(result),
+      scanned_ports: PortCoverage.scanned_ports(result),
       sweep_modes_results: build_modes_results(result),
       device_id: device_id,
+      agent_id: agent_id,
+      sweep_group_id: sweep_group_id,
       error_message: result["error"],
       inserted_at: DateTime.utc_now()
     }
@@ -1177,9 +1195,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       Enum.empty?(open_ports(result))
   end
 
-  defp bulk_insert_host_results([]), do: :ok
+  @doc false
+  def bulk_insert_host_results([]), do: :ok
 
-  defp bulk_insert_host_results(records) do
+  @doc false
+  def bulk_insert_host_results(records) do
     # DB connection's search_path determines the schema
     # Insert records with ON CONFLICT handling that preserves non-zero response_time_ms
     #
@@ -1187,6 +1207,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # - If new value is 0: NULLIF returns NULL, COALESCE falls back to existing
     # - If new value is non-zero: NULLIF returns it, COALESCE uses the new value
     # - This prevents sweep results with 0ms from overwriting valid response times
+    #
+    # scanned_ports accumulates across progress batches: a port attempted in an
+    # earlier batch was still attempted, even if this batch's payload didn't
+    # cover it. open_ports keeps replace semantics: a port that closed between
+    # batches must stop being open. agent_id/sweep_group_id use COALESCE so a
+    # later batch lacking reporter context cannot null out identity that an
+    # earlier batch established.
     on_conflict_query =
       from(r in SweepHostResult,
         update: [
@@ -1199,8 +1226,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
                 r.response_time_ms
               ),
             open_ports: fragment("EXCLUDED.open_ports"),
+            scanned_ports:
+              fragment(
+                "ARRAY(SELECT DISTINCT u FROM unnest(COALESCE(?, '{}'::bigint[]) || COALESCE(EXCLUDED.scanned_ports, '{}'::bigint[])) AS u ORDER BY u)",
+                r.scanned_ports
+              ),
             sweep_modes_results: fragment("EXCLUDED.sweep_modes_results"),
             device_id: fragment("EXCLUDED.device_id"),
+            agent_id: fragment("COALESCE(EXCLUDED.agent_id, ?)", r.agent_id),
+            sweep_group_id: fragment("COALESCE(EXCLUDED.sweep_group_id, ?)", r.sweep_group_id),
             error_message: fragment("EXCLUDED.error_message")
           ]
         ]
