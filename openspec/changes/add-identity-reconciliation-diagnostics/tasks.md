@@ -194,7 +194,7 @@
 - [ ] 11.4 `cargo fmt` + `cargo clippy` on `rust/srql`;
       `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix` and
       `--project elixir/serviceradar_core`.
-- [ ] 11.5 Run `make test` before opening the PR. The Elixir unit shards exist
+- [x] 11.5 Run `make test` before opening the PR. The Elixir unit shards exist
       only as bazel targets and are invisible to `mix test`.
 - [ ] 11.6 Walk all six acceptance criteria from issue #4229 end to end using
       only MCP or SRQL against the fixture data, and record the queries used in
