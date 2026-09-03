@@ -1,9 +1,12 @@
 -- Canonical SRQL device fixture rows (OCSF v1.7.0 aligned).
--- endpoint_inventory_packages references endpoint_packages, so they must be
--- truncated in the same statement; ocsf_devices is referenced by
--- device_agent_availability and the virtualization_* tables, so CASCADE.
-TRUNCATE endpoint_vulnerability_matches, advisory_coordinates, vulnerability_advisories;
-TRUNCATE endpoint_inventory_packages, endpoint_packages;
+-- Matches and inventory packages both reference endpoint_packages, and
+-- matches/coordinates reference vulnerability_advisories. Postgres refuses
+-- TRUNCATE of a referenced table unless every referencer is in the same
+-- statement — emptying matches first is not enough.
+-- ocsf_devices is referenced by device_agent_availability and the
+-- virtualization_* tables, so CASCADE.
+TRUNCATE endpoint_vulnerability_matches, advisory_coordinates, vulnerability_advisories,
+    endpoint_inventory_packages, endpoint_packages;
 TRUNCATE endpoint_inventory_scans;
 TRUNCATE endpoint_inventory_current_package_counts;
 TRUNCATE endpoint_inventory_current_cpe_counts;
