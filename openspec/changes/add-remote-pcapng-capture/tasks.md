@@ -2,8 +2,14 @@
 
 Eleven implementation slices plus a bookkeeping slice, each one PR. `S0`
 blocks everything. `S4` depends on none of `S1`-`S3` and can run in
-parallel with them. `S6` depends on `S4`. Everything else is serial.
-`S11` is documentation only and can land at any point after `S0`.
+parallel with them. `S5` depends on `S4`, and `S7` depends on `S5` --
+a front door must not exist before the audit trail behind it does.
+Everything else is serial. `S11` is documentation only and can land at
+any point after `S0`.
+
+The `srctl` CLI is **out of scope** for this change; see `design.md`,
+"Out of scope: the `srctl` CLI". Wireshark over `rpcaps://` and the Web
+UI are the front doors.
 
 Task numbers in parentheses, like `(22.3)`, name the
 `add-host-network-visibility-sidecar` Phase 5 task this replaces or
@@ -36,7 +42,7 @@ Blocks every other slice.
   and would drop an unrecognized oneof arm with no log, no metric and no
   `recordEventDrop`. (GitHub #4026)
 - [ ] 0.5 Define `StartRemoteCapture`: `session_id` (ULID),
-  `interfaces` (repeated), `filter_expression` (string, the `srctl`
+  `interfaces` (repeated), `filter_expression` (string, the UI/API
   form), `filter_bpf` (repeated compiled instruction, the RPCAP form --
   exactly one of the two is set), `snaplen`, `duration_s`, `byte_cap`,
   `direction`, `promiscuous`. (22.1)
@@ -61,7 +67,7 @@ The packet path. No IPC surface yet -- provable on its own.
   ifindex with a TPACKET_V3 `PACKET_MMAP` ring, sized per session.
 - [ ] 1.2 Attach the session filter with `SO_ATTACH_FILTER` before the
   first frame can be queued, so no unfiltered packet is ever ringed.
-- [ ] 1.3 Write the tcpdump-subset to cBPF compiler for the `srctl`
+- [ ] 1.3 Write the tcpdump-subset to cBPF compiler for the UI/API
   string form: the grammar in `design.md` D2. Unsupported constructs
   return a structured error naming the construct. It MUST NOT widen a
   filter it did not fully understand.
@@ -115,8 +121,17 @@ The packet path. No IPC surface yet -- provable on its own.
   is HALF DONE -- mode 0600 landed and `SO_PEERCRED` never did, which
   makes file permissions the entire authorization story for a socket that
   can now start packet captures.
-- [ ] 2.7 Tests: allowlist denial, filter-compile failure, duration cap,
-  byte cap, mid-session UDS close, concurrent-session rejection. (22.8)
+- [ ] 2.7 Refuse an unattributed capture: a request arriving without a
+  core-issued session id and actor is rejected, so a capture cannot be
+  started by anything that bypassed the control plane -- including
+  something local to the host holding the UDS. (`design.md` D8.7)
+- [ ] 2.8 Log session start and stop to the journal with session id,
+  actor, interface and filter, so the captured host retains evidence even
+  if the control plane's records are altered. (`design.md` D8.6)
+- [ ] 2.9 Tests: allowlist denial, filter-compile failure, duration cap,
+  byte cap, mid-session UDS close, concurrent-session rejection,
+  unattributed-request refusal, and the journal lines for start and stop.
+  (22.8)
 
 ## S3. Agent to agent-gateway transport
 
@@ -143,9 +158,10 @@ Modelled on the camera relay (`design.md` D4).
 - [ ] 3.7 Surface an active-capture indicator in the agent status
   response. (23.6)
 
-## S4. core-elx ingress session, lifecycle, RBAC, audit
+## S4. core-elx ingress session, lifecycle and RBAC
 
-Parallelizable with S1-S3.
+Parallelizable with S1-S3. The audit and event surface built on top of
+this resource is S5, which no front door ships without.
 
 - [ ] 4.1 Add the supervised ingress session and tracker, mirroring
   `camera_media_ingress.ex` / `camera_media_ingress_session.ex`: allocate
@@ -170,130 +186,136 @@ Parallelizable with S1-S3.
   fails validation rather than falling back to `Logger.metadata`. (24.6)
 - [ ] 4.8 Per-partition ceilings on `duration_s`, `byte_cap` and
   concurrent sessions, enforced in the validator before dispatch. (24.10)
-- [ ] 4.9 Emit a durable standard audit event for denied invasive actions
-  that create no Ash resource: cross-partition attempts and malformed
-  requests rejected before session creation. (24.11)
-- [ ] 4.10 Tests: a PaperTrail version exists for every transition; and a
-  denial test proving an audit event is written when **no** session
-  resource is created. (24.12)
+- [ ] 4.9 Test that a PaperTrail version exists for every transition and
+  carries the full metadata set from 4.7. (24.12)
+- [ ] 4.10 Test partition scoping: a request naming an agent in another
+  partition is denied and creates no record in either. The audit half of
+  that denial is S5.9.
 
-## S5. Opt-in retention
+## S5. Audit, security events and operator visibility
 
-- [ ] 5.1 Add retention fields to the session resource mirroring
+Depends on S4. No front door ships before this does. Reuses
+`ServiceRadar.Events.AuditWriter`, `ServiceRadar.Security.SecurityEvent`
+and `ServiceRadar.Security.AuditHistory` rather than inventing a pipeline.
+
+- [ ] 5.1 Emit an audit event for every lifecycle transition --
+  requested, authorized, started, stopped, completed, aborted, timed out,
+  denied -- through `AuditWriter`, which persists OCSF Log Activity
+  (`class_uid: 1008`) on `logs.internal.audit` and publishes a live copy
+  on `live.logs.internal.audit`. The live copy is what makes suppression
+  of a database row detectable rather than silent. (`design.md` D8.1-2)
+- [ ] 5.2 Write the **authorization** event synchronously: if it cannot
+  be recorded, the capture does not start. Later lifecycle events are
+  written asynchronously and their failures increment an alertable
+  counter rather than tearing down a running session. Do not add a bypass
+  flag. (`design.md` D8.10)
+- [ ] 5.3 Add `Serviceradar.Telemetry.RemotePacketCaptureSession` to the
+  `AuditHistory` allow-list (`security/audit_history.ex:25-43`, alongside
+  `ServiceRadar.Edge.ProxmoxConsoleSession`). Without this the resource is
+  fully audited and completely invisible in Settings -> Audit -> History.
+- [ ] 5.4 Test that a capture session **actually appears** in
+  `AuditHistory.list_recent/2` for an actor with `agent_capture:audit_view`.
+  Gate on the row being rendered, not on the audit write returning `:ok`.
+- [ ] 5.5 Emit a `SecurityEvent` with severity on session start and stop,
+  so capture appears on the Security dashboard and not only in an audit
+  timeline someone has to go looking for. (`design.md` D8.4)
+- [ ] 5.6 Emit a periodic `SecurityEvent` every 60 s while a session is
+  active, so a long-running capture stays present in the feed rather than
+  appearing only at its start. (`design.md` D8.8)
+- [ ] 5.7 Emit audit events for capture-token mint and revoke, and for
+  rpcap authentication success and failure with the source address.
+- [ ] 5.8 Add counters for sessions started, sessions denied,
+  authentication failures and audit-write failures, so anomalies are
+  alertable without querying the database. (`design.md` D8.9)
+- [ ] 5.9 Test that a denial creating no Ash resource still produces a
+  durable audit event naming actor, partition and requested agent.
+  (24.11)
+- [ ] 5.10 Test that a blocked authorization write prevents the capture
+  from starting -- the failure branch of 5.2, which is the one that
+  proves no capture runs unrecorded.
+- [ ] 5.11 Test that an actor with `agent_capture:audit_view` sees
+  sessions started by other users in the same partition, and none from
+  another partition. (`design.md` D8.5)
+
+## S6. Opt-in retention
+
+- [ ] 6.1 Add retention fields to the session resource mirroring
   `remote_access_recordings`: `storage_backend` (default
   `datasvc_object_store`), `storage_bucket`, `object_key`, `manifest`,
   `retention_expires_at`, byte counters. Payload bytes never go in a row.
-- [ ] 5.2 Fan out in the ingress session: when a session is marked
+- [ ] 6.2 Fan out in the ingress session: when a session is marked
   retained, write pcapng to the object store alongside streaming it to
   the client. Default is live-only.
-- [ ] 5.3 Gate retention on `agent_capture:retain` and the partition
+- [ ] 6.3 Gate retention on `agent_capture:retain` and the partition
   retention policy; a request for retention without the permission is
   denied and audited.
-- [ ] 5.4 Encrypt the manifest through AshCloak, as
+- [ ] 6.4 Encrypt the manifest through AshCloak, as
   `20260518143000_encrypt_remote_access_recordings` does.
-- [ ] 5.5 Add the retention expiry job; expired objects are deleted and
+- [ ] 6.5 Add the retention expiry job; expired objects are deleted and
   the row records the deletion.
-- [ ] 5.6 Tests: a retained session's object downloads and parses as
+- [ ] 6.6 Tests: a retained session's object downloads and parses as
   pcapng; an unretained session leaves no object behind; an expired
   object is gone and the row says so.
 
-## S6. `rpcaps://` listener -- the Wireshark front door
+## S7. `rpcaps://` listener -- the Wireshark front door
 
-Depends on S4. Security posture is `design.md` D3; each refusal below is
+Depends on S5. Security posture is `design.md` D3; each refusal below is
 a spec requirement, not an implementation detail.
 
-- [ ] 6.1 Add the TCP acceptor on `ThousandIsland` (arrives with Bandit,
+- [ ] 7.1 Add the TCP acceptor on `ThousandIsland` (arrives with Bandit,
   `elixir/web-ng/mix.exs:157`). No raw-TCP listener exists in this
   codebase today, so TLS termination, connection limits and shutdown need
   their own tests.
-- [ ] 6.2 Implement the RPCAP framing: `struct rpcap_header {ver, type,
+- [ ] 7.2 Implement the RPCAP framing: `struct rpcap_header {ver, type,
   value, plen}` and the message set `FINDALLIF`, `OPEN`, `STARTCAP`,
   `UPDATEFILTER`, `CLOSE`, `PACKET`, `AUTH`, `STATS`, `ENDCAP`, with
   replies flagged `| 0x80`.
-- [ ] 6.3 Require TLS: refuse to complete an unencrypted handshake.
+- [ ] 7.3 Require TLS: refuse to complete an unencrypted handshake.
   Plaintext `rpcap://` is rejected before authentication.
-- [ ] 6.4 Refuse `RPCAP_RMTAUTH_NULL`. Anonymous capture is never
+- [ ] 7.4 Refuse `RPCAP_RMTAUTH_NULL`. Anonymous capture is never
   permitted.
-- [ ] 6.5 Add scoped capture tokens: minted in Settings, bound to one
+- [ ] 7.5 Add scoped capture tokens: minted in Settings, bound to one
   partition, carrying `agent_capture:remote`, with an expiry, revocable,
   shown once, stored hashed. `RPCAP_RMTAUTH_PWD` carries the token, never
   an account password.
-- [ ] 6.6 Resolve the token to an actor and call the same
-  `request_capture` action the CLI and UI call. The listener holds no
+- [ ] 7.6 Resolve the token to an actor and call the same
+  `request_capture` action the UI calls. The listener holds no
   authorization logic of its own.
-- [ ] 6.7 Scope `FINDALLIF` to the agents and allowlisted interfaces that
+- [ ] 7.7 Scope `FINDALLIF` to the agents and allowlisted interfaces that
   actor may capture on. The natural implementation returns the whole
   fleet and leaks agent inventory.
-- [ ] 6.8 Refuse `RPCAP_STARTCAPREQ_FLAG_DGRAM` and any separate data
+- [ ] 7.8 Refuse `RPCAP_STARTCAPREQ_FLAG_DGRAM` and any separate data
   connection not bound to the authenticated session by a one-time token,
   including `RPCAP_STARTCAPREQ_FLAG_SERVEROPEN`.
-- [ ] 6.9 Rate-limit and lock out authentication failures using the
-  `RateLimiter` from `add-cli-device-auth`; audit successful and failed
-  authentications with the source address.
-- [ ] 6.10 Translate pcapng Enhanced Packet Blocks to `RPCAP_MSG_PACKET`
+- [ ] 7.9 Rate-limit and lock out authentication failures using
+  `ServiceRadar.Security.RateLimiter` and `AuthLockout`; audit successes
+  and failures with the source address (S5.7).
+- [ ] 7.10 Translate pcapng Enhanced Packet Blocks to `RPCAP_MSG_PACKET`
   with `struct rpcap_pkthdr`, and answer `RPCAP_MSG_STATS_REQ` with the
   session's captured and dropped counts. Document that this path
   truncates nanosecond timestamps to microseconds -- a property of RPCAP.
-- [ ] 6.11 Abort the session when the control connection drops.
-- [ ] 6.12 Ship the listener disabled by default, with explicit bind
+- [ ] 7.11 Abort the session when the control connection drops.
+- [ ] 7.12 Ship the listener disabled by default, with explicit bind
   configuration and documentation that exposing it requires provisioning
   a TCP load balancer or NodePort on purpose.
-- [ ] 6.13 End-to-end test with stock Wireshark or `rpcapd`-compatible
+- [ ] 7.13 End-to-end test with stock Wireshark or `rpcapd`-compatible
   libpcap: capture succeeds over `rpcaps://`, and each of plaintext, NULL
   auth, UDP data and a wrong-partition agent is refused with the right
   error.
 
-## S7. web-ng edge for the CLI and the browser
+## S8. web-ng edge for the browser
 
-- [ ] 7.1 Phoenix Channel endpoint authenticating the client against the
-  device-code JWT from `add-cli-device-auth` (landed), dispatching to
-  core-elx over ERTS RPC for RBAC, audit and session creation, then
-  proxying pcapng bytes unchanged. (24.7)
-- [ ] 7.2 WebSocket endpoint for the browser live view, sharing the same
+- [ ] 8.1 Phoenix Channel endpoint dispatching to core-elx over ERTS RPC
+  for RBAC, audit and session creation, then proxying pcapng bytes
+  unchanged. (24.7)
+- [ ] 8.2 WebSocket endpoint for the browser live view, sharing the same
   ingress session. This is the UI's transport; it is not a Wireshark
   transport, because Wireshark has no WebSocket capture input.
-- [ ] 7.3 Client-disconnect detection: on client stream close, propagate
+- [ ] 8.3 Client-disconnect detection: on client stream close, propagate
   over ERTS RPC so core-elx stops the agent session and transitions the
   record to `aborted`. (24.9)
-- [ ] 7.4 Test: kill the client mid-stream, assert the agent-side session
+- [ ] 8.4 Test: kill the client mid-stream, assert the agent-side session
   ends within 5 s and the record reaches `aborted`.
-
-## S8. `srctl` CLI
-
-See `design.md`, "Open question for review" -- the rename in 8.1-8.4 is
-separable from capture if you would rather not couple it.
-
-- [ ] 8.1 Rename the Go CLI Bazel target so the packaged binary is
-  `srctl`; source stays at `go/cmd/cli/`. (25.1)
-- [ ] 8.2 Update deb/rpm/tarball/OCI packaging to install `srctl` and
-  create a `serviceradar-cli` compatibility symlink. (25.2)
-- [ ] 8.3 Update `docs/docs/edge-agent-onboarding.md`,
-  `agent-configuration.md`, `web-ui-overview.md`,
-  `agent-release-management.md` and `docs/CNCF/*` to `srctl`, with a
-  one-time call-out that `serviceradar-cli` is a deprecated alias. (25.3)
-- [ ] 8.4 Release-notes entry: the rename, the one-release symlink compat
-  window, the deprecation. (25.4)
-- [ ] 8.5 `auth` subcommand group -- `login`, `status`, `logout` -- over
-  the RFC 8628 device-code endpoints landed by `add-cli-device-auth`.
-  (25.5-25.8)
-- [ ] 8.6 Persist the JWT at the OS-appropriate path with mode 0600.
-  (25.7)
-- [ ] 8.7 `capture` subcommand taking `--agent`, `--interface`,
-  `--filter`, `--duration`, `--snaplen`, `--byte-cap`, `--retain`.
-  (25.10)
-- [ ] 8.8 Refuse to start with a missing or expired token, printing a
-  stderr hint to run `srctl auth login`. (25.11)
-- [ ] 8.9 Stream pcapng to stdout with direct `os.Stdout.Write`; no
-  encoder, buffer or Writer that translates. (25.12, 25.13)
-- [ ] 8.10 Session metadata to stderr only. Stdout carries only pcapng
-  bytes. (25.14)
-- [ ] 8.11 Exit 0 on graceful completion; 10 auth failure, 11 RBAC
-  denial, 12 filter parse failure, 13 agent unreachable, 14 session cap
-  exhausted, 15 upstream cancellation. (25.15)
-- [ ] 8.12 Test that stdout is byte-pure: pipe it to a pcapng reader and
-  assert it parses, with stderr redirected elsewhere.
-- [ ] 8.13 Document `srctl capture | wireshark -k -i -` and the
-  `rpcaps://` route in the runbook. (25.16)
 
 ## S9. Web UI and agent registry
 
@@ -305,37 +327,42 @@ separable from capture if you would rather not couple it.
   reject values over the partition ceiling inline. (26.2)
 - [ ] 9.3 Active-session card: session id, elapsed, bytes streamed,
   packets dropped, filter, Stop. (26.3)
-- [ ] 9.4 Capture history behind `agent_capture:audit_view`, with a
-  download for retained sessions. (26.4)
+- [ ] 9.4 Capture history behind `agent_capture:audit_view`, showing
+  sessions started by any actor in the partition, with a download for
+  retained sessions. (26.4)
 - [ ] 9.5 Capture-token management in Settings: mint, list, revoke, with
   the token shown once.
-- [ ] 9.6 Active-session indicator on the Agent Detail capability badge.
-  (26.5)
+- [ ] 9.6 Active-session indicator on the Agent Detail capability badge,
+  so an agent under capture is visible without opening it. (26.5)
 - [ ] 9.7 Add `remote-packet-capture` to the agent capability vocabulary;
   advertise `enabled` where available, `unavailable` otherwise. (27.2)
 - [ ] 9.8 Surface active-session state on the agent registry record.
   (27.3)
 - [ ] 9.9 Playwright: request modal, active-session card, history,
-  token management, RBAC denial. (26.6)
+  token management, RBAC denial, and the audit timeline rendering a
+  completed session.
 
 ## S10. End-to-end validation
 
-- [ ] 10.1 A user with `agent_capture:remote` runs `srctl capture --agent
-  <id> --interface eth0 --filter "icmp" --duration 5`, observes pcapng on
-  stdout, and `tshark -r -` confirms ICMP packets are present. (28.1)
+- [ ] 10.1 A user with `agent_capture:remote` starts a capture from the
+  Web UI on `--filter icmp`, and the streamed pcapng decodes with
+  `tshark -r -` showing ICMP packets. (28.1)
 - [ ] 10.2 The same capture driven from stock Wireshark over `rpcaps://`,
   selected from the Remote Interfaces dialog.
-- [ ] 10.3 A user without the permission is denied with a non-zero exit
-  code and an audit record is written, on both front doors. (28.2)
+- [ ] 10.3 A user without the permission is denied on both front doors,
+  and an audit record is written for each. (28.2)
 - [ ] 10.4 Cap enforcement: duration overrun, byte overrun,
   concurrent-session collision. (28.3)
-- [ ] 10.5 Mid-stream client disconnect on both front doors: verify the
+- [ ] 10.5 Mid-stream client disconnect on both front doors: the
   agent-side session ends within 5 s and the record reaches `aborted`.
   (28.4)
-- [ ] 10.6 Auditability: start and stop a capture, then verify the audit
-  feed renders AshPaperTrail-backed entries for request, start and stop
-  with actor, partition, agent id, interfaces, filter metadata, byte
-  count and termination reason. (28.5)
+- [ ] 10.6 Auditability: start and stop a capture, then verify the
+  Settings -> Audit -> History timeline renders AshPaperTrail-backed
+  entries for request, start and stop with actor, partition, agent id,
+  interfaces, filter metadata, byte count and termination reason, and
+  that the Security dashboard shows the start and stop events. (28.5)
+- [ ] 10.7 Verify the captured host's journal carries the session start
+  and stop lines independently of the control plane's records.
 
 ## S11. Supersession bookkeeping
 
@@ -352,3 +379,6 @@ separable from capture if you would rather not couple it.
   S0 lands.
 - [ ] 11.4 Close GitHub #4025 and #4026 with references to the slices
   that resolved them.
+- [x] 11.5 The `srctl` rename and `srctl capture` work is split out and
+  tracked in GitHub [#4260](https://github.com/carverauto/serviceradar/issues/4260); it is excluded from this change's
+  scope.

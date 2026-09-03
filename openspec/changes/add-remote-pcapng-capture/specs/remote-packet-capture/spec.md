@@ -167,13 +167,14 @@ the allowlist regardless of the requesting user's RBAC grant.
 session: a Section Header Block, followed by one Interface Description
 Block per captured interface, followed by a stream of Enhanced Packet
 Blocks. Interface Description Blocks MUST declare `if_tsresol = 9` and
-Enhanced Packet Block timestamps MUST be wall-clock, converted from the
-kernel monotonic clock the capture hook stamps.
+Enhanced Packet Block timestamps MUST carry the capture socket's
+nanosecond kernel timestamps.
 
 Intermediate hops -- agent, agent-gateway, `serviceradar-core`, `web-ng`
--- MUST forward block bytes unchanged without re-encoding. `srctl
-capture` MUST write the received pcapng to standard output without
-modification, so that any standard pcapng reader can consume the stream.
+-- MUST forward block bytes unchanged without re-encoding, so that a
+client receives exactly what the sidecar emitted. A front door whose
+protocol cannot carry pcapng natively, such as RPCAP, MUST translate at
+the edge only, and MUST document what its protocol loses.
 
 #### Scenario: Stream begins with SHB and IDB
 - **WHEN** a session enters the `active` state
@@ -183,11 +184,11 @@ modification, so that any standard pcapng reader can consume the stream.
 
 #### Scenario: Bytes survive every hop unchanged
 - **WHEN** an Enhanced Packet Block is emitted by the sidecar
-- **THEN** the bytes `srctl` writes to standard output are byte-identical
-  to the bytes the sidecar emitted
+- **THEN** the bytes delivered to a pcapng-native client are
+  byte-identical to the bytes the sidecar emitted
 
 #### Scenario: Standard tooling reads the stream
-- **WHEN** an operator pipes `srctl capture` into `tshark -r -`
+- **WHEN** a captured session's pcapng is read by standard tooling
 - **THEN** the packets are decoded without a format error
 - **AND** their timestamps fall within the session's wall-clock window
 
@@ -211,31 +212,9 @@ A client stream close SHALL propagate upstream and stop the capture at
 the sidecar. No capture may outlive the client that requested it.
 
 #### Scenario: Killed client stops the capture
-- **WHEN** `srctl capture` is killed mid-stream
+- **WHEN** the requesting client is killed mid-stream
 - **THEN** the agent-side session is terminated within 5 seconds
 - **AND** the session record transitions to `aborted`
-
-### Requirement: `srctl capture` subcommand
-
-The Go CLI SHALL provide a `capture` subcommand accepting `--agent`,
-`--interface`, `--filter`, `--duration`, `--snaplen` and `--byte-cap`,
-authenticating with the device-code JWT issued by `add-cli-device-auth`.
-Standard output MUST carry only pcapng bytes; all session metadata MUST
-go to standard error. Exit codes MUST distinguish failure modes: 0
-graceful completion, 10 auth failure, 11 RBAC denial, 12 filter parse
-failure, 13 agent unreachable, 14 session cap exhausted, 15 upstream
-cancellation.
-
-#### Scenario: Missing credentials refuse before dispatch
-- **WHEN** `srctl capture` runs with no cached token or an expired one
-- **THEN** it exits 10 without contacting an agent
-- **AND** prints a stderr hint to run `srctl auth login`
-
-#### Scenario: Standard output carries only packet bytes
-- **WHEN** a session completes successfully with stderr redirected
-  elsewhere
-- **THEN** standard output parses as a pcapng stream with no leading or
-  trailing non-pcapng bytes
 
 ### Requirement: Remote capture is reachable by stock Wireshark over TLS
 
@@ -285,15 +264,15 @@ outside the actor's grant.
 
 ### Requirement: The capture front doors share one authorization path
 
-Every front door -- `srctl`, the Web UI, and the RPCAP listener -- SHALL
-authorize capture requests through the same `serviceradar-core` action,
-so that partition scoping, cap ceilings, AshPaperTrail versions and
-denial audit events apply identically regardless of entry point. A front
-door MUST NOT implement authorization logic of its own.
+Every front door SHALL authorize capture requests through the same
+`serviceradar-core` action -- the Web UI, the RPCAP listener, and any
+added later -- so that partition scoping, cap ceilings, AshPaperTrail
+versions and denial audit events apply identically regardless of entry
+point. A front door MUST NOT implement authorization logic of its own.
 
 #### Scenario: A denial is identical across front doors
-- **WHEN** the same unauthorized capture is attempted from `srctl` and
-  from the RPCAP listener
+- **WHEN** the same unauthorized capture is attempted from the Web UI
+  and from the RPCAP listener
 - **THEN** both are denied for the same reason
 - **AND** both produce a durable audit event naming the actor, the
   partition and the requested agent
@@ -324,3 +303,83 @@ in a database row.
   retained session
 - **THEN** the request is denied
 - **AND** the denial is audited
+
+### Requirement: Every capture lifecycle transition is durably audited
+
+`serviceradar-core` SHALL write a durable audit event for every capture
+lifecycle transition -- requested, authorized, started, stopped,
+completed, aborted, timed out and denied -- and for capture-token mint
+and revoke, and for remote-capture authentication successes and failures.
+Events MUST be persisted through the standard audit pipeline and MUST be
+published as a live copy off-host, so that suppression of a stored row is
+detectable rather than silent.
+
+The authorization event MUST be written synchronously: if it cannot be
+recorded, the capture MUST NOT start. Subsequent lifecycle events MAY be
+written asynchronously, and their failures MUST increment an alertable
+counter rather than terminating an in-flight session. No bypass flag may
+be introduced to let a capture proceed unrecorded.
+
+#### Scenario: No capture runs unrecorded
+- **WHEN** the authorization audit event cannot be written
+- **THEN** the capture request fails
+- **AND** no packets are captured
+
+#### Scenario: A lifecycle audit failure does not kill a running capture
+- **WHEN** an asynchronous lifecycle audit write fails mid-session
+- **THEN** the session continues
+- **AND** an audit-write-failure counter is incremented
+
+### Requirement: Capture sessions are visible in the operator audit timeline
+
+A completed or in-flight capture session SHALL be renderable in the
+operator-facing audit history timeline for any actor holding the audit
+view permission in that partition, including sessions started by other
+actors. Session start and stop MUST additionally raise a severity-carrying
+security event so capture appears on the security surface and not only in
+an audit timeline.
+
+An in-flight session MUST remain visible for its duration rather than
+being reported only at its start.
+
+#### Scenario: Another actor's session is visible to an auditor
+- **WHEN** an actor with the audit view permission opens the audit
+  timeline
+- **THEN** capture sessions started by other actors in the same partition
+  are listed
+- **AND** sessions from other partitions are not
+
+#### Scenario: A long-running capture keeps announcing itself
+- **WHEN** a capture session runs for several minutes
+- **THEN** the security surface continues to show it as active for its
+  duration
+- **AND** an operator who was not watching at its start can still see it
+  is running
+
+#### Scenario: Capture is discoverable without opening the agent
+- **WHEN** an agent has a capture session in progress
+- **THEN** its active-capture state is visible on the agent's summary
+  surface
+
+### Requirement: The captured host retains local evidence
+
+`serviceradar-netprobe` SHALL log capture session start and stop on the
+host being captured, naming the session id, the requesting actor, the
+interface and the filter, so that evidence of a capture survives on the
+host independently of the control plane's records.
+
+`serviceradar-netprobe` MUST refuse a capture request that does not carry
+a session identity issued by `serviceradar-core`, so that a capture
+cannot be started by anything that bypassed the control plane.
+
+#### Scenario: Local record survives control-plane tampering
+- **WHEN** a capture session runs and the control-plane session record is
+  subsequently altered or removed
+- **THEN** the captured host's own log still shows the session start and
+  stop
+
+#### Scenario: Unattributed capture request is refused
+- **WHEN** a capture request reaches the sidecar without a
+  core-issued session identity and actor
+- **THEN** the sidecar refuses to start the session
+- **AND** the refusal is logged on the host

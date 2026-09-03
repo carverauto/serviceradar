@@ -13,7 +13,7 @@ messages, `StartRemoteCapture` and `PcapngBlock`, at
 `proto/agent/netprobe/v1/netprobe.proto:400-406`, reserved on purpose by
 task 4.1 and defended from a cleanup pass by GitHub issue
 [#4025](https://github.com/carverauto/serviceradar/issues/4025). Nothing
-else: no `go/pkg/agent/netprobe/capture.go`, no `srctl capture`, no
+else: no `go/pkg/agent/netprobe/capture.go`, no capture front door, no
 `RemotePacketCaptureSession` resource, no `agent_capture:remote`
 permission.
 
@@ -80,9 +80,9 @@ verifier risk. netprobe is already provisioned for it:
   filter attached as cBPF via `SO_ATTACH_FILTER`. Kernel-enforced,
   exactly tcpdump's semantics, filtered before the copy into the ring.
 * **Two front doors, one enforcement mechanism.** Wireshark supplies cBPF
-  over RPCAP and it is attached as-is. `srctl capture --filter "icmp"`
-  supplies a string, which netprobe compiles to cBPF from a documented
-  tcpdump subset. Both end at the same `SO_ATTACH_FILTER` call, so there
+  over RPCAP and it is attached as-is. The Web UI supplies a filter
+  string, which netprobe compiles to cBPF from a documented tcpdump
+  subset. Both end at the same `SO_ATTACH_FILTER` call, so there
   is no second filter semantics to keep in sync.
 * **A `rpcaps://` listener** so stock Wireshark can point at ServiceRadar
   with nothing installed: Manage Interfaces, Remote Interfaces, host and
@@ -117,10 +117,26 @@ verifier risk. netprobe is already provisioned for it:
   any new oneof arm lands. `buf.yaml` declares `lint` only today and
   `make proto-lint` is `buf lint`, so a future field reusing a freed tag
   would be accepted silently and mis-decode against un-upgraded peers.
+* **Capture is built on the assumption that it will be misused.** Every
+  lifecycle transition -- requested, authorized, started, stopped,
+  denied -- writes a durable audit event through the existing
+  `ServiceRadar.Events.AuditWriter`, which persists OCSF Log Activity and
+  publishes a live copy off-host so suppression of a stored row is
+  detectable. Start and stop also raise severity-carrying security
+  events, and a long session keeps announcing itself rather than being
+  reported only at its start. The session resource is added to the
+  `AuditHistory` allow-list, without which it would be fully audited and
+  completely invisible in the operator timeline. The authorization event
+  is written synchronously, so no capture ever runs unrecorded. And the
+  captured host logs the session locally, so evidence survives even if
+  the control plane's records do not.
+* **The `srctl` CLI is out of scope.** Phase 5 bundled a Go CLI rename
+  and an `srctl capture` subcommand into this work; neither is needed for
+  the goal, since Wireshark and the Web UI are the front doors. Both are
+  tracked in GitHub [#4260](https://github.com/carverauto/serviceradar/issues/4260).
 * The rest of Phase 5 -- the `core-elx` session resource with RBAC and
-  AshPaperTrail audit, the `web-ng` edge, `srctl capture`, the Web UI and
-  E2E validation -- is built as specified, across the slices in
-  `tasks.md`.
+  AshPaperTrail audit, the `web-ng` edge, the Web UI and E2E validation
+  -- is built as specified, across the slices in `tasks.md`.
 
 ## Impact
 

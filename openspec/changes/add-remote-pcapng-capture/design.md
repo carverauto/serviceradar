@@ -80,7 +80,7 @@ locally with its own libpcap and ships the bytecode.
   program is rejected by the kernel, not by us. cBPF socket filters can
   only read packet bytes and return a length, so they are safe by
   construction.
-* **`srctl` path:** the operator supplies a string, which netprobe
+* **UI/API path:** the operator supplies a string, which netprobe
   compiles to cBPF from a documented tcpdump subset -- `ip`, `ip6`, `tcp`,
   `udp`, `icmp`, `icmp6`, `arp`, `host <ip>`, `net <cidr>`, `port <n>`,
   `portrange <a>-<b>`, `src`/`dst`, `inbound`/`outbound`, and
@@ -197,8 +197,8 @@ microsecond default.
 
 The rpcap front door is lossier by protocol: `struct rpcap_pkthdr` carries
 `timestamp_sec` and `timestamp_usec`, so nanosecond resolution is
-truncated to microseconds on that path only. The `srctl` and WebSocket
-paths keep full resolution. This is a property of RPCAP and must be
+truncated to microseconds on that path only. The Web UI's WebSocket
+path keeps full resolution. This is a property of RPCAP and must be
 documented, not worked around.
 
 ### D7. Drops are counted, never silent
@@ -211,27 +211,97 @@ the session record and the UI. A session that dropped packets must not
 present as a complete capture. On the rpcap path the same count is
 returned through `RPCAP_MSG_STATS_REQ`, which Wireshark already surfaces.
 
+### D8. Assume this will be misused, and make that visible
+
+Remote packet capture is a surveillance capability. The design premise is
+not that it will be attacked, but that it will eventually be pointed at
+the wrong target by someone holding valid credentials. Controls must make
+that **visible**, not merely recorded.
+
+The infrastructure exists and is reused rather than reinvented:
+`ServiceRadar.Events.AuditWriter` persists OCSF Log Activity
+(`class_uid: 1008`) on `logs.internal.audit` with a live NATS copy on
+`live.logs.internal.audit`; `ServiceRadar.Security.SecurityEvent` carries
+severity into the Security dashboard;
+`ServiceRadar.Security.AuditHistory` merges AshPaperTrail versions into
+the Settings -> Audit -> History timeline; and
+`ServiceRadar.Security.{AuthLockout, RateLimiter}` already handle
+authentication abuse.
+
+**Decisions:**
+
+1. **Every lifecycle transition emits an audit event, not only a
+   PaperTrail row** -- requested, authorized, started, stopped, completed,
+   aborted, timed out, denied -- plus capture-token mint and revoke, and
+   rpcap authentication success and failure.
+2. **A PaperTrail row alone is not enough, because it is a database
+   row.** An actor with database access could suppress it and the UI would
+   show nothing. The live NATS copy leaves the trust boundary as the event
+   is written, which is what makes suppression detectable rather than
+   silent.
+3. **The resource MUST be added to the `AuditHistory` allow-list**
+   (`security/audit_history.ex:25-43`). It is not automatic: a resource
+   absent from that list is fully audited and completely invisible in
+   Settings -> Audit -> History. `ServiceRadar.Edge.ProxmoxConsoleSession`,
+   the closest analogue, is already there. The acceptance test asserts a
+   capture session actually appears in `AuditHistory.list_recent/2` --
+   gating on the artefact, not on the write having returned `:ok`.
+4. **Start and stop also emit a `SecurityEvent` with severity**, so
+   capture appears on the Security dashboard rather than only in an audit
+   timeline an operator has to go looking for. Starting a packet capture
+   is a security event, not a configuration change.
+5. **Active sessions are visible to owners and admins regardless of who
+   started them.** A capture must never be visible only to its initiator;
+   `agent_capture:audit_view` sees every session in the partition.
+6. **The captured host announces itself locally.** netprobe logs session
+   start and stop to the journal with session id, actor, interface and
+   filter. If the control plane is compromised or its records are altered,
+   evidence still exists on the host that was captured. This is the one
+   control that survives an attacker who owns core.
+7. **netprobe refuses an unattributed capture.** A request arriving
+   without a core-issued session id and actor is refused, so a capture
+   cannot be started by anything that bypassed the control plane -- including
+   something local to the host holding the UDS.
+8. **A long capture keeps announcing itself.** The 1 Hz
+   `SessionStateChanged` exists for byte accounting; a coarser periodic
+   security event (every 60 s) keeps a long-running session present in the
+   feed rather than visible only at its start.
+9. **Counters exist so anomalies are alertable**: sessions started,
+   denied, authentication failures, and audit-write failures. A spike in
+   denials or a capture outside normal hours should be something an
+   operator can alert on without querying the database.
+10. **Audit must not become a bypass.** This repository's own guidance is
+    that "an audit that can reject a write grows a bypass flag, and the
+    bypass becomes the default". The resolution here is asymmetric: the
+    **authorization** event is written synchronously and a failure to
+    write it fails the request, so no capture ever runs unrecorded;
+    subsequent lifecycle events are written asynchronously and their
+    failures increment an alertable counter rather than tearing down a
+    running session.
+
 ## Slice boundaries
 
 Each slice is one PR with acceptance that can fail.
 
-| slice | scope | acceptance |
+| slice | scope | acceptance that can fail |
 |---|---|---|
 | S0 | proto fields, `reserved`, `buf breaking` gate, regenerate both trees | gate rejects a deliberately reused tag; `make verify-proto-elixir` clean |
-| S1 | AF_PACKET capture engine, cBPF string compiler, pcapng encoder, caps | loopback capture of real ICMP decoded by an independent reader, with a non-matching flow proven absent |
-| S2 | activate `CaptureSessions`, allowlist, 1-session cap, UDS teardown, `SO_PEERCRED` | denial and teardown tests; teardown under 5 s |
+| S1 | AF_PACKET capture engine, cBPF string compiler, pcapng encoder, caps | loopback ICMP capture decoded by an independent reader, with a non-matching flow proven absent |
+| S2 | activate `CaptureSessions`, allowlist, 1-session cap, UDS teardown, `SO_PEERCRED`, edge-local logging | unattributed request refused; teardown under 5 s; journal carries session start and stop |
 | S3 | `RemotePacketCapture` gRPC + gateway forwarder, modelled on the camera relay | asserts no second TCP/TLS session; cancel propagates under 1 s |
-| S4 | core-elx ingress session, Ash resource, RBAC, policies, PaperTrail, ceilings, denial audit | denial test proving an audit event lands when no resource is created |
-| S5 | opt-in retention to `datasvc_object_store`, manifest, expiry | retained session is downloadable and parses; unretained session leaves no object |
-| S6 | `rpcaps://` listener, capture tokens, FINDALLIF scoping | stock Wireshark captures end to end; plaintext, NULL auth and UDP data are each refused |
-| S7 | web-ng edge: Phoenix Channel for `srctl`, WebSocket for the live UI view | client-kill test: agent session dies within 5 s, state `aborted` |
-| S8 | `srctl` rename, auth subcommands, `capture` | stdout carries only pcapng bytes; exit codes 10-15 distinct |
+| S4 | core-elx ingress session, Ash resource, RBAC, policies, ceilings | partition-scope denial; atomic actions |
+| S5 | audit events, security events, `AuditHistory` allow-list, counters | a session actually appears in `AuditHistory.list_recent/2`; a denial with no resource still writes an event; a blocked authorization write prevents the capture |
+| S6 | opt-in retention to the object store, manifest, expiry | retained session downloads and parses; unretained leaves no object |
+| S7 | `rpcaps://` listener, capture tokens, `FINDALLIF` scoping | stock Wireshark captures end to end; plaintext, NULL auth and UDP data each refused |
+| S8 | web-ng edge: Phoenix Channel and the browser WebSocket | client-kill test: agent session dies within 5 s, state `aborted` |
 | S9 | Web UI, capture-token management, registry capability | Playwright including the RBAC denial path |
-| S10 | E2E | `tshark -r -` sees the ICMP; audit feed renders the session |
+| S10 | E2E | Wireshark over `rpcaps://` sees the ICMP; audit feed renders the session |
 
-S4 depends on none of S1-S3 and can run in parallel. S6 depends on S4.
-S0 blocks everything. A twelfth slice, S11 in `tasks.md`, is
-documentation-only supersession bookkeeping and carries no code.
+S4 depends on none of S1-S3 and can run in parallel. S5 depends on S4;
+S7 depends on S5, because a front door must not exist before the audit
+trail behind it does. S0 blocks everything. A twelfth slice, S11 in
+`tasks.md`, is documentation-only supersession bookkeeping and carries no
+code.
 
 ## Risks
 
@@ -251,11 +321,19 @@ documentation-only supersession bookkeeping and carries no code.
   change owning the corrected `remote-packet-capture` delta and the
   sidecar change's Phase 5 sections carrying a supersession annotation.
 
-## Open question for review
+## Out of scope: the `srctl` CLI
 
-Phase 5's task 25.1 renames the Go CLI binary to `srctl` with a
-`serviceradar-cli` compatibility symlink. That rename touches packaging
-and five docs pages and is independent of capture -- `srctl capture` works
-identically under either name. It is scoped into S8 here because the
-tasks put it there, but it is separable into its own change if you would
-rather not couple a user-visible rename to a new feature.
+Phase 5 bundled a Go CLI rename (`serviceradar-cli` to `srctl`) and an
+`srctl capture` subcommand into this work. Both are **out of scope here**
+and tracked separately.
+
+Nothing in the end goal needs them. Stock Wireshark reaches capture over
+`rpcaps://` (D3) and the Web UI covers the browser workflow; a CLI pipe
+is a third front door for an audience already served. The rename is
+independent of capture, touches packaging and five documentation pages,
+and coupling a user-visible rename to a new feature makes both harder to
+review and to roll back. Tracked in GitHub issue
+[#4260](https://github.com/carverauto/serviceradar/issues/4260).
+
+The filter-string compiler in D2 stays, because the Web UI's request form
+takes a filter string. It is motivated by the UI, not by a CLI.
