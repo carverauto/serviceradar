@@ -2,6 +2,9 @@
 -- The harness drops tables before creation so each test starts cleanly.
 
 DROP TABLE IF EXISTS device_agent_availability;
+DROP TABLE IF EXISTS endpoint_vulnerability_matches;
+DROP TABLE IF EXISTS advisory_coordinates;
+DROP TABLE IF EXISTS vulnerability_advisories;
 DROP TABLE IF EXISTS endpoint_inventory_packages;
 DROP TABLE IF EXISTS endpoint_packages;
 DROP TABLE IF EXISTS endpoint_inventory_scans;
@@ -163,6 +166,85 @@ CREATE TABLE endpoint_inventory_packages (
     metadata            JSONB       NOT NULL DEFAULT '{}',
     inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE vulnerability_advisories (
+    id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    snapshot_ref            UUID,
+    provider                TEXT        NOT NULL,
+    feed_key                TEXT        NOT NULL,
+    source_object_id        TEXT        NOT NULL,
+    advisory_id             TEXT        NOT NULL,
+    cve_id                  TEXT,
+    title                   TEXT,
+    description             TEXT,
+    severity                TEXT,
+    cvss_score              DOUBLE PRECISION,
+    cvss_vector             TEXT,
+    published_at            TIMESTAMPTZ,
+    modified_at             TIMESTAMPTZ,
+    kev                     BOOLEAN     NOT NULL DEFAULT FALSE,
+    exploit_available       BOOLEAN     NOT NULL DEFAULT FALSE,
+    affected_coordinates    JSONB[]     NOT NULL DEFAULT '{}',
+    "references"            TEXT[]      NOT NULL DEFAULT '{}',
+    metadata                JSONB       NOT NULL DEFAULT '{}',
+    inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    raw                     JSONB       NOT NULL DEFAULT '{}',
+    generation              BIGINT      NOT NULL DEFAULT 0,
+    current                 BOOLEAN     NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE advisory_coordinates (
+    id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    advisory_ref            UUID        NOT NULL REFERENCES vulnerability_advisories(id) ON DELETE CASCADE,
+    provider                TEXT        NOT NULL,
+    feed_key                TEXT        NOT NULL,
+    generation              BIGINT      NOT NULL DEFAULT 0,
+    coordinate_type         TEXT        NOT NULL,
+    value                   TEXT        NOT NULL,
+    cpe_part                TEXT,
+    cpe_vendor              TEXT,
+    cpe_product             TEXT,
+    cpe_version             TEXT,
+    version_start           TEXT,
+    version_start_inclusive BOOLEAN,
+    version_end             TEXT,
+    version_end_inclusive   BOOLEAN,
+    metadata                JSONB       NOT NULL DEFAULT '{}',
+    inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE endpoint_vulnerability_matches (
+    id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_uid              TEXT        NOT NULL,
+    agent_id                TEXT,
+    scan_ref                UUID,
+    inventory_package_ref   UUID,
+    endpoint_package_ref    UUID        NOT NULL REFERENCES endpoint_packages(id) ON DELETE SET NULL,
+    advisory_ref            UUID        NOT NULL REFERENCES vulnerability_advisories(id) ON DELETE CASCADE,
+    provider                TEXT        NOT NULL,
+    feed_key                TEXT        NOT NULL,
+    advisory_id             TEXT        NOT NULL,
+    cve_id                  TEXT,
+    coordinate_type         TEXT        NOT NULL,
+    coordinate_value        TEXT        NOT NULL,
+    version_evidence        JSONB       NOT NULL DEFAULT '{}',
+    confidence              TEXT        NOT NULL DEFAULT 'medium',
+    status                  TEXT        NOT NULL DEFAULT 'active',
+    severity                TEXT,
+    cvss_score              DOUBLE PRECISION,
+    fixed_version           TEXT,
+    kev                     BOOLEAN     NOT NULL DEFAULT FALSE,
+    exploit_available       BOOLEAN     NOT NULL DEFAULT FALSE,
+    evidence                JSONB       NOT NULL DEFAULT '{}',
+    first_seen_at           TIMESTAMPTZ NOT NULL,
+    last_seen_at            TIMESTAMPTZ NOT NULL,
+    resolved_at             TIMESTAMPTZ,
+    metadata                JSONB       NOT NULL DEFAULT '{}',
+    inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE endpoint_inventory_current_package_counts (

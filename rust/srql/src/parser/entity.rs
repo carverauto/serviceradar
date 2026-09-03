@@ -148,6 +148,16 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "source_fact_disagreements" | "source_fact_disagreement" | "fact_disagreements" => {
             Ok(Entity::SourceFactDisagreements)
         }
+        "vulnerability_advisories" | "vulnerability_advisory" | "advisories" | "cves" => {
+            Ok(Entity::VulnerabilityAdvisories)
+        }
+        "advisory_coordinates" | "advisory_cpes" | "cpe_coordinates" => {
+            Ok(Entity::AdvisoryCoordinates)
+        }
+        "endpoint_vulnerability_matches"
+        | "vulnerability_matches"
+        | "cve_matches"
+        | "advisory_matches" => Ok(Entity::EndpointVulnerabilityMatches),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),

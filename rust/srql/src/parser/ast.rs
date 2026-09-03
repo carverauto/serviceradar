@@ -70,6 +70,9 @@ pub enum Entity {
     EndpointInventoryScans,
     PublicEndpoints,
     SourceFactDisagreements,
+    VulnerabilityAdvisories,
+    AdvisoryCoordinates,
+    EndpointVulnerabilityMatches,
     ThreatIntelMatches,
 }
 
