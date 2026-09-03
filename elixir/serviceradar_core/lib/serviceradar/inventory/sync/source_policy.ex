@@ -156,14 +156,21 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
 
   The judgement is per source, not global. An AWX host addressed only by DNS
   name is real inventory with no IP to record; refusing it would drop the
-  row. The ARP probe is the opposite case.
+  row. The ARP probe is the opposite case. Proxmox, NetBox, and hypervisor
+  enrichment already skip address-less records at the producer; this copies
+  that rule so a slipped payload cannot mint the row they refused.
 
   SyncIngestor consults this BEFORE BatchResolver mints a uid, so a "no"
   cannot be bypassed by the raw-Ecto writer that follows.
   """
   @spec sufficient_to_create?(map() | term()) :: boolean()
   def sufficient_to_create?(update) when is_map(update) do
-    not enrichment_only_source?(update) and not addressless_census?(update)
+    cond do
+      enrichment_only_source?(update) -> false
+      addressless_census?(update) -> false
+      ip_required_source?(update) and not valid_ip?(ip_of(update)) -> false
+      true -> true
+    end
   end
 
   def sufficient_to_create?(_update), do: false
@@ -172,9 +179,17 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   # address. Decoder keeps it (golden-pinned); this is what stops it becoming
   # a device. Missing `:ip` is treated as addressless.
   defp addressless_census?(update) do
-    ip = Map.get(update, :ip, Map.get(update, "ip"))
-    passive_census_source?(update) and not valid_ip?(ip)
+    passive_census_source?(update) and not valid_ip?(ip_of(update))
   end
+
+  # Producers that already refuse an empty IP. Defense in depth: if an
+  # address-less payload still reaches SyncIngestor, do not mint a row.
+  defp ip_required_source?(update) do
+    source = String.downcase(to_string(update.source || ""))
+    source in ["proxmox", "netbox", "hypervisor_enrichment"]
+  end
+
+  defp ip_of(update), do: Map.get(update, :ip, Map.get(update, "ip"))
 
   # A randomized MAC must never anchor a canonical device.
   #
