@@ -30,8 +30,9 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   is entirely valid under the frozen ABI bounds. Proof requires a LOCAL preflight against those
   bounds, which task 3.4 supplies.
 
-  So today `:poison` has no producer here, deliberately. Every refusal leaves the source sequence
-  UNRESOLVED. Sending an unrecognised or ambiguous refusal to the DLQ would discard a record that
+  So today `:poison` has no producer here, deliberately. Every refusal is classified RETRYABLE,
+  which is what obliges a caller to leave the source sequence unresolved -- this module holds no
+  such state. Sending an unrecognised or ambiguous refusal to the DLQ would discard a record that
   was never proven bad and resolve a sequence that was never accepted.
 
   ## No DLQ publication here, deliberately
@@ -47,6 +48,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublisherPool
+  alias ServiceRadar.Edge.PublishWindow
   alias ServiceRadar.Edge.StreamRoute
   alias ServiceRadar.NATS.Connection
 
@@ -89,15 +91,65 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     with {:ok, route} <- wrap(StreamRoute.resolve(contract)),
          {:ok, lane} <- resolve_lane(contract),
          {:ok, bytes} <- record_bytes(publication),
-         {:ok, seq} <- sequence_of(publication),
+         {:ok, key} <- reservation_key(publication, bytes),
+         # EVERY fallible local derivation completes BEFORE a credit is taken. Headers were
+         # derived after admission, so a publication with a routable contract, a binary body and a
+         # positive sequence could still fail the UUID/digest/proof checks -- performing no I/O
+         # and leaving a reservation charged against the lane forever.
+         {:ok, headers} <- headers_for(route, publication),
          {:ok, pool} <- pool_for(lane, opts),
-         :ok <- admit(pool, seq, byte_size(bytes), opts),
-         {:ok, headers} <- headers_for(route, publication) do
+         # The connection is resolved to a PID here, and the request below uses that pid rather
+         # than re-resolving the lane's NAME. Re-resolving let an attempt straddle a lane restart:
+         # admit through the old pool, publish through the newly registered connection while the
+         # fresh pool holds no reservation, then settle against the dead pool -- an unaccounted
+         # publish, and usually a :noproc exit in the caller. A captured pid is dead after a
+         # restart, so the publish simply fails instead.
+         {:ok, conn_pid} <- connection_for(lane, opts),
+         {:ok, reservation} <- admit(pool, key, bytes, opts) do
       route
-      |> request(lane, bytes, headers, opts)
-      |> settle(pool, seq)
+      |> request(conn_pid, bytes, headers, opts)
+      |> settle(pool, reservation)
     end
   end
+
+  defp connection_for(lane, opts) do
+    conn = Keyword.get(opts, :connection, Connection)
+
+    case conn.get(PublisherLane.connection_name(lane)) do
+      {:ok, pid} -> {:ok, pid}
+      {:error, reason} -> {:error, classify_transport(reason)}
+    end
+  end
+
+  # The COMPLETE authenticated slot, which is what a reservation is keyed on. The lane sequence
+  # alone aliases: one pool serves every agent and spool in its class, so two agents at sequence 1
+  # looked like one frame retrying -- the second published on the first's credits and its ack
+  # released the first's reservation.
+  defp reservation_key(publication, bytes) do
+    slot = Map.get(publication, :slot, %{})
+
+    key =
+      PublishWindow.key(
+        Map.get(slot, :network_scope_id),
+        Map.get(slot, :authenticated_agent_id),
+        Map.get(slot, :spool_id),
+        Map.get(slot, :sequence),
+        fingerprint_of(publication, bytes)
+      )
+
+    {:ok, key}
+  end
+
+  # What makes a republish provably the SAME publication, and a second record on that slot a
+  # DIFFERENT one. Both halves matter: the digest identifies the record, and the size is what the
+  # byte credits were charged on.
+  #
+  # A different record on the same slot is therefore a SEPARATE reservation, admitted or refused on
+  # its own credits -- never rejected. The spec requires it to be published: `Nats-Msg-Id` binds
+  # `record_sha256`, so JetStream does not deduplicate it away and the frame must reach EventWriter,
+  # which adjudicates the transport-integrity violation. Refusing here would move that decision into
+  # the gateway and destroy the evidence.
+  defp fingerprint_of(publication, bytes), do: {Map.get(publication, :record_sha256), byte_size(bytes)}
 
   # The lane's window, resolved BEFORE anything is published. Failing closed when no pool is
   # running is deliberate: a publish with no window is an unbounded publish, which is the state
@@ -110,7 +162,12 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
 
       name when is_atom(name) ->
         case Process.whereis(name) do
-          nil -> {:error, {:derivation, {:no_publisher_pool, lane}}}
+          # TRANSIENT, not a derivation failure. `:derivation` means a bad route, identity or
+          # grant -- a bug or a bad grant, not something to retry against the broker. A lane
+          # restart leaves a registration gap of exactly this shape, so it belongs on the same
+          # retryable path as a dead or timed-out pool. Publishing still fails closed; what
+          # changes is that the caller is told to come back.
+          nil -> {:error, :systemic}
           pid -> {:ok, pid}
         end
     end
@@ -118,22 +175,41 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
 
   # `:already_outstanding` is NOT an error here: it means this sequence's credits are already
   # held, which is exactly the state a RETRY is in. PublishWindow keeps a retryable frame
-  # outstanding on purpose -- the publisher republishes the same bytes on the same slot, so
+  # outstanding on purpose -- a retry republishes the same bytes on the same slot, so
   # re-admitting would hand the same budget out twice and let the in-flight total exceed the
   # grant. Republishing under the credits already held is the designed path.
-  defp admit(pool, seq, bytes, opts) do
-    deadline = System.monotonic_time(:millisecond) + timeout_of(opts)
-
-    case PublisherPool.admit(pool, seq, bytes, deadline) do
-      :ok ->
-        :ok
-
-      {:error, :already_outstanding} ->
-        :ok
+  defp admit(pool, key, bytes, opts) do
+    # The TIMEOUT, not a deadline: the pool stamps the deadline when it actually admits, so time
+    # spent queued for the pool is not deducted from the PubAck interval.
+    case pool_call(fn -> PublisherPool.admit(pool, key, byte_size(bytes), timeout_of(opts)) end) do
+      # Covers BOTH a new reservation and a republish of the same publication. The window
+      # recognises the retry by key, charges nothing further, AND RE-ARMS THE DEADLINE -- a retry
+      # that kept the expired one would be reported expired forever. The reservation carries the
+      # epoch token, so this attempt can only ever settle its own.
+      {:ok, reservation} ->
+        {:ok, reservation}
 
       {:error, exhausted} when exhausted in [:frame_credits_exhausted, :byte_credits_exhausted] ->
-        # Withhold progress on publisher saturation rather than publishing past the grant.
+        # Refuse rather than publish past the grant. The RETRYABLE class is what obliges a
+        # caller to withhold progress; nothing is withheld here.
         {:error, :capacity}
+
+      # A retry offered while the previous attempt is STILL on the wire. Refused rather than run
+      # concurrently: two requests under one charge means the first acknowledgement frees a credit
+      # while the second is still live, and the next admission takes the window past its grant.
+      {:error, :attempt_in_flight} ->
+        {:error, :capacity}
+
+      # The pool died between the lookup and this call -- a lane restart landing mid-attempt. The
+      # contract is a tuple, not an exit, and nothing was published.
+      {:error, :pool_gone} ->
+        {:error, :systemic}
+
+      # The pool did not answer in time. `PublisherPool.admit/4` has already revoked the admission,
+      # so no credit is stranded. Nothing was published, and the retryable class leaves the
+      # decision about progress to the caller.
+      {:error, :pool_timeout} ->
+        {:error, :systemic}
 
       {:error, reason} ->
         {:error, {:derivation, reason}}
@@ -148,26 +224,59 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   # The outcome here is an ACCOUNTING outcome, not a disposition. This publisher writes one record
   # to its resolved route and does not yet compute audit/quarantine/security-quarantine routing;
   # that mapping is task 3.5 and supplies the outcome when it lands.
-  defp settle({:ok, _ack} = result, pool, seq) do
-    _ = PublisherPool.settle(pool, seq, :primary_publication)
-    result
-  end
+  defp settle({:ok, _ack} = result, pool, reservation) do
+    case pool_call(fn -> PublisherPool.settle(pool, reservation, :primary_publication) end) do
+      :ok ->
+        result
 
-  defp settle({:error, :poison} = result, pool, seq) do
-    _ = PublisherPool.settle(pool, seq, :permanent_rejection)
-    result
-  end
-
-  defp settle(result, _pool, _seq), do: result
-
-  # REQUIRED, and validated here rather than let through: PublishWindow keys credits on it, so a
-  # missing or non-positive sequence would either raise inside the window or silently share one
-  # slot across records.
-  defp sequence_of(publication) do
-    case publication |> Map.get(:slot, %{}) |> Map.get(:sequence) do
-      seq when is_integer(seq) and seq > 0 -> {:ok, seq}
-      _ -> {:error, {:derivation, :sequence}}
+      # The publish reached the broker, but the accounting that authorised it did not survive to
+      # record the fact -- the lane restarted, or this reservation was superseded. Reporting it
+      # durable would be reporting a fact nothing can account for, so a RETRYABLE error is
+      # returned instead. This function does not resolve or withhold a source sequence -- it has
+      # no such state; withholding progress on a retryable error is the future caller's
+      # obligation.
+      #
+      # Stated carefully, because a looser version of this comment claimed more: this function
+      # returns an error, it does not itself republish -- there is no production caller yet. And
+      # if a caller does retry, broker deduplication is not a general answer: `Nats-Msg-Id` dedup
+      # is scoped to one stream and one duplicate window, so a copy landing outside that window,
+      # or on a different stream, is not deduplicated there. The proposal names database
+      # idempotency as the backstop for exactly that.
+      #
+      # This also does NOT close the hole underneath it. A replacement pool starts with its full
+      # grant while this publish may still be broker-ambiguous, so the lane can briefly exceed its
+      # bound. That is TASK 3.3's hard-window obligation, not 3.4's or 3.5's, and correlation
+      # alone would not fence it -- the absence of a PubAck cannot tell "never sent" from "in
+      # flight" or "acked, ack lost". See PublishWindow's "what this does not yet bound".
+      {:error, reason} ->
+        Logger.warning("publish could not be accounted for: #{inspect(reason)}")
+        {:error, :systemic}
     end
+  end
+
+  defp settle({:error, :poison} = result, pool, reservation) do
+    pool_call(fn -> PublisherPool.settle(pool, reservation, :permanent_rejection) end)
+    result
+  end
+
+  defp settle(result, pool, reservation) do
+    # NON-terminal: the record is still owed a republish, so the credits stay charged -- but the
+    # ATTEMPT is over. Saying so is what makes the next retry a legal re-admission instead of
+    # `:attempt_in_flight` forever.
+    pool_call(fn -> PublisherPool.attempt_failed(pool, reservation) end)
+    result
+  end
+
+  # EVERY pool call is guarded, not just settlement. A lane restart can land between resolving the
+  # pool and admitting through it, and an unguarded GenServer.call would then exit the caller --
+  # breaking the documented tuple-return contract at the one moment the system is already
+  # degraded. The restarted lane has discarded its reservations either way.
+  defp pool_call(fun) do
+    fun.()
+  catch
+    :exit, reason ->
+      Logger.warning("publisher pool unavailable: #{inspect(reason)}")
+      {:error, :pool_gone}
   end
 
   defp timeout_of(opts), do: Keyword.get(opts, :receive_timeout, @default_timeout)
@@ -269,16 +378,13 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     end
   end
 
-  defp request(route, lane, payload, headers, opts) do
+  defp request(route, conn_pid, payload, headers, opts) do
     conn = Keyword.get(opts, :connection, Connection)
     timeout = timeout_of(opts)
-    # The LANE's connection, not the shared one. Sharing `:serviceradar_nats` put every lane's
-    # outstanding requests behind the same socket and the same Gnat mailbox, so a bulk backlog
-    # could stall an interactive or recovery frame whose own credits were free -- separate
-    # accounting over one transport is not separate capacity.
-    connection_name = PublisherLane.connection_name(lane)
-
-    case conn.request(connection_name, route.subject, payload,
+    # The CAPTURED lane connection: not the shared one, and not a fresh name lookup. Sharing
+    # `:serviceradar_nats` put every lane's outstanding requests behind one socket and one Gnat
+    # mailbox; re-resolving the name here let an attempt straddle a lane restart.
+    case conn.request(conn_pid, route.subject, payload,
            headers: headers,
            receive_timeout: timeout
          ) do
@@ -326,8 +432,8 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
         end
 
       _ ->
-        # A body we cannot parse is NOT proof the record is poison. It is an unresolved
-        # publication, so the source sequence stays withheld.
+        # A body we cannot parse is NOT proof the record is poison. It is classified RETRYABLE,
+        # which is what tells a caller to withhold progress; this function holds no such state.
         {:error, :systemic}
     end
   end
@@ -345,11 +451,14 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   end
 
   @doc """
-  Whether an error class WITHHOLDS SOURCE PROGRESS (true) or is terminal and DLQ-bound (false).
+  Whether an error class OBLIGES A CALLER TO WITHHOLD SOURCE PROGRESS (true) or is terminal and
+  DLQ-bound (false). The obligation is the caller's; this module classifies, it does not advance
+  or withhold anything.
 
   "Retryable" names the disposition, not a prediction that a retry succeeds. `:misrouted` is the
   case that makes the distinction matter: an ack from an unexpected stream is NOT authoritative
-  acceptance, so the source sequence must stay unresolved while publication/readiness is broken.
+  acceptance, so a caller must leave the source sequence unresolved while publication or
+  readiness is broken.
   Classifying it terminal would send a record that may already be durable elsewhere to the DLQ,
   and resolve a sequence that was never authoritatively accepted. It will not clear on retry --
   it clears when the route map or the broker's stream binding is repaired.
@@ -361,13 +470,14 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   #
   # THE DEFAULT IS WITHHOLD, NOT DLQ. A refusal only becomes terminal on PROOF that the record can
   # never be accepted; anything else -- unknown code, unrecognised description, a broker we do not
-  # understand -- leaves the source sequence unresolved. The previous default was `:permanent`,
+  # understand -- is classified retryable, which obliges a caller to leave the source sequence
+  # unresolved. The previous default was `:permanent`,
   # which sent every unrecognised broker answer to the DLQ.
   #
   # `err_code` is preferred over the description because descriptions are prose and change. 10060
   # (JSStreamNotMatchErr) is the REAL expected-stream refusal: NATS answers a mismatched
   # `Nats-Expected-Stream` with this error, not with a successful ack naming another stream. It is
-  # a routing/readiness fault, so it withholds rather than DLQs.
+  # a routing/readiness fault, so it is classified retryable rather than DLQ-bound.
   defp classify_ack_error(%{} = err) do
     # `to_string/1` raises Protocol.UndefinedError on a map or list, and the error object is
     # whatever the broker sent. A malformed description must classify, not crash the publish.
@@ -396,7 +506,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
     if capacity?(code, desc), do: :capacity, else: classify_refusal(desc)
   end
 
-  # "The stream cannot take it right now" -- backpressure, always withheld.
+  # "The stream cannot take it right now" -- backpressure, always retryable.
   defp capacity?(code, desc) do
     code == 503 or
       String.contains?(desc, "no responders") or
@@ -410,7 +520,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
       :misrouted
     else
       # Everything else -- including a size refusal by description, which has the same
-      # server-vs-stream ambiguity as err_code 10054 -- stays unresolved rather than terminal.
+      # server-vs-stream ambiguity as err_code 10054 -- is classified RETRYABLE, not terminal.
       :systemic
     end
   end

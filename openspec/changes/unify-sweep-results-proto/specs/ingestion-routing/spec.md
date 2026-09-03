@@ -370,6 +370,32 @@ before a hot producer exhausts shared capacity.
 - **AND** lower-priority or overlapping runs SHALL be deferred before any
   unacknowledged record is overwritten
 
+#### Scenario: A publisher lane restarts with requests in flight
+- **GIVEN** a gateway publisher lane whose accounting and transport are restarted
+  together after a crash
+- **WHEN** a request admitted under the previous accounting is still in flight
+  through the previous transport
+- **THEN** the replacement accounting SHALL NOT reopen capacity that the in-flight
+  request still occupies, so the old and replacement requests together SHALL NOT
+  exceed the lane grant
+- **AND** eventual supervisor restart of the sibling SHALL NOT be treated as
+  satisfying this: restarts are ordered but not instantaneous, and a request may
+  complete inside that interval
+- **AND** a publication whose accounting did not survive SHALL NOT be reported
+  durable
+
+#### Scenario: A retry is offered while the previous attempt may still publish
+- **GIVEN** a publication whose reservation has been handed to a caller
+- **WHEN** that attempt's PubAck deadline passes, or no PubAck has been observed
+- **THEN** a retry SHALL NOT be admitted on that reservation until the previous
+  attempt is fenced by its REQUEST -- its owner, its start, and its termination --
+  so that it is known to be incapable of publishing
+- **AND** deadline expiry or a missing PubAck SHALL NOT by itself authorize the
+  retry, because neither distinguishes "never sent" from "in flight", "delayed",
+  or "acknowledged with the acknowledgement lost"
+- **AND** admitting on that evidence alone SHALL be treated as exceeding the
+  grant, since two attempts for one reservation may then publish concurrently
+
 #### Scenario: Durable spool append fails
 - **WHEN** reservation, append, fsync, or recovery encounters `ENOSPC`, `EIO`, or
   corrupt committed metadata

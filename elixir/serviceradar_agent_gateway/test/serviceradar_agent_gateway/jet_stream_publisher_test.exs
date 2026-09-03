@@ -16,10 +16,25 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
   # request and returns a canned reply.
   defmodule FakeConn do
     @moduledoc false
+    # The publisher resolves the lane connection to a PID before admitting, so the double has to
+    # answer get/1 too. Returning self() is enough: the test only cares WHICH connection was
+    # resolved, which the :resolved message records.
+    def get(name) do
+      send(self(), {:resolved, name})
+      {:ok, self()}
+    end
+
     def request(conn_name, subject, payload, opts) do
       send(self(), {:requested, conn_name, subject, payload, opts})
-      reply = Process.get(:fake_reply)
-      reply
+
+      # Simulates a lane restart landing between admit and settle: the pool the caller admitted
+      # through dies while its request is in flight.
+      case Process.get(:kill_pool_during_request) do
+        nil -> :ok
+        pid -> Process.exit(pid, :kill)
+      end
+
+      Process.get(:fake_reply)
     end
   end
 
@@ -68,7 +83,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert {:error, :capacity} = JetStreamPublisher.parse_ack(body)
     end
 
-    test "the REAL expected-stream refusal (err_code 10060) withholds, never DLQs" do
+    test "the REAL expected-stream refusal (err_code 10060) is RETRYABLE, never terminal" do
       # NATS answers a mismatched Nats-Expected-Stream with error 10060 (JSStreamNotMatchErr),
       # NOT with a successful ack naming another stream. This is the path that actually fires,
       # and it was terminal.
@@ -77,7 +92,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert JetStreamPublisher.retryable?(:misrouted)
     end
 
-    test "a wrong-last-sequence fence is unresolved, not poison" do
+    test "a wrong-last-sequence fence is retryable, not poison" do
       body = ~s({"error":{"code":400,"err_code":10071,"description":"wrong last sequence: 5"}})
       assert {:error, :systemic} = JetStreamPublisher.parse_ack(body)
       assert JetStreamPublisher.retryable?(:systemic)
@@ -167,7 +182,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       end
     end
 
-    test "an UNKNOWN broker refusal withholds rather than DLQ-ing" do
+    test "an UNKNOWN broker refusal is classified RETRYABLE rather than DLQ-bound" do
       # The old default was :permanent, so any refusal this module did not recognise sent the
       # record to the DLQ without proof it was bad.
       for body <- [
@@ -305,9 +320,13 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
           with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":1})}})
 
           assert {:ok, _} = JetStreamPublisher.publish_record(pub, with_pools(connection: FakeConn))
+          # The connection is resolved by NAME once, before admission, and the request then uses
+          # the resolved PID -- so the lane is asserted on the resolution, not on the request.
+          assert_received {:resolved, name}
           assert_received {:requested, conn, _subject, _payload, _opts}
-          assert conn === PublisherLane.connection_name(lane)
-          conn
+          assert name === PublisherLane.connection_name(lane)
+          assert is_pid(conn)
+          name
         end
 
       # NOT VACUOUS: the four active pairs resolve to THREE distinct connections -- both recovery
@@ -333,6 +352,190 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
     defp pub_seq(seq) do
       base = publication()
       %{base | slot: Map.put(base.slot, :sequence, seq)}
+    end
+
+    # A publication on a DIFFERENT authenticated slot at the same lane sequence. The normative
+    # identity is (network_scope_id, authenticated_agent_id, spool_id, sequence), and one lane
+    # pool is shared by every agent and spool in that class, so the sequence alone does not
+    # identify a reservation.
+    defp pub_other_slot(seq, bytes) do
+      base = publication(%{record_bytes: bytes})
+
+      slot = %{
+        network_scope_id: uuidv7(0x41),
+        authenticated_agent_id: "agent-OTHER",
+        spool_id: uuidv7(0x02),
+        sequence: seq
+      }
+
+      %{base | slot: slot}
+    end
+
+    test "COUNTEREXAMPLE: a different slot at the same sequence must not ride A's reservation" do
+      pools = one_frame_pools()
+
+      # A takes the lane's only frame and times out, so its reservation stays outstanding.
+      with_reply({:error, :timeout})
+      assert {:error, :timeout} = JetStreamPublisher.publish_record(pub_seq(1), connection: FakeConn, pools: pools)
+      assert_received {:requested, _, _, _, _}
+
+      # B is a DIFFERENT agent and spool with DIFFERENT bytes, at the same sequence number. It is
+      # not a retry of A. With one frame already held, it must be refused -- not published on A's
+      # credits, and certainly not able to settle A's reservation.
+      {:ok, planned} = JetStreamPublisher.plan(pub_seq(1))
+      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":9})}})
+
+      assert {:error, :capacity} =
+               JetStreamPublisher.publish_record(pub_other_slot(1, "different-bytes"),
+                 connection: FakeConn,
+                 pools: pools
+               )
+
+      refute_received {:requested, _, _, _, _}
+
+      # And A's reservation is still held: B must not have released it.
+      assert %{outstanding_frames: 1, available_frames: 0} = PublisherPool.capacity(pools[:bulk])
+    end
+
+    test "a DIFFERENT record on the SAME slot is published, on its OWN credits" do
+      # NORMATIVE: "a frame reuses the same slot with a different record_sha256 ... JetStream SHALL
+      # NOT deduplicate it away and the frame SHALL reach EventWriter", which rejects it as a
+      # transport-integrity violation. Refusing it in the gateway -- as an earlier :slot_conflict
+      # did -- moves EventWriter's adjudication upstream and destroys the evidence.
+      #
+      # A holds its reservation THROUGHOUT: an earlier version settled A first, which passed just
+      # as well with record identity dropped from the key, so it bound nothing. Two credits, two
+      # charges, both outstanding at once is what proves the keys are distinct.
+      pools =
+        Map.new(PublisherLane.lanes(), fn lane ->
+          {:ok, pid} =
+            PublisherPool.start_link(class: lane, frame_credits: 2, byte_credits: 10_000, name: nil)
+
+          {lane, pid}
+        end)
+
+      first = publication()
+      second = publication(%{record_bytes: "a-different-record"})
+
+      # A times out, so its attempt ends but its reservation stays charged.
+      with_reply({:error, :timeout})
+      assert {:error, :timeout} = JetStreamPublisher.publish_record(first, connection: FakeConn, pools: pools)
+      assert_received {:requested, _c1, _s1, _p1, opts1}
+      assert %{outstanding_frames: 1} = PublisherPool.capacity(pools[:bulk])
+
+      {:ok, planned} = JetStreamPublisher.plan(second)
+      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":2})}})
+
+      assert {:ok, _} =
+               JetStreamPublisher.publish_record(second, connection: FakeConn, pools: pools),
+             "the second record on that slot was refused; the spec requires it to be published"
+
+      assert_received {:requested, _c2, _s2, payload2, opts2}
+      assert payload2 === "a-different-record"
+
+      # TWO independent charges. With the record dropped from the key, B would have been taken for
+      # A's retry -- refused as :attempt_in_flight, or riding A's single charge.
+      assert %{outstanding_frames: 1} = PublisherPool.capacity(pools[:bulk]),
+             "B settled, so only A's charge should remain -- two distinct reservations existed"
+
+      # Distinct Nats-Msg-Id is what stops JetStream deduplicating the second away.
+      msg_id = fn opts -> opts |> Keyword.fetch!(:headers) |> header("Nats-Msg-Id") end
+      refute msg_id.(opts1) === msg_id.(opts2)
+    end
+
+    test "admission against a DEAD pool returns a tuple, never an exit" do
+      # The pool pid is captured before admission, so a lane restart can land between the lookup
+      # and the call. An unguarded GenServer.call would exit the caller and break the documented
+      # tuple contract at exactly the moment the system is already degraded.
+      pools = with_pools([])[:pools]
+      Process.flag(:trap_exit, true)
+      dead = pools[:bulk]
+      Process.exit(dead, :kill)
+      assert_receive {:EXIT, ^dead, _}
+
+      with_reply({:ok, %{body: ~s({"stream":"S","seq":1})}})
+
+      assert {:error, :systemic} =
+               JetStreamPublisher.publish_record(publication(), connection: FakeConn, pools: pools)
+
+      refute_received {:requested, _, _, _, _}
+    end
+
+    test "a pool that dies mid-attempt does not exit the caller" do
+      # :one_for_all restarts a lane as a unit, so the pool a caller admitted through can be gone
+      # by the time it settles. The publish has already happened; the caller must get its result,
+      # not a :noproc exit from settlement.
+      # The pools are LINKED to this process, so trap exits: the point is that the PUBLISHER
+      # survives the pool dying, not that the pool can be killed without consequence here.
+      Process.flag(:trap_exit, true)
+
+      pools = with_pools([])[:pools]
+      {:ok, planned} = JetStreamPublisher.plan(publication())
+      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":4})}})
+      Process.put(:kill_pool_during_request, pools[:bulk])
+
+      # NOT reported durable. The publish reached the broker, but the accounting that authorised
+      # it is gone, so a RETRYABLE class is returned instead: reporting {:ok, ack} would report a
+      # fact nothing can account for.
+      #
+      # What happens next is NOT established here. Nothing at this layer republishes -- there is
+      # no production caller -- and if a caller does retry, `Nats-Msg-Id` deduplication is scoped
+      # to one stream and one duplicate window, so it is not a general answer either.
+      assert {:error, :systemic} =
+               JetStreamPublisher.publish_record(publication(),
+                 connection: FakeConn,
+                 pools: pools
+               ),
+             "a publish whose accounting was destroyed was reported durable"
+
+      assert JetStreamPublisher.retryable?(:systemic)
+
+      Process.delete(:kill_pool_during_request)
+      refute Process.alive?(pools[:bulk])
+    end
+
+    test "COUNTEREXAMPLE: a derivation failure after admission must not consume a credit" do
+      pools = one_frame_pools()
+
+      # Routable contract, binary body, positive sequence -- but the identity derivation fails on
+      # a short digest, so no I/O happens. A reservation taken before that check leaks.
+      assert {:error, {:derivation, _}} =
+               JetStreamPublisher.publish_record(publication(%{record_sha256: <<1, 2, 3>>}),
+                 connection: FakeConn,
+                 pools: pools
+               )
+
+      refute_received {:requested, _, _, _, _}
+
+      assert %{outstanding_frames: 0, available_frames: 1} = PublisherPool.capacity(pools[:bulk]),
+             "a failed derivation consumed a credit despite performing no I/O"
+    end
+
+    test "COUNTEREXAMPLE: a verified retry re-arms its deadline" do
+      pools = one_frame_pools()
+
+      with_reply({:error, :timeout})
+
+      assert {:error, :timeout} =
+               JetStreamPublisher.publish_record(pub_seq(1),
+                 connection: FakeConn,
+                 pools: pools,
+                 receive_timeout: 0
+               )
+
+      # The retry carries a long timeout. PublishWindow documents re-arm as the retry path, so
+      # after it the frame must NOT already be expired.
+      assert {:error, :timeout} =
+               JetStreamPublisher.publish_record(pub_seq(1),
+                 connection: FakeConn,
+                 pools: pools,
+                 receive_timeout: 60_000
+               )
+
+      # The pool owns the clock, so there is no `now` to pass -- and no malformed `now` that could
+      # crash it and take the lane with it.
+      assert PublisherPool.expired(pools[:bulk]) === [],
+             "the retry kept the expired deadline instead of re-arming it"
     end
 
     test "a saturated lane REFUSES and publishes nothing" do
@@ -390,11 +593,15 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       # registered in this VM and a test that assumed otherwise passed for the wrong reason.
       with_reply({:ok, %{body: ~s({"stream":"S","seq":1})}})
 
-      assert {:error, {:derivation, {:no_publisher_pool, :bulk}}} =
+      # RETRYABLE, not a derivation failure: a lane restart leaves a registration gap of exactly
+      # this shape, and `:derivation` means a bad route, identity or grant.
+      assert {:error, :systemic} =
                JetStreamPublisher.publish_record(publication(),
                  connection: FakeConn,
                  pools: %{bulk: :no_such_publisher_pool_is_registered}
                )
+
+      assert JetStreamPublisher.retryable?(:systemic)
 
       refute_received {:requested, _, _, _, _}
     end
@@ -696,7 +903,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
     end
   end
 
-  describe "a wrong-stream ack withholds progress rather than DLQ-ing" do
+  describe "a wrong-stream ack is classified RETRYABLE rather than DLQ-bound" do
     defp planned_pub do
       pub = %{
         slot: %{
@@ -724,7 +931,7 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert {:ok, %{seq: 5}} = JetStreamPublisher.publish_record(pub, with_pools(connection: FakeConn))
     end
 
-    test "an ack from ANOTHER stream is :misrouted, and :misrouted WITHHOLDS progress" do
+    test "an ack from ANOTHER stream is :misrouted, and :misrouted is RETRYABLE" do
       {pub, _planned} = planned_pub()
       with_reply({:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_V1_INTERACTIVE","seq":5})}})
 
@@ -734,14 +941,14 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       # would DLQ a record that may already be durable elsewhere and resolve a sequence that was
       # never accepted. Progress must stay unresolved instead.
       assert JetStreamPublisher.retryable?(:misrouted),
-             "a misrouted ack must withhold source progress, not send the record to the DLQ"
+             "a misrouted ack must be RETRYABLE so a caller can withhold progress, not terminal"
     end
 
-    test "ONLY proven poison is terminal; everything else withholds" do
+    test "ONLY proven poison is terminal; everything else is RETRYABLE" do
       refute JetStreamPublisher.retryable?(:poison)
 
-      for withheld <- [:capacity, :timeout, :misrouted, :systemic] do
-        assert JetStreamPublisher.retryable?(withheld), "#{withheld} must withhold progress"
+      for retryable <- [:capacity, :timeout, :misrouted, :systemic] do
+        assert JetStreamPublisher.retryable?(retryable), "#{retryable} must be classified retryable"
       end
     end
   end

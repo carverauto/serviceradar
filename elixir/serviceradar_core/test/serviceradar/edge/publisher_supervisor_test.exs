@@ -9,20 +9,45 @@ defmodule ServiceRadar.Edge.PublisherSupervisorTest do
   """
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Edge.LaneSupervisor
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublisherPool
+
+  # Reservations key on the COMPLETE authenticated slot, never the bare sequence: one pool serves
+  # every agent and spool in its class. `fp/1` fingerprints the publication, so the same sequence
+  # is the same record retrying.
   alias ServiceRadar.Edge.PublisherSupervisor
+
+  # Pools live inside each lane's restart unit now, so their specs come from LaneSupervisor. The
+  # credits still come from PublisherSupervisor, which is what these tests are about.
+  defp lane_pool_specs(opts \\ []) do
+    Enum.map(PublisherLane.lanes(), fn lane ->
+      [
+        lane: lane,
+        connection_settings: %{host: "127.0.0.1", port: 4222},
+        backoff_period: 1_000,
+        credits: PublisherSupervisor.credits_for(lane, opts)
+      ]
+      |> LaneSupervisor.child_specs()
+      |> Enum.find(&(&1.id === PublisherPool.via(lane)))
+    end)
+  end
+
+  defp k(seq),
+    do: ServiceRadar.Edge.PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, seq, fp(seq))
+
+  defp fp(seq), do: {:record, seq}
 
   describe "the declared pool inventory" do
     test "exactly one pool per lane, keyed by the lane's registered name" do
-      specs = PublisherSupervisor.pool_child_specs()
+      specs = lane_pool_specs()
 
       assert length(specs) === length(PublisherLane.lanes())
       assert Enum.map(specs, & &1.id) === Enum.map(PublisherLane.lanes(), &PublisherPool.via/1)
     end
 
     test "each child starts a PublisherPool for ITS lane, under ITS name" do
-      for spec <- PublisherSupervisor.pool_child_specs() do
+      for spec <- lane_pool_specs() do
         {PublisherPool, :start_link, [opts]} = spec.start
         lane = Keyword.fetch!(opts, :class)
 
@@ -90,7 +115,7 @@ defmodule ServiceRadar.Edge.PublisherSupervisorTest do
       # with those values. A spec builder that ignored it would pass every test above.
       Application.put_env(:serviceradar_core, PublisherSupervisor, frame_credits: 5)
 
-      for spec <- PublisherSupervisor.pool_child_specs() do
+      for spec <- lane_pool_specs() do
         {PublisherPool, :start_link, [opts]} = spec.start
         assert Keyword.fetch!(opts, :frame_credits) === 5
       end
@@ -102,7 +127,7 @@ defmodule ServiceRadar.Edge.PublisherSupervisorTest do
 
   describe "the running pools" do
     setup do
-      for spec <- PublisherSupervisor.pool_child_specs(), do: start_supervised!(spec)
+      for spec <- lane_pool_specs(), do: start_supervised!(spec)
       :ok
     end
 
@@ -127,7 +152,7 @@ defmodule ServiceRadar.Edge.PublisherSupervisorTest do
       bulk_before = PublisherPool.capacity(bulk)
       recovery_before = PublisherPool.capacity(recovery)
 
-      assert :ok = PublisherPool.admit(bulk, 1, 10, 1_000)
+      assert {:ok, _res} = PublisherPool.admit(bulk, k(1), 10, 1_000)
 
       assert PublisherPool.capacity(recovery) === recovery_before
       refute PublisherPool.capacity(bulk) === bulk_before

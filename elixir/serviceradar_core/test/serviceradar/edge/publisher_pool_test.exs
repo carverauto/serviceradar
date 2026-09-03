@@ -7,6 +7,17 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
 
   alias ServiceRadar.Edge.PublisherPool
 
+  # Reservations key on the COMPLETE authenticated slot, never the bare sequence: one pool serves
+  # every agent and spool in its class. `fp/1` fingerprints the publication, so the same sequence
+  # is the same record retrying.
+  defp k(seq),
+    do: ServiceRadar.Edge.PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, seq, fp(seq))
+
+  defp fp(seq), do: {:record, seq}
+
+  # A well-formed reservation for a publication that is NOT outstanding.
+  defp absent(seq), do: {k(seq), 1}
+
   defp pool(class, frames \\ 2, bytes \\ 600) do
     {:ok, pid} =
       PublisherPool.start_link(
@@ -26,15 +37,15 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       interactive = pool(:interactive, 1, 300)
       recovery = pool(:recovery, 1, 300)
 
-      assert :ok = PublisherPool.admit(bulk, 1, 300, 500)
-      assert {:error, :frame_credits_exhausted} = PublisherPool.admit(bulk, 2, 1, 500)
+      assert {:ok, _res} = PublisherPool.admit(bulk, k(1), 300, 500)
+      assert {:error, :frame_credits_exhausted} = PublisherPool.admit(bulk, k(2), 1, 500)
 
       # THE POINT: a bulk backlog must not consume the reserve of another class.
       assert %{available_frames: 1, available_bytes: 300} = PublisherPool.capacity(interactive)
       assert %{available_frames: 1, available_bytes: 300} = PublisherPool.capacity(recovery)
 
-      assert :ok = PublisherPool.admit(interactive, 1, 300, 500)
-      assert :ok = PublisherPool.admit(recovery, 1, 300, 500)
+      assert {:ok, _res} = PublisherPool.admit(interactive, k(1), 300, 500)
+      assert {:ok, _res} = PublisherPool.admit(recovery, k(1), 300, 500)
     end
 
     test "exhausting RECOVERY does not consume the interactive reserve either" do
@@ -45,8 +56,10 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       recovery = pool(:recovery, 2, 300)
       interactive = pool(:interactive, 1, 300)
 
-      assert :ok = PublisherPool.admit(recovery, 1, 300, 500)
-      assert {:error, :byte_credits_exhausted} = PublisherPool.admit(recovery, 2, 300, 500)
+      assert {:ok, _res} = PublisherPool.admit(recovery, k(1), 300, 500)
+
+      assert {:error, :byte_credits_exhausted} =
+               PublisherPool.admit(recovery, k(2), 300, 500)
 
       assert %{outstanding_frames: 0, available_bytes: 300} = PublisherPool.capacity(interactive)
     end
@@ -153,21 +166,23 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       # rejection that corrupted it would be visible.
       p = pool(:bulk, 2, 500)
 
-      assert :ok = PublisherPool.admit(p, 1, 200, 500)
+      assert {:ok, res} = PublisherPool.admit(p, k(1), 200, 500)
       before = PublisherPool.capacity(p)
 
-      assert {:error, :byte_credits_exhausted} = PublisherPool.admit(p, 2, 400, 500)
-      assert {:error, :already_outstanding} = PublisherPool.admit(p, 1, 10, 500)
-      assert {:error, :not_outstanding} = PublisherPool.settle(p, 99, :primary_publication)
-      assert {:error, :unknown_outcome} = PublisherPool.settle(p, 1, :nonsense)
-      assert {:error, :not_settled} = PublisherPool.settle(p, 1, :retryable_rejection)
-      assert {:error, :not_outstanding} = PublisherPool.rearm(p, 99, 900)
+      assert {:error, :byte_credits_exhausted} = PublisherPool.admit(p, k(2), 400, 500)
+
+      assert {:error, :not_outstanding} =
+               PublisherPool.settle(p, absent(99), :primary_publication)
+
+      assert {:error, :unknown_outcome} = PublisherPool.settle(p, res, :nonsense)
+      assert {:error, :not_settled} = PublisherPool.settle(p, res, :retryable_rejection)
+      assert {:error, :not_outstanding} = PublisherPool.rearm(p, absent(99), 900)
 
       assert PublisherPool.capacity(p) === before,
              "a rejected call changed the pool's state"
 
       # NOT VACUOUS: an accepted call DOES change it, so the comparison can fail.
-      assert :ok = PublisherPool.settle(p, 1, :primary_publication)
+      assert :ok = PublisherPool.settle(p, res, :primary_publication)
       refute PublisherPool.capacity(p) === before
     end
 
@@ -175,18 +190,21 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       p = pool(:bulk, 1, 100)
 
       for call <- [
-            fn -> PublisherPool.admit(p, 0, 1, 500) end,
-            fn -> PublisherPool.admit(p, 1, -1, 500) end,
-            fn -> PublisherPool.admit(p, 1, 1, nil) end,
-            fn -> PublisherPool.settle(p, 1, nil) end,
-            fn -> PublisherPool.rearm(p, 1, nil) end
+            fn -> PublisherPool.admit(p, k(0), 1, 500) end,
+            fn -> PublisherPool.admit(p, k(1), -1, 500) end,
+            fn -> PublisherPool.admit(p, k(1), 1, nil) end,
+            fn -> PublisherPool.settle(p, absent(1), nil) end,
+            fn -> PublisherPool.rearm(p, absent(1), nil) end,
+            # A caller-supplied clock is gone, so a malformed one is a refusal rather than a crash
+            # that would take the whole lane down with the pool under :one_for_all.
+            fn -> PublisherPool.rearm(p, absent(1), :not_a_timeout) end
           ] do
         assert {:error, _} = call.()
         assert Process.alive?(p)
       end
 
       # ...and it still works afterwards.
-      assert :ok = PublisherPool.admit(p, 1, 100, 500)
+      assert {:ok, _res} = PublisherPool.admit(p, k(1), 100, 500)
     end
   end
 
@@ -194,19 +212,118 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
     test "expiry reports without releasing, and rearm moves the deadline only" do
       p = pool(:bulk, 1, 300)
 
-      assert :ok = PublisherPool.admit(p, 1, 300, 100)
-      assert PublisherPool.expired(p, 500) === [1]
+      # A ZERO timeout, so the reservation is already past its deadline when we ask. The POOL owns
+      # the clock now -- the same one that stamped the deadline -- so there is no `now` to pass and
+      # no malformed `now` that could crash it.
+      assert {:ok, res} = PublisherPool.admit(p, k(1), 300, 0)
+      assert PublisherPool.expired(p) === [res]
 
       # Still full: expiry released nothing.
       assert %{available_frames: 0, available_bytes: 0} = PublisherPool.capacity(p)
-      assert {:error, :frame_credits_exhausted} = PublisherPool.admit(p, 2, 1, 500)
+      assert {:error, :frame_credits_exhausted} = PublisherPool.admit(p, k(2), 1, 500)
 
-      assert :ok = PublisherPool.rearm(p, 1, 900)
-      assert PublisherPool.expired(p, 500) === []
+      assert :ok = PublisherPool.rearm(p, res, 60_000)
+      assert PublisherPool.expired(p) === []
       assert %{available_frames: 0, available_bytes: 0} = PublisherPool.capacity(p)
 
-      assert :ok = PublisherPool.settle(p, 1, :primary_publication)
+      assert :ok = PublisherPool.settle(p, res, :primary_publication)
       assert %{available_frames: 1, available_bytes: 300} = PublisherPool.capacity(p)
+    end
+
+    test "a stale reservation cannot settle or re-arm what reused its key" do
+      p = pool(:bulk, 1, 300)
+
+      assert {:ok, stale} = PublisherPool.admit(p, k(1), 300, 0)
+      assert :ok = PublisherPool.settle(p, stale, :primary_publication)
+
+      # The same publication is admitted again: same key, new epoch.
+      assert {:ok, fresh} = PublisherPool.admit(p, k(1), 300, 60_000)
+      refute fresh === stale
+
+      assert {:error, :not_outstanding} = PublisherPool.settle(p, stale, :primary_publication)
+      assert {:error, :not_outstanding} = PublisherPool.rearm(p, stale, 1)
+
+      # NOT VACUOUS: the current reservation is untouched and still settles.
+      assert %{outstanding_frames: 1} = PublisherPool.capacity(p)
+      assert :ok = PublisherPool.settle(p, fresh, :primary_publication)
+    end
+  end
+
+  describe "caller death alone authorises nothing" do
+    test "a caller that dies AFTER taking delivery leaves its credits charged" do
+      # Deliberate, and the conservative direction. By the time a caller holds its reservation a
+      # request may already be on the socket; releasing then would permit a second publish while
+      # the first is still broker-ambiguous. A lane restart is what clears these.
+      #
+      # The pre-handoff case -- a caller that dies before it ever receives the reservation -- is a
+      # different question and is covered in PublisherPoolHandoffTest.
+      p = pool(:bulk, 1, 100)
+      test_pid = self()
+
+      caller =
+        spawn(fn ->
+          send(test_pid, {:admitted, PublisherPool.admit(p, k(1), 50, 60_000)})
+          receive do: (:never -> :ok)
+        end)
+
+      assert_receive {:admitted, {:ok, _res}}
+      ref = Process.monitor(caller)
+      Process.exit(caller, :kill)
+      assert_receive {:DOWN, ^ref, :process, ^caller, _}
+
+      Process.sleep(50)
+      assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
+    end
+
+    test "an unrecognised :DOWN cannot release anything" do
+      # The pool only ever acts on a monitor reference it issued for a PENDING admission. An
+      # earlier version matched on the pid alone and released that owner's reservations for any
+      # :DOWN naming it.
+      p = pool(:bulk, 1, 100)
+      assert {:ok, _} = PublisherPool.admit(p, k(1), 50, 60_000)
+
+      send(p, {:DOWN, make_ref(), :process, self(), :normal})
+      Process.sleep(50)
+
+      assert %{outstanding_frames: 1} = PublisherPool.capacity(p)
+    end
+  end
+
+  describe "attempts, not just reservations" do
+    test "a concurrent retry is refused while the first attempt is live" do
+      p = pool(:bulk, 2, 200)
+      assert {:ok, _first} = PublisherPool.admit(p, k(1), 50, 60_000)
+
+      # Two requests under one charge is the bound violation this closes.
+      assert {:error, :attempt_in_flight} = PublisherPool.admit(p, k(1), 50, 60_000)
+    end
+
+    test "ending the attempt keeps the credits but allows the retry" do
+      p = pool(:bulk, 1, 100)
+      assert {:ok, first} = PublisherPool.admit(p, k(1), 50, 0)
+      assert :ok = PublisherPool.attempt_failed(p, first)
+
+      # Still charged: the record is owed a republish.
+      assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
+
+      assert {:ok, retry} = PublisherPool.admit(p, k(1), 50, 60_000)
+      refute retry === first
+      assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
+
+      assert {:error, :not_outstanding} = PublisherPool.attempt_failed(p, first)
+      assert :ok = PublisherPool.settle(p, retry, :primary_publication)
+    end
+  end
+
+  defp eventually(fun, tries \\ 200)
+  defp eventually(_fun, 0), do: false
+
+  defp eventually(fun, tries) do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, tries - 1)
     end
   end
 end

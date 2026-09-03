@@ -48,7 +48,14 @@ defmodule ServiceRadar.NATS.Connection do
   per call rather than cached, because `Gnat.ConnectionSupervisor` re-registers the name across
   a reconnect and a held PID would go stale exactly when NATS was least healthy.
   """
-  @spec get(atom()) :: {:ok, pid()} | {:error, term()}
+  @spec get(atom() | pid()) :: {:ok, pid()} | {:error, term()}
+  def get(pid) when is_pid(pid) do
+    # A caller that resolved the connection EARLIER and is holding that pid: it wants this exact
+    # connection, not whatever currently owns the name. That distinction is what stops a publish
+    # from crossing a lane restart -- see JetStreamPublisher.
+    if Process.alive?(pid), do: {:ok, pid}, else: {:error, :connection_dead}
+  end
+
   def get(name) when is_atom(name) do
     case Process.whereis(name) do
       nil ->
@@ -134,9 +141,9 @@ defmodule ServiceRadar.NATS.Connection do
   two are indistinguishable at the call site -- three positional terms where the first is either a
   connection or a subject. Requiring `opts` keeps the arity unambiguous.
   """
-  @spec request(atom(), String.t(), String.t() | binary(), keyword()) ::
+  @spec request(atom() | pid(), String.t(), String.t() | binary(), keyword()) ::
           {:ok, Gnat.Message.t()} | {:error, term()}
-  def request(conn_name, subject, payload, opts) when is_atom(conn_name) do
+  def request(conn_name, subject, payload, opts) when is_atom(conn_name) or is_pid(conn_name) do
     opts = put_trace_context(opts)
 
     case get(conn_name) do
