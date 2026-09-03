@@ -92,7 +92,6 @@ const EVENT_TCP_CLOSE: u16 = 3;
 const EVENT_UDP_SEND: u16 = 4;
 #[cfg(target_os = "linux")]
 const EVENT_UDP_RECV: u16 = 5;
-#[cfg(target_os = "linux")]
 const EVENT_INET_SOCK_SET_STATE: u16 = 6;
 #[cfg(target_os = "linux")]
 const EVENT_ICMP_SEND: u16 = 7;
@@ -248,7 +247,6 @@ unsafe impl aya::Pod for ProcessInfoRecord {}
 // carry a populated tuple. tcp_connect caches the owner for the later state
 // tracepoint; accept/close also carry a tuple so service ownership and cleanup
 // do not depend on the task scheduled when the state tracepoint fires.
-#[cfg(target_os = "linux")]
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct FlowTupleRecord {
@@ -260,7 +258,6 @@ struct FlowTupleRecord {
     destination_addr: [u8; 16],
 }
 
-#[cfg(target_os = "linux")]
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct FlowAttributionRecord {
@@ -1798,46 +1795,60 @@ fn drain_ring(
             }
             continue;
         }
-        if record.pid == 0 || record.tgid == 0 {
-            drain_metrics.inc_record(
-                record.event_kind,
-                record.tuple.protocol,
-                ATTRIBUTION_OUTCOME_OWNER_MISS,
-                coalesce_service,
-            );
-            drain_metrics.inc_backend_miss();
-            metrics.inc_attribution_stage(
-                "owner_resolution",
-                attribution_protocol_label(record.tuple.protocol),
-                "miss",
-            );
-            continue;
-        }
-        metrics.inc_attribution_stage(
-            "owner_resolution",
-            attribution_protocol_label(record.tuple.protocol),
-            "hit",
-        );
-        let Some(key) = join_key_from_record(record, coalesce_service) else {
-            drain_metrics.inc_record(
-                record.event_kind,
-                record.tuple.protocol,
-                ATTRIBUTION_OUTCOME_TUPLE_REJECTED,
-                coalesce_service,
-            );
-            drain_metrics.inc_backend_miss();
-            metrics.inc_attribution_stage(
-                "tuple_extraction",
-                attribution_protocol_label(record.tuple.protocol),
-                "rejected",
-            );
-            continue;
+        let flow = match validate_attribution_record(record, coalesce_service) {
+            Ok(flow) => flow,
+            Err(AttributionRecordValidationError::TupleRejected) => {
+                drain_metrics.inc_record(
+                    record.event_kind,
+                    record.tuple.protocol,
+                    ATTRIBUTION_OUTCOME_TUPLE_REJECTED,
+                    coalesce_service,
+                );
+                drain_metrics.inc_backend_miss();
+                metrics.inc_attribution_stage(
+                    "tuple_extraction",
+                    attribution_protocol_label(record.tuple.protocol),
+                    "rejected",
+                );
+                continue;
+            }
+            Err(AttributionRecordValidationError::OwnerMiss) => {
+                metrics.inc_attribution_stage(
+                    "tuple_extraction",
+                    attribution_protocol_label(record.tuple.protocol),
+                    "accepted",
+                );
+                drain_metrics.inc_record(
+                    record.event_kind,
+                    record.tuple.protocol,
+                    ATTRIBUTION_OUTCOME_OWNER_MISS,
+                    coalesce_service,
+                );
+                drain_metrics.inc_backend_miss();
+                metrics.inc_attribution_stage(
+                    "owner_resolution",
+                    attribution_protocol_label(record.tuple.protocol),
+                    "miss",
+                );
+                continue;
+            }
         };
         metrics.inc_attribution_stage(
             "tuple_extraction",
             attribution_protocol_label(record.tuple.protocol),
             "accepted",
         );
+        metrics.inc_attribution_stage(
+            "owner_resolution",
+            attribution_protocol_label(record.tuple.protocol),
+            "hit",
+        );
+        let key = FlowAttributionJoinKey {
+            flow,
+            pid: record.pid,
+            tgid: record.tgid,
+            process_generation_ns: record.process_generation_ns,
+        };
         if let Some(existing) = cache.get_mut(&key) {
             drain_metrics.inc_backend_hit();
             if !should_record_inventory(record) || reader.touch_inventory_record(record) {
@@ -2214,7 +2225,6 @@ fn apply_process_details_to_event(
 // (source), endpoint B the peer. Returns None for empty / non-IP /
 // non-TCP-UDP-ICMP tuples. ICMP carries no ports, so a zero source/destination
 // port is expected and accepted (do NOT drop it for missing ports).
-#[cfg(target_os = "linux")]
 fn flow_key_from_record(record: &FlowAttributionRecord) -> Option<FlowKey> {
     if record.tuple.family != AF_INET && record.tuple.family != AF_INET6 {
         return None;
@@ -2236,7 +2246,6 @@ fn flow_key_from_record(record: &FlowAttributionRecord) -> Option<FlowKey> {
     })
 }
 
-#[cfg(target_os = "linux")]
 fn attribution_flow_key_from_record(
     record: &FlowAttributionRecord,
     coalesce_service: bool,
@@ -2253,7 +2262,6 @@ fn attribution_flow_key_from_record(
     Some(flow)
 }
 
-#[cfg(target_os = "linux")]
 fn should_coalesce_service_attribution(flow: &FlowKey, coalesce_service: bool) -> bool {
     coalesce_service
         && matches!(flow.transport_protocol, IPPROTO_TCP | IPPROTO_UDP)
@@ -2261,12 +2269,29 @@ fn should_coalesce_service_attribution(flow: &FlowKey, coalesce_service: bool) -
         && flow.endpoint_b_port > 0
 }
 
-#[cfg(target_os = "linux")]
 fn should_coalesce_udp_client_attribution(flow: &FlowKey) -> bool {
     flow.transport_protocol == IPPROTO_UDP
         && flow.endpoint_a_port >= EPHEMERAL_PORT_FLOOR
         && flow.endpoint_b_port > 0
         && flow.endpoint_b_port < EPHEMERAL_PORT_FLOOR
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AttributionRecordValidationError {
+    TupleRejected,
+    OwnerMiss,
+}
+
+fn validate_attribution_record(
+    record: &FlowAttributionRecord,
+    coalesce_service: bool,
+) -> Result<FlowKey, AttributionRecordValidationError> {
+    let flow = attribution_flow_key_from_record(record, coalesce_service)
+        .ok_or(AttributionRecordValidationError::TupleRejected)?;
+    if record.pid == 0 || record.tgid == 0 {
+        return Err(AttributionRecordValidationError::OwnerMiss);
+    }
+    Ok(flow)
 }
 
 #[cfg(target_os = "linux")]
@@ -2842,16 +2867,17 @@ mod tests {
     use std::collections::HashMap;
 
     use super::{
-        AF_INET, AttributedFlow, FLOW_ENDPOINT_B, FlowPidRecord, IPPROTO_TCP, IPPROTO_UDP,
-        ProcessDetails, ProcessInfoRecord, ProcfsEnricher, REDACTED_CMDLINE_MAX_BYTES,
-        cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
-        is_userspace_process, likely_service_side_tuple, preferred_process_owner, redacted_cmdline,
-        trim_to_utf8_boundary,
+        AF_INET, AttributedFlow, AttributionRecordValidationError, EVENT_INET_SOCK_SET_STATE,
+        FLOW_ENDPOINT_B, FlowPidRecord, IPPROTO_TCP, IPPROTO_UDP, ProcessDetails,
+        ProcessInfoRecord, ProcfsEnricher, REDACTED_CMDLINE_MAX_BYTES, cap_redacted_cmdline,
+        comm_from_bytes, container_id, flow_attribution_event, is_userspace_process,
+        likely_service_side_tuple, preferred_process_owner, redacted_cmdline,
+        trim_to_utf8_boundary, validate_attribution_record,
     };
     #[cfg(target_os = "linux")]
     use super::{
-        AttributionExpiryQueue, CachedAttribution, EVENT_INET_SOCK_SET_STATE, EVENT_UDP_RECV,
-        EVENT_UDP_SEND, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK, FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES,
+        AttributionExpiryQueue, CachedAttribution, EVENT_UDP_RECV, EVENT_UDP_SEND,
+        FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK, FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES,
         FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A, FlowAttributionCache,
         MetadataEnricher, ProcessAttributionIndex, ProcessDetailsCacheKey, SocketInventory,
         TCP_CLOSE_STATE, TCP_LISTEN_STATE, UdpRoleInventory, attribution_event_fingerprint,
@@ -2869,6 +2895,24 @@ mod tests {
         comm[..7].copy_from_slice(b"netprob");
 
         assert_eq!(comm_from_bytes(&comm), "netprob");
+    }
+
+    #[test]
+    fn tuple_validation_precedes_owner_resolution() {
+        let mut record = flow_record(IPPROTO_TCP, 51_000, 443);
+        record.pid = 0;
+        record.tgid = 0;
+
+        assert_eq!(
+            validate_attribution_record(&record, false),
+            Err(AttributionRecordValidationError::OwnerMiss)
+        );
+
+        record.tuple.family = 0;
+        assert_eq!(
+            validate_attribution_record(&record, false),
+            Err(AttributionRecordValidationError::TupleRejected)
+        );
     }
 
     #[test]
@@ -4165,7 +4209,6 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "linux")]
     fn flow_record(
         protocol: u16,
         source_port: u16,

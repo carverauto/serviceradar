@@ -345,9 +345,9 @@ one, and a correlator log line is supporting evidence rather than the success ga
    \set stimulus_started_at '2026-09-03T12:00:00Z'
    \set partition 'default'
    \set agent_id 'agent-example'
-   \set local_ip '10.0.0.10'
+   \set local_ip '192.0.2.10'
    \set local_port '45678'
-   \set remote_ip '10.0.0.20'
+   \set remote_ip '198.51.100.20'
    \set remote_port '20000'
    \set pid '1234'
    ```
@@ -380,6 +380,14 @@ one, and a correlator log line is supporting evidence rather than the success ga
             src_endpoint_ip, src_endpoint_port,
             dst_endpoint_ip, dst_endpoint_port
      FROM platform.ocsf_network_activity
+     WHERE time > now() - interval '15 minutes'
+       AND (ocsf_payload ->> 'event_type') IS DISTINCT FROM 'attributed_flow'
+     ORDER BY time DESC
+     LIMIT 5000
+   ),
+   controlled_flows AS (
+     SELECT *
+     FROM recent_flows
      WHERE time >= :'stimulus_started_at'::timestamptz
        AND partition = :'partition'
        AND protocol_num = 6
@@ -390,12 +398,9 @@ one, and a correlator log line is supporting evidence rather than the success ga
          (src_endpoint_ip, src_endpoint_port, dst_endpoint_ip, dst_endpoint_port) =
            (:'remote_ip', :'remote_port'::integer, :'local_ip', :'local_port'::integer)
        )
-       AND (ocsf_payload ->> 'event_type') IS DISTINCT FROM 'attributed_flow'
-     ORDER BY time DESC
-     LIMIT 5000
    )
    SELECT count(*) AS exact_or_reverse_tcp_candidates
-   FROM recent_flows f
+   FROM controlled_flows f
    JOIN platform.flow_process_attribution_current a
      ON a.partition = f.partition
     AND a.partition = :'partition'

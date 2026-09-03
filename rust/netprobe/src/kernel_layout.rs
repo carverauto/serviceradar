@@ -69,6 +69,235 @@ struct ParsedBtf<'a> {
     strings: &'a [u8],
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum InetSockSetStateLayout {
+    CommonHeader8,
+    CommonHeader16,
+}
+
+impl InetSockSetStateLayout {
+    pub(crate) fn program_name(self) -> &'static str {
+        match self {
+            Self::CommonHeader8 => "inet_sock_set_state",
+            Self::CommonHeader16 => "inet_sock_set_state_rhel9",
+        }
+    }
+
+    pub(crate) fn metric_outcome(self) -> &'static str {
+        match self {
+            Self::CommonHeader8 => "common_header_8",
+            Self::CommonHeader16 => "common_header_16",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct TraceFieldSpec {
+    name: &'static str,
+    declarations: &'static [&'static str],
+    offset: usize,
+    size: usize,
+    signed: bool,
+}
+
+#[derive(Debug)]
+struct ObservedTraceField {
+    declaration: String,
+    offset: usize,
+    size: usize,
+    signed: bool,
+}
+
+const INET_SOCK_SET_STATE_FIELDS: [TraceFieldSpec; 11] = [
+    TraceFieldSpec {
+        name: "skaddr",
+        declarations: &["const void *skaddr", "void *skaddr"],
+        offset: 8,
+        size: 8,
+        signed: false,
+    },
+    TraceFieldSpec {
+        name: "oldstate",
+        declarations: &["int oldstate"],
+        offset: 16,
+        size: 4,
+        signed: true,
+    },
+    TraceFieldSpec {
+        name: "newstate",
+        declarations: &["int newstate"],
+        offset: 20,
+        size: 4,
+        signed: true,
+    },
+    TraceFieldSpec {
+        name: "sport",
+        declarations: &["__u16 sport"],
+        offset: 24,
+        size: 2,
+        signed: false,
+    },
+    TraceFieldSpec {
+        name: "dport",
+        declarations: &["__u16 dport"],
+        offset: 26,
+        size: 2,
+        signed: false,
+    },
+    TraceFieldSpec {
+        name: "family",
+        declarations: &["__u16 family"],
+        offset: 28,
+        size: 2,
+        signed: false,
+    },
+    TraceFieldSpec {
+        name: "protocol",
+        declarations: &["__u16 protocol"],
+        offset: 30,
+        size: 2,
+        signed: false,
+    },
+    TraceFieldSpec {
+        name: "saddr",
+        declarations: &["__u8 saddr[4]"],
+        offset: 32,
+        size: 4,
+        signed: false,
+    },
+    TraceFieldSpec {
+        name: "daddr",
+        declarations: &["__u8 daddr[4]"],
+        offset: 36,
+        size: 4,
+        signed: false,
+    },
+    TraceFieldSpec {
+        name: "saddr_v6",
+        declarations: &["__u8 saddr_v6[16]"],
+        offset: 40,
+        size: 16,
+        signed: false,
+    },
+    TraceFieldSpec {
+        name: "daddr_v6",
+        declarations: &["__u8 daddr_v6[16]"],
+        offset: 56,
+        size: 16,
+        signed: false,
+    },
+];
+
+pub(crate) fn detect_inet_sock_set_state_layout() -> Result<InetSockSetStateLayout> {
+    const FORMAT_PATHS: [&str; 2] = [
+        "/sys/kernel/tracing/events/sock/inet_sock_set_state/format",
+        "/sys/kernel/debug/tracing/events/sock/inet_sock_set_state/format",
+    ];
+
+    let (path, format) = FORMAT_PATHS
+        .iter()
+        .find_map(|path| fs::read_to_string(path).ok().map(|format| (*path, format)))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "TCP attribution unavailable: cannot read inet_sock_set_state tracefs format from {} or {}",
+                FORMAT_PATHS[0],
+                FORMAT_PATHS[1]
+            )
+        })?;
+    parse_inet_sock_set_state_layout(&format).with_context(|| {
+        format!("TCP attribution unavailable: unsupported inet_sock_set_state layout in {path}")
+    })
+}
+
+fn parse_inet_sock_set_state_layout(format: &str) -> Result<InetSockSetStateLayout> {
+    let mut fields = HashMap::new();
+    for line in format.lines().map(str::trim) {
+        let Some(field) = line.strip_prefix("field:") else {
+            continue;
+        };
+        let mut parts = field.split(';');
+        let declaration = normalize_trace_declaration(parts.next().unwrap_or_default());
+        let Some(name) = declaration.split_whitespace().last().map(|name| {
+            name.trim_start_matches('*')
+                .split('[')
+                .next()
+                .unwrap_or(name)
+        }) else {
+            continue;
+        };
+        let mut offset = None;
+        let mut size = None;
+        let mut signed = None;
+        for part in parts {
+            let part = part.trim();
+            if let Some(value) = part.strip_prefix("offset:") {
+                offset = value.parse::<usize>().ok();
+            } else if let Some(value) = part.strip_prefix("size:") {
+                size = value.parse::<usize>().ok();
+            } else if let Some(value) = part.strip_prefix("signed:") {
+                signed = match value {
+                    "0" => Some(false),
+                    "1" => Some(true),
+                    _ => None,
+                };
+            }
+        }
+        if let (Some(offset), Some(size), Some(signed)) = (offset, size, signed) {
+            fields.insert(
+                name.to_string(),
+                ObservedTraceField {
+                    declaration,
+                    offset,
+                    size,
+                    signed,
+                },
+            );
+        }
+    }
+
+    for (layout, shift) in [
+        (InetSockSetStateLayout::CommonHeader8, 0),
+        (InetSockSetStateLayout::CommonHeader16, 8),
+    ] {
+        if INET_SOCK_SET_STATE_FIELDS
+            .iter()
+            .all(|spec| trace_field_matches(fields.get(spec.name), *spec, shift))
+        {
+            return Ok(layout);
+        }
+    }
+
+    let observed = INET_SOCK_SET_STATE_FIELDS
+        .iter()
+        .map(|spec| format!("{}={:?}", spec.name, fields.get(spec.name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    bail!("field declarations/offsets/sizes/signedness did not match supported layouts: {observed}")
+}
+
+fn normalize_trace_declaration(declaration: &str) -> String {
+    declaration
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("* ", "*")
+}
+
+fn trace_field_matches(
+    observed: Option<&ObservedTraceField>,
+    expected: TraceFieldSpec,
+    shift: usize,
+) -> bool {
+    observed.is_some_and(|observed| {
+        expected
+            .declarations
+            .contains(&observed.declaration.as_str())
+            && observed.offset == expected.offset + shift
+            && observed.size == expected.size
+            && observed.signed == expected.signed
+    })
+}
+
 pub(crate) fn ensure_supported_sock_common_layout() -> Result<()> {
     let path = Path::new("/sys/kernel/btf/vmlinux");
     let bytes = fs::read(path).with_context(|| {
@@ -263,15 +492,15 @@ impl ParsedBtf<'_> {
             if name == target {
                 return Some(base_offset.saturating_add(bit_offset));
             }
-            if name.is_empty() {
-                if let Some(found) = self.member_bit_offset(
+            if name.is_empty()
+                && let Some(found) = self.member_bit_offset(
                     member.type_id,
                     target,
                     base_offset.saturating_add(bit_offset),
                     depth + 1,
-                ) {
-                    return Some(found);
-                }
+                )
+            {
+                return Some(found);
             }
         }
         None
@@ -280,8 +509,36 @@ impl ParsedBtf<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{SOCK_COMMON_FIELDS, validate_sock_common_offsets};
+    use super::{
+        InetSockSetStateLayout, SOCK_COMMON_FIELDS, parse_inet_sock_set_state_layout,
+        validate_sock_common_offsets,
+    };
     use std::collections::HashMap;
+
+    fn tracepoint_format_with_shift(shift: usize) -> String {
+        [
+            ("const void * skaddr", 8, 8, 0),
+            ("int oldstate", 16, 4, 1),
+            ("int newstate", 20, 4, 1),
+            ("__u16 sport", 24, 2, 0),
+            ("__u16 dport", 26, 2, 0),
+            ("__u16 family", 28, 2, 0),
+            ("__u16 protocol", 30, 2, 0),
+            ("__u8 saddr[4]", 32, 4, 0),
+            ("__u8 daddr[4]", 36, 4, 0),
+            ("__u8 saddr_v6[16]", 40, 16, 0),
+            ("__u8 daddr_v6[16]", 56, 16, 0),
+        ]
+        .into_iter()
+        .map(|(field, offset, size, signed)| {
+            format!(
+                "field:{field}; offset:{}; size:{size}; signed:{signed};",
+                offset + shift
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+    }
 
     #[test]
     fn accepts_compiled_sock_common_offsets() {
@@ -297,5 +554,53 @@ mod tests {
             .collect::<HashMap<_, _>>();
         let error = validate_sock_common_offsets(&observed).unwrap_err();
         assert!(error.to_string().contains("unsupported sock_common"));
+    }
+
+    #[test]
+    fn selects_supported_tracepoint_common_headers() {
+        assert_eq!(
+            parse_inet_sock_set_state_layout(&tracepoint_format_with_shift(0)).unwrap(),
+            InetSockSetStateLayout::CommonHeader8
+        );
+        assert_eq!(
+            parse_inet_sock_set_state_layout(&tracepoint_format_with_shift(8)).unwrap(),
+            InetSockSetStateLayout::CommonHeader16
+        );
+    }
+
+    #[test]
+    fn rejects_unrecognized_tracepoint_offset_shift() {
+        let error = parse_inet_sock_set_state_layout(&tracepoint_format_with_shift(4)).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("did not match supported layouts")
+        );
+    }
+
+    #[test]
+    fn rejects_tracepoint_field_with_wrong_size() {
+        let format = tracepoint_format_with_shift(0).replacen("size:8", "size:4", 1);
+        assert!(parse_inet_sock_set_state_layout(&format).is_err());
+    }
+
+    #[test]
+    fn rejects_tracepoint_field_with_wrong_declaration() {
+        let format = tracepoint_format_with_shift(0).replacen(
+            "const void * skaddr",
+            "unsigned long skaddr",
+            1,
+        );
+        assert!(parse_inet_sock_set_state_layout(&format).is_err());
+    }
+
+    #[test]
+    fn rejects_tracepoint_field_with_wrong_signedness() {
+        let format = tracepoint_format_with_shift(0).replacen(
+            "int oldstate; offset:16; size:4; signed:1",
+            "int oldstate; offset:16; size:4; signed:0",
+            1,
+        );
+        assert!(parse_inet_sock_set_state_layout(&format).is_err());
     }
 }

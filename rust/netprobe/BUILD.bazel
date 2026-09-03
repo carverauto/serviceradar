@@ -152,8 +152,9 @@ rust_test(
 
 # Privileged production-object gate for the TCP attribution lifecycle. This is
 # intentionally separate from :netprobe_test: it needs a Linux host with
-# CAP_BPF and CAP_PERFMON, loads the exact eBPF object shipped in the native
-# add-on, and exercises real loopback sockets rather than synthetic records.
+# CAP_BPF, CAP_PERFMON, and CAP_NET_ADMIN, loads the exact eBPF object shipped
+# in the native add-on, and exercises real loopback sockets rather than
+# synthetic records.
 rust_test(
     name = "loaded_tcp_attribution_test",
     args = [
@@ -170,6 +171,7 @@ rust_test(
     tags = [
         "integration_test",
         "requires_cap_bpf",
+        "requires_cap_net_admin",
         "requires_cap_perfmon",
     ],
     target_compatible_with = ["@platforms//os:linux"],

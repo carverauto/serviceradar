@@ -30,6 +30,7 @@ use crate::{
     external_flow::SharedExternalFlowMatcher,
     fingerprint::{FingerprintAccumulator, P0fSignatureRuntime},
     kernel::ensure_supported_kernel,
+    kernel_layout::{InetSockSetStateLayout, detect_inet_sock_set_state_layout},
     mdns::runtime::MdnsRuntime,
     metrics::Metrics,
     proto::netprobe::{
@@ -845,165 +846,6 @@ fn attach_attribution_probes(ebpf: &mut Ebpf) -> Result<InetSockSetStateLayout> 
     Ok(tcp_layout)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum InetSockSetStateLayout {
-    CommonHeader8,
-    CommonHeader16,
-}
-
-impl InetSockSetStateLayout {
-    fn program_name(self) -> &'static str {
-        match self {
-            Self::CommonHeader8 => "inet_sock_set_state",
-            Self::CommonHeader16 => "inet_sock_set_state_rhel9",
-        }
-    }
-
-    fn metric_outcome(self) -> &'static str {
-        match self {
-            Self::CommonHeader8 => "common_header_8",
-            Self::CommonHeader16 => "common_header_16",
-        }
-    }
-}
-
-const INET_SOCK_SET_STATE_FIELDS: [(&str, usize); 11] = [
-    ("skaddr", 8),
-    ("oldstate", 16),
-    ("newstate", 20),
-    ("sport", 24),
-    ("dport", 26),
-    ("family", 28),
-    ("protocol", 30),
-    ("saddr", 32),
-    ("daddr", 36),
-    ("saddr_v6", 40),
-    ("daddr_v6", 56),
-];
-
-fn detect_inet_sock_set_state_layout() -> Result<InetSockSetStateLayout> {
-    const FORMAT_PATHS: [&str; 2] = [
-        "/sys/kernel/tracing/events/sock/inet_sock_set_state/format",
-        "/sys/kernel/debug/tracing/events/sock/inet_sock_set_state/format",
-    ];
-
-    let (path, format) = FORMAT_PATHS
-        .iter()
-        .find_map(|path| std::fs::read_to_string(path).ok().map(|format| (*path, format)))
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "TCP attribution unavailable: cannot read inet_sock_set_state tracefs format from {} or {}",
-                FORMAT_PATHS[0],
-                FORMAT_PATHS[1]
-            )
-        })?;
-    parse_inet_sock_set_state_layout(&format).with_context(|| {
-        format!("TCP attribution unavailable: unsupported inet_sock_set_state layout in {path}")
-    })
-}
-
-fn parse_inet_sock_set_state_layout(format: &str) -> Result<InetSockSetStateLayout> {
-    let mut offsets = std::collections::HashMap::new();
-    for line in format.lines().map(str::trim) {
-        let Some(field) = line.strip_prefix("field:") else {
-            continue;
-        };
-        let mut parts = field.split(';');
-        let declaration = parts.next().unwrap_or_default();
-        let Some(name) = declaration.split_whitespace().last().map(|name| {
-            name.trim_start_matches('*')
-                .split('[')
-                .next()
-                .unwrap_or(name)
-        }) else {
-            continue;
-        };
-        let offset = parts.find_map(|part| {
-            part.trim()
-                .strip_prefix("offset:")
-                .and_then(|value| value.parse::<usize>().ok())
-        });
-        if let Some(offset) = offset {
-            offsets.insert(name, offset);
-        }
-    }
-
-    for (layout, shift) in [
-        (InetSockSetStateLayout::CommonHeader8, 0),
-        (InetSockSetStateLayout::CommonHeader16, 8),
-    ] {
-        if INET_SOCK_SET_STATE_FIELDS
-            .iter()
-            .all(|(name, expected)| offsets.get(name) == Some(&(expected + shift)))
-        {
-            return Ok(layout);
-        }
-    }
-
-    let observed = INET_SOCK_SET_STATE_FIELDS
-        .iter()
-        .map(|(name, _)| format!("{name}={:?}", offsets.get(name)))
-        .collect::<Vec<_>>()
-        .join(", ");
-    anyhow::bail!("field offsets did not match supported layouts: {observed}")
-}
-
-#[cfg(test)]
-mod tracepoint_layout_tests {
-    use super::{InetSockSetStateLayout, parse_inet_sock_set_state_layout};
-
-    fn format_with_shift(shift: usize) -> String {
-        [
-            ("void * skaddr", 8, 8),
-            ("int oldstate", 16, 4),
-            ("int newstate", 20, 4),
-            ("__u16 sport", 24, 2),
-            ("__u16 dport", 26, 2),
-            ("__u16 family", 28, 2),
-            ("__u16 protocol", 30, 2),
-            ("__u8 saddr[4]", 32, 4),
-            ("__u8 daddr[4]", 36, 4),
-            ("__u8 saddr_v6[16]", 40, 16),
-            ("__u8 daddr_v6[16]", 56, 16),
-        ]
-        .into_iter()
-        .map(|(field, offset, size)| {
-            format!(
-                "field:{field}; offset:{}; size:{size}; signed:0;",
-                offset + shift
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-    }
-
-    #[test]
-    fn selects_ubuntu_common_header_layout() {
-        assert_eq!(
-            parse_inet_sock_set_state_layout(&format_with_shift(0)).unwrap(),
-            InetSockSetStateLayout::CommonHeader8
-        );
-    }
-
-    #[test]
-    fn selects_rhel9_common_header_layout() {
-        assert_eq!(
-            parse_inet_sock_set_state_layout(&format_with_shift(8)).unwrap(),
-            InetSockSetStateLayout::CommonHeader16
-        );
-    }
-
-    #[test]
-    fn rejects_unrecognized_layout_instead_of_reporting_ready() {
-        let error = parse_inet_sock_set_state_layout(&format_with_shift(4)).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("did not match supported layouts")
-        );
-    }
-}
-
 // Load + attach one best-effort optional kprobe (v4/v6 ICMP, IPv6 UDP). Returns
 // Err (logged, non-fatal by the caller) if the program is missing, fails to load,
 // or fails to attach — e.g. the kernel symbol does not exist on this build.
@@ -1026,10 +868,10 @@ mod loaded_tcp_tests {
     use std::{
         fs,
         net::{IpAddr, Ipv4Addr, SocketAddrV4, TcpListener, TcpStream},
-        path::PathBuf,
+        path::{Path, PathBuf},
         sync::{Arc, mpsc},
         thread,
-        time::{Duration, Instant},
+        time::{Duration, Instant, SystemTime, UNIX_EPOCH},
     };
 
     use anyhow::{Context, Result, bail};
@@ -1050,6 +892,7 @@ mod loaded_tcp_tests {
         proto::netprobe::FlowAttributionEvent,
     };
 
+    const CAP_NET_ADMIN: u32 = 12;
     const CAP_PERFMON: u32 = 38;
     const CAP_BPF: u32 = 39;
     const TCP_ACCEPT_EVENT: u32 = 2;
@@ -1064,11 +907,13 @@ mod loaded_tcp_tests {
     /// server sockets reach the owner-resolved userspace event boundary.
     ///
     /// Run only through `//rust/netprobe:loaded_tcp_attribution_test` on a Linux
-    /// worker granted CAP_BPF and CAP_PERFMON. The ordinary unit target leaves
-    /// this ignored because an unprivileged skip would make the release gate lie.
+    /// worker granted CAP_BPF, CAP_PERFMON, and CAP_NET_ADMIN. The ordinary unit
+    /// target leaves this ignored because an unprivileged skip would make the
+    /// release gate lie.
     #[test]
-    #[ignore = "requires Linux with CAP_BPF and CAP_PERFMON; run the dedicated Bazel target"]
+    #[ignore = "requires Linux with CAP_BPF, CAP_PERFMON, and CAP_NET_ADMIN; run the dedicated Bazel target"]
     fn loaded_object_tcp_loopback_emits_owner_resolved_client_and_server_events() -> Result<()> {
+        require_capability(CAP_NET_ADMIN, "CAP_NET_ADMIN")?;
         require_capability(CAP_BPF, "CAP_BPF")?;
         require_capability(CAP_PERFMON, "CAP_PERFMON")?;
 
@@ -1086,12 +931,17 @@ mod loaded_tcp_tests {
         // Deliberately avoid the production pin directory: this test validates
         // the shipped object and runtime path without sharing map state with a
         // concurrently running netprobe daemon on a privileged verification host.
-        let mut ebpf = EbpfLoader::new().load_file(&object).with_context(|| {
-            format!(
-                "attach/readiness: load production object {}",
-                object.display()
-            )
-        })?;
+        let pin_directory = BpffsPinDirectory::create()?;
+        let mut ebpf = EbpfLoader::new()
+            .map_pin_path(pin_directory.path())
+            .load_file(&object)
+            .with_context(|| {
+                format!(
+                    "attach/readiness: load production object {} with isolated map pins under {}",
+                    object.display(),
+                    pin_directory.path().display()
+                )
+            })?;
         let layout = attach_attribution_probes(&mut ebpf)
             .context("attach/readiness: attach production attribution probes")?;
         let flow_to_pid_map = ebpf.take_map("flow_to_pid").context(
@@ -1136,14 +986,16 @@ mod loaded_tcp_tests {
         let (accepted_tx, accepted_rx) = mpsc::sync_channel(1);
         let server = thread::spawn(move || -> Result<()> {
             let accept_tid = linux_tid()?;
+            let accept_comm = task_comm(accept_tid)?;
             let (stream, _) = listener.accept().context("stimulus: accept loopback TCP")?;
             accepted_tx
-                .send((stream, accept_tid))
+                .send((stream, accept_tid, accept_comm))
                 .map_err(|_| anyhow::anyhow!("stimulus: accepted-stream receiver dropped"))?;
             Ok(())
         });
 
         let client_tid = linux_tid()?;
+        let client_comm = task_comm(client_tid)?;
         let client = TcpStream::connect(listener_addr)
             .context("stimulus: complete loopback TCP client handshake")?;
         let client_addr = client
@@ -1155,7 +1007,7 @@ mod loaded_tcp_tests {
                 client_addr.port()
             );
         }
-        let (accepted, accept_tid) = accepted_rx
+        let (accepted, accept_tid, accept_comm) = accepted_rx
             .recv_timeout(EVENT_WAIT)
             .context("stimulus: wait for accepted loopback socket")?;
         server
@@ -1175,16 +1027,26 @@ mod loaded_tcp_tests {
                     if event.transport_protocol == "tcp" {
                         observed.push(event_summary(&event));
                     }
-                    if owner_resolved(&event, client_tid, expected_tgid, expected_uid)
-                        && event.local_ip == Ipv4Addr::LOCALHOST.to_string()
+                    if owner_resolved(
+                        &event,
+                        client_tid,
+                        expected_tgid,
+                        expected_uid,
+                        &client_comm,
+                    ) && event.local_ip == Ipv4Addr::LOCALHOST.to_string()
                         && event.remote_ip == Ipv4Addr::LOCALHOST.to_string()
                         && event.local_port == u32::from(client_addr.port())
                         && event.remote_port == u32::from(listener_addr.port())
                     {
                         client_event = Some(Arc::clone(&event));
                     }
-                    if owner_resolved(&event, accept_tid, expected_tgid, expected_uid)
-                        && event.event_kind == TCP_ACCEPT_EVENT
+                    if owner_resolved(
+                        &event,
+                        accept_tid,
+                        expected_tgid,
+                        expected_uid,
+                        &accept_comm,
+                    ) && event.event_kind == TCP_ACCEPT_EVENT
                         && event.local_ip == Ipv4Addr::LOCALHOST.to_string()
                         && event.remote_ip == Ipv4Addr::LOCALHOST.to_string()
                         && event.local_port == u32::from(listener_addr.port())
@@ -1260,7 +1122,10 @@ mod loaded_tcp_tests {
         prove_service_gate_eviction_and_reuse(&flow_to_pid, expected_tgid, &mut event_rx)?;
 
         drop(runtime);
+        drop(flow_to_pid);
+        drop(socket_to_pid);
         drop(ebpf);
+        pin_directory.cleanup()?;
 
         if client_event.local_port != u32::from(client_addr.port()) {
             bail!("internal test error: captured client event changed after selection");
@@ -1276,6 +1141,7 @@ mod loaded_tcp_tests {
         expected_tid: u32,
         expected_tgid: u32,
         expected_uid: u32,
+        expected_comm: &str,
     ) -> bool {
         event.transport_protocol == "tcp"
             && event.local_port != 0
@@ -1283,7 +1149,7 @@ mod loaded_tcp_tests {
             && event.pid == expected_tid
             && event.tgid == expected_tgid
             && event.uid == expected_uid
-            && !event.comm.is_empty()
+            && event.comm == expected_comm
     }
 
     fn event_summary(event: &FlowAttributionEvent) -> String {
@@ -1317,6 +1183,85 @@ mod loaded_tcp_tests {
         // preconditions. The positive kernel TID fits in u32 on Linux.
         let tid = unsafe { nix::libc::syscall(nix::libc::SYS_gettid) };
         u32::try_from(tid).context("owner resolution: gettid returned an invalid value")
+    }
+
+    fn task_comm(tid: u32) -> Result<String> {
+        let path = format!("/proc/self/task/{tid}/comm");
+        let comm = fs::read_to_string(&path)
+            .with_context(|| format!("owner resolution: read expected task comm from {path}"))?;
+        let comm = comm.trim_end_matches(['\r', '\n']).to_string();
+        if comm.is_empty() {
+            bail!("owner resolution: expected task comm from {path} was empty");
+        }
+        Ok(comm)
+    }
+
+    struct BpffsPinDirectory {
+        path: PathBuf,
+        cleaned: bool,
+    }
+
+    impl BpffsPinDirectory {
+        fn create() -> Result<Self> {
+            let root = Path::new("/sys/fs/bpf");
+            let nonce = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .context("map isolation: system clock predates Unix epoch")?
+                .as_nanos();
+            let tid = linux_tid()?;
+            for attempt in 0..32 {
+                let path = root.join(format!(
+                    "serviceradar-netprobe-loaded-test-{}-{tid}-{nonce}-{attempt}",
+                    std::process::id()
+                ));
+                match fs::create_dir(&path) {
+                    Ok(()) => {
+                        return Ok(Self {
+                            path,
+                            cleaned: false,
+                        });
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(error) => {
+                        return Err(error).with_context(|| {
+                            format!(
+                                "map isolation: create unique bpffs pin directory {}",
+                                path.display()
+                            )
+                        });
+                    }
+                }
+            }
+            bail!("map isolation: could not allocate a unique bpffs pin directory")
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+
+        fn cleanup(mut self) -> Result<()> {
+            fs::remove_dir_all(&self.path).with_context(|| {
+                format!(
+                    "map isolation: remove test bpffs pin directory {}",
+                    self.path.display()
+                )
+            })?;
+            self.cleaned = true;
+            Ok(())
+        }
+    }
+
+    impl Drop for BpffsPinDirectory {
+        fn drop(&mut self) {
+            if !self.cleaned
+                && let Err(error) = fs::remove_dir_all(&self.path)
+            {
+                eprintln!(
+                    "map isolation cleanup failed for {}: {error}",
+                    self.path.display()
+                );
+            }
+        }
     }
 
     fn bind_test_listener() -> Result<TcpListener> {
