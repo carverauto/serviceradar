@@ -2,35 +2,35 @@
 
 ## 1. Persist per-port coverage
 
-- [ ] 1.1 Migration in `elixir/serviceradar_core/priv/repo/migrations`, schema
+- [x] 1.1 Migration in `elixir/serviceradar_core/priv/repo/migrations`, schema
       `platform`: add `scanned_ports bigint[] NOT NULL DEFAULT '{}'`,
       `agent_id text` and `sweep_group_id uuid` to `sweep_host_results`.
       Backfill is not attempted; historical rows keep an empty scanned set.
-- [ ] 1.2 Add the attributes to the `SweepHostResult` Ash resource, public and
+- [x] 1.2 Add the attributes to the `SweepHostResult` Ash resource, public and
       read-only to operators.
-- [ ] 1.3 In `sweep_results_ingestor.ex`, derive the scanned port set from the
+- [x] 1.3 In `sweep_results_ingestor.ex`, derive the scanned port set from the
       per-port outcomes already in the payload (`port_results`,
       `port_scan_results`, `portScanResults`), keeping `open_ports/1` behavior
       unchanged. Reuse the existing port parsing and validity helpers.
-- [ ] 1.4 Populate `agent_id` and `sweep_group_id` on the host result from the
+- [x] 1.4 Populate `agent_id` and `sweep_group_id` on the host result from the
       execution at ingest, including the batch upsert path.
-- [ ] 1.5 Unit tests: mixed open/closed host, all-closed host, ICMP-only host
+- [x] 1.5 Unit tests: mixed open/closed host, all-closed host, ICMP-only host
       (empty scanned set), malformed port entries, and an upsert that must not
       clear a previously written scanned set.
 
 ## 2. Coverage rollup
 
-- [ ] 2.1 Migration: create `platform.sweep_coverage_daily` keyed by
+- [x] 2.1 Migration: create `platform.sweep_coverage_daily` keyed by
       `(day, device_uid, ip, sweep_group_id, agent_id)` with execution,
       available, unavailable and error counts, first and last seen timestamps,
       unioned scanned and open ports, unioned requested and observed modes,
       last status and last response time. Unique index on the grain key.
-- [ ] 2.2 Add the rollup worker beside `sweep_data_cleanup_worker.ex`: daily,
+- [x] 2.2 Add the rollup worker beside `sweep_data_cleanup_worker.ex`: daily,
       idempotent upsert on the grain key, string-keyed args, batched.
-- [ ] 2.3 Schedule the rollup before cleanup, and make the cleanup worker's
+- [x] 2.3 Schedule the rollup before cleanup, and make the cleanup worker's
       cutoff respect the rolled-up watermark so no day is deleted unrolled.
-- [ ] 2.4 Add rollup retention (default 400 days) to the cleanup worker config.
-- [ ] 2.5 Tests: idempotent re-run does not double-count, two groups on one
+- [x] 2.4 Add rollup retention (default 400 days) to the cleanup worker config.
+- [x] 2.5 Tests: idempotent re-run does not double-count, two groups on one
       device and agent produce two rows, a day is rolled up before it becomes
       cleanup-eligible, and rollup survives raw deletion.
 
