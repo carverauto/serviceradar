@@ -97,6 +97,25 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
     assert host_results_on(day_after) == 1
   end
 
+  # Regression for C3: earliest_unrolled_day/0 must fail CLOSED. A missing
+  # table during a rolling deploy, a connection error, or a query timeout
+  # are failures of the watermark query, not evidence that there is no gap.
+  # Collapsing them into `nil` (fail open) silently disables the guard and
+  # deletes exactly the unrolled days it exists to protect. Drop the
+  # coverage table (inside this test's rolled-back sandbox transaction) to
+  # force the watermark query to fail, and assert the host-result delete is
+  # skipped rather than falling back to retention alone.
+  test "a watermark query failure skips the host-result delete instead of deleting" do
+    day = Date.add(Date.utc_today(), -10)
+    insert_result_on(day, "10.0.1.20")
+
+    Repo.query!("DROP TABLE platform.sweep_coverage_daily")
+
+    assert :ok = SweepDataCleanupWorker.perform(%Oban.Job{args: %{}})
+
+    assert host_results_on(day) == 1
+  end
+
   defp insert_result_on(day, ip) do
     actor = SystemActor.system(:test)
     unique_id = System.unique_integer([:positive, :monotonic])

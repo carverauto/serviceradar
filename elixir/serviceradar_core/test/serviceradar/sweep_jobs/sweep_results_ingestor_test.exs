@@ -234,7 +234,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       results = [
         %{
-          "host" => "192.168.1.10",
+          "host_ip" => "192.168.1.10",
           "available" => true,
           "port_results" => [
             %{"port" => 443, "available" => true},
@@ -255,11 +255,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       results = [
         %{
-          "host" => "192.168.1.11",
+          "host_ip" => "192.168.1.11",
           "available" => false,
           "port_results" => [%{"port" => 3001, "available" => false}]
         },
-        %{"host" => "192.168.1.12", "available" => true, "icmp_available" => true}
+        %{"host_ip" => "192.168.1.12", "available" => true, "icmp_available" => true}
       ]
 
       {[refused, icmp_only], _stats} =
@@ -275,7 +275,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       execution_id = Ash.UUID.generate()
       group_id = Ash.UUID.generate()
 
-      results = [%{"host" => "192.168.1.13", "available" => true}]
+      results = [%{"host_ip" => "192.168.1.13", "available" => true}]
 
       {[record], _stats} =
         SweepResultsIngestor.build_host_results(results, execution_id, %{},
@@ -289,7 +289,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
     test "omitted context leaves identity nil rather than crashing" do
       execution_id = Ash.UUID.generate()
-      results = [%{"host" => "192.168.1.14", "available" => true}]
+      results = [%{"host_ip" => "192.168.1.14", "available" => true}]
 
       {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
 

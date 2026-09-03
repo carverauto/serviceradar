@@ -18,10 +18,24 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
   `SweepDataCleanupWorker` never relies on it, because a failed or skipped
   rollup run must still block the delete through its own watermark guard --
   the earliest day that has `sweep_host_results` rows but no matching
-  `sweep_coverage_daily` row. That guard is deliberately not `MAX(day)`:
-  this worker processes one day per run with no catch-up, so a permanently
-  failed day does not stop a later day from being rolled up and advancing
-  a naive maximum past the still-unrolled one.
+  `sweep_coverage_daily` row.
+
+  ## Catch-up
+
+  A scheduled (args-less) run does not roll only yesterday: on a fresh
+  deployment, or after any missed day, `sweep_coverage_daily` can be empty
+  or gapped while `sweep_host_results` already holds days of history.
+  Rolling only yesterday would leave that backlog permanently un-rolled,
+  because the watermark day this worker exists to keep moving is never
+  deleted (it IS the gap) and never rolled up (nothing would look further
+  back than yesterday). So an args-less run rolls every un-rolled day
+  oldest-first through yesterday, capped at 30 days per invocation so a
+  long backlog cannot turn one execution into an unbounded loop -- the
+  remainder drains over the next scheduled runs. A day that fails is
+  logged and skipped rather than aborting the run.
+
+  A run given an explicit `"day"` argument (tests, manual re-runs) rolls
+  exactly that one day, with no catch-up -- unchanged from before.
   """
 
   use Oban.Worker,
@@ -39,6 +53,12 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
 
   # Run daily (24 hours), same cadence as SweepDataCleanupWorker.
   @reschedule_interval_seconds 86_400
+
+  # Bound on how many un-rolled days a single args-less run will process.
+  # A deeper backlog is not lost -- it is picked up by later scheduled
+  # runs, one reschedule interval apart -- but nothing here should let one
+  # Oban execution run unboundedly.
+  @max_catch_up_days 30
 
   @doc """
   Schedules the daily coverage rollup if not already scheduled.
@@ -69,29 +89,129 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
-    day =
-      case args["day"] do
-        nil -> Date.add(Date.utc_today(), -1)
-        value -> Date.from_iso8601!(value)
-      end
-
     result =
-      case rollup_day(day) do
-        {:ok, count} ->
-          Logger.info("SweepCoverageRollup: wrote #{count} row(s) for #{Date.to_iso8601(day)}")
-          :ok
-
-        {:error, reason} = error ->
-          Logger.error(
-            "SweepCoverageRollup: failed for #{Date.to_iso8601(day)}: #{inspect(reason)}"
-          )
-
-          error
+      case args["day"] do
+        nil -> perform_catch_up()
+        value -> perform_single_day(Date.from_iso8601!(value))
       end
 
     schedule_next_rollup()
 
     result
+  end
+
+  # Rolls exactly the day requested by args["day"]. Used by tests and
+  # manual re-runs that want one specific day rolled -- unchanged from
+  # before catch-up existed.
+  defp perform_single_day(%Date{} = day) do
+    case rollup_day(day) do
+      {:ok, count} ->
+        Logger.info("SweepCoverageRollup: wrote #{count} row(s) for #{Date.to_iso8601(day)}")
+        :ok
+
+      {:error, reason} = error ->
+        Logger.error(
+          "SweepCoverageRollup: failed for #{Date.to_iso8601(day)}: #{inspect(reason)}"
+        )
+
+        error
+    end
+  end
+
+  # Rolls every day that has `sweep_host_results` rows but no matching
+  # `sweep_coverage_daily` row, oldest first, through yesterday -- capped
+  # per run at @max_catch_up_days. See the moduledoc's "Catch-up" section
+  # for why an args-less run cannot simply roll yesterday.
+  defp perform_catch_up do
+    yesterday = Date.add(Date.utc_today(), -1)
+
+    case unrolled_days(yesterday) do
+      {:ok, []} ->
+        Logger.info(
+          "SweepCoverageRollup: no un-rolled day found through #{Date.to_iso8601(yesterday)}"
+        )
+
+        :ok
+
+      {:ok, gap_days} ->
+        {days, remaining} = Enum.split(gap_days, @max_catch_up_days)
+
+        if remaining != [] do
+          Logger.info(
+            "SweepCoverageRollup: catching up #{length(days)} day(s) this run; " <>
+              "#{length(remaining)} day(s) still behind and will be picked up in later runs"
+          )
+        end
+
+        roll_catch_up_days(days)
+
+      {:error, reason} ->
+        Logger.error(
+          "SweepCoverageRollup: failed to compute catch-up backlog: #{inspect(reason)}"
+        )
+
+        {:error, reason}
+    end
+  end
+
+  defp roll_catch_up_days(days) do
+    {success_count, failures} =
+      Enum.reduce(days, {0, []}, fn day, {success_count, failures} ->
+        case rollup_day(day) do
+          {:ok, count} ->
+            Logger.info(
+              "SweepCoverageRollup: wrote #{count} row(s) for #{Date.to_iso8601(day)} (catch-up)"
+            )
+
+            {success_count + 1, failures}
+
+          {:error, reason} ->
+            Logger.error(
+              "SweepCoverageRollup: catch-up failed for #{Date.to_iso8601(day)}: " <>
+                "#{inspect(reason)}"
+            )
+
+            {success_count, [{day, reason} | failures]}
+        end
+      end)
+
+    case {success_count, Enum.reverse(failures)} do
+      {_, []} ->
+        :ok
+
+      {0, failures} ->
+        {:error, {:catch_up_failed, failures}}
+
+      {success_count, failures} ->
+        Logger.warning(
+          "SweepCoverageRollup: catch-up finished with #{length(failures)} failed day(s) " <>
+            "out of #{success_count + length(failures)}; failed days will retry on a later run"
+        )
+
+        :ok
+    end
+  end
+
+  # Days that have `sweep_host_results` rows but no matching
+  # `sweep_coverage_daily` row, oldest first, through `through_day`
+  # inclusive. Mirrors the gap scan in
+  # `SweepDataCleanupWorker.earliest_unrolled_day/0`, but returns every gap
+  # day (bounded by the caller) rather than only the earliest one.
+  defp unrolled_days(%Date{} = through_day) do
+    query = """
+    SELECT DISTINCT (r.inserted_at)::date AS d
+    FROM platform.sweep_host_results r
+    WHERE (r.inserted_at)::date <= $1::date
+      AND NOT EXISTS (
+        SELECT 1 FROM platform.sweep_coverage_daily c WHERE c.day = (r.inserted_at)::date
+      )
+    ORDER BY d ASC
+    """
+
+    case Repo.query(query, [through_day]) do
+      {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, fn [day] -> day end)}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp schedule_next_rollup do
@@ -143,7 +263,10 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
     ),
     scalars AS (
       SELECT
-        device_uid, ip, sweep_group_id, agent_id,
+        COALESCE(device_uid, '') AS device_uid,
+        ip,
+        COALESCE(sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid) AS sweep_group_id,
+        COALESCE(agent_id, '') AS agent_id,
         COUNT(DISTINCT execution_id) AS execution_count,
         COUNT(*) FILTER (WHERE status = 'available') AS available_count,
         COUNT(*) FILTER (WHERE status IN ('unavailable', 'timeout')) AS unavailable_count,
@@ -153,27 +276,55 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
         (ARRAY_AGG(status ORDER BY inserted_at DESC))[1] AS last_status,
         (ARRAY_AGG(response_time_ms ORDER BY inserted_at DESC))[1] AS last_response_time_ms
       FROM src
-      GROUP BY device_uid, ip, sweep_group_id, agent_id
+      GROUP BY
+        COALESCE(device_uid, ''),
+        ip,
+        COALESCE(sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid),
+        COALESCE(agent_id, '')
     ),
     scanned AS (
-      SELECT device_uid, ip, sweep_group_id, agent_id,
-             ARRAY_AGG(DISTINCT p ORDER BY p) AS ports
+      SELECT
+        COALESCE(device_uid, '') AS device_uid,
+        ip,
+        COALESCE(sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid) AS sweep_group_id,
+        COALESCE(agent_id, '') AS agent_id,
+        ARRAY_AGG(DISTINCT p ORDER BY p) AS ports
       FROM src, LATERAL unnest(src.scanned_ports) AS p
-      GROUP BY device_uid, ip, sweep_group_id, agent_id
+      GROUP BY
+        COALESCE(device_uid, ''),
+        ip,
+        COALESCE(sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid),
+        COALESCE(agent_id, '')
     ),
     opened AS (
-      SELECT device_uid, ip, sweep_group_id, agent_id,
-             ARRAY_AGG(DISTINCT p ORDER BY p) AS ports
+      SELECT
+        COALESCE(device_uid, '') AS device_uid,
+        ip,
+        COALESCE(sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid) AS sweep_group_id,
+        COALESCE(agent_id, '') AS agent_id,
+        ARRAY_AGG(DISTINCT p ORDER BY p) AS ports
       FROM src, LATERAL unnest(src.open_ports) AS p
-      GROUP BY device_uid, ip, sweep_group_id, agent_id
+      GROUP BY
+        COALESCE(device_uid, ''),
+        ip,
+        COALESCE(sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid),
+        COALESCE(agent_id, '')
     ),
     modes AS (
-      SELECT device_uid, ip, sweep_group_id, agent_id,
-             ARRAY_AGG(DISTINCT m.key ORDER BY m.key) AS requested,
-             ARRAY_AGG(DISTINCT m.key ORDER BY m.key)
-               FILTER (WHERE m.value::text = '"success"') AS observed
+      SELECT
+        COALESCE(device_uid, '') AS device_uid,
+        ip,
+        COALESCE(sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid) AS sweep_group_id,
+        COALESCE(agent_id, '') AS agent_id,
+        ARRAY_AGG(DISTINCT m.key ORDER BY m.key) AS requested,
+        ARRAY_AGG(DISTINCT m.key ORDER BY m.key)
+          FILTER (WHERE m.value::text = '"success"') AS observed
       FROM src, LATERAL jsonb_each(src.sweep_modes_results) AS m(key, value)
-      GROUP BY device_uid, ip, sweep_group_id, agent_id
+      GROUP BY
+        COALESCE(device_uid, ''),
+        ip,
+        COALESCE(sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid),
+        COALESCE(agent_id, '')
     )
     INSERT INTO platform.sweep_coverage_daily AS t (
       id, day, device_uid, ip, sweep_group_id, agent_id,
@@ -191,23 +342,26 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
       COALESCE(md.requested, '{}'::text[]),
       COALESCE(md.observed, '{}'::text[]),
       s.last_status, s.last_response_time_ms,
-      now(), now()
+      (now() AT TIME ZONE 'utc'), (now() AT TIME ZONE 'utc')
     FROM scalars s
     LEFT JOIN scanned sc
-      ON s.device_uid IS NOT DISTINCT FROM sc.device_uid
-     AND s.ip IS NOT DISTINCT FROM sc.ip
-     AND s.sweep_group_id IS NOT DISTINCT FROM sc.sweep_group_id
-     AND s.agent_id IS NOT DISTINCT FROM sc.agent_id
+      ON COALESCE(s.device_uid, '') = COALESCE(sc.device_uid, '')
+     AND s.ip = sc.ip
+     AND COALESCE(s.sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid)
+       = COALESCE(sc.sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid)
+     AND COALESCE(s.agent_id, '') = COALESCE(sc.agent_id, '')
     LEFT JOIN opened op
-      ON s.device_uid IS NOT DISTINCT FROM op.device_uid
-     AND s.ip IS NOT DISTINCT FROM op.ip
-     AND s.sweep_group_id IS NOT DISTINCT FROM op.sweep_group_id
-     AND s.agent_id IS NOT DISTINCT FROM op.agent_id
+      ON COALESCE(s.device_uid, '') = COALESCE(op.device_uid, '')
+     AND s.ip = op.ip
+     AND COALESCE(s.sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid)
+       = COALESCE(op.sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid)
+     AND COALESCE(s.agent_id, '') = COALESCE(op.agent_id, '')
     LEFT JOIN modes md
-      ON s.device_uid IS NOT DISTINCT FROM md.device_uid
-     AND s.ip IS NOT DISTINCT FROM md.ip
-     AND s.sweep_group_id IS NOT DISTINCT FROM md.sweep_group_id
-     AND s.agent_id IS NOT DISTINCT FROM md.agent_id
+      ON COALESCE(s.device_uid, '') = COALESCE(md.device_uid, '')
+     AND s.ip = md.ip
+     AND COALESCE(s.sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid)
+       = COALESCE(md.sweep_group_id, '00000000-0000-0000-0000-000000000000'::uuid)
+     AND COALESCE(s.agent_id, '') = COALESCE(md.agent_id, '')
     ON CONFLICT (
       day,
       COALESCE(device_uid, ''),
@@ -228,7 +382,7 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
       modes_observed = EXCLUDED.modes_observed,
       last_status = EXCLUDED.last_status,
       last_response_time_ms = EXCLUDED.last_response_time_ms,
-      updated_at = now()
+      updated_at = (now() AT TIME ZONE 'utc')
     """
   end
 end

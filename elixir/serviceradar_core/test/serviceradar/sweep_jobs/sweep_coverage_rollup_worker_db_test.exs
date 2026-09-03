@@ -100,6 +100,29 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorkerDbTest do
     assert row.modes_observed == ["icmp"]
   end
 
+  # Regression for C2: on a fresh deployment (or after any missed day)
+  # `sweep_coverage_daily` is empty while `sweep_host_results` already holds
+  # days of history. `perform/1` given no args (the scheduled path) must not
+  # roll only yesterday -- it must catch up every un-rolled day through
+  # yesterday, or the earliest gap never advances and
+  # `SweepDataCleanupWorker`'s watermark guard is pinned forever.
+  test "an args-less run catches up every un-rolled day through yesterday" do
+    day1 = Date.add(Date.utc_today(), -3)
+    day2 = Date.add(Date.utc_today(), -2)
+    day3 = Date.add(Date.utc_today(), -1)
+    group = Ash.UUID.generate()
+
+    insert_result(day1, "device-catchup-1", "10.0.2.21", group, "agent-a", [443], [443])
+    insert_result(day2, "device-catchup-2", "10.0.2.22", group, "agent-a", [443], [443])
+    insert_result(day3, "device-catchup-3", "10.0.2.23", group, "agent-a", [443], [443])
+
+    assert :ok = SweepCoverageRollupWorker.perform(%Oban.Job{args: %{}})
+
+    assert length(coverage_rows(day1, "device-catchup-1")) == 1
+    assert length(coverage_rows(day2, "device-catchup-2")) == 1
+    assert length(coverage_rows(day3, "device-catchup-3")) == 1
+  end
+
   # Inserts one sweep_group_executions row plus one sweep_host_results row,
   # then backdates the result's inserted_at into `day`. Each call creates its
   # own execution (and its own disabled sweep group, to avoid the global Oban

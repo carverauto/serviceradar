@@ -19,10 +19,11 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   agent produced those results.
 
   This is deliberately NOT `MAX(day)` from `platform.sweep_coverage_daily`.
-  `ServiceRadar.SweepJobs.SweepCoverageRollupWorker` processes one day per
-  run with no catch-up, so a permanently failed day D does not stop a later
-  day D+2 from being rolled up -- `MAX(day)` would advance past D and the
-  unguarded cutoff would delete D's still-unrolled rows. Scanning for the
+  `ServiceRadar.SweepJobs.SweepCoverageRollupWorker` catches up a bounded
+  backlog of un-rolled days per run and logs-and-continues past a day that
+  fails, so a permanently failed day D does not stop a later day D+2 from
+  being rolled up -- `MAX(day)` would advance past D and the unguarded
+  cutoff would delete D's still-unrolled rows. Scanning for the
   earliest gap instead of trusting the maximum protects an unrolled day
   however it arose, not just the "nothing has ever been rolled up" case.
   When the gap watermark actually holds the cutoff back, that is logged at
@@ -149,14 +150,25 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   # a coverage row (including the trivial case of no host results at all).
   #
   # This is a gap scan rather than `MAX(day)` on purpose: the rollup worker
-  # processes one day per run with no catch-up, so `MAX(day)` alone cannot
-  # be trusted as a watermark -- it advances past a permanently failed day
-  # the moment any later day succeeds.
+  # logs and continues past a day that fails rather than aborting its
+  # catch-up run, so `MAX(day)` alone cannot be trusted as a watermark --
+  # it advances past a permanently failed day the moment any later day
+  # succeeds.
   #
   # `sweep_host_results.inserted_at` is `timestamp without time zone`,
   # populated as `now() AT TIME ZONE 'utc'` (matching how
   # SweepCoverageRollupWorker already windows a day), so casting it to
   # `::date` here is a naive UTC date with no session-timezone dependency.
+  # Returns `{:ok, nil}` when every day with host results also has a
+  # coverage row (including the trivial no-host-results case), `{:ok,
+  # day}` when `day` is the earliest gap, or `{:error, reason}` when the
+  # query itself could not be answered. That third outcome is deliberate:
+  # a missing table during a rolling deploy, a connection error, or a
+  # timeout on the sequential scan are all failures of the *query*, not
+  # evidence that there is no gap, and must not be collapsed into `nil` --
+  # doing so is what let a fail-open guard silently disable itself. See
+  # `clamp_host_results_cutoff/1`, which turns `{:error, _}` here into
+  # skipping the host-result delete entirely for the run.
   defp earliest_unrolled_day do
     query = """
     SELECT MIN(d) FROM (
@@ -169,25 +181,35 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
     """
 
     case Repo.query(query, []) do
-      {:ok, %{rows: [[%Date{} = day]]}} -> day
-      _ -> nil
+      {:ok, %{rows: [[%Date{} = day]]}} -> {:ok, day}
+      {:ok, %{rows: [[nil]]}} -> {:ok, nil}
+      {:ok, %{rows: rows}} -> {:error, {:unexpected_result, rows}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
   # Clamps the retention-driven cutoff so it never reaches an unrolled day.
-  # No un-rolled day (`earliest_unrolled_day/0` is `nil`) means retention
-  # alone governs. An un-rolled day D means the cutoff is
-  # `min(requested_cutoff, midnight of D)`, so D and every later day
-  # survive this run regardless of whether a later day happens to already
-  # be rolled up -- deleting past a gap is exactly what destroys history.
+  # No un-rolled day means retention alone governs. An un-rolled day D
+  # means the cutoff is `min(requested_cutoff, midnight of D)`, so D and
+  # every later day survive this run regardless of whether a later day
+  # happens to already be rolled up -- deleting past a gap is exactly what
+  # destroys history.
+  #
+  # A watermark query that FAILS is the third, deliberately distinct,
+  # outcome: deleting on an unknown watermark is the destructive
+  # direction, so this returns `:skip` rather than falling back to
+  # `requested_cutoff` (fail open) or a fabricated cutoff. The caller
+  # skips the host-result delete entirely for the run; retention and
+  # executions/coverage cleanup are unaffected.
+  @spec clamp_host_results_cutoff(pos_integer()) :: {:ok, DateTime.t()} | :skip
   defp clamp_host_results_cutoff(host_results_days) do
     requested_cutoff = DateTime.add(DateTime.utc_now(), -host_results_days * 86_400, :second)
 
     case earliest_unrolled_day() do
-      nil ->
-        requested_cutoff
+      {:ok, nil} ->
+        {:ok, requested_cutoff}
 
-      day ->
+      {:ok, day} ->
         gap_cutoff = DateTime.new!(day, ~T[00:00:00.000000], "Etc/UTC")
         clamped = Enum.min([requested_cutoff, gap_cutoff], DateTime)
 
@@ -200,7 +222,19 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
           )
         end
 
-        clamped
+        {:ok, clamped}
+
+      {:error, reason} ->
+        Logger.error(
+          "SweepDataCleanupWorker: Host-result delete SKIPPED this run - the rollup " <>
+            "watermark query failed (#{inspect(reason)}), so the earliest unrolled day is " <>
+            "unknown. Deleting on an unknown watermark risks destroying the only durable " <>
+            "record of which sweep group and agent produced unrolled results; the guard " <>
+            "fails closed instead. Executions and coverage-rollup cleanup are unaffected " <>
+            "and this will retry on the next scheduled run."
+        )
+
+        :skip
     end
   end
 
@@ -230,7 +264,15 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
     }
   end
 
-  defp cleanup_host_results(cutoff, batch_size) do
+  # `:skip` means `clamp_host_results_cutoff/1` could not determine the
+  # rollup watermark and, per its fail-closed contract, chose not to
+  # delete anything rather than delete on an unknown watermark. Counted
+  # as an error so it surfaces in the run's completion log.
+  defp cleanup_host_results(:skip, _batch_size) do
+    %{deleted: 0, errors: 1}
+  end
+
+  defp cleanup_host_results({:ok, cutoff}, batch_size) do
     cleanup_in_batches(SweepHostResult, :inserted_at, cutoff, batch_size)
   end
 
