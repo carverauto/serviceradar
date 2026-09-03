@@ -6,10 +6,15 @@ Current netprobe attribution is process-level and does not carry workload identi
 
 - `rust/netprobe/src/attribution.rs` emits `FlowAttributionEvent` from eBPF ring records with local/remote tuple, PID, TGID, UID, GID, comm, redacted cmdline, container ID, socket address, event kind, and TCP state fields.
 - `proto/agent/netprobe/v1/netprobe.proto` carries those events in `FlowAttributionEvent` and `FlowAttributionEventBatch`; `ProcessSnapshotEntry` carries the same process/container fields for device process-listener views.
-- `elixir/serviceradar_core/lib/serviceradar/event_writer/attributed_flow_joiner.ex` joins host-slice flow records with netprobe attribution events and publishes `flow.attributed.<partition>`.
-- `elixir/serviceradar_core/lib/serviceradar/flow_attribution.ex` persists raw `flow_process_attributions` and stamps matching `platform.ocsf_network_activity.ocsf_payload` with `event_type=attributed_flow`, `agent_id`, and `attribution.{pid,comm,redacted_cmdline,uid,container_id}`.
+- `go/pkg/agent/push_loop_flow_attribution.go` batches those observations as retained `FlowAttributionEventBatch` payloads on the agent-owned `StreamStatus` path; the authenticated agent-gateway forwards that status to core.
+- `elixir/serviceradar_core/lib/serviceradar/status_handler.ex` derives agent and partition authority from the authenticated status context, decodes the batch, and calls the public `ServiceRadar.FlowAttribution.persist/3` facade; that facade delegates row insertion to `ServiceRadar.FlowAttribution.Persistence`, which upserts bounded current state in `platform.flow_process_attribution_current`.
+- `ServiceRadar.FlowAttribution.Correlation` joins that current state to independently ingested `platform.ocsf_network_activity` rows and stamps the matching existing `ocsf_payload` in place with `event_type=attributed_flow`, `agent_id`, and `attribution.{pid,comm,redacted_cmdline,uid,container_id}`.
 - `elixir/web-ng/lib/serviceradar_web_ng_web/live/flows/attributed_live.ex` reads workload-visible data only from `ocsf_payload.attribution` today, so namespace/pod/container name/image fields need either a proto/schema extension or a companion workload identity observation joined before render.
 - Device process listeners render from device metadata `local_processes` and currently show endpoint, protocol, process, PID/TGID, UID/GID, container ID, and command only.
+
+The earlier `HostSliceSubscriber` / `AttributedFlowJoiner` demo canary and its
+`flow.host-slice.*` / `flow.attributed.*` subjects remain useful historical
+evidence, but they are retired and are not current or future production routing.
 
 ## Kubernetes CRI Validation
 

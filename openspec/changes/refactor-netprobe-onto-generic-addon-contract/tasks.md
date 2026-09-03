@@ -256,11 +256,12 @@ the legacy producers.
 - [~] 5.6 **AUDITED 2026-08-25: DO NOT MOVE FLOW ATTRIBUTION ONTO THE RELAY.** The codegen half is
   done (kept below); the transport half should not be built as written.
 
-  **The premise is false.** 5.6's stated reason for the relay is the ordered-prefix / positive-ack /
-  poison-quarantine contract. Flow attribution ALREADY has it -- `push_loop_flow_attribution.go`
-  `flowAttributionDeliveryQueue` / `acknowledgePrefix` / `quarantineFirst`, with no removal without
-  `resp.Received`. Gateway strictness is already identical too: `@strict_delivery_sources` in
-  `agent_gateway_server.ex` contains BOTH `otlp-relay` and `flow-attribution`. There is no delta to win.
+  **The premise is false.** Flow attribution already owns an ordered pending prefix and removes it
+  after positive receipt. `push_loop_flow_attribution.go` names the local terminal-removal helper
+  `quarantineFirst`, but `harden-flow-attribution-pipeline` clarifies that invalid identical bytes are
+  poison-dropped with bounded telemetry and are not copied into a quarantine queue or store. That
+  change also owns the gateway's current false-ack gap and its truthful negative acknowledgement;
+  moving the bytes to another relay would not solve either boundary.
 
   **The move would make delivery WORSE, in two specific ways.**
   1. It downgrades the durability terminus. Today the agent's ack returns only after the CNPG UPSERT
@@ -339,7 +340,10 @@ the legacy producers.
   entry.
   Left for the rest of 5.6: generalizing `RelayOtlp`'s identity constants
   (`go/pkg/agent/addon_otlp_relay.go:48-50` hardcodes `otlp-relay` / `otel-collector` / `otlp-relay`)
-  and the gateway's `otlp_relay_publisher.ex` routing, and moving flow attribution onto it.
+  and the gateway's `otlp_relay_publisher.ex` routing for the signals that use that relay. Flow
+  attribution remains on its dedicated ordered-prefix/`StreamStatus` path; its TCP correctness,
+  bounded core admission, and truthful negative acknowledgement are owned by
+  `harden-flow-attribution-pipeline`.
 
 - [~] 5.7 **AUDITED 2026-08-25; ALL THREE ARMS STAY. Do not delete on the strength of this task's
   original wording -- two of its three claims are false, and the third is a live product decision that
@@ -364,12 +368,12 @@ the legacy producers.
       deleting the consumer at `client.go:554-556` is SILENT total loss of flow attribution for those
       hosts: no log, no metric, no `recordEventDrop`.
 
-  * **`ExternalFlowRecord`/`ExternalFlowAck` are test-only in-tree but NOT deletable today.**
+  * **`ExternalFlowRecord`/`ExternalFlowAck` are test-only in-tree and require coordinated cleanup.**
     - Confirmed: the only Go callers are `client_test.go`, and the Rust handler at `server.rs:490-506`
       is live code that no production sender can reach.
-    - But `openspec/changes/add-host-network-visibility-sidecar` carries an ACTIVE, unarchived
-      requirement "External NetFlow attribution join" (`specs/host-network-visibility/spec.md:360-382`)
-      with tasks 21.1/21.2 marked `[x]`. Deleting the arm silently un-implements a shipped requirement.
+    - `harden-flow-attribution-pipeline` reconciles the active host-network-visibility requirement to
+      the deployed agent-up/current-state/CNPG correlation path, so production no longer depends on
+      this arm. Checked tasks 21.1/21.2 remain a record of the retired demo canary.
     - `addons/netprobe/config.schema.json:46-53` exposes `external_flow_match_window_ms` as an operator
       key that exists only to tune the matcher only this arm reads; the root schema is
       `additionalProperties: false`, so removing the property fails validation for every persisted

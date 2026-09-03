@@ -77,14 +77,17 @@ add-on contract; only its *launch* model stays different.
   `off_segment`, no-evidence, ambiguous-model suppression, banner confidence floors) are identity
   safety rules; they currently live in a binary that ships on a different cadence than the code
   that owns identity policy.
-- **Delete four dead IPC arms** rather than porting them: `ExternalFlowRecord`/`ExternalFlowAck`
-  (live Rust server, zero Go production callers), `StartRemoteCapture`/`PcapngBlock` (empty
-  messages, no code anywhere), and the tag-21 non-batched flow-attribution fallback (disabled by
-  default).
-- **Flow attribution moves to a generalized acked relay, not `StreamTelemetry`.** It owns an ordered
-  pending prefix, positive-ack-before-removal and a poison quarantine; `StreamTelemetry` is lossy by
-  construction (1024-slot buffer, drop-newest, no re-queue). `RelayOtlp` already provides the acked
-  contract.
+- **Audit legacy IPC arms before retiring them.** `ExternalFlowRecord`/`ExternalFlowAck` have no Go
+  production caller but require config/schema cleanup; `StartRemoteCapture`/`PcapngBlock` remain
+  reserved for the approved remote-capture work; and the tag-21 non-batched flow-attribution arm
+  remains until published-version skew is bounded and unknown-arm handling is observable. No arm
+  is deleted merely because its current-tree caller census is empty.
+- **Flow attribution keeps its dedicated agent-owned delivery contract.** The local netprobe source
+  may move from `NetprobeFrame` to `AddonService`, but the agent continues sending the byte-identical
+  `FlowAttributionEventBatch` through its ordered pending prefix and `StreamStatus`. It does not move
+  to lossy `StreamTelemetry` or to `RelayOtlp`; truthful negative acknowledgement and bounded core
+  admission are owned by `harden-flow-attribution-pipeline` (#4030/#4031), together with the TCP
+  producer and correlation evidence needed to close #4029.
 - **Carry netprobe's `PingAck` health fields onto `AddonService.Health`.** `running_as_root` and the
   p0f/muonfp/recog/satori corpus revisions feed `push_loop_capabilities.go:224-270`; deleting the
   IPC without a replacement silently turns banner-grab capability reporting off.
