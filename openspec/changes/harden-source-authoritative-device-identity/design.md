@@ -1,6 +1,6 @@
 ## Context
 
-The SFO OT isolation investigation used an independent Go verifier from `host03` against the Armis export. At the aggregate level, the verifier found 37 compliant/unreachable devices out of 395 known-IP devices, or 9.4%, which matches the Armis dashboard's roughly 9% compliant count.
+The site OT isolation investigation used an independent Go verifier from `host03` against the Armis export. At the aggregate level, the verifier found 37 compliant/unreachable devices out of 395 known-IP devices, or 9.4%, which matches the Armis dashboard's roughly 9% compliant count.
 
 The per-device reconciliation did not match ServiceRadar:
 
@@ -84,7 +84,7 @@ Repairs should be idempotent, emit audit rows, and support dry-run output. Unres
 3. Update sync ingestion to use the shared integration identity abstraction for typed/source-scoped identifiers and block source-authoritative IP remaps.
 4. Harden Armis northbound candidate selection and conflict accounting.
 5. Run the repair dry-run against `example-namespace`, review counts, then apply repairs in controlled batches.
-6. Re-run the SFO verifier comparison and confirm candidate mismatches/missing rows drop to expected explainable cases.
+6. Re-run the site verifier comparison and confirm candidate mismatches/missing rows drop to expected explainable cases.
 
 ## Open Questions
 

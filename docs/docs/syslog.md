@@ -64,7 +64,7 @@ Network devices should send syslog to `<SYSLOG_GATEWAY_ADDRESS>:514/UDP`. Keep t
 The default collector input format is `auto`. It tries RFC 5424, RFC 3164, and
 the ClearPass standard header format for each message. ClearPass standard
 messages use a full year and comma-separated milliseconds, for example
-`2026-07-15 14:24:44,270 192.0.2.34 CPPM_Session_Detail ...`.
+`2020-01-01 00:00:00,000 192.0.2.34 CPPM_Session_Detail ...`.
 
 CEF, LEEF, and other opaque payloads are accepted and retained as the log body
 even when ServiceRadar does not yet extract their vendor-specific fields. A

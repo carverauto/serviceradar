@@ -431,7 +431,7 @@ func deviceRow(id int, hostname, ip, serial string) map[string]any {
 		"vendor":           "Cisco",
 		"model":            "Nexus 9300",
 		"deviceType":       "Switch",
-		"siteName":         "ORD",
+		"siteName":         "ZZD",
 		"managementStatus": "Managed",
 		"excludeFromPoll":  false,
 	}
