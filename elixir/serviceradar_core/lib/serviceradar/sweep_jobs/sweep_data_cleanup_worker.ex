@@ -12,13 +12,23 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
 
   ## Rollup watermark guard
 
-  Host results are never deleted past the rollup watermark: the last day
-  `ServiceRadar.SweepJobs.SweepCoverageRollupWorker` has actually written to
-  `platform.sweep_coverage_daily`. Deleting a day the rollup has not yet
-  covered would destroy the only durable record of which sweep group and
-  agent produced those results. If nothing has ever been rolled up, the
-  host-result delete is skipped entirely for this run (logged), rather than
-  falling back to the unguarded retention cutoff.
+  Host results are never deleted at or after the earliest day that has
+  `sweep_host_results` rows but no matching `sweep_coverage_daily` row --
+  i.e. the earliest day the rollup has not (yet, or ever) covered. Deleting
+  such a day would destroy the only durable record of which sweep group and
+  agent produced those results.
+
+  This is deliberately NOT `MAX(day)` from `platform.sweep_coverage_daily`.
+  `ServiceRadar.SweepJobs.SweepCoverageRollupWorker` processes one day per
+  run with no catch-up, so a permanently failed day D does not stop a later
+  day D+2 from being rolled up -- `MAX(day)` would advance past D and the
+  unguarded cutoff would delete D's still-unrolled rows. Scanning for the
+  earliest gap instead of trusting the maximum protects an unrolled day
+  however it arose, not just the "nothing has ever been rolled up" case.
+  When the gap watermark actually holds the cutoff back, that is logged at
+  `warning`, naming the blocking day, so a permanently stuck day (which
+  otherwise grows `sweep_host_results` unbounded with no further signal)
+  is visible to an operator.
 
   ## Scheduling
 
@@ -112,7 +122,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
 
     Logger.info(
       "SweepDataCleanupWorker: Starting cleanup - " <>
-        "host results older than #{host_results_days} days (clamped to rollup watermark), " <>
+        "host results older than #{host_results_days} days (clamped to the earliest unrolled day), " <>
         "executions older than #{executions_days} days, " <>
         "coverage rollups older than #{rollup_days} days"
     )
@@ -133,41 +143,64 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
     :ok
   end
 
-  # The last day fully covered by the rollup. Host results may only be
-  # deleted up to this point, because deleting an unrolled day destroys the
-  # only durable record of which sweep group and agent produced those
-  # results.
-  defp rollup_watermark do
-    case Repo.query("SELECT MAX(day) FROM platform.sweep_coverage_daily", []) do
-      {:ok, %{rows: [[%Date{} = day]]}} ->
-        DateTime.new!(Date.add(day, 1), ~T[00:00:00.000000], "Etc/UTC")
+  # The earliest day that has `sweep_host_results` rows but no matching
+  # `sweep_coverage_daily` row -- the earliest day the rollup has not (yet,
+  # or ever) covered. `nil` means every day that has host results also has
+  # a coverage row (including the trivial case of no host results at all).
+  #
+  # This is a gap scan rather than `MAX(day)` on purpose: the rollup worker
+  # processes one day per run with no catch-up, so `MAX(day)` alone cannot
+  # be trusted as a watermark -- it advances past a permanently failed day
+  # the moment any later day succeeds.
+  #
+  # `sweep_host_results.inserted_at` is `timestamp without time zone`,
+  # populated as `now() AT TIME ZONE 'utc'` (matching how
+  # SweepCoverageRollupWorker already windows a day), so casting it to
+  # `::date` here is a naive UTC date with no session-timezone dependency.
+  defp earliest_unrolled_day do
+    query = """
+    SELECT MIN(d) FROM (
+      SELECT DISTINCT (r.inserted_at)::date AS d
+      FROM platform.sweep_host_results r
+      WHERE NOT EXISTS (
+        SELECT 1 FROM platform.sweep_coverage_daily c WHERE c.day = (r.inserted_at)::date
+      )
+    ) gaps
+    """
 
-      _ ->
-        nil
+    case Repo.query(query, []) do
+      {:ok, %{rows: [[%Date{} = day]]}} -> day
+      _ -> nil
     end
   end
 
-  # Clamps the retention-driven cutoff to whatever the rollup has actually
-  # covered. `nil` means nothing has ever been rolled up: skip the
-  # host-result delete entirely rather than falling back to the unguarded
-  # retention cutoff, because an empty rollup table is precisely when
-  # deleting is most destructive. Log the skip explicitly -- a silent skip
-  # here is indistinguishable from a working delete.
+  # Clamps the retention-driven cutoff so it never reaches an unrolled day.
+  # No un-rolled day (`earliest_unrolled_day/0` is `nil`) means retention
+  # alone governs. An un-rolled day D means the cutoff is
+  # `min(requested_cutoff, midnight of D)`, so D and every later day
+  # survive this run regardless of whether a later day happens to already
+  # be rolled up -- deleting past a gap is exactly what destroys history.
   defp clamp_host_results_cutoff(host_results_days) do
     requested_cutoff = DateTime.add(DateTime.utc_now(), -host_results_days * 86_400, :second)
 
-    case rollup_watermark() do
+    case earliest_unrolled_day() do
       nil ->
-        Logger.info(
-          "SweepDataCleanupWorker: Skipping host-result delete - " <>
-            "no rollup watermark yet (platform.sweep_coverage_daily has no rows), " <>
-            "so the retention cutoff cannot be trusted not to destroy unrolled history"
-        )
+        requested_cutoff
 
-        nil
+      day ->
+        gap_cutoff = DateTime.new!(day, ~T[00:00:00.000000], "Etc/UTC")
+        clamped = Enum.min([requested_cutoff, gap_cutoff], DateTime)
 
-      watermark ->
-        Enum.min([requested_cutoff, watermark], DateTime)
+        if DateTime.before?(clamped, requested_cutoff) do
+          Logger.warning(
+            "SweepDataCleanupWorker: Host-result delete held back by an unrolled day - " <>
+              "#{Date.to_iso8601(day)} has sweep_host_results rows but no " <>
+              "platform.sweep_coverage_daily row yet; deleting at or past it would destroy " <>
+              "the only durable record of which sweep group and agent produced those results"
+          )
+        end
+
+        clamped
     end
   end
 
@@ -196,11 +229,6 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
       errors: host_result_stats.errors + execution_stats.errors + coverage_stats.errors
     }
   end
-
-  # A `nil` cutoff means the watermark guard decided nothing is safe to
-  # delete yet (see `clamp_host_results_cutoff/1`). No-op rather than
-  # falling through to an unguarded delete.
-  defp cleanup_host_results(nil, _batch_size), do: %{deleted: 0, errors: 0}
 
   defp cleanup_host_results(cutoff, batch_size) do
     cleanup_in_batches(SweepHostResult, :inserted_at, cutoff, batch_size)

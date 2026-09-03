@@ -61,6 +61,42 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
     assert coverage_rows_on(day) == 0
   end
 
+  # Regression for C1: MAX(day) on platform.sweep_coverage_daily is not a
+  # coverage watermark, because SweepCoverageRollupWorker.perform/1
+  # processes exactly one day per run with no catch-up. If day D fails
+  # permanently while a later day D+2 succeeds, MAX(day) advances past D --
+  # the still-unrolled day -- and an unguarded `min(retention_cutoff,
+  # watermark)` cutoff deletes D anyway. Roll the day *before* and the day
+  # *after* a middle day, but never the middle day itself, with retention
+  # short enough that all three are otherwise eligible: the middle day, and
+  # every day at or after it, must survive.
+  test "an earlier unrolled day blocks deletion at and after it, even though a later day was itself rolled up" do
+    Application.put_env(:serviceradar_core, SweepDataCleanupWorker,
+      host_results_retention_days: 1,
+      executions_retention_days: 30,
+      rollup_retention_days: 400,
+      batch_size: 100
+    )
+
+    day_before = Date.add(Date.utc_today(), -5)
+    day_gap = Date.add(Date.utc_today(), -4)
+    day_after = Date.add(Date.utc_today(), -3)
+
+    insert_result_on(day_before, "10.0.1.8")
+    insert_result_on(day_gap, "10.0.1.9")
+    insert_result_on(day_after, "10.0.1.10")
+
+    {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day_before)
+    {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day_after)
+    # day_gap is deliberately never rolled up.
+
+    assert :ok = SweepDataCleanupWorker.perform(%Oban.Job{args: %{}})
+
+    assert host_results_on(day_before) == 0
+    assert host_results_on(day_gap) == 1
+    assert host_results_on(day_after) == 1
+  end
+
   defp insert_result_on(day, ip) do
     actor = SystemActor.system(:test)
     unique_id = System.unique_integer([:positive, :monotonic])

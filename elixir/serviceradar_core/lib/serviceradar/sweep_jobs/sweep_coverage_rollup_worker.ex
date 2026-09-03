@@ -16,14 +16,18 @@ defmodule ServiceRadar.SweepJobs.SweepCoverageRollupWorker do
   called, and before it, so this worker has a chance to run ahead of
   cleanup's daily cycle. That ordering is only an optimization:
   `SweepDataCleanupWorker` never relies on it, because a failed or skipped
-  rollup run must still block the delete through its own watermark guard
-  (`SELECT MAX(day) FROM platform.sweep_coverage_daily`).
+  rollup run must still block the delete through its own watermark guard --
+  the earliest day that has `sweep_host_results` rows but no matching
+  `sweep_coverage_daily` row. That guard is deliberately not `MAX(day)`:
+  this worker processes one day per run with no catch-up, so a permanently
+  failed day does not stop a later day from being rolled up and advancing
+  a naive maximum past the still-unrolled one.
   """
 
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: 3600, fields: [:worker, :args]]
+    unique: [period: 3600, fields: [:worker, :args], states: :incomplete]
 
   import Ecto.Query
 
