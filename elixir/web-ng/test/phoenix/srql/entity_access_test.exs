@@ -45,8 +45,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     {"merge_audit", ~w(merge_audit device_merges merges)},
     {"device_revival_audit", ~w(device_revival_audit device_revivals revivals)},
     {"device_identifiers", ~w(device_identifiers identifiers device_identity)},
-    {"identity_reconciliation_runs",
-     ~w(identity_reconciliation_runs reconciliation_runs dire_runs)},
+    {"identity_reconciliation_runs", ~w(identity_reconciliation_runs reconciliation_runs dire_runs)},
     {"identity_evidence_edges", ~w(identity_evidence_edges identity_evidence evidence_edges)}
   ]
 

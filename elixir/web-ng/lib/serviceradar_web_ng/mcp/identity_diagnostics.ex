@@ -106,8 +106,7 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnostics do
         resolve_by(scope, seed, kind)
 
       :unknown ->
-        {:error,
-         "#{inspect(seed)} is not a device uid, IP, or hostname. Pass a uid like sr:<uuid>."}
+        {:error, "#{inspect(seed)} is not a device uid, IP, or hostname. Pass a uid like sr:<uuid>."}
     end
   end
 
@@ -219,10 +218,8 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnostics do
       "survivor" => survivor(payload["merge_chain"]),
       "revival_count" => length(payload["revivals"]),
       "identifier_count" => length(identifiers),
-      "corroborated_identifier_count" =>
-        Enum.count(identifiers, &(&1["matches_current_facts"] == true)),
-      "historical_identifier_count" =>
-        Enum.count(identifiers, &(&1["matches_current_facts"] == false)),
+      "corroborated_identifier_count" => Enum.count(identifiers, &(&1["matches_current_facts"] == true)),
+      "historical_identifier_count" => Enum.count(identifiers, &(&1["matches_current_facts"] == false)),
       "direct_evidence_edges" => Enum.count(evidence, &(&1["direct"] == true)),
       "transitive_evidence_edges" => Enum.count(evidence, &(&1["direct"] == false)),
       "cross_partition_evidence" => Enum.any?(evidence, &(&1["cross_partition"] == true)),

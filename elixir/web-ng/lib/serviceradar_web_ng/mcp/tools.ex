@@ -125,9 +125,7 @@ defmodule ServiceRadarWebNG.Mcp.Tools do
       argument :seed, :string do
         allow_nil?(false)
 
-        description(
-          "Device uid (sr:<uuid>), IP, or hostname. Tombstoned devices are searched too."
-        )
+        description("Device uid (sr:<uuid>), IP, or hostname. Tombstoned devices are searched too.")
       end
 
       argument :limit, :integer do
