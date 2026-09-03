@@ -71,7 +71,7 @@
 
 ## 8. Focused, Bazel, and database-backed verification
 
-- [ ] 8.1 Before any Bazel command in an isolated checkout, symlink the primary checkout's gitignored `.bazelrc.remote` and `.bazelrc.local` into the worktree and verify `test -f .bazelrc.remote`; never commit either file.
+- [ ] 8.1 Before any Bazel command in an isolated checkout, symlink the primary checkout's gitignored `.bazelrc.remote` into the worktree (and `.bazelrc.local` only if it exists) and verify `test -f .bazelrc.remote`; never commit either file.
 - [ ] 8.2 Run formatting and focused language tests for every touched component, including the new real-kernel TCP producer test, the existing UDP coalescing tests, core queue/correlation tests, gateway acknowledgement/buffer tests, and Go pending-prefix tests; read the emitted assertions and telemetry rather than treating process exit alone as evidence.
 - [ ] 8.3 Run `bazel test //rust/netprobe:netprobe_test //rust/netprobe:static_linkage_test`, the new privileged Linux TCP-attribution integration target, `bazel test //go/pkg/agent:agent_test`, `bazel test //elixir/serviceradar_core:unit_tests`, and `bazel test //elixir/serviceradar_agent_gateway:unit_tests`.
 - [ ] 8.4 Run the guarded scratch-CNPG integration lifecycle for `//elixir/serviceradar_core:integration_tests` and verify the actual post-test database rows for exact TCP, wildcard listener, both relaxed UDP forms, node-SNAT, public endpoint, topology-miss, and attributed-flow fixtures; never point destructive setup or teardown at demo or production.
