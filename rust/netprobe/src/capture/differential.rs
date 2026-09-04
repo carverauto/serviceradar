@@ -112,7 +112,37 @@ fn our_compiler_agrees_with_libpcap_on_every_corpus_packet() {
         disagreements.len(),
         disagreements.join("\n")
     );
-    assert!(compared >= 250, "suspiciously few comparisons: {compared}");
+
+    // Three assertions, because they catch different things and none alone is
+    // enough.
+    //
+    // The first says the loop did what it looks like it does. It CANNOT catch a
+    // shrinking input -- it is derived from the same two lengths -- but it does
+    // catch a `continue` or an early `break` slipping into the loop, which the
+    // old floor could not tell apart from a smaller corpus.
+    assert_eq!(
+        compared,
+        reference.len() * packets.len(),
+        "every reference expression must be compared against every corpus packet"
+    );
+
+    // The other two catch an input narrowing, and that has to be stated against
+    // each input separately. Replacing `compared >= 250` with the product ALONE
+    // would have been a regression: 250 was a real floor and did fail when
+    // either side shrank far enough. Its weakness was conflating the two --
+    // half the corpus with twice the expressions slipped through, and a failure
+    // named neither side.
+    assert!(
+        reference.len() >= 20,
+        "the reference set shrank to {} expressions; agreement with libpcap over          a handful of filters proves little",
+        reference.len()
+    );
+    assert!(
+        packets.len() >= 15,
+        "the corpus shrank to {} packets; a comparison over a handful of frames \
+         proves little about two compilers agreeing",
+        packets.len()
+    );
 }
 
 /// The corpus is only useful if it actually distinguishes filters. A corpus

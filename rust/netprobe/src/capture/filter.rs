@@ -136,6 +136,8 @@ pub fn compile(expression: &str, snaplen: u32) -> Result<Program, FilterError> {
     let mut parser = Parser {
         tokens: &tokens,
         pos: 0,
+        depth: 0,
+        terms: 0,
     };
     let expr = parser.parse_expr()?;
     parser.expect_end()?;
@@ -186,6 +188,16 @@ enum Dir {
     Either,
 }
 
+impl Dir {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Src => "src",
+            Self::Dst => "dst",
+            Self::Either => "",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Expr {
     And(Box<Expr>, Box<Expr>),
@@ -217,9 +229,54 @@ enum Expr {
     Outbound,
 }
 
+/// How deeply `not` and parentheses may nest.
+///
+/// Generous for anything an operator writes by hand -- tcpdump's own examples
+/// never exceed three -- and far below the depth at which the recursive-descent
+/// parser exhausts the stack, measured between 1,000 and 1,200 levels on a
+/// 2 MiB tokio worker stack in a debug build.
+const MAX_PARSE_DEPTH: usize = 64;
+
+/// How many terms one expression may contain.
+///
+/// # Nesting depth is not the same bound, and only bounding it left the crash open
+///
+/// `parse_expr` consumes an `and`/`or` chain in a LOOP, so `tcp or tcp or ...`
+/// never drives the depth counter above 1 -- while the tree it builds leans
+/// left one level per operator. Two unguarded recursive walks then run over
+/// that spine: [`Codegen::expr`], which recurses into its left operand for
+/// every `And`/`Or`, and the derived `Drop` for `Box<Expr>`.
+///
+/// Measured on the committed code, through the real entry point, on a tokio
+/// worker's 2 MiB stack: `"tcp or ".repeat(19_000) + "tcp"` -- 133 KB, against a
+/// 4 MiB frame cap -- aborts with `fatal runtime error: stack overflow`. A
+/// depth guard alone therefore fixed the shape that was easy to think of and
+/// left the process just as killable by the shape that was not. `and`, `||` and
+/// chains of distinct primitives all abort at the same order of magnitude.
+///
+/// Terms are charged instead, which bounds the tree by construction whatever
+/// its shape.
+///
+/// 1024 is far past anything that can ever produce a valid program. Measured on
+/// this compiler: an `or` chain stops compiling at about 29 terms, refused with
+/// "jump offset exceeds 255" -- classic BPF jump offsets are 8-bit, so long
+/// chains are unrepresentable no matter what this limit says. That existing
+/// error is not a substitute for this one, because it is raised in `resolve()`,
+/// which runs AFTER `Codegen::emit` has already recursed the tree. This guard
+/// exists purely to stop the recursion before it starts, and 1024 keeps roughly
+/// a 5x margin below the shallowest measured overflow (~5,000 terms, debug
+/// build, 2 MiB stack) while sitting ~35x above any filter that can compile.
+const MAX_PARSE_TERMS: usize = 1024;
+
 struct Parser<'a> {
     tokens: &'a [String],
     pos: usize,
+    /// Bounded so a malformed expression cannot abort the process; see
+    /// [`Parser::parse_not`].
+    depth: usize,
+    /// Terms consumed so far. Bounds the AST's SIZE, which is what the
+    /// unguarded recursion in codegen actually walks; see [`MAX_PARSE_TERMS`].
+    terms: usize,
 }
 
 impl<'a> Parser<'a> {
@@ -273,7 +330,43 @@ impl<'a> Parser<'a> {
         Ok(left)
     }
 
+    /// Every recursive path in this parser passes through here -- `parse_expr`
+    /// calls it, and `parse_primary` reaches it again through `parse_expr` on
+    /// an opening paren -- so one guard here bounds all of them.
+    ///
+    /// Without it the parser aborts the PROCESS on deep nesting. Measured, not
+    /// theorised: `"(".repeat(10_000) + "tcp" + ")".repeat(10_000)` printed
+    /// `thread 'main' has overflowed its stack / fatal runtime error: stack
+    /// overflow, aborting`. A stack overflow is not a catchable error, so this
+    /// is not "a bad filter is rejected" -- it is netprobe dying, taking eBPF
+    /// flow attribution and the device census with it, from one string an
+    /// operator typed.
+    ///
+    /// That string now arrives over IPC from the control plane, and will
+    /// eventually arrive from an RPCAP client, so the input is not trusted.
     fn parse_not(&mut self) -> Result<Expr, FilterError> {
+        // Charged before the depth check and never refunded: this counts how
+        // big the tree is, not how deep the parser currently is, because the
+        // recursion that actually overflows walks the finished tree.
+        self.terms += 1;
+        if self.terms > MAX_PARSE_TERMS {
+            return Err(FilterError::TooComplex(
+                "filter has too many terms (limit: 1024)",
+            ));
+        }
+
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            return Err(FilterError::TooComplex(
+                "filter nesting is too deep (limit: 64 levels, counting the expression itself)",
+            ));
+        }
+        let result = self.parse_not_inner();
+        self.depth -= 1;
+        result
+    }
+
+    fn parse_not_inner(&mut self) -> Result<Expr, FilterError> {
         if matches!(self.peek(), Some("not" | "!")) {
             self.next();
             return Ok(Expr::Not(Box::new(self.parse_not()?)));
@@ -321,6 +414,20 @@ impl<'a> Parser<'a> {
             .next()
             .ok_or(FilterError::UnexpectedEnd("a primitive"))?;
         match token {
+            "ip" | "ip6" | "arp" | "icmp" | "icmp6" | "tcp" | "udp" | "inbound" | "outbound"
+                if dir != Dir::Either =>
+            {
+                // libpcap rejects these outright: `tcpdump 'src ip'` and
+                // `tcpdump 'dst tcp'` are both `syntax error`, verified against
+                // 4.99.4. Accepting them and DROPPING the direction compiled a
+                // strictly wider filter than the operator wrote -- `src ip`
+                // captured both directions -- which is the silent widening the
+                // never-widen rule exists to prevent.
+                Err(FilterError::ModifierNotApplicable {
+                    modifier: dir.name(),
+                    primitive: primitive_name(token),
+                })
+            }
             "ip" => Ok(Expr::EtherType(ETHERTYPE_IP)),
             "ip6" => Ok(Expr::EtherType(ETHERTYPE_IP6)),
             "arp" => Ok(Expr::EtherType(ETHERTYPE_ARP)),
@@ -381,9 +488,7 @@ impl<'a> Parser<'a> {
             }
             "port" => {
                 let raw = self.next().ok_or(FilterError::UnexpectedEnd("a port"))?;
-                let port: u16 = raw
-                    .parse()
-                    .map_err(|_| FilterError::BadPort(raw.to_string()))?;
+                let port = parse_port(raw)?;
                 Ok(Expr::Port {
                     lo: port,
                     hi: port,
@@ -403,6 +508,76 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// Parse a port the way libpcap does.
+///
+/// libpcap runs the literal through `strtol(..., 0)`, so the C base prefixes
+/// apply: `0x50` is 80 and `010` is **8**, not 10. Confirmed by compiling with
+/// tcpdump 4.99.4 on Linux 6.8 -- `port 010` and `port 8` produce byte-identical
+/// programs, as do `port 0x50` and `port 80`.
+///
+/// Reading `010` as decimal was the dangerous half: it is accepted by both and
+/// means different ports, so an operator copying a working tcpdump filter got a
+/// capture of the wrong traffic with nothing to indicate it. Rejecting `0x50`
+/// was merely unhelpful.
+fn parse_port(raw: &str) -> Result<u16, FilterError> {
+    parse_c_integer(raw)
+        .and_then(|value| u16::try_from(value).ok())
+        .ok_or_else(|| FilterError::BadPort(raw.to_string()))
+}
+
+/// Read an unsigned integer the way libpcap's `strtol(..., 0)` does, minus the
+/// sign.
+///
+/// The radix is chosen from the C prefix: `0x` is hex, a bare leading zero is
+/// octal, anything else decimal. Confirmed against tcpdump 4.99.4 on Linux 6.8
+/// by md5 of `tcpdump -dd`: `port 010` and `port 8` produce byte-identical
+/// programs, as do `port 0x50` and `port 80`.
+///
+/// # A sign is refused rather than honoured, deliberately
+///
+/// `from_str_radix` accepts its own leading `+`, and it accepts one AFTER the
+/// prefix this function has already stripped. Sniffing the radix off the raw
+/// string and then parsing the remainder therefore disagreed with itself:
+/// `+010` took the DECIMAL arm (it does not start with `0`) and came out as 10,
+/// while `010` came out as 8 -- two spellings of what an operator reads as the
+/// same literal, meaning two different ports. Worse, `0+70` took the octal arm
+/// with digits `+70` and compiled to port 56, which the commit that introduced
+/// this claimed could not happen.
+///
+/// Refusing every sign is a narrowing: libpcap's `strtol` would accept some of
+/// these. That direction is safe -- an operator gets an error and retypes the
+/// filter. The other direction is not: silently capturing a different port than
+/// the one written is the failure this whole function exists to prevent.
+fn parse_c_integer(raw: &str) -> Option<u32> {
+    let (digits, radix) =
+        if let Some(hex) = raw.strip_prefix("0x").or_else(|| raw.strip_prefix("0X")) {
+            (hex, 16)
+        } else if raw.len() > 1 && raw.starts_with('0') {
+            (&raw[1..], 8)
+        } else {
+            (raw, 10)
+        };
+
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_alphanumeric()) {
+        return None;
+    }
+    u32::from_str_radix(digits, radix).ok()
+}
+
+fn primitive_name(token: &str) -> &'static str {
+    match token {
+        "ip" => "ip",
+        "ip6" => "ip6",
+        "arp" => "arp",
+        "icmp" => "icmp",
+        "icmp6" => "icmp6",
+        "tcp" => "tcp",
+        "udp" => "udp",
+        "inbound" => "inbound",
+        _ => "outbound",
+    }
+}
+
 fn proto_name(proto: u32) -> &'static str {
     match proto {
         IPPROTO_TCP => "tcp",
@@ -418,9 +593,11 @@ fn parse_cidr(raw: &str) -> Result<(Ipv4Addr, u32), FilterError> {
     let addr: Ipv4Addr = addr_str
         .parse()
         .map_err(|_| FilterError::BadCidr(raw.to_string()))?;
-    let len: u32 = len_str
-        .parse()
-        .map_err(|_| FilterError::BadCidr(raw.to_string()))?;
+    // The same C radix rule as a port. Leaving this decimal after fixing ports
+    // kept the identical divergence one function away: tcpdump reads
+    // `net 10.0.0.0/010` as /8, and reading it as /10 silently NARROWS the
+    // filter -- a capture that quietly misses traffic the operator asked for.
+    let len = parse_c_integer(len_str).ok_or_else(|| FilterError::BadCidr(raw.to_string()))?;
     if len > 32 {
         return Err(FilterError::BadCidr(raw.to_string()));
     }
@@ -438,12 +615,10 @@ fn parse_port_range(raw: &str) -> Result<(u16, u16), FilterError> {
     let (lo_str, hi_str) = raw
         .split_once('-')
         .ok_or_else(|| FilterError::BadPort(raw.to_string()))?;
-    let lo: u16 = lo_str
-        .parse()
-        .map_err(|_| FilterError::BadPort(raw.to_string()))?;
-    let hi: u16 = hi_str
-        .parse()
-        .map_err(|_| FilterError::BadPort(raw.to_string()))?;
+    // Same radix rules as a bare port: libpcap parses both endpoints with
+    // strtol(base 0), so `portrange 010-020` is 8-16.
+    let lo = parse_port(lo_str).map_err(|_| FilterError::BadPort(raw.to_string()))?;
+    let hi = parse_port(hi_str).map_err(|_| FilterError::BadPort(raw.to_string()))?;
     if lo > hi {
         return Err(FilterError::InvertedRange { lo, hi });
     }
@@ -1077,6 +1252,200 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+    #[test]
+    fn deep_nesting_is_refused_instead_of_aborting_the_process() {
+        // Measured before the guard existed: 10,000 nested parens printed
+        // "thread 'main' has overflowed its stack / fatal runtime error: stack
+        // overflow, aborting". A stack overflow is not a catchable error, so
+        // this was not a bad filter being rejected -- it was netprobe dying and
+        // taking eBPF flow attribution and the device census with it, from one
+        // string typed into a capture form.
+        for depth in [1_000usize, 10_000, 100_000] {
+            let expr = format!("{}tcp{}", "(".repeat(depth), ")".repeat(depth));
+            assert_eq!(
+                compile(&expr, 262_144),
+                Err(FilterError::TooComplex(
+                    "filter nesting is too deep (limit: 64 levels, counting the expression itself)"
+                )),
+                "nesting {depth} deep must be refused"
+            );
+        }
+
+        // `not` recurses through the same path, so one guard covers both.
+        let expr = format!("{}tcp", "not ".repeat(5_000));
+        assert!(matches!(
+            compile(&expr, 262_144),
+            Err(FilterError::TooComplex(_))
+        ));
+    }
+
+    #[test]
+    fn a_flat_and_or_chain_is_refused_instead_of_aborting_in_codegen() {
+        // The bug a depth limit alone did NOT fix, and the reason this test
+        // exists: `parse_expr` consumes an and/or chain in a loop, so the depth
+        // counter never rises above 1 while the tree leans left one level per
+        // operator. `Codegen::expr` then recurses over that spine with no guard
+        // at all.
+        //
+        // Measured on the previous commit, through the real entry point, on a
+        // tokio worker's 2 MiB stack: "tcp or " repeated 19,000 times -- 133 KB,
+        // against a 4 MiB frame cap -- printed "fatal runtime error: stack
+        // overflow". Not catchable, so netprobe simply died.
+        for (op, n) in [
+            ("or", 2_000usize),
+            ("and", 2_000),
+            ("||", 5_000),
+            ("&&", 5_000),
+        ] {
+            let expr = format!("tcp {op} ").repeat(n) + "tcp";
+            assert_eq!(
+                compile(&expr, 262_144),
+                Err(FilterError::TooComplex(
+                    "filter has too many terms (limit: 1024)"
+                )),
+                "a flat {op} chain of {n} terms must be refused before codegen walks it"
+            );
+        }
+
+        // Distinct primitives, so nothing about the refusal depends on the
+        // terms being identical.
+        let expr = (0..3_000)
+            .map(|i| format!("host 192.0.2.{} or ", i % 250))
+            .collect::<String>()
+            + "tcp";
+        assert!(matches!(
+            compile(&expr, 262_144),
+            Err(FilterError::TooComplex(_))
+        ));
+
+        // The bound is on the WHOLE tree, so nesting cannot be used to smuggle
+        // terms past it either.
+        let expr = format!("({})", vec!["tcp"; 2_000].join(" or "));
+        assert!(matches!(
+            compile(&expr, 262_144),
+            Err(FilterError::TooComplex(_))
+        ));
+    }
+
+    #[test]
+    fn the_term_limit_never_rejects_a_filter_that_could_have_compiled() {
+        // A guard that rejects real filters is its own bug. It cannot here, and
+        // the reason is worth recording: classic BPF jump offsets are 8-bit, so
+        // this compiler already refuses an `or` chain at about 29 terms with
+        // "jump offset exceeds 255". Everything the term limit rejects was
+        // unrepresentable anyway -- it just rejects it BEFORE codegen recurses
+        // rather than after.
+        let longest = (1..)
+            .take_while(|n| compile(&vec!["tcp"; *n].join(" or "), 262_144).is_ok())
+            .last()
+            .expect("some chain length compiles");
+        assert!(
+            longest < MAX_PARSE_TERMS,
+            "the term limit ({MAX_PARSE_TERMS}) must sit above the longest compilable chain \
+             ({longest}), or it is rejecting filters that would have worked"
+        );
+        assert!(
+            longest >= 20,
+            "a 20-term chain should still compile; got {longest}"
+        );
+    }
+
+    #[test]
+    fn nesting_an_operator_would_actually_write_still_compiles() {
+        // A limit that rejects real filters is its own bug. Three levels is
+        // already more than tcpdump's own documentation uses.
+        assert!(
+            compile(
+                "((tcp and port 22) or (udp and port 53)) and not host 192.0.2.1",
+                262_144
+            )
+            .is_ok()
+        );
+        // 63 parens, not 64: the outermost expression is itself one level, so
+        // the limit is reached one paren earlier than the number suggests. Both
+        // sides of the boundary are asserted so the limit cannot drift.
+        let expr = format!("{}tcp{}", "(".repeat(63), ")".repeat(63));
+        assert!(
+            compile(&expr, 262_144).is_ok(),
+            "63 parens is within the limit"
+        );
+        let expr = format!("{}tcp{}", "(".repeat(64), ")".repeat(64));
+        assert!(
+            compile(&expr, 262_144).is_err(),
+            "64 parens is one level past it"
+        );
+    }
+
+    #[test]
+    fn port_literals_use_libpcaps_radix_rules_not_rusts() {
+        // libpcap runs the literal through strtol(base 0). Confirmed against
+        // tcpdump 4.99.4 on Linux 6.8 by md5 of `tcpdump -dd`: `port 010` and
+        // `port 8` are byte-identical, as are `port 0x50` and `port 80`.
+        //
+        // Reading `010` as decimal was the dangerous half: both compilers
+        // accept it and they mean DIFFERENT ports, so an operator copying a
+        // working tcpdump filter captured the wrong traffic with nothing to
+        // show for it.
+        assert_eq!(
+            compile("port 010", 262_144).unwrap(),
+            compile("port 8", 262_144).unwrap(),
+            "a leading zero is octal, as in C"
+        );
+        assert_eq!(
+            compile("port 0x50", 262_144).unwrap(),
+            compile("port 80", 262_144).unwrap(),
+            "0x is hex; rejecting it was merely unhelpful, but it is still wrong"
+        );
+        assert_eq!(
+            compile("portrange 010-020", 262_144).unwrap(),
+            compile("portrange 8-16", 262_144).unwrap(),
+            "both endpoints of a range follow the same rule"
+        );
+
+        // `0` alone is still zero, not an empty octal literal.
+        assert!(compile("port 0", 262_144).is_ok());
+        // And genuinely malformed literals are still refused.
+        for bad in ["port 0x", "port 08", "port 0xzz", "port 65536"] {
+            assert!(compile(bad, 262_144).is_err(), "{bad} must be refused");
+        }
+    }
+
+    #[test]
+    fn a_direction_before_a_primitive_that_has_none_is_refused() {
+        // libpcap answers `syntax error` to both of these, verified against
+        // 4.99.4. Accepting them and silently DROPPING the direction compiled a
+        // strictly wider filter than the operator wrote: `src ip` captured both
+        // directions, which is exactly the silent widening the never-widen rule
+        // exists to prevent -- and it looks like it worked.
+        for expr in [
+            "src ip",
+            "dst ip",
+            "src ip6",
+            "dst arp",
+            "src icmp",
+            "dst tcp",
+            "src udp",
+            "dst inbound",
+            "src outbound",
+        ] {
+            let err =
+                compile(expr, 262_144).expect_err("{expr} must be refused, as libpcap refuses it");
+            assert!(
+                matches!(err, FilterError::ModifierNotApplicable { .. }),
+                "{expr} refused for the wrong reason: {err}"
+            );
+        }
+
+        // The primitives that DO take a direction are untouched.
+        for expr in [
+            "src host 192.0.2.1",
+            "dst net 192.0.2.0/24",
+            "src port 22",
+            "dst portrange 1-2",
+        ] {
+            assert!(compile(expr, 262_144).is_ok(), "{expr} must still compile");
         }
     }
 }
