@@ -35,7 +35,7 @@ use crate::proto::netprobe::CaptureTerminationReason;
 
 /// Hard bounds on a session. Both are optional; a session with neither runs
 /// until the caller stops it.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Limits {
     /// Wall-clock ceiling. `None` means no duration cap.
     pub duration: Option<Duration>,

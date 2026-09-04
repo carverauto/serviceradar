@@ -48,6 +48,8 @@ pub mod filter;
 pub mod interp;
 /// pcapng encoding for a capture session's output stream.
 pub mod pcapng;
+/// Validating a wire `StartRemoteCapture` before anything is opened.
+pub mod request;
 /// One capture session: caps, counters and the terminal block.
 pub mod session;
 
