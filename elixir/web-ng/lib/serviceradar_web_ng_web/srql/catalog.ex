@@ -406,6 +406,17 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       },
       downsample: false
     },
+    # Admin-only scanner profiles (`admin_only == true`) are excluded from
+    # this entity unconditionally, matching the row-level read restriction
+    # the settings page enforces via Ash (`sweep_profile.ex`). SRQL's raw-SQL
+    # path has no actor/scope context to authorize per caller, so the
+    # restriction is applied to every query rather than being conditional on
+    # the viewer's role. A missing admin-only profile therefore means
+    # "restricted", not "no such profile". `admin_only` is not offered as a
+    # filter field here: the SRQL entity rejects it as unsupported, since
+    # every query is already unconditionally restricted to `admin_only =
+    # false` and accepting it as a caller filter would only ever produce
+    # either a redundant or a contradictory (and rejected) query.
     %{
       id: "sweep_profiles",
       label: "Sweep Profiles",
@@ -414,8 +425,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_field: "name",
       default_sort_dir: "asc",
       default_filter_field: "name",
-      filter_fields: ["name", "enabled", "admin_only"],
-      boolean_fields: ["enabled", "admin_only"],
+      filter_fields: ["name", "enabled"],
+      boolean_fields: ["enabled"],
       downsample: false
     },
     %{

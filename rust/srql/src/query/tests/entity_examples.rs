@@ -857,7 +857,10 @@ fn sweep_groups_example_partition_and_enabled() {
 
 #[test]
 fn sweep_profiles_example_name_and_enabled() {
-    let query = "in:sweep_profiles name:default enabled:true admin_only:false";
+    // `admin_only` is not an accepted caller filter (see the authorization
+    // bypass fix in `sweep_profiles::apply_filter`): every query is already
+    // unconditionally restricted to `admin_only = false`, asserted below.
+    let query = "in:sweep_profiles name:default enabled:true";
     let plan = plan_for(query);
 
     assert!(matches!(plan.entity, Entity::SweepProfiles));
@@ -871,8 +874,8 @@ fn sweep_profiles_example_name_and_enabled() {
     assert!(
         lower.contains("\"sweep_profiles\".\"name\" =")
             && lower.contains("\"sweep_profiles\".\"enabled\" =")
-            && lower.contains("\"sweep_profiles\".\"admin_only\" ="),
-        "expected name + enabled + admin_only filters in SQL, got: {sql}"
+            && lower.contains("\"sweep_profiles\".\"admin_only\" = false"),
+        "expected name + enabled filters and the unconditional admin_only restriction in SQL, got: {sql}"
     );
     assert!(
         lower.contains("order by \"sweep_profiles\".\"name\" asc"),

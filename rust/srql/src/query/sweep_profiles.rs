@@ -129,6 +129,18 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 fn build_query(plan: &QueryPlan) -> Result<SweepProfilesQuery<'static>> {
     let mut query = sweep_profiles.select(select_tuple()).into_boxed::<Pg>();
 
+    // Row-level authorization, enforced unconditionally: the Ash read policy
+    // in `sweep_profile.ex` restricts non-admins to `admin_only == false`,
+    // but SRQL's raw-SQL path has no actor/scope context to replicate that
+    // per caller. Filtering every query to non-admin-only profiles makes
+    // this entity a strict subset of what every caller may already read
+    // through Ash, so it can never leak an admin-only scanner profile
+    // regardless of who queries it. Do not thread scope into this layer —
+    // `admin_only` also cannot be re-accepted as a caller filter (see
+    // `apply_filter`/`collect_filter_params` below), or a caller could
+    // filter back onto the restricted rows.
+    query = query.filter(sql::<Bool>("\"sweep_profiles\".\"admin_only\" = false"));
+
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(col_updated_at.ge(*start).and(col_updated_at.le(*end)));
     }
@@ -161,18 +173,11 @@ fn apply_filter<'a>(
                 }
             }
         }
-        "admin_only" => {
-            let value = parse_bool(filter.value.as_scalar()?)?;
-            match filter.op {
-                FilterOp::Eq => query = query.filter(col_admin_only.eq(value)),
-                FilterOp::NotEq => query = query.filter(col_admin_only.ne(value)),
-                _ => {
-                    return Err(ServiceError::InvalidRequest(
-                        "admin_only filter only supports equality".into(),
-                    ));
-                }
-            }
-        }
+        // `admin_only` is intentionally NOT an accepted filter field: every
+        // query is already unconditionally restricted to `admin_only =
+        // false` in `build_query`, and accepting it as a caller filter would
+        // let `admin_only:true` re-select the restricted rows. It stays
+        // available as a projected output column.
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for sweep_profiles: '{other}'"
@@ -207,7 +212,7 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
         "name" => collect_text_params(params, filter),
-        "enabled" | "admin_only" => {
+        "enabled" => {
             params.push(BindParam::Bool(parse_bool(filter.value.as_scalar()?)?));
             Ok(())
         }
@@ -363,17 +368,35 @@ mod tests {
     }
 
     #[test]
-    fn builds_query_with_enabled_and_admin_only_filters() {
-        for field in ["enabled", "admin_only"] {
-            let plan = plan_with(vec![Filter {
-                field: field.into(),
-                op: FilterOp::Eq,
-                value: FilterValue::Scalar("true".to_string()),
-            }]);
-            assert!(
-                build_query(&plan).is_ok(),
-                "should build query with {field} filter"
-            );
+    fn builds_query_with_enabled_filter() {
+        let plan = plan_with(vec![Filter {
+            field: "enabled".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("true".to_string()),
+        }]);
+        assert!(
+            build_query(&plan).is_ok(),
+            "should build query with enabled filter"
+        );
+    }
+
+    /// Regression test for the authorization bypass fix: `admin_only` must
+    /// stay rejected as a caller filter field, or `admin_only:true` could
+    /// re-select rows the unconditional restriction excludes.
+    #[test]
+    fn admin_only_filter_field_is_rejected() {
+        let plan = plan_with(vec![Filter {
+            field: "admin_only".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("true".to_string()),
+        }]);
+
+        match build_query(&plan) {
+            Err(err) => assert!(
+                err.to_string().contains("unsupported filter field"),
+                "unexpected error: {err}"
+            ),
+            Ok(_) => panic!("expected error for admin_only filter field"),
         }
     }
 
@@ -406,6 +429,27 @@ mod tests {
         assert!(
             sql.contains("ORDER BY \"sweep_profiles\".\"name\" ASC"),
             "expected default ORDER BY to survive an unrecognized sort field: {sql}"
+        );
+    }
+
+    /// Regression test for a live authorization bypass: the Ash row-level
+    /// read policy in `sweep_profile.ex` restricts non-admins to
+    /// `admin_only == false`, but this raw-SQL entity had no equivalent and
+    /// returned every profile's full configuration to any caller with
+    /// `networks.sweeps.view` (a viewer role). SRQL has no actor/scope
+    /// context, so the fix is an unconditional restriction rather than a
+    /// per-caller filter, making this entity a strict subset of what every
+    /// caller may already read through Ash. Assert it applies to both
+    /// `execute` and `to_sql_and_params` by asserting on the shared
+    /// `build_query`-generated SQL.
+    #[test]
+    fn generated_sql_restricts_to_non_admin_only_profiles() {
+        let plan = plan_with(vec![]);
+        let (sql, _) = to_sql_and_params(&plan).expect("should build sql");
+
+        assert!(
+            sql.contains("\"sweep_profiles\".\"admin_only\" = false"),
+            "expected an unconditional admin_only=false restriction: {sql}"
         );
     }
 
