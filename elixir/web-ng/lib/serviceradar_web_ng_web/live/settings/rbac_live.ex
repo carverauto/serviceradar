@@ -12,14 +12,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Identity.RoleProfile
 
+  alias Phoenix.LiveView.AsyncResult
+  alias ServiceRadar.Identity.GroupPolicy
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.RoleProfilePolicy
   alias ServiceRadarWebNG.RBAC, as: WebRBAC
+  alias ServiceRadarWebNGWeb.Settings.RbacLive.Components
+  alias ServiceRadarWebNGWeb.Settings.RbacLive.PolicyData
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
+  require Logger
 
   # ── Mount ─────────────────────────────────────────────────────
 
@@ -34,23 +39,29 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       active_profile_id = profiles |> List.first() |> then(&(&1 && &1.id))
       active_section = grid.resource_groups |> List.first() |> then(&(&1 && &1.section))
 
-      {:ok,
-       socket
-       |> assign(:page_title, "Policy Editor")
-       |> assign(:profiles, profiles)
-       |> assign(:catalog, catalog)
-       |> assign(:grid, grid)
-       |> assign(:filter, "")
-       |> assign(:active_profile_id, active_profile_id)
-       |> assign(:active_section, active_section)
-       |> assign(:dirty_profiles, MapSet.new())
-       |> assign(:show_new_profile_modal, false)
-       |> assign(:new_profile_form, to_form(default_profile_form(), as: :profile))
-       |> assign(:clone_source_id, nil)
-       |> assign(:confirm_delete_profile, nil)
-       |> assign(:renaming_profile_id, nil)
-       |> assign(:rename_form, to_form(%{"name" => ""}, as: :profile))
-       |> maybe_put_flash(profile_flash)}
+      socket =
+        socket
+        |> assign(:page_title, "Policy Editor")
+        |> assign(:profiles, profiles)
+        |> assign(:catalog, catalog)
+        |> assign(:grid, grid)
+        |> assign(:filter, "")
+        |> assign(:active_profile_id, active_profile_id)
+        |> assign(:active_section, active_section)
+        |> assign(:dirty_profiles, MapSet.new())
+        |> assign(:show_new_profile_modal, false)
+        |> assign(:new_profile_form, to_form(default_profile_form(), as: :profile))
+        |> assign(:clone_source_id, nil)
+        |> assign(:confirm_delete_profile, nil)
+        |> assign(:renaming_profile_id, nil)
+        |> assign(:rename_form, to_form(%{"name" => ""}, as: :profile))
+        |> assign(:group_profile_assignments, AsyncResult.loading())
+        |> assign(:group_profile_generation, 0)
+        |> maybe_put_flash(profile_flash)
+
+      socket = if connected?(socket), do: load_group_profiles(socket), else: socket
+
+      {:ok, socket}
     else
       {:ok,
        socket
@@ -342,6 +353,66 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
+  def handle_event("retry_group_profiles", _params, socket) do
+    {:noreply, load_group_profiles(socket)}
+  end
+
+  def handle_event("assign_group_profile", params, socket) do
+    with {:ok, data} <- current_group_profile_data(socket),
+         {:ok, {group_id, profile_id}} <-
+           PolicyData.resolve_assignment(
+             data,
+             socket.assigns.group_profile_generation,
+             params
+           ),
+         {:ok, _group} <- GroupPolicy.assign(socket.assigns.current_scope, group_id, profile_id) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Group role profile updated")
+       |> load_group_profiles()}
+    else
+      {:error, :stale} ->
+        {:noreply, stale_group_profile_data(socket)}
+
+      {:error, reason} ->
+        Logger.warning("RBAC group profile assignment failed: #{inspect(reason)}")
+
+        {:noreply,
+         socket
+         |> put_flash(
+           :error,
+           "Group assignment could not be updated. Reloaded the latest values."
+         )
+         |> load_group_profiles()}
+    end
+  end
+
+  def handle_event("clear_group_profile", params, socket) do
+    with {:ok, data} <- current_group_profile_data(socket),
+         {:ok, {group_id, nil}} <-
+           PolicyData.resolve_clear(data, socket.assigns.group_profile_generation, params),
+         {:ok, _group} <- GroupPolicy.clear(socket.assigns.current_scope, group_id) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "Group role profile cleared")
+       |> load_group_profiles()}
+    else
+      {:error, :stale} ->
+        {:noreply, stale_group_profile_data(socket)}
+
+      {:error, reason} ->
+        Logger.warning("RBAC group profile clear failed: #{inspect(reason)}")
+
+        {:noreply,
+         socket
+         |> put_flash(
+           :error,
+           "Group assignment could not be updated. Reloaded the latest values."
+         )
+         |> load_group_profiles()}
+    end
+  end
+
   # ── Permit callbacks ──────────────────────────────────────────
 
   @impl true
@@ -364,7 +435,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       "filter_policies" => :read,
       "open_new_profile" => :read,
       "close_new_profile" => :read,
-      "close_delete_profile" => :read
+      "close_delete_profile" => :read,
+      "retry_group_profiles" => :read,
+      "assign_group_profile" => :update,
+      "clear_group_profile" => :update
     })
   end
 
@@ -435,6 +509,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
               </.ui_button>
             </div>
           </div>
+
+          <Components.group_profile_controls result={@group_profile_assignments} />
 
           <div class="flex flex-wrap items-center justify-between gap-4">
             <label class="flex min-h-9 w-full max-w-sm items-center gap-2 rounded-sr-control border border-sr-line bg-sr-control px-3 shadow-sr-control">
@@ -1053,6 +1129,38 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       {:error, error} ->
         {[], format_ash_error(error)}
     end
+  end
+
+  defp load_group_profiles(socket) do
+    scope = socket.assigns.current_scope
+    generation = socket.assigns.group_profile_generation + 1
+
+    socket
+    |> cancel_async(:group_profile_assignments)
+    |> assign(:group_profile_generation, generation)
+    |> assign_async(:group_profile_assignments, fn ->
+      case PolicyData.load_group_profiles(scope) do
+        {:ok, data} ->
+          {:ok, %{group_profile_assignments: Map.put(data, :generation, generation)}}
+
+        {:error, reason} ->
+          Logger.warning("RBAC group profile load failed: #{inspect(reason)}")
+          {:error, :group_profile_load_failed}
+      end
+    end)
+  end
+
+  defp current_group_profile_data(%{assigns: %{group_profile_assignments: async_result}}) do
+    case async_result do
+      %AsyncResult{ok?: true, result: data} -> {:ok, data}
+      _result -> {:error, :stale}
+    end
+  end
+
+  defp stale_group_profile_data(socket) do
+    socket
+    |> put_flash(:error, "Group assignments changed. Reloaded the latest values.")
+    |> load_group_profiles()
   end
 
   defp persist_profile(socket, scope, profile) do
