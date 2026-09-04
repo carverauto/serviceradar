@@ -18,19 +18,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.DashboardAudience do
     %{
       group_token: nil,
       group_id: nil,
+      group_name: nil,
       epoch: 0,
       authored: @empty_source,
       package: @empty_source
     }
   end
 
-  @spec select_group(map(), String.t(), String.t()) :: map()
-  def select_group(state, group_token, group_id)
-      when is_binary(group_token) and is_binary(group_id) do
+  @spec select_group(map(), String.t(), String.t(), String.t()) :: map()
+  def select_group(state, group_token, group_id, group_name)
+      when is_binary(group_token) and is_binary(group_id) and is_binary(group_name) do
     %{
       state
       | group_token: group_token,
         group_id: group_id,
+        group_name: group_name,
         epoch: state.epoch + 1,
         authored: @empty_source,
         package: @empty_source

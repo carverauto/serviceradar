@@ -21,10 +21,28 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.DashboardAudienceTest do
     assert %{
              group_token: nil,
              group_id: nil,
+             group_name: nil,
              epoch: 0,
              authored: @empty_source,
              package: @empty_source
            } = DashboardAudience.new()
+  end
+
+  test "selected group display metadata survives source activity for refresh rendering" do
+    selected =
+      DashboardAudience.select_group(
+        DashboardAudience.new(),
+        "group-token-a",
+        "group-a",
+        "Synthetic operations group"
+      )
+
+    assert selected.group_name == "Synthetic operations group"
+
+    assert {:ok, requested, :first, 1} =
+             DashboardAudience.start_request(selected, :authored, :first, "request-a")
+
+    assert requested.group_name == "Synthetic operations group"
   end
 
   test "a refreshed token resyncs only for the still-selected group" do
@@ -46,6 +64,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.DashboardAudienceTest do
     state = %{
       group_token: "old-group-token",
       group_id: "group-a",
+      group_name: "Synthetic old group",
       epoch: 7,
       authored: %{
         @empty_source
@@ -61,10 +80,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.DashboardAudienceTest do
       }
     }
 
-    next = DashboardAudience.select_group(state, "new-group-token", "group-b")
+    next =
+      DashboardAudience.select_group(
+        state,
+        "new-group-token",
+        "group-b",
+        "Synthetic replacement group"
+      )
 
     assert next.group_token == "new-group-token"
     assert next.group_id == "group-b"
+    assert next.group_name == "Synthetic replacement group"
     assert next.epoch == 8
     assert next.authored == @empty_source
     assert next.package == @empty_source
@@ -173,7 +199,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.DashboardAudienceTest do
     assert {:ok, _entry} = DashboardAudience.resolve_row(state_for_group_a, token_from_group_a)
 
     state_for_group_b =
-      DashboardAudience.select_group(state_for_group_a, "group-token-b", "group-b")
+      DashboardAudience.select_group(
+        state_for_group_a,
+        "group-token-b",
+        "group-b",
+        "Synthetic group B"
+      )
 
     assert {:error, :stale} =
              DashboardAudience.resolve_row(state_for_group_b, token_from_group_a)
@@ -359,6 +390,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.DashboardAudienceTest do
     %{
       group_token: "group-token-a",
       group_id: "group-a",
+      group_name: "Synthetic group A",
       epoch: 3,
       authored: %{
         @empty_source

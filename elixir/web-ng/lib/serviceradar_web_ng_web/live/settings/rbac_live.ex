@@ -428,9 +428,16 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
              socket.assigns.group_profile_generation,
              safe_params
            ),
+         %{name: group_name} <-
+           Enum.find(data.groups, &(to_string(&1.id) == group_id)),
          group_token when is_binary(group_token) <- Map.get(safe_params, "group-token") do
       audience =
-        DashboardAudience.select_group(socket.assigns.dashboard_audience, group_token, group_id)
+        DashboardAudience.select_group(
+          socket.assigns.dashboard_audience,
+          group_token,
+          group_id,
+          group_name
+        )
 
       {:noreply,
        socket
@@ -1417,6 +1424,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     else
       _ -> nil
     end
+  end
+
+  defp dashboard_group(%AsyncResult{ok?: false}, _generation, %{
+         group_token: token,
+         group_id: group_id,
+         group_name: name
+       })
+       when is_binary(token) and is_binary(group_id) and is_binary(name) do
+    %{token: token, name: name}
   end
 
   defp dashboard_group(_result, _generation, _audience), do: nil

@@ -284,6 +284,61 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
 
   @tag :web_ng_shared_fixture_db
   @tag sandbox: :unboxed
+  test "a successful group profile refresh preserves audience rows and uses the refreshed group token",
+       %{conn: conn} do
+    fixture = dashboard_audience_fixture!(3)
+
+    {:ok, live_view, _html} =
+      conn
+      |> log_in_user(fixture.user)
+      |> live(~p"/settings/auth/rbac")
+
+    _html = render_async(live_view, 5_000)
+    initial_group_token = select_dashboard_group(live_view, fixture.group.name)
+    _html = render_async(live_view, 5_000)
+
+    assert has_element?(
+             live_view,
+             "[data-dashboard-source='authored'] [data-dashboard-name='#{fixture.private_authored.title}']"
+           )
+
+    {assignment_group_token, profile_token} =
+      group_profile_tokens(live_view, fixture.group.name, fixture.target_profile.name)
+
+    live_view
+    |> form("#rbac-group-profile-form-#{assignment_group_token}", %{
+      "group-token" => assignment_group_token,
+      "profile-token" => profile_token
+    })
+    |> render_change()
+
+    _html = render_async(live_view, 5_000)
+
+    assert has_element?(
+             live_view,
+             "[data-dashboard-source='authored'] [data-dashboard-name='#{fixture.private_authored.title}']"
+           )
+
+    {fresh_group_token, _fresh_profile_token} =
+      group_profile_tokens(live_view, fixture.group.name, fixture.target_profile.name)
+
+    refute fresh_group_token == initial_group_token
+
+    current_row_token =
+      dashboard_row_token(live_view, :authored, fixture.private_authored.title)
+
+    render_click(live_view, "ensure_authored_dashboard_group_view", %{
+      "group-token" => fresh_group_token,
+      "row-token" => current_row_token
+    })
+
+    _html = render_async(live_view, 5_000)
+
+    assert group_grant_access(:authored, fixture.private_authored.id, fixture.group.id) == "view"
+  end
+
+  @tag :web_ng_shared_fixture_db
+  @tag sandbox: :unboxed
   test "a failed authored next page preserves the package stream and reports only authored error",
        %{
          conn: conn
