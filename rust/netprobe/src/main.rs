@@ -59,10 +59,6 @@ mod runtime_config;
 #[allow(dead_code)]
 mod satori;
 mod server;
-#[cfg(feature = "remote-capture")]
-#[allow(dead_code)]
-mod tls_server;
-
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},

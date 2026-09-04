@@ -48,5 +48,3 @@ pub mod runtime_config;
 #[allow(dead_code)]
 pub mod satori;
 pub mod server;
-#[cfg(feature = "remote-capture")]
-pub mod tls_server;
