@@ -12,22 +12,70 @@ use crate::{
     time::TimeRange,
 };
 use diesel::PgTextExpressionMethods;
+use diesel::dsl::sql;
+use diesel::expression::SqlLiteral;
 use diesel::pg::Pg;
 use diesel::prelude::*;
-use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
+use diesel::query_builder::{BoxedSelectStatement, FromClause};
+use diesel::sql_types::{Bool, Jsonb};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 
 type SweepProfilesTable = crate::schema::sweep_profiles::table;
 type SweepProfilesFromClause = FromClause<SweepProfilesTable>;
+
+/// Column order must match `SweepProfileRow`'s field order. The last two
+/// entries are SQL expressions, not bare columns: `banner_grab` is
+/// deliberately absent from `schema::sweep_profiles` (see that table!'s doc
+/// comment), so this is the only place that narrows it down to
+/// `banner_grab_enabled`/`banner_grab_protocols`. Both `execute` and
+/// `to_sql_and_params` build on this same `select_tuple()` via `build_query`,
+/// so the narrowing happens once, in SQL, and is visible on every consumer
+/// path (issue 4167 review finding 2) — the same reasoning `composite_results`
+/// documents for its own joined+aliased columns.
+type SelectTuple = (
+    crate::schema::sweep_profiles::id,
+    crate::schema::sweep_profiles::name,
+    crate::schema::sweep_profiles::description,
+    crate::schema::sweep_profiles::ports,
+    crate::schema::sweep_profiles::sweep_modes,
+    crate::schema::sweep_profiles::concurrency,
+    crate::schema::sweep_profiles::timeout,
+    crate::schema::sweep_profiles::icmp_settings,
+    crate::schema::sweep_profiles::tcp_settings,
+    crate::schema::sweep_profiles::admin_only,
+    crate::schema::sweep_profiles::enabled,
+    crate::schema::sweep_profiles::inserted_at,
+    crate::schema::sweep_profiles::updated_at,
+    SqlLiteral<Bool>,
+    SqlLiteral<Jsonb>,
+);
 type SweepProfilesQuery<'a> =
-    BoxedSelectStatement<'a, <SweepProfilesTable as AsQuery>::SqlType, SweepProfilesFromClause, Pg>;
+    BoxedSelectStatement<'a, diesel::dsl::SqlTypeOf<SelectTuple>, SweepProfilesFromClause, Pg>;
+
+fn select_tuple() -> SelectTuple {
+    (
+        crate::schema::sweep_profiles::id,
+        crate::schema::sweep_profiles::name,
+        crate::schema::sweep_profiles::description,
+        crate::schema::sweep_profiles::ports,
+        crate::schema::sweep_profiles::sweep_modes,
+        crate::schema::sweep_profiles::concurrency,
+        crate::schema::sweep_profiles::timeout,
+        crate::schema::sweep_profiles::icmp_settings,
+        crate::schema::sweep_profiles::tcp_settings,
+        crate::schema::sweep_profiles::admin_only,
+        crate::schema::sweep_profiles::enabled,
+        crate::schema::sweep_profiles::inserted_at,
+        crate::schema::sweep_profiles::updated_at,
+        sql::<Bool>("coalesce((banner_grab->>'enabled')::bool, false) AS banner_grab_enabled"),
+        sql::<Jsonb>("coalesce(banner_grab->'protocols', '[]'::jsonb) AS banner_grab_protocols"),
+    )
+}
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
-    let query = build_query(plan)?;
-    let rows: Vec<SweepProfileRow> = query
-        .select(SweepProfileRow::as_select())
+    let rows: Vec<SweepProfileRow> = build_query(plan)?
         .limit(plan.limit)
         .offset(plan.offset)
         .load::<SweepProfileRow>(conn)
@@ -79,7 +127,7 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 }
 
 fn build_query(plan: &QueryPlan) -> Result<SweepProfilesQuery<'static>> {
-    let mut query = sweep_profiles.into_boxed::<Pg>();
+    let mut query = sweep_profiles.select(select_tuple()).into_boxed::<Pg>();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(col_updated_at.ge(*start).and(col_updated_at.le(*end)));
@@ -185,14 +233,18 @@ fn apply_ordering<'a>(
 ) -> SweepProfilesQuery<'a> {
     let mut applied = false;
     for clause in order {
-        query = if !applied {
-            applied = true;
+        let (next_query, matched) = if !applied {
             apply_single_order(query, clause.field.as_str(), clause.direction)
         } else {
             apply_secondary_order(query, clause.field.as_str(), clause.direction)
         };
+        query = next_query;
+        applied = applied || matched;
     }
 
+    // An unrecognized sort field must not disable ordering entirely: fall
+    // back to the default so `sort:bogus` still yields deterministic,
+    // pagination-safe results instead of unspecified row order.
     if !applied {
         query = query.order(col_name.asc());
     }
@@ -204,25 +256,37 @@ fn apply_single_order<'a>(
     query: SweepProfilesQuery<'a>,
     field: &str,
     direction: OrderDirection,
-) -> SweepProfilesQuery<'a> {
+) -> (SweepProfilesQuery<'a>, bool) {
     match field {
-        "name" => match direction {
-            OrderDirection::Asc => query.order(col_name.asc()),
-            OrderDirection::Desc => query.order(col_name.desc()),
-        },
-        "updated_at" => match direction {
-            OrderDirection::Asc => query.order(col_updated_at.asc()),
-            OrderDirection::Desc => query.order(col_updated_at.desc()),
-        },
-        "enabled" => match direction {
-            OrderDirection::Asc => query.order(col_enabled.asc()),
-            OrderDirection::Desc => query.order(col_enabled.desc()),
-        },
-        "admin_only" => match direction {
-            OrderDirection::Asc => query.order(col_admin_only.asc()),
-            OrderDirection::Desc => query.order(col_admin_only.desc()),
-        },
-        _ => query,
+        "name" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_name.asc()),
+                OrderDirection::Desc => query.order(col_name.desc()),
+            },
+            true,
+        ),
+        "updated_at" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_updated_at.asc()),
+                OrderDirection::Desc => query.order(col_updated_at.desc()),
+            },
+            true,
+        ),
+        "enabled" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_enabled.asc()),
+                OrderDirection::Desc => query.order(col_enabled.desc()),
+            },
+            true,
+        ),
+        "admin_only" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_admin_only.asc()),
+                OrderDirection::Desc => query.order(col_admin_only.desc()),
+            },
+            true,
+        ),
+        _ => (query, false),
     }
 }
 
@@ -230,25 +294,37 @@ fn apply_secondary_order<'a>(
     query: SweepProfilesQuery<'a>,
     field: &str,
     direction: OrderDirection,
-) -> SweepProfilesQuery<'a> {
+) -> (SweepProfilesQuery<'a>, bool) {
     match field {
-        "name" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_name.asc()),
-            OrderDirection::Desc => query.then_order_by(col_name.desc()),
-        },
-        "updated_at" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_updated_at.asc()),
-            OrderDirection::Desc => query.then_order_by(col_updated_at.desc()),
-        },
-        "enabled" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_enabled.asc()),
-            OrderDirection::Desc => query.then_order_by(col_enabled.desc()),
-        },
-        "admin_only" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_admin_only.asc()),
-            OrderDirection::Desc => query.then_order_by(col_admin_only.desc()),
-        },
-        _ => query,
+        "name" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_name.asc()),
+                OrderDirection::Desc => query.then_order_by(col_name.desc()),
+            },
+            true,
+        ),
+        "updated_at" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_updated_at.asc()),
+                OrderDirection::Desc => query.then_order_by(col_updated_at.desc()),
+            },
+            true,
+        ),
+        "enabled" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_enabled.asc()),
+                OrderDirection::Desc => query.then_order_by(col_enabled.desc()),
+            },
+            true,
+        ),
+        "admin_only" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_admin_only.asc()),
+                OrderDirection::Desc => query.then_order_by(col_admin_only.desc()),
+            },
+            true,
+        ),
+        _ => (query, false),
     }
 }
 
@@ -316,5 +392,43 @@ mod tests {
             ),
             Ok(_) => panic!("expected error for unsupported filter field"),
         }
+    }
+
+    #[test]
+    fn unknown_sort_field_falls_back_to_default_order() {
+        let mut plan = plan_with(vec![]);
+        plan.order = vec![OrderClause {
+            field: "bogus".into(),
+            direction: OrderDirection::Desc,
+        }];
+
+        let (sql, _) = to_sql_and_params(&plan).expect("should build sql for unknown sort field");
+        assert!(
+            sql.contains("ORDER BY \"sweep_profiles\".\"name\" ASC"),
+            "expected default ORDER BY to survive an unrecognized sort field: {sql}"
+        );
+    }
+
+    /// Regression test for issue 4167 review finding 2: `to_sql_and_params`
+    /// is the query the web-ng/core Elixir executors actually run (`execute`
+    /// is only the standalone Rust HTTP service). Before this fix it emitted
+    /// the raw `banner_grab` column — every timeout/concurrency/rate/queue
+    /// knob and the per-protocol ports map — while the Rust `execute` path
+    /// narrowed it to `banner_grab_enabled`/`banner_grab_protocols` via
+    /// `into_json`. The same entity returned two different shapes depending
+    /// on which path executed it.
+    #[test]
+    fn generated_sql_does_not_select_raw_banner_grab_column() {
+        let plan = plan_with(vec![]);
+        let (sql, _) = to_sql_and_params(&plan).expect("should build sql");
+
+        assert!(
+            !sql.contains("\"banner_grab\""),
+            "raw banner_grab column must never be selected: {sql}"
+        );
+        assert!(
+            sql.contains("AS banner_grab_enabled") && sql.contains("AS banner_grab_protocols"),
+            "expected the narrowed banner-grab expressions to be selected: {sql}"
+        );
     }
 }

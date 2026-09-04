@@ -15,20 +15,22 @@ use crate::{
 use diesel::PgTextExpressionMethods;
 use diesel::pg::Pg;
 use diesel::prelude::*;
-use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
+use diesel::query_builder::{BoxedSelectStatement, FromClause};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 
 type SweepResultsTable = crate::schema::sweep_host_results::table;
 type SweepResultsFromClause = FromClause<SweepResultsTable>;
+// `AsSelect<SweepResultRow, Pg>` (not `<Table as AsQuery>::SqlType`) because
+// `build_query` now selects `SweepResultRow::as_select()` itself so
+// `to_sql_and_params` and `execute` share exactly the same column set
+// (issue 4167 review finding 2).
 type SweepResultsQuery<'a> =
-    BoxedSelectStatement<'a, <SweepResultsTable as AsQuery>::SqlType, SweepResultsFromClause, Pg>;
+    BoxedSelectStatement<'a, diesel::dsl::AsSelect<SweepResultRow, Pg>, SweepResultsFromClause, Pg>;
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
-    let query = build_query(plan)?;
-    let rows: Vec<SweepResultRow> = query
-        .select(SweepResultRow::as_select())
+    let rows: Vec<SweepResultRow> = build_query(plan)?
         .limit(plan.limit)
         .offset(plan.offset)
         .load::<SweepResultRow>(conn)
@@ -80,7 +82,13 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 }
 
 fn build_query(plan: &QueryPlan) -> Result<SweepResultsQuery<'static>> {
-    let mut query = sweep_host_results.into_boxed::<Pg>();
+    // `build_query` selects here (rather than in `execute` alone) so
+    // `to_sql_and_params` — the query the web-ng/core Elixir executors
+    // actually run — and `execute`'s Diesel-typed load agree on exactly the
+    // same column set (issue 4167 review finding 2).
+    let mut query = sweep_host_results
+        .select(SweepResultRow::as_select())
+        .into_boxed::<Pg>();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(col_inserted_at.ge(*start).and(col_inserted_at.le(*end)));
@@ -189,14 +197,18 @@ fn apply_ordering<'a>(
 ) -> SweepResultsQuery<'a> {
     let mut applied = false;
     for clause in order {
-        query = if !applied {
-            applied = true;
+        let (next_query, matched) = if !applied {
             apply_single_order(query, clause.field.as_str(), clause.direction)
         } else {
             apply_secondary_order(query, clause.field.as_str(), clause.direction)
         };
+        query = next_query;
+        applied = applied || matched;
     }
 
+    // An unrecognized sort field must not disable ordering entirely: fall
+    // back to the default so `sort:bogus` still yields deterministic,
+    // pagination-safe results instead of unspecified row order.
     if !applied {
         query = query.order(col_inserted_at.desc());
     }
@@ -208,41 +220,65 @@ fn apply_single_order<'a>(
     query: SweepResultsQuery<'a>,
     field: &str,
     direction: OrderDirection,
-) -> SweepResultsQuery<'a> {
+) -> (SweepResultsQuery<'a>, bool) {
     match field {
-        "inserted_at" => match direction {
-            OrderDirection::Asc => query.order(col_inserted_at.asc()),
-            OrderDirection::Desc => query.order(col_inserted_at.desc()),
-        },
-        "ip" => match direction {
-            OrderDirection::Asc => query.order(col_ip.asc()),
-            OrderDirection::Desc => query.order(col_ip.desc()),
-        },
-        "hostname" => match direction {
-            OrderDirection::Asc => query.order(col_hostname.asc()),
-            OrderDirection::Desc => query.order(col_hostname.desc()),
-        },
-        "status" => match direction {
-            OrderDirection::Asc => query.order(col_status.asc()),
-            OrderDirection::Desc => query.order(col_status.desc()),
-        },
-        "device_id" => match direction {
-            OrderDirection::Asc => query.order(col_device_id.asc()),
-            OrderDirection::Desc => query.order(col_device_id.desc()),
-        },
-        "agent_id" => match direction {
-            OrderDirection::Asc => query.order(col_agent_id.asc()),
-            OrderDirection::Desc => query.order(col_agent_id.desc()),
-        },
-        "sweep_group_id" => match direction {
-            OrderDirection::Asc => query.order(col_sweep_group_id.asc()),
-            OrderDirection::Desc => query.order(col_sweep_group_id.desc()),
-        },
-        "execution_id" => match direction {
-            OrderDirection::Asc => query.order(col_execution_id.asc()),
-            OrderDirection::Desc => query.order(col_execution_id.desc()),
-        },
-        _ => query,
+        "inserted_at" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_inserted_at.asc()),
+                OrderDirection::Desc => query.order(col_inserted_at.desc()),
+            },
+            true,
+        ),
+        "ip" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_ip.asc()),
+                OrderDirection::Desc => query.order(col_ip.desc()),
+            },
+            true,
+        ),
+        "hostname" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_hostname.asc()),
+                OrderDirection::Desc => query.order(col_hostname.desc()),
+            },
+            true,
+        ),
+        "status" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_status.asc()),
+                OrderDirection::Desc => query.order(col_status.desc()),
+            },
+            true,
+        ),
+        "device_id" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_device_id.asc()),
+                OrderDirection::Desc => query.order(col_device_id.desc()),
+            },
+            true,
+        ),
+        "agent_id" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_agent_id.asc()),
+                OrderDirection::Desc => query.order(col_agent_id.desc()),
+            },
+            true,
+        ),
+        "sweep_group_id" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_sweep_group_id.asc()),
+                OrderDirection::Desc => query.order(col_sweep_group_id.desc()),
+            },
+            true,
+        ),
+        "execution_id" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_execution_id.asc()),
+                OrderDirection::Desc => query.order(col_execution_id.desc()),
+            },
+            true,
+        ),
+        _ => (query, false),
     }
 }
 
@@ -250,41 +286,65 @@ fn apply_secondary_order<'a>(
     query: SweepResultsQuery<'a>,
     field: &str,
     direction: OrderDirection,
-) -> SweepResultsQuery<'a> {
+) -> (SweepResultsQuery<'a>, bool) {
     match field {
-        "inserted_at" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_inserted_at.asc()),
-            OrderDirection::Desc => query.then_order_by(col_inserted_at.desc()),
-        },
-        "ip" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_ip.asc()),
-            OrderDirection::Desc => query.then_order_by(col_ip.desc()),
-        },
-        "hostname" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_hostname.asc()),
-            OrderDirection::Desc => query.then_order_by(col_hostname.desc()),
-        },
-        "status" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_status.asc()),
-            OrderDirection::Desc => query.then_order_by(col_status.desc()),
-        },
-        "device_id" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_device_id.asc()),
-            OrderDirection::Desc => query.then_order_by(col_device_id.desc()),
-        },
-        "agent_id" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_agent_id.asc()),
-            OrderDirection::Desc => query.then_order_by(col_agent_id.desc()),
-        },
-        "sweep_group_id" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_sweep_group_id.asc()),
-            OrderDirection::Desc => query.then_order_by(col_sweep_group_id.desc()),
-        },
-        "execution_id" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_execution_id.asc()),
-            OrderDirection::Desc => query.then_order_by(col_execution_id.desc()),
-        },
-        _ => query,
+        "inserted_at" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_inserted_at.asc()),
+                OrderDirection::Desc => query.then_order_by(col_inserted_at.desc()),
+            },
+            true,
+        ),
+        "ip" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_ip.asc()),
+                OrderDirection::Desc => query.then_order_by(col_ip.desc()),
+            },
+            true,
+        ),
+        "hostname" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_hostname.asc()),
+                OrderDirection::Desc => query.then_order_by(col_hostname.desc()),
+            },
+            true,
+        ),
+        "status" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_status.asc()),
+                OrderDirection::Desc => query.then_order_by(col_status.desc()),
+            },
+            true,
+        ),
+        "device_id" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_device_id.asc()),
+                OrderDirection::Desc => query.then_order_by(col_device_id.desc()),
+            },
+            true,
+        ),
+        "agent_id" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_agent_id.asc()),
+                OrderDirection::Desc => query.then_order_by(col_agent_id.desc()),
+            },
+            true,
+        ),
+        "sweep_group_id" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_sweep_group_id.asc()),
+                OrderDirection::Desc => query.then_order_by(col_sweep_group_id.desc()),
+            },
+            true,
+        ),
+        "execution_id" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_execution_id.asc()),
+                OrderDirection::Desc => query.then_order_by(col_execution_id.desc()),
+            },
+            true,
+        ),
+        _ => (query, false),
     }
 }
 
@@ -354,5 +414,20 @@ mod tests {
             ),
             Ok(_) => panic!("expected error for unsupported filter field"),
         }
+    }
+
+    #[test]
+    fn unknown_sort_field_falls_back_to_default_order() {
+        let mut plan = plan_with(vec![]);
+        plan.order = vec![OrderClause {
+            field: "bogus".into(),
+            direction: OrderDirection::Desc,
+        }];
+
+        let (sql, _) = to_sql_and_params(&plan).expect("should build sql for unknown sort field");
+        assert!(
+            sql.contains("ORDER BY \"sweep_host_results\".\"inserted_at\" DESC"),
+            "expected default ORDER BY to survive an unrecognized sort field: {sql}"
+        );
     }
 }

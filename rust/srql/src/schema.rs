@@ -940,6 +940,15 @@ diesel::table! {
 
     /// Sweep scan profiles: port lists, timing, and banner-grab settings
     /// applied to sweep groups (issue 4167).
+    ///
+    /// The raw `banner_grab` jsonb column (timeouts, concurrency, rate
+    /// limits, queue sizes, per-protocol ports) is deliberately NOT declared
+    /// here. Only `enabled`/`protocols` carry diagnostic value, and omission
+    /// from this `table!` block is this crate's real withholding mechanism —
+    /// see `query/sweep_profiles.rs::select_tuple`, which selects the two
+    /// narrowed fields as SQL expressions instead of the bare column, so the
+    /// narrowing happens once, in SQL, and is visible on every consumer path
+    /// (issue 4167 review finding 2).
     sweep_profiles (id) {
         id -> Uuid,
         name -> Text,
@@ -954,7 +963,6 @@ diesel::table! {
         enabled -> Bool,
         inserted_at -> Timestamptz,
         updated_at -> Timestamptz,
-        banner_grab -> Jsonb,
     }
 }
 

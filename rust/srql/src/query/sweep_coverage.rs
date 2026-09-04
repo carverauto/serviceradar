@@ -14,20 +14,26 @@ use crate::{
 use diesel::PgTextExpressionMethods;
 use diesel::pg::Pg;
 use diesel::prelude::*;
-use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
+use diesel::query_builder::{BoxedSelectStatement, FromClause};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 
 type SweepCoverageTable = crate::schema::sweep_coverage_daily::table;
 type SweepCoverageFromClause = FromClause<SweepCoverageTable>;
-type SweepCoverageQuery<'a> =
-    BoxedSelectStatement<'a, <SweepCoverageTable as AsQuery>::SqlType, SweepCoverageFromClause, Pg>;
+// `AsSelect<SweepCoverageRow, Pg>` (not `<Table as AsQuery>::SqlType`)
+// because `build_query` now selects `SweepCoverageRow::as_select()` itself
+// so `to_sql_and_params` and `execute` share exactly the same column set
+// (issue 4167 review finding 2).
+type SweepCoverageQuery<'a> = BoxedSelectStatement<
+    'a,
+    diesel::dsl::AsSelect<SweepCoverageRow, Pg>,
+    SweepCoverageFromClause,
+    Pg,
+>;
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
-    let query = build_query(plan)?;
-    let rows: Vec<SweepCoverageRow> = query
-        .select(SweepCoverageRow::as_select())
+    let rows: Vec<SweepCoverageRow> = build_query(plan)?
         .limit(plan.limit)
         .offset(plan.offset)
         .load::<SweepCoverageRow>(conn)
@@ -82,7 +88,13 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 }
 
 fn build_query(plan: &QueryPlan) -> Result<SweepCoverageQuery<'static>> {
-    let mut query = sweep_coverage_daily.into_boxed::<Pg>();
+    // `build_query` selects here (rather than in `execute` alone) so
+    // `to_sql_and_params` — the query the web-ng/core Elixir executors
+    // actually run — and `execute`'s Diesel-typed load agree on exactly the
+    // same column set (issue 4167 review finding 2).
+    let mut query = sweep_coverage_daily
+        .select(SweepCoverageRow::as_select())
+        .into_boxed::<Pg>();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(
@@ -178,14 +190,18 @@ fn apply_ordering<'a>(
 ) -> SweepCoverageQuery<'a> {
     let mut applied = false;
     for clause in order {
-        query = if !applied {
-            applied = true;
+        let (next_query, matched) = if !applied {
             apply_single_order(query, clause.field.as_str(), clause.direction)
         } else {
             apply_secondary_order(query, clause.field.as_str(), clause.direction)
         };
+        query = next_query;
+        applied = applied || matched;
     }
 
+    // An unrecognized sort field must not disable ordering entirely: fall
+    // back to the default so `sort:bogus` still yields deterministic,
+    // pagination-safe results instead of unspecified row order.
     if !applied {
         query = query.order(col_day.desc());
     }
@@ -197,29 +213,44 @@ fn apply_single_order<'a>(
     query: SweepCoverageQuery<'a>,
     field: &str,
     direction: OrderDirection,
-) -> SweepCoverageQuery<'a> {
+) -> (SweepCoverageQuery<'a>, bool) {
     match field {
-        "day" => match direction {
-            OrderDirection::Asc => query.order(col_day.asc()),
-            OrderDirection::Desc => query.order(col_day.desc()),
-        },
-        "device_uid" => match direction {
-            OrderDirection::Asc => query.order(col_device_uid.asc()),
-            OrderDirection::Desc => query.order(col_device_uid.desc()),
-        },
-        "ip" => match direction {
-            OrderDirection::Asc => query.order(col_ip.asc()),
-            OrderDirection::Desc => query.order(col_ip.desc()),
-        },
-        "agent_id" => match direction {
-            OrderDirection::Asc => query.order(col_agent_id.asc()),
-            OrderDirection::Desc => query.order(col_agent_id.desc()),
-        },
-        "sweep_group_id" => match direction {
-            OrderDirection::Asc => query.order(col_sweep_group_id.asc()),
-            OrderDirection::Desc => query.order(col_sweep_group_id.desc()),
-        },
-        _ => query,
+        "day" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_day.asc()),
+                OrderDirection::Desc => query.order(col_day.desc()),
+            },
+            true,
+        ),
+        "device_uid" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_device_uid.asc()),
+                OrderDirection::Desc => query.order(col_device_uid.desc()),
+            },
+            true,
+        ),
+        "ip" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_ip.asc()),
+                OrderDirection::Desc => query.order(col_ip.desc()),
+            },
+            true,
+        ),
+        "agent_id" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_agent_id.asc()),
+                OrderDirection::Desc => query.order(col_agent_id.desc()),
+            },
+            true,
+        ),
+        "sweep_group_id" => (
+            match direction {
+                OrderDirection::Asc => query.order(col_sweep_group_id.asc()),
+                OrderDirection::Desc => query.order(col_sweep_group_id.desc()),
+            },
+            true,
+        ),
+        _ => (query, false),
     }
 }
 
@@ -227,29 +258,44 @@ fn apply_secondary_order<'a>(
     query: SweepCoverageQuery<'a>,
     field: &str,
     direction: OrderDirection,
-) -> SweepCoverageQuery<'a> {
+) -> (SweepCoverageQuery<'a>, bool) {
     match field {
-        "day" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_day.asc()),
-            OrderDirection::Desc => query.then_order_by(col_day.desc()),
-        },
-        "device_uid" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_device_uid.asc()),
-            OrderDirection::Desc => query.then_order_by(col_device_uid.desc()),
-        },
-        "ip" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_ip.asc()),
-            OrderDirection::Desc => query.then_order_by(col_ip.desc()),
-        },
-        "agent_id" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_agent_id.asc()),
-            OrderDirection::Desc => query.then_order_by(col_agent_id.desc()),
-        },
-        "sweep_group_id" => match direction {
-            OrderDirection::Asc => query.then_order_by(col_sweep_group_id.asc()),
-            OrderDirection::Desc => query.then_order_by(col_sweep_group_id.desc()),
-        },
-        _ => query,
+        "day" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_day.asc()),
+                OrderDirection::Desc => query.then_order_by(col_day.desc()),
+            },
+            true,
+        ),
+        "device_uid" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_device_uid.asc()),
+                OrderDirection::Desc => query.then_order_by(col_device_uid.desc()),
+            },
+            true,
+        ),
+        "ip" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_ip.asc()),
+                OrderDirection::Desc => query.then_order_by(col_ip.desc()),
+            },
+            true,
+        ),
+        "agent_id" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_agent_id.asc()),
+                OrderDirection::Desc => query.then_order_by(col_agent_id.desc()),
+            },
+            true,
+        ),
+        "sweep_group_id" => (
+            match direction {
+                OrderDirection::Asc => query.then_order_by(col_sweep_group_id.asc()),
+                OrderDirection::Desc => query.then_order_by(col_sweep_group_id.desc()),
+            },
+            true,
+        ),
+        _ => (query, false),
     }
 }
 
@@ -339,5 +385,20 @@ mod tests {
             ),
             Ok(_) => panic!("expected error for unsupported filter field"),
         }
+    }
+
+    #[test]
+    fn unknown_sort_field_falls_back_to_default_order() {
+        let mut plan = plan_with(vec![]);
+        plan.order = vec![OrderClause {
+            field: "bogus".into(),
+            direction: OrderDirection::Desc,
+        }];
+
+        let (sql, _) = to_sql_and_params(&plan).expect("should build sql for unknown sort field");
+        assert!(
+            sql.contains("ORDER BY \"sweep_coverage_daily\".\"day\" DESC"),
+            "expected default ORDER BY to survive an unrecognized sort field: {sql}"
+        );
     }
 }

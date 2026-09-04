@@ -430,8 +430,20 @@ impl SweepGroupRow {
 
 /// Sweep scan profile: port list, timing, and banner-grab settings that a
 /// sweep group can reference (issue 4167).
-#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
-#[diesel(table_name = crate::schema::sweep_profiles, check_for_backend(diesel::pg::Pg))]
+///
+/// Only `enabled`/`protocols` are surfaced from the embedded banner-grab
+/// map: the write path is gated on `networks.sweeps.banner_grab`, this read
+/// path is not, and the remaining tuning knobs (timeouts, concurrency, rate
+/// limits, queue sizes) carry no diagnostic value for issue 4167.
+///
+/// Unlike the other row structs in this file, this one is NOT `Selectable`
+/// — `banner_grab` is not a declared column (see `schema::sweep_profiles`),
+/// so there is no `table!` column for it to map to. `query/sweep_profiles.rs`
+/// builds `banner_grab_enabled`/`banner_grab_protocols` as explicit SQL
+/// expressions in its own `select_tuple()`, in the same position these two
+/// fields occupy here, and `Queryable` maps them positionally — the same
+/// pattern `CompositeResultRow` uses for its two joined+aliased columns.
+#[derive(Debug, Clone, Queryable, Serialize)]
 pub struct SweepProfileRow {
     pub id: Uuid,
     pub name: String,
@@ -446,27 +458,12 @@ pub struct SweepProfileRow {
     pub enabled: bool,
     pub inserted_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub banner_grab: DbJson,
+    pub banner_grab_enabled: bool,
+    pub banner_grab_protocols: DbJson,
 }
 
 impl SweepProfileRow {
     pub fn into_json(self) -> serde_json::Value {
-        // Only `enabled`/`protocols` are surfaced from the embedded
-        // banner-grab map: the write path is gated on
-        // `networks.sweeps.banner_grab`, this read path is not, and the
-        // remaining tuning knobs (timeouts, concurrency, rate limits, queue
-        // sizes) carry no diagnostic value for issue 4167.
-        let banner_grab_enabled = self
-            .banner_grab
-            .get("enabled")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        let banner_grab_protocols = self
-            .banner_grab
-            .get("protocols")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!([]));
-
         serde_json::json!({
             "id": self.id,
             "name": self.name,
@@ -481,8 +478,8 @@ impl SweepProfileRow {
             "enabled": self.enabled,
             "inserted_at": self.inserted_at,
             "updated_at": self.updated_at,
-            "banner_grab_enabled": banner_grab_enabled,
-            "banner_grab_protocols": banner_grab_protocols,
+            "banner_grab_enabled": self.banner_grab_enabled,
+            "banner_grab_protocols": serde_json::Value::from(self.banner_grab_protocols),
         })
     }
 }
