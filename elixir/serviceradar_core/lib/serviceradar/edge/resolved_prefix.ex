@@ -10,6 +10,10 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
   Pure data and functions: no I/O, no process. Not safe for concurrent use -- the process that
   owns the lane owns the term.
 
+  Dispositions are RECOVERABLE, not merely remembered: a resumed lane rebuilds them from the
+  durable stream and DLQ. That is what makes bounded retention safe -- forgetting a reported
+  disposition loses nothing that cannot be recomputed.
+
   ## It holds GATEWAY state only
 
   An earlier revision also tracked an agent-local "reclaimable" watermark, advanced by a
@@ -19,12 +23,13 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
   make the watermark move would have been to equate sending an ack with the agent having durably
   acted on it, which is exactly the false equivalence the two-watermark split existed to prevent.
 
-  Reclaim belongs to the agent, and this module keeps only what the gateway can see.
+  Reclaim therefore belongs to the AGENT, and this module keeps only what the gateway can see.
 
-  OWED, NOT DONE: no production agent integration currently advances a reclaim watermark. The
-  retained Go tracker is a comparison oracle, not a live reclaim path. Removing unreachable
-  reclaim state from the gateway was necessary, but it left agent-owned reclaim outstanding
-  rather than relocating it.
+  OWED, NOT DONE: the agent-side reclaim tracker does not exist yet. Saying "reclaim lives with
+  the agent" describes where it BELONGS, not something already implemented -- the Go agent still
+  has no counterpart, and nothing in this repository advances a reclaim watermark today. Removing
+  it from here was necessary because it was unreachable, but it leaves that work outstanding
+  rather than relocated.
 
   ## Release is driven by what the agent REPORTS
 
@@ -123,7 +128,8 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
   A `REJECTED_RETRYABLE` disposition is retained but never resolves, so it caps the prefix exactly
   like a missing outcome.
 
-  Errors: `:unknown_disposition`, `:below_base`, `:above_lane_max`, `:conflict`. Which one is
+  Errors: `:unknown_disposition`, `:below_base`, `:above_lane_max`, `:conflict`,
+  `:evidence_released`. Which one is
   returned when an input is invalid in several ways at once is UNSPECIFIED -- callers may branch
   on the reason but must not depend on a precedence between them.
   """
@@ -141,12 +147,20 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
     end
   end
 
-  # Inside the prefix the kind is retained, so a repeat either matches or contradicts. There is no
-  # third case: a released sequence is below base and never reaches here.
+  # Inside the prefix, a repeat either matches the retained kind or contradicts it.
+  #
+  # The third case is REPORTED-THEN-FORGOTTEN: `reported_through/2` drops evidence without
+  # advancing the lane, so the sequence is still inside the prefix with nothing retained. The
+  # gateway genuinely cannot adjudicate it -- it no longer knows what it decided -- so it says so
+  # instead of guessing. Returning {:ok, t} would make silence read as agreement, which is the
+  # hole `release_below/2` advancing base exists to close; returning :conflict would invent a
+  # contradiction it cannot see. The caller rebuilds from the durable stream and DLQ if it needs
+  # the answer.
   defp record_inside_prefix(t, seq, disposition) do
     case Map.fetch(t.disposition, seq) do
       {:ok, ^disposition} -> {:ok, t}
       {:ok, _other} -> {:error, :conflict}
+      :error -> {:error, :evidence_released}
     end
   end
 
@@ -215,6 +229,38 @@ defmodule ServiceRadar.Edge.ResolvedPrefix do
              disposition:
                Map.reject(t.disposition, fn {seq, _} -> seq < first_unresolved_sequence end)
          }}
+    end
+  end
+
+  @doc """
+  Drops retained dispositions the gateway has already REPORTED in an `EdgeDeliveryAckV1`.
+
+  Retention exists for one purpose: populating the next ack. Once the dispositions for a run have
+  been reported, the gateway does not need them again, and holding them turns a long-lived lane
+  into unbounded growth -- 1000 resolved frames retained 1000 dispositions, because the only other
+  release signal arrives at lane open and a stream that never re-opens never sends one.
+
+  THIS IS NOT A DURABILITY CLAIM, and the distinction matters because the opposite mistake was the
+  last one. It does NOT advance any reclaim watermark, does NOT authorize the agent to release
+  spool bytes, and says nothing about the agent having acted. It bounds the GATEWAY's own memory
+  only. Recovery does not depend on this retention: a resumed lane rebuilds its dispositions from
+  the durable stream and DLQ, which is where they actually live.
+
+  `base` is untouched, so a reported sequence stays inside the prefix. Re-recording one afterwards
+  returns `:evidence_released`: the gateway no longer knows what it decided, so it refuses to
+  adjudicate rather than letting silence read as agreement. That is why this is separate from
+  `release_below/2`, which advances the lane and is driven by the agent.
+
+  Refuses a sequence past the resolved watermark (`:not_resolved`) or past the lane maximum
+  (`:above_lane_max`); a value below the current base is accepted as a no-op.
+  """
+  @spec reported_through(t(), non_neg_integer()) :: {:ok, t()} | {:error, atom()}
+  def reported_through(%__MODULE__{} = t, seq) do
+    cond do
+      not is_integer(seq) -> {:error, :not_resolved}
+      seq > @u64_max -> {:error, :above_lane_max}
+      seq > t.resolved -> {:error, :not_resolved}
+      true -> {:ok, %{t | disposition: Map.reject(t.disposition, fn {s, _} -> s <= seq end)}}
     end
   end
 
