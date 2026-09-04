@@ -371,6 +371,39 @@ impl Ring {
         Ok(self.stats)
     }
 
+    /// Sleep until the ring has a block ready, `timeout` elapses, or a signal
+    /// arrives.
+    ///
+    /// Without this a capture loop has only two options, and both are bad at
+    /// the rates this ring sustains: sleep between polls, which adds that much
+    /// latency to every packet and truncates a stopping session by up to one
+    /// sleep, or spin, which burns a core to deliver the same frames. Measured
+    /// throughput here is ~160k pps, so a 20 ms sleep is 3,200 packets of
+    /// added latency per iteration.
+    ///
+    /// Returns whether the kernel reported the socket readable. `false` is not
+    /// an error: it is a timeout or an `EINTR`, and both mean the same thing to
+    /// a caller — check whether you were asked to stop, then call again. It is
+    /// also not a promise: `poll` can report readable for a block this ring has
+    /// already consumed, so [`Ring::drain_block`] re-checks the block status
+    /// itself and a spurious wakeup costs one `None`.
+    ///
+    /// This is what bounds how quickly a session notices a cancellation, so a
+    /// caller picks the timeout to match its teardown budget rather than
+    /// inheriting one from here.
+    pub fn wait(&self, timeout: std::time::Duration) -> bool {
+        let mut fds = libc::pollfd {
+            fd: self.fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+
+        // SAFETY: `fds` is a live pollfd for a descriptor this Ring owns.
+        let rc = unsafe { libc::poll(&raw mut fds, 1, poll_timeout_millis(timeout)) };
+
+        rc > 0 && fds.revents & libc::POLLIN != 0
+    }
+
     /// Hand every frame in the next ready block to `visit`, then release the
     /// block back to the kernel.
     ///
@@ -545,6 +578,20 @@ impl Ring {
     }
 }
 
+/// `poll` takes whole milliseconds, so a sub-millisecond timeout has to round
+/// somewhere.
+///
+/// It rounds UP. Rounding down sends 0, and `poll` treats 0 as "return
+/// immediately" -- which silently converts a caller asking to sleep 100 us into
+/// a busy loop that pins a core while looking correct. A zero `Duration` still
+/// means zero, because a caller passing it is asking to check without blocking.
+fn poll_timeout_millis(timeout: std::time::Duration) -> libc::c_int {
+    timeout
+        .as_millis()
+        .max(u128::from(timeout.subsec_nanos() > 0))
+        .min(i32::MAX as u128) as libc::c_int
+}
+
 impl Drop for Ring {
     fn drop(&mut self) {
         // SAFETY: base/len came from the mmap in activate and are unmapped
@@ -584,5 +631,39 @@ mod tests {
     fn loopback_resolves() {
         // Present on every Linux host, including CI containers.
         assert!(interface_index("lo").is_ok());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::poll_timeout_millis;
+
+    #[test]
+    fn a_sub_millisecond_timeout_rounds_up_so_poll_still_sleeps() {
+        // The failure this guards: rounding down sends 0, poll returns at once,
+        // and the capture loop spins at 100% of a core while every packet still
+        // arrives. Nothing errors and the capture looks correct.
+        assert_eq!(poll_timeout_millis(Duration::from_micros(1)), 1);
+        assert_eq!(poll_timeout_millis(Duration::from_micros(999)), 1);
+        assert_eq!(poll_timeout_millis(Duration::from_nanos(1)), 1);
+    }
+
+    #[test]
+    fn zero_still_means_do_not_block() {
+        assert_eq!(poll_timeout_millis(Duration::ZERO), 0);
+    }
+
+    #[test]
+    fn whole_milliseconds_pass_through_and_a_huge_timeout_saturates() {
+        assert_eq!(poll_timeout_millis(Duration::from_millis(250)), 250);
+        assert_eq!(poll_timeout_millis(Duration::from_secs(5)), 5_000);
+        // Not an overflow-to-negative, which poll reads as "block forever" --
+        // the opposite of what a caller with a long timeout asked for.
+        assert_eq!(
+            poll_timeout_millis(Duration::from_secs(u64::from(u32::MAX))),
+            i32::MAX
+        );
     }
 }

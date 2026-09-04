@@ -80,6 +80,10 @@ impl Ring {
         Err(Error::Unsupported)
     }
 
+    pub fn wait(&self, _timeout: std::time::Duration) -> bool {
+        unreachable!("a Ring cannot be constructed off Linux")
+    }
+
     pub fn drain_block<F>(&mut self, _visit: F) -> Option<usize>
     where
         F: FnMut(Frame<'_>),
