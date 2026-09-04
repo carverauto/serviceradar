@@ -1,4 +1,46 @@
 actions:
+  # Explicit API dispatch only, after verifying the reaper namespace protection.
+  # No push/PR/scheduled trigger: this mutates isolated fixture generations.
+  - name: "SchemaTemplateQualification"
+    triggers: {}
+    env:
+      OCI_REGISTRY: "registry.carverauto.dev"
+      OCI_AUTH_REQUIRED: "1"
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    resource_requests:
+      memory: "50GB"
+      disk: "40GB"
+    steps:
+      - run: >-
+          bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth
+      - run: |
+          set -euo pipefail
+          umask 077
+          export SERVICERADAR_ENV=ci
+          export BAZEL_PROFILE=ci
+          RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+          export RUN_ID
+          SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-template-qualification.XXXXXX")"
+          export SERVICERADAR_FIXTURE_ENV_FILE
+          trap 'rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"' EXIT
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
+          set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          echo "Schema template synthetic qualification run: $RUN_ID"
+          FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
+             --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
+             --test_output=errors --nocache_test_results --noremote_upload_local_results
+             --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
+             $SERVICERADAR_TEST_ENV_FLAGS"
+          bazel test $FLAGS //rust/integration-db:generation_lifecycle_test
+
   - name: "BazelCI"
     env:
       OCI_REGISTRY: "registry.carverauto.dev"
