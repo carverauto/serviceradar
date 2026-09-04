@@ -50,6 +50,8 @@ pub mod interp;
 pub mod pcapng;
 /// Validating a wire `StartRemoteCapture` before anything is opened.
 pub mod request;
+/// The loop that turns a ring into a pcapng stream.
+pub mod runner;
 /// One capture session: caps, counters and the terminal block.
 pub mod session;
 
