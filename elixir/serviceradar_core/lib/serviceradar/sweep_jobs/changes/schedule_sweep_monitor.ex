@@ -5,12 +5,14 @@ defmodule ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor do
   When a sweep group is created with `enabled: true` or is enabled via an update,
   this change ensures that:
   - SweepMonitorWorker is scheduled to monitor for missed sweeps
+  - SweepCoverageRollupWorker is scheduled to roll up sweep coverage
   - SweepDataCleanupWorker is scheduled to clean up old sweep data
   """
 
   use Ash.Resource.Change
 
   alias ServiceRadar.Changes.AfterAction
+  alias ServiceRadar.SweepJobs.SweepCoverageRollupWorker
   alias ServiceRadar.SweepJobs.SweepDataCleanupWorker
   alias ServiceRadar.SweepJobs.SweepMonitorWorker
 
@@ -27,6 +29,10 @@ defmodule ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor do
   defp schedule_if_enabled(record) do
     if record.enabled do
       schedule_monitor(record)
+      # Rollup is scheduled ahead of cleanup so it has a chance to run
+      # first; SweepDataCleanupWorker's own watermark guard is the actual
+      # safety mechanism and does not depend on this ordering.
+      schedule_rollup(record)
       schedule_cleanup(record)
     end
   end
@@ -56,6 +62,37 @@ defmodule ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor do
 
       {:error, reason} ->
         Logger.error("Failed to schedule sweep monitor",
+          sweep_group_id: record.id,
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp schedule_rollup(record) do
+    case SweepCoverageRollupWorker.ensure_scheduled() do
+      {:ok, :already_scheduled} ->
+        Logger.debug("Sweep coverage rollup already scheduled")
+
+      {:ok, _job} ->
+        Logger.info("Scheduled sweep coverage rollup",
+          sweep_group_id: record.id
+        )
+
+      {:error, :oban_unavailable} ->
+        Logger.debug("Sweep coverage rollup scheduling deferred (Oban unavailable)",
+          sweep_group_id: record.id,
+          note: "sweep schedule reconciler will enqueue when available"
+        )
+
+      {:error, {:oban_unavailable, message}} ->
+        Logger.debug("Sweep coverage rollup scheduling deferred (Oban unavailable)",
+          sweep_group_id: record.id,
+          reason: message,
+          note: "sweep schedule reconciler will enqueue when available"
+        )
+
+      {:error, reason} ->
+        Logger.error("Failed to schedule sweep coverage rollup",
           sweep_group_id: record.id,
           reason: inspect(reason)
         )

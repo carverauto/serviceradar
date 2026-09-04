@@ -228,6 +228,74 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       assert record2.response_time_ms == 1
       assert record3.response_time_ms == 2
     end
+
+    test "records scanned ports alongside open ports" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host_ip" => "192.168.1.10",
+          "available" => true,
+          "port_results" => [
+            %{"port" => 443, "available" => true},
+            %{"port" => 3001, "available" => false},
+            %{"port" => 4502, "available" => false}
+          ]
+        }
+      ]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.open_ports == [443]
+      assert record.scanned_ports == [443, 3001, 4502]
+    end
+
+    test "a host refusing every port is distinguishable from an ICMP-only host" do
+      execution_id = Ash.UUID.generate()
+
+      results = [
+        %{
+          "host_ip" => "192.168.1.11",
+          "available" => false,
+          "port_results" => [%{"port" => 3001, "available" => false}]
+        },
+        %{"host_ip" => "192.168.1.12", "available" => true, "icmp_available" => true}
+      ]
+
+      {[refused, icmp_only], _stats} =
+        SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert refused.open_ports == []
+      assert refused.scanned_ports == [3001]
+      assert icmp_only.open_ports == []
+      assert icmp_only.scanned_ports == []
+    end
+
+    test "stamps the vantage point and sweep group on the result" do
+      execution_id = Ash.UUID.generate()
+      group_id = Ash.UUID.generate()
+
+      results = [%{"host_ip" => "192.168.1.13", "available" => true}]
+
+      {[record], _stats} =
+        SweepResultsIngestor.build_host_results(results, execution_id, %{},
+          agent_id: "agent-a",
+          sweep_group_id: group_id
+        )
+
+      assert record.agent_id == "agent-a"
+      assert record.sweep_group_id == group_id
+    end
+
+    test "omitted context leaves identity nil rather than crashing" do
+      execution_id = Ash.UUID.generate()
+      results = [%{"host_ip" => "192.168.1.14", "available" => true}]
+
+      {[record], _stats} = SweepResultsIngestor.build_host_results(results, execution_id, %{})
+
+      assert record.agent_id == nil
+      assert record.sweep_group_id == nil
+    end
   end
 
   describe "availability status" do

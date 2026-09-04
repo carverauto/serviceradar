@@ -51,6 +51,7 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     "ServiceRadar.Plugins.AddonUpdatePolicyBackfillWorker",
     "ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryDispatchWorker",
     "ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker",
+    "ServiceRadar.SweepJobs.SweepCoverageRollupWorker",
     "ServiceRadar.SweepJobs.SweepDataCleanupWorker",
     "ServiceRadar.SweepJobs.SweepMonitorWorker",
     "ServiceRadarWebNG.Plugins.BlobRetentionWorker",
