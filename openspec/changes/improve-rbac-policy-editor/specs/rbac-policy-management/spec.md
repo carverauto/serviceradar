@@ -78,6 +78,10 @@ Ensuring group view SHALL create `:view` only when no stronger grant exists and 
 an existing `:edit` grant, including under concurrent view/edit requests. Revoking group view SHALL
 delete only an exact `:view` grant and MUST NOT delete or downgrade `:edit`.
 
+Every first-party group-subject grant mutation SHALL use one coordinator that serializes
+`(dashboard source, target, group)` before rereading the expected fingerprint. Unsupported direct
+group-grant actions SHALL fail before persistence. User-subject grant behavior is unchanged.
+
 #### Scenario: Ensure view preserves edit
 
 - **GIVEN** a group already has an `:edit` grant on a dashboard
@@ -104,33 +108,46 @@ delete only an exact `:view` grant and MUST NOT delete or downgrade `:edit`.
 - **WHEN** the revoke transaction commits
 - **THEN** the instance SHALL remain `:shared`
 
+#### Scenario: Concurrent local edit makes a central row stale
+
+- **GIVEN** the Policy Editor rendered a group row with no explicit grant
+- **AND** a dashboard-local editor concurrently grants that group `:edit`
+- **WHEN** the Policy Editor's delayed view event reaches the serialized coordinator
+- **THEN** the expected fingerprint SHALL be stale and no view mutation or success audit SHALL occur
+- **AND** the persisted grant SHALL remain `:edit`
+
 ### Requirement: Dashboard Visibility And Bypasses Are Explicit
 
 The central audience editor SHALL describe explicit group grants rather than claiming to be an
-exclusive access list. Public dashboards SHALL be shown as already available and read-only. Stronger
-`:edit` grants and administrative bypass availability SHALL be visibly distinguished from exact
-`:view` grants.
+exclusive access list. Public dashboards SHALL be shown as already available under their
+source-specific base read gate and read-only in this editor. Stronger `:edit` grants and generic
+administrative-bypass guidance SHALL be visibly distinguished from exact `:view` grants. The editor
+MUST NOT claim to compute every selected-group member's other effective permission sources.
 
 #### Scenario: Public dashboard cannot receive a redundant view grant
 
 - **GIVEN** a dashboard is public
 - **WHEN** it is rendered in the group audience editor
-- **THEN** the row SHALL state that every authenticated user can view it
+- **THEN** an authored row SHALL state that users with analytics access can view it
+- **AND** a packaged row SHALL state that authenticated users can view it
 - **AND** the group view control SHALL be disabled
 - **AND** no redundant group grant SHALL be created
 
-#### Scenario: Global bypass is not represented as an explicit group grant
+#### Scenario: Global bypass guidance is not represented as an explicit group grant
 
-- **GIVEN** a group member can view a dashboard because of a global bypass permission
-- **AND** the selected group has no row-level grant
+- **GIVEN** the selected group has no row-level grant
 - **WHEN** the audience row renders
-- **THEN** it SHALL distinguish global availability from an explicit group grant
+- **THEN** it SHALL explain that the source's global bypass permission can independently confer
+  access
+- **AND** it SHALL NOT mark the group as having an explicit grant
 
 ### Requirement: Dashboard Sources Page Independently With Bounded State
 
 Authored and packaged dashboard lists SHALL use independent stable keyset cursors. Each current page
 SHALL be rendered through a source-specific bounded LiveView stream and matched by a server-owned
 expected-state window no larger than that page. Paging one source SHALL NOT reset the other source.
+Each source SHALL retain only the current page's before/after keysets and MUST NOT accumulate an
+unbounded navigation history.
 
 #### Scenario: Paging authored dashboards preserves package state
 
@@ -180,16 +197,17 @@ expected versions MUST NOT be trusted as canonical state.
 
 ### Requirement: Dashboard Group Audience Mutations Are Audited After Commit
 
-Successful group-view ensure/revoke operations SHALL emit an append-only audit event after their
+Successful group-view ensure/revoke operations SHALL submit one append-only audit record after their
 transaction commits, including any packaged-dashboard visibility transition. Denied or rolled-back
-operations SHALL NOT emit a success event. Audit-delivery failure SHALL be logged and MUST NOT
-reject or undo the committed dashboard grant.
+operations SHALL NOT submit a success record. Audit-delivery failure SHALL be logged and MUST NOT
+reject or undo the committed dashboard grant. Crash-proof exactly-once delivery is not part of this
+change.
 
 #### Scenario: Committed group view emits one success event
 
 - **GIVEN** an authorized dashboard group-view mutation
 - **WHEN** its transaction commits
-- **THEN** exactly one success audit event SHALL identify the actor, group, target kind, target, and
+- **THEN** one success audit submission SHALL identify the actor, group, target kind, target, and
   operation
 
 #### Scenario: Dashboard audit failure does not roll back grant
@@ -204,9 +222,12 @@ reject or undo the committed dashboard grant.
 
 Every dashboard-audience load and mutation SHALL use the real current actor and authorized Ash
 reads/writes. A Policy Editor mutation SHALL use dedicated actions that require fresh
-`settings.rbac.manage` authority AND the source-specific share permission AND authorization for the
-selected target. It MUST NOT rely on generic package actions whose policy checks are alternatives.
-Revocation while the editor is open SHALL take effect on the next mutation.
+`settings.rbac.manage` authority AND the source-specific share permission AND a source-specific
+target-management path. Authored paths are owner, explicit `:edit`, or
+`analytics.dashboards.edit`; packaged paths are owner, explicit `:edit`, or
+`dashboards.packages.view_all`. The actions MUST NOT rely on generic package actions whose policy
+checks are alternatives. Revocation while the editor is open SHALL take effect on the next
+mutation.
 
 #### Scenario: Source-specific share permission is missing
 
@@ -223,3 +244,10 @@ Revocation while the editor is open SHALL take effect on the next mutation.
 - **THEN** the authored stream SHALL remain available
 - **AND** the packaged section SHALL show a generic retryable failure
 - **AND** internal error details SHALL not be exposed
+
+#### Scenario: Caller-owned dashboard transaction is rejected
+
+- **GIVEN** application code has already opened a repository transaction
+- **WHEN** it invokes a public dashboard group-view mutation
+- **THEN** the mutation SHALL return `{:error, :outer_transaction_not_supported}`
+- **AND** persistence and audit delivery SHALL remain unchanged

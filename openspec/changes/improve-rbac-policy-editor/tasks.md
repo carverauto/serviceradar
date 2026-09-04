@@ -13,11 +13,15 @@
 - [ ] 1.6 Add tests for no-group compatibility, multi-group union, duplicate permissions, assignment
       removal, membership removal, inactive users, lookup failure, a deliberately stale scope, and
       cross-process ETS invalidation.
+- [ ] 1.7 Move every single-profile security adapter to the strict union resolver and make authority
+      snapshots use `%{permissions: MapSet.t(), profile_versions: [...]}` end to end; update callback
+      and secure-execution issuers, source behaviours, adapters, rechecks, and digests.
 
 ## 2. Transactional privilege mutation boundaries
 
-- [ ] 2.1 Add `ServiceRadar.Identity.GroupPolicy` for authorized assign/clear operations requiring
-      fresh `settings.rbac.manage` and `identity.user_groups.manage` authority.
+- [ ] 2.1 Add `ServiceRadar.Identity.GroupPolicy` for authorized assign/clear/delete operations
+      requiring fresh `settings.rbac.manage` and `identity.user_groups.manage` authority, including
+      post-commit invalidation for memberships cascaded by group deletion.
 - [ ] 2.2 Add `ServiceRadar.Identity.PrivilegedMembership` for authorized add/remove/reconcile
       operations, preserving best-effort IdP sign-in behavior and manual membership provenance.
 - [ ] 2.3 Add `ServiceRadar.Identity.RoleProfilePolicy` with fresh current-user authority and route
@@ -33,6 +37,9 @@
       rejected, successful writes apply effects once, profile deletion clears direct and group
       assignments atomically, failed IdP mappings do not block sign-in, and manual memberships are
       never converted or withdrawn.
+- [ ] 2.8 Require boundary-owned changeset context on membership, group-profile, role-profile, and
+      group-destroy resource actions so unsupported direct mutation calls fail before persistence;
+      preserve explicit trusted create/update-system actions for role-profile seeding.
 
 ## 3. Monotonic dashboard group-access service
 
@@ -51,6 +58,11 @@
       plus guarded database/concurrency tests.
 - [ ] 3.7 Emit dashboard ensure/revoke audit events only after commit, including package visibility
       transitions, and prove audit failure cannot veto the committed grant.
+- [ ] 3.8 Reject caller-owned outer transactions with
+      `{:error, :outer_transaction_not_supported}` before dashboard writes or side effects.
+- [ ] 3.9 Route every first-party group-grant create/update/destroy, including local `:edit`, through
+      one `(source, target, group)` transaction-scoped advisory-lock coordinator before fingerprint
+      comparison; require boundary-owned context on group-subject resource actions.
 
 ## 4. Policy Editor group/profile controls
 
