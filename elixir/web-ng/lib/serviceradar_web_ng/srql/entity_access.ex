@@ -162,21 +162,34 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
 
   @spec extract_entity(String.t()) :: String.t()
   def extract_entity(query) when is_binary(query) do
-    query = String.trim(query)
-
-    case Regex.run(~r/^in:(\S+)/, query) do
-      [_, entity] ->
-        entity
-        |> String.trim("\"")
-        |> String.trim("'")
-        |> String.downcase()
-
-      nil ->
-        query
-        |> String.split(~r/[\s|]/, parts: 2)
-        |> List.first()
-        |> to_string()
-        |> String.downcase()
+    query
+    |> String.trim()
+    |> String.split(~r/[\s|]+/, trim: true)
+    |> Enum.find_value(fn token ->
+      case token do
+        "in:" <> entity when entity != "" -> normalize_entity(entity)
+        _ -> nil
+      end
+    end)
+    |> case do
+      nil -> fallback_entity(query)
+      entity -> entity
     end
+  end
+
+  defp normalize_entity(entity) do
+    entity
+    |> String.trim("\"")
+    |> String.trim("'")
+    |> String.downcase()
+  end
+
+  defp fallback_entity(query) do
+    query
+    |> String.trim()
+    |> String.split(~r/[\s|]/, parts: 2)
+    |> List.first()
+    |> to_string()
+    |> String.downcase()
   end
 end

@@ -149,4 +149,19 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     assert {:error, :forbidden} = EntityAccess.authorize("in:devices", nil)
     assert :ok = EntityAccess.authorize("in:devices", nil, optional_scope: true)
   end
+
+  describe "extract_entity/1 token position" do
+    test "resolves the entity when in: is not the first token" do
+      assert EntityAccess.extract_entity("limit:1 in:devices") == "devices"
+      assert EntityAccess.extract_entity("time:last_24h in:devices limit:5") == "devices"
+      assert EntityAccess.extract_entity("sort:name:asc in:devices") == "devices"
+    end
+
+    test "gates a non-leading entity token the same as a leading one" do
+      scope = %Scope{user: nil, permissions: MapSet.new(["observability.logs.view"])}
+
+      assert {:error, :forbidden} = EntityAccess.authorize("in:devices limit:1", scope)
+      assert {:error, :forbidden} = EntityAccess.authorize("limit:1 in:devices", scope)
+    end
+  end
 end
