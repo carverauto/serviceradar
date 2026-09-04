@@ -17,8 +17,42 @@ pub trait StartupOps {
 
     fn assert_phase1_capabilities(&mut self) -> Result<()>;
     fn prepare_bpf_pin_directory(&mut self, path: &Path) -> Result<()>;
-    fn open_capture_handles(&mut self, config: &Config) -> Result<Self::Captures>;
-    fn drop_privileges(&mut self, user: Option<&str>, allow_root: bool) -> Result<()>;
+    fn open_capture_handles(
+        &mut self,
+        config: &Config,
+    ) -> Result<PreOpenedCaptures<Self::Captures>>;
+    /// Consumes the pre-open token, so the descriptors cannot be opened after
+    /// the capabilities that open them are gone.
+    fn drop_privileges(
+        &mut self,
+        opened: PreOpenedCaptures<Self::Captures>,
+        user: Option<&str>,
+        allow_root: bool,
+    ) -> Result<Self::Captures>;
+}
+
+/// Proof that the capture descriptors were opened while still privileged.
+///
+/// [`StartupOps::drop_privileges`] consumes one, so a startup path that drops
+/// privileges without opening them first does not COMPILE. That matters more
+/// than it looks: only `socket(AF_PACKET, ...)` needs `CAP_NET_RAW`, and
+/// netprobe drops to an unprivileged uid with a plain `setuid`, which zeroes
+/// `CapPrm`/`CapEff`/`CapAmb`. A capture session starts later over IPC, so an
+/// ordering mistake here is invisible until a real capture is attempted on a
+/// real host -- every root-run test would still pass.
+#[must_use = "the pre-opened capture descriptors must outlive the privilege drop"]
+pub struct PreOpenedCaptures<C> {
+    captures: C,
+}
+
+impl<C> PreOpenedCaptures<C> {
+    pub fn new(captures: C) -> Self {
+        Self { captures }
+    }
+
+    fn into_inner(self) -> C {
+        self.captures
+    }
 }
 
 pub struct SystemStartupOps;
@@ -34,12 +68,21 @@ impl StartupOps for SystemStartupOps {
         prepare_bpf_pin_directory(path)
     }
 
-    fn open_capture_handles(&mut self, config: &Config) -> Result<Self::Captures> {
-        CaptureHandles::open(config)
+    fn open_capture_handles(
+        &mut self,
+        config: &Config,
+    ) -> Result<PreOpenedCaptures<Self::Captures>> {
+        Ok(PreOpenedCaptures::new(CaptureHandles::open(config)?))
     }
 
-    fn drop_privileges(&mut self, user: Option<&str>, allow_root: bool) -> Result<()> {
-        capabilities::drop_privileges_or_allow_root(user, allow_root)
+    fn drop_privileges(
+        &mut self,
+        opened: PreOpenedCaptures<Self::Captures>,
+        user: Option<&str>,
+        allow_root: bool,
+    ) -> Result<Self::Captures> {
+        capabilities::drop_privileges_or_allow_root(user, allow_root)?;
+        Ok(opened.into_inner())
     }
 }
 
@@ -58,10 +101,8 @@ where
         ops.prepare_bpf_pin_directory(&PathBuf::from(DEFAULT_BPF_PIN_DIR))?;
     }
 
-    let captures = ops.open_capture_handles(config)?;
-    ops.drop_privileges(drop_user, allow_root)?;
-
-    Ok(captures)
+    let opened = ops.open_capture_handles(config)?;
+    ops.drop_privileges(opened, drop_user, allow_root)
 }
 
 #[cfg(target_os = "linux")]
@@ -69,7 +110,7 @@ pub fn prepare_ebpf_privileged_resources<O>(
     ops: &mut O,
     config: &Config,
     skip_cap_check: bool,
-) -> Result<()>
+) -> Result<PreOpenedCaptures<O::Captures>>
 where
     O: StartupOps,
 {
@@ -78,15 +119,23 @@ where
         ops.prepare_bpf_pin_directory(&PathBuf::from(DEFAULT_BPF_PIN_DIR))?;
     }
 
-    Ok(())
+    // Opened here, in the privileged phase, and carried to the drop below.
+    // The eBPF path used to skip this entirely, which left the capture
+    // descriptors unopened on the branch a production host actually takes.
+    ops.open_capture_handles(config)
 }
 
 #[cfg(target_os = "linux")]
-pub fn drop_runtime_privileges<O>(ops: &mut O, user: Option<&str>, allow_root: bool) -> Result<()>
+pub fn drop_runtime_privileges<O>(
+    ops: &mut O,
+    opened: PreOpenedCaptures<O::Captures>,
+    user: Option<&str>,
+    allow_root: bool,
+) -> Result<O::Captures>
 where
     O: StartupOps,
 {
-    ops.drop_privileges(user, allow_root)
+    ops.drop_privileges(opened, user, allow_root)
 }
 
 fn prepare_bpf_pin_directory(path: &Path) -> Result<()> {
@@ -118,7 +167,7 @@ mod tests {
 
     use anyhow::Result;
 
-    use super::{StartupOps, initialize_privileged_resources};
+    use super::{PreOpenedCaptures, StartupOps, initialize_privileged_resources};
     use crate::config::Config;
 
     #[derive(Default)]
@@ -141,16 +190,24 @@ mod tests {
             Ok(())
         }
 
-        fn open_capture_handles(&mut self, _config: &Config) -> Result<Self::Captures> {
+        fn open_capture_handles(
+            &mut self,
+            _config: &Config,
+        ) -> Result<PreOpenedCaptures<Self::Captures>> {
             self.calls.push("open_captures");
-            Ok(2)
+            Ok(PreOpenedCaptures::new(2))
         }
 
-        fn drop_privileges(&mut self, user: Option<&str>, allow_root: bool) -> Result<()> {
+        fn drop_privileges(
+            &mut self,
+            opened: PreOpenedCaptures<Self::Captures>,
+            user: Option<&str>,
+            allow_root: bool,
+        ) -> Result<Self::Captures> {
             self.calls.push("drop_privileges");
             self.drop_user = user.map(str::to_string);
             self.allow_root = allow_root;
-            Ok(())
+            Ok(opened.into_inner())
         }
     }
 
