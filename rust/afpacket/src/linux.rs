@@ -140,7 +140,23 @@ impl Socket {
         // 1. Version first, then read it back. `PACKET_RX_RING` returning 0 is
         //    not evidence of a V3 ring.
         let version = libc::tpacket_versions::TPACKET_V3 as libc::c_int;
-        give_back!(self.setsockopt(SOL_PACKET, PACKET_VERSION, &version, "set PACKET_VERSION"));
+        give_back!(
+            self.setsockopt(SOL_PACKET, PACKET_VERSION, &version, "set PACKET_VERSION")
+                .map_err(|err| match &err {
+                    // EBUSY here means the socket still carries a ring from an
+                    // earlier session, which `Ring::into_socket` is supposed to
+                    // have freed. The bare errno points nowhere near the cause,
+                    // and this exact confusion cost an afternoon.
+                    Error::Configure { source, .. }
+                        if source.raw_os_error() == Some(libc::EBUSY) =>
+                        Error::Configure {
+                            operation:
+                                "set PACKET_VERSION (EBUSY: this descriptor still carries an RX ring from an earlier session, which Ring::into_socket should have released)",
+                            source: io::Error::from_raw_os_error(libc::EBUSY),
+                        },
+                    _ => err,
+                })
+        );
 
         let mut confirmed: libc::c_int = -1;
         let mut len = size_of::<libc::c_int>() as libc::socklen_t;
@@ -557,8 +573,24 @@ impl Ring {
     /// Without this a session could never give its descriptor back: `activate`
     /// consumes the Socket, so the second capture on an interface would be
     /// refused for the life of the process even though the first ended
-    /// cleanly. The socket is left bound, which is harmless -- the next
-    /// `activate` rebinds it.
+    /// cleanly.
+    ///
+    /// # Unmapping is not enough, and the difference is silent until reuse
+    ///
+    /// This used to only `munmap`, on the reasoning that the socket was merely
+    /// left bound and the next `activate` would rebind it. That was wrong, and
+    /// wrong in a way nothing here could show: the ring still EXISTS on the
+    /// socket after the mapping is gone, and `setsockopt(PACKET_VERSION)`
+    /// refuses to run against a socket that has one. The second capture on an
+    /// interface therefore failed with a bare `EBUSY` from a call that looks
+    /// unrelated to rings, on a descriptor that had been returned "cleanly".
+    /// Measured on Linux 6.8 by an end-to-end test that started a session,
+    /// released it, and started another.
+    ///
+    /// So the ring is freed here, with a zeroed `tpacket_req3` -- the kernel's
+    /// own way of spelling "destroy it". Order matters: `packet_set_ring`
+    /// refuses while the ring is still mapped, so the `munmap` has to come
+    /// first.
     pub fn into_socket(self) -> Socket {
         let me = std::mem::ManuallyDrop::new(self);
         // SAFETY: base/len came from the mmap in activate; unmapped once here
@@ -566,6 +598,7 @@ impl Ring {
         unsafe {
             libc::munmap(me.base.cast::<libc::c_void>(), me.len);
         }
+        free_rx_ring(me.fd);
         // SAFETY: reading each field once out of a ManuallyDrop that is never
         // dropped, so nothing is duplicated or leaked.
         unsafe {
@@ -575,6 +608,37 @@ impl Ring {
                 ifindex: me.ifindex,
             }
         }
+    }
+}
+
+/// Release the socket's RX ring, so `PACKET_VERSION` can be set on it again.
+///
+/// A zeroed `tpacket_req3` is how the kernel spells "destroy the ring"; it must
+/// follow the `munmap`, because `packet_set_ring` refuses while the ring is
+/// still mapped. Failures are logged rather than returned: the descriptor is
+/// then unusable for a further capture, and the next `activate` says so with
+/// `EBUSY` -- returning an error here would only force every caller to decide
+/// what to do about a socket it is in the middle of giving back.
+fn free_rx_ring(fd: RawFd) {
+    // SAFETY: `req` is a live, correctly sized tpacket_req3 for this fd.
+    let req: libc::tpacket_req3 = unsafe { std::mem::zeroed() };
+    let rc = unsafe {
+        libc::setsockopt(
+            fd,
+            SOL_PACKET,
+            PACKET_RX_RING,
+            (&raw const req).cast::<libc::c_void>(),
+            size_of::<libc::tpacket_req3>() as libc::socklen_t,
+        )
+    };
+    if rc < 0 {
+        // Not silent: without this line the symptom is an EBUSY from
+        // PACKET_VERSION on the NEXT capture, which points nowhere near here.
+        eprintln!(
+            "afpacket: failed to release the RX ring on fd {fd}: {}; \
+             further captures on this descriptor will fail with EBUSY",
+            io::Error::last_os_error()
+        );
     }
 }
 
@@ -616,6 +680,8 @@ fn interface_index(interface: &str) -> Result<u32, Error> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::*;
 
     #[test]
@@ -632,13 +698,6 @@ mod tests {
         // Present on every Linux host, including CI containers.
         assert!(interface_index("lo").is_ok());
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::time::Duration;
-
-    use super::poll_timeout_millis;
 
     #[test]
     fn a_sub_millisecond_timeout_rounds_up_so_poll_still_sleeps() {

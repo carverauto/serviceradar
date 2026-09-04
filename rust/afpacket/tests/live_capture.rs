@@ -256,3 +256,56 @@ fn cpu_time() -> f64 {
     // not asserted, so a wrong constant would misreport rather than misgate.
     (ticks(11) + ticks(12)) / 100.0
 }
+
+/// A released descriptor can be armed again.
+///
+/// This is the whole reason `Ring::into_socket` exists, and until an end-to-end
+/// capture exercised it, it did not work: `into_socket` unmapped the ring but
+/// never freed it, and `setsockopt(PACKET_VERSION)` refuses to run against a
+/// socket that still has one. The second `activate` failed with a bare `EBUSY`
+/// from a call that has nothing obviously to do with rings, on a descriptor
+/// that had been handed back "cleanly".
+///
+/// It matters because a capture descriptor is opened once, while privileged,
+/// and cannot be reopened after the drop. Without this, the SECOND capture on
+/// an interface fails for the life of the process -- and the first one looks
+/// perfect.
+#[test]
+#[ignore = "needs CAP_NET_RAW"]
+fn a_released_descriptor_can_be_armed_again() {
+    let socket = Socket::open("lo").expect("open lo (needs CAP_NET_RAW)");
+
+    let ring = socket
+        .activate(RingConfig::default(), ICMP_FILTER)
+        .expect("first activation");
+    let socket = ring.into_socket();
+
+    let ring = socket
+        .activate(RingConfig::default(), ICMP_FILTER)
+        .unwrap_or_else(|err| {
+            panic!(
+                "a descriptor returned by into_socket must be reusable, got: {}",
+                err.error
+            )
+        });
+
+    // And it still captures, rather than merely accepting the setsockopt.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut ring = ring;
+    let _ = Command::new("ping")
+        .args(["-c", "3", "-i", "0.05", "-W", "1", "127.0.0.1"])
+        .output();
+
+    let mut seen = 0usize;
+    while Instant::now() < deadline && seen == 0 {
+        match ring.drain_block(|_| seen += 1) {
+            Some(_) => {}
+            None => std::thread::sleep(Duration::from_millis(20)),
+        }
+    }
+    assert!(
+        seen > 0,
+        "the re-armed ring accepted the syscalls but captured nothing"
+    );
+    println!("re-armed descriptor captured {seen} frame(s)");
+}
