@@ -12,6 +12,9 @@ defmodule ServiceRadar.ResultsRouterLargeIngestionReleaseGateTest do
 
   @moduletag :integration
   @moduletag :large_ingestion
+  # Each chunk must commit independently: Armis identifier ownership uses
+  # transaction-scoped advisory locks, which a test-wide sandbox owner retains.
+  @moduletag sandbox: :unboxed
 
   setup_all do
     TestSupport.start_core!()
@@ -114,6 +117,13 @@ defmodule ServiceRadar.ResultsRouterLargeIngestionReleaseGateTest do
 
       assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
     end
+
+    assert 0 ==
+             scalar_count!(
+               "SELECT COUNT(*)::bigint FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()",
+               []
+             ),
+           "large ingestion must commit between chunks so transaction-scoped advisory locks are released"
 
     assert count ==
              scalar_count!(
