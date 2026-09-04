@@ -263,6 +263,7 @@ defmodule ServiceRadar.Identity.User do
     update :clear_role_profile_for_boundary do
       accept []
       change set_attribute(:role_profile_id, nil)
+      change set_attribute(:role_profile_source, :manual)
       validate RequirePrivilegeBoundary
       change InvalidateUserRbacCache
     end

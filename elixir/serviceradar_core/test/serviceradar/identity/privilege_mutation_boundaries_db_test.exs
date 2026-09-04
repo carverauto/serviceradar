@@ -144,11 +144,15 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
     }
 
     assert {:ok, %RoleProfile{name: name} = profile} =
-             RoleProfilePolicy.create(context.scope, attrs, effect_opts(self()))
+             RoleProfilePolicy.create(
+               context.scope,
+               attrs,
+               transaction_observing_effect_opts(self())
+             )
 
     assert name == attrs.name
-    refute_receive {:invalidate, _}
-    assert_receive {:audit, audit}
+    refute_receive {:invalidate, _, _}
+    assert_receive {:audit, audit, false}
     assert audit[:action] == :create
     assert audit[:resource_id] == profile.id
     assert {:ok, %RoleProfile{id: id}} = Ash.get(RoleProfile, profile.id, actor: context.system)
@@ -177,17 +181,17 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
                context.scope,
                profile.id,
                %{permissions: ["devices.view", "services.view"]},
-               effect_opts(self())
+               transaction_observing_effect_opts(self())
              )
 
-    assert_receive {:invalidate, first}
-    assert_receive {:invalidate, second}
+    assert_receive {:invalidate, first, false}
+    assert_receive {:invalidate, second, false}
 
     assert MapSet.new([first, second]) ==
              MapSet.new([direct_and_group.id, group_only.id])
 
-    refute_receive {:invalidate, _}
-    assert_receive {:audit, audit}
+    refute_receive {:invalidate, _, _}
+    assert_receive {:audit, audit, false}
     assert audit[:action] == :update
   end
 
@@ -198,7 +202,11 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
     group_user = user!(context.system, context.marker, "delete-group")
 
     {:ok, _user} =
-      User.update_role_profile(direct_user, %{role_profile_id: profile.id}, actor: context.system)
+      User.update_role_profile(
+        direct_user,
+        %{role_profile_id: profile.id, role_profile_source: :idp},
+        actor: context.system
+      )
 
     assign_group_profile!(context.system, group, profile.id)
     manual_membership!(context.system, group.id, group_user.id)
@@ -208,7 +216,10 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
 
     assert deleted_id == profile.id
     assert {:ok, nil} = Ash.get(RoleProfile, profile.id, actor: context.system)
-    assert {:ok, %{role_profile_id: nil}} = User.get_by_id(direct_user.id, actor: context.system)
+
+    assert {:ok, %{role_profile_id: nil, role_profile_source: :manual}} =
+             User.get_by_id(direct_user.id, actor: context.system)
+
     assert {:ok, %{role_profile_id: nil}} = Ash.get(UserGroup, group.id, actor: context.system)
     assert_receive {:invalidate, first}
     assert_receive {:invalidate, second}
@@ -311,6 +322,19 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
                %{description: "Synthetic trusted update"},
                actor: context.system
              )
+
+    custom = profile!(context.system, context.marker, ["devices.view"])
+
+    assert {:error, error} =
+             RoleProfile.update_system_profile(
+               custom,
+               %{description: "must not update"},
+               actor: context.system
+             )
+
+    assert Exception.message(error) =~ "trusted system-profile update requires a system profile"
+    assert {:ok, unchanged} = RoleProfile.get_by_id(custom.id, actor: context.system)
+    assert is_nil(unchanged.description)
   end
 
   test "the seeder updates a changed built-in profile through the trusted action", context do
@@ -570,6 +594,19 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
 
   defp effect_opts(test_pid) do
     [audit_writer: notify_audit(test_pid), cache_invalidator: notify_invalidation(test_pid)]
+  end
+
+  defp transaction_observing_effect_opts(test_pid) do
+    [
+      audit_writer: fn audit_opts ->
+        send(test_pid, {:audit, audit_opts, Repo.in_transaction?()})
+        :ok
+      end,
+      cache_invalidator: fn user_id ->
+        send(test_pid, {:invalidate, user_id, Repo.in_transaction?()})
+        :ok
+      end
+    ]
   end
 
   defp notify_audit(test_pid) do

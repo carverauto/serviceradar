@@ -78,6 +78,10 @@ defmodule ServiceRadar.Identity.RoleProfile do
 
     update :update_system do
       accept @profile_fields
+
+      validate attribute_equals(:system, true),
+        message: "trusted system-profile update requires a system profile"
+
       validate PermissionKeys
       change InvalidateRbacCache
     end
