@@ -534,3 +534,51 @@ impl SweepExecutionRow {
         })
     }
 }
+
+/// A single host's result from one sweep execution: reachability, port
+/// coverage, and the requested-vs-observed sweep modes record (issue 4167).
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::sweep_host_results, check_for_backend(diesel::pg::Pg))]
+pub struct SweepResultRow {
+    pub id: Uuid,
+    pub ip: String,
+    pub hostname: Option<String>,
+    pub status: String,
+    pub response_time_ms: Option<i64>,
+    pub sweep_modes_results: DbJson,
+    pub open_ports: Vec<i64>,
+    pub error_message: Option<String>,
+    pub execution_id: Uuid,
+    pub device_id: Option<String>,
+    pub inserted_at: DateTime<Utc>,
+    pub scanned_ports: Vec<i64>,
+    pub agent_id: Option<String>,
+    pub sweep_group_id: Option<Uuid>,
+}
+
+impl SweepResultRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "ip": self.ip,
+            "hostname": self.hostname,
+            "status": self.status,
+            "response_time_ms": self.response_time_ms,
+            // Requested-versus-observed sweep modes record.
+            "modes_results": serde_json::Value::from(self.sweep_modes_results),
+            // Coverage, not a derived closed set: `scanned_ports` minus
+            // `open_ports` is how an operator distinguishes a refused TCP
+            // port from one never attempted. Left as two arrays rather than
+            // a computed `closed_ports` so nothing can go stale against the
+            // values it would be derived from.
+            "open_ports": self.open_ports,
+            "scanned_ports": self.scanned_ports,
+            "error_message": self.error_message,
+            "execution_id": self.execution_id,
+            "device_id": self.device_id,
+            "agent_id": self.agent_id,
+            "sweep_group_id": self.sweep_group_id,
+            "inserted_at": self.inserted_at,
+        })
+    }
+}

@@ -903,3 +903,26 @@ fn sweep_executions_example_status_and_agent() {
         "expected default started_at desc ordering, got: {sql}"
     );
 }
+
+#[test]
+fn sweep_results_example_ip_and_status() {
+    let query = "in:sweep_results ip:192.0.2.10 status:up";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SweepResults));
+    let (sql, _) = sweep_results::to_sql_and_params(&plan).expect("should build sweep_results SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"sweep_host_results\""),
+        "expected query against sweep_host_results, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"sweep_host_results\".\"ip\" =")
+            && lower.contains("\"sweep_host_results\".\"status\" ="),
+        "expected ip + status filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"sweep_host_results\".\"inserted_at\" desc"),
+        "expected default inserted_at desc ordering, got: {sql}"
+    );
+}

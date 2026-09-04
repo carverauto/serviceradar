@@ -470,6 +470,17 @@ fn parses_sweep_executions_aliases() {
 }
 
 #[test]
+fn parses_sweep_results_aliases() {
+    for alias in ["sweep_results", "sweep_result", "sweep_host_results"] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepResults),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
 fn parses_security_signal_entity_aliases() {
     for raw in [
         "security_findings",

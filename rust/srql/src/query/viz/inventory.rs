@@ -513,6 +513,36 @@ pub(super) fn sweep_executions() -> VizMeta {
     }
 }
 
+pub(super) fn sweep_results() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("ip", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("hostname", ColumnType::Text, None),
+            col("status", ColumnType::Text, None),
+            col("response_time_ms", ColumnType::Int, None),
+            col("modes_results", ColumnType::Jsonb, None),
+            col("open_ports", ColumnType::IntArray, None),
+            col("scanned_ports", ColumnType::IntArray, None),
+            col("device_id", ColumnType::Text, None),
+            col("agent_id", ColumnType::Text, None),
+            col("sweep_group_id", ColumnType::Text, None),
+            col("execution_id", ColumnType::Text, None),
+            col(
+                "inserted_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 fn virtualization_table_meta(columns: Vec<ColumnMeta>) -> VizMeta {
     VizMeta {
         columns,

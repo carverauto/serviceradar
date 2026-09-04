@@ -983,4 +983,29 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    /// Per-host results from a sweep execution: reachability, open vs.
+    /// scanned ports, and the requested-vs-observed sweep modes record
+    /// (issue 4167).
+    sweep_host_results (id) {
+        id -> Uuid,
+        ip -> Text,
+        hostname -> Nullable<Text>,
+        status -> Text,
+        response_time_ms -> Nullable<Int8>,
+        sweep_modes_results -> Jsonb,
+        open_ports -> Array<Int8>,
+        error_message -> Nullable<Text>,
+        execution_id -> Uuid,
+        device_id -> Nullable<Text>,
+        inserted_at -> Timestamptz,
+        scanned_ports -> Array<Int8>,
+        agent_id -> Nullable<Text>,
+        sweep_group_id -> Nullable<Uuid>,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(device_identifiers, ocsf_devices);

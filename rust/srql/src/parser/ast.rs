@@ -82,6 +82,7 @@ pub enum Entity {
     SweepGroups,
     SweepProfiles,
     SweepExecutions,
+    SweepResults,
 }
 
 #[derive(Debug, Clone, Serialize)]

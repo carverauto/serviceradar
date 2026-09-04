@@ -19,7 +19,7 @@ pub use endpoint_inventory::{
 pub use events::{AlertRow, BmpRoutingEventRow, EventRow};
 pub use inventory::{
     AddonStatusRow, AgentRow, DeviceRow, GatewayRow, ServiceStatusRow, SourceFactDisagreementRow,
-    SweepExecutionRow, SweepGroupRow, SweepProfileRow,
+    SweepExecutionRow, SweepGroupRow, SweepProfileRow, SweepResultRow,
 };
 pub use metrics::{OtelMetricPointRow, OtelMetricRow, TimeseriesMetricRow};
 pub use observability::{CapacityForecastRow, LogRow, MtrTraceRow, TraceSpanRow, TraceSummaryRow};
