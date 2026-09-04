@@ -29,6 +29,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -38,8 +39,8 @@ const (
 	// cannot repeatedly time out the same large prefix after partial progress.
 	maxPluginResultsPerStream                = 10
 	minPluginResultStreamTimeout             = 30 * time.Second
-	pluginResultStreamTimeoutPerChunk        = 10 * time.Second
-	pluginResultStreamTimeoutGrace           = 10 * time.Second
+	pluginResultStreamTimeoutPerWave         = 30 * time.Second
+	pluginResultStreamTimeoutGrace           = 15 * time.Second
 	pluginResultRetainedDeliveryCapabilityV1 = "plugin-result-retained:v1"
 )
 
@@ -352,6 +353,16 @@ func (p *PushLoop) pushPluginResults(ctx context.Context) bool {
 
 	resp, err := p.streamPluginResultStatus(pushCtx, chunks)
 	if err != nil {
+		if reason, terminal := retainedPoisonDropReason(err); terminal {
+			recordAgentRetainedPoisonDrop("plugin-result", reason, len(chunks), encodedStatusChunkBytes(chunks))
+			p.pendingPluginResults = nil
+			p.logger.Error().Err(err).
+				Str("reason", reason).
+				Int("plugin_results", len(results)).
+				Msg("Poison-dropped terminally invalid plugin result stream")
+			return false
+		}
+
 		p.logger.Error().Err(err).Int("plugin_results", len(chunks)).Msg("Failed to stream plugin results to gateway")
 		return false
 	}
@@ -380,12 +391,21 @@ func pluginResultTransportCapabilities() []string {
 }
 
 func pluginResultStreamTimeout(chunkCount int) time.Duration {
-	timeout := time.Duration(chunkCount)*pluginResultStreamTimeoutPerChunk + pluginResultStreamTimeoutGrace
+	waves := (chunkCount + 1) / 2
+	timeout := time.Duration(waves)*pluginResultStreamTimeoutPerWave + pluginResultStreamTimeoutGrace
 	if timeout < minPluginResultStreamTimeout {
 		return minPluginResultStreamTimeout
 	}
 
 	return timeout
+}
+
+func encodedStatusChunkBytes(chunks []*proto.GatewayStatusChunk) int {
+	total := 0
+	for _, chunk := range chunks {
+		total += gproto.Size(chunk)
+	}
+	return total
 }
 
 func (p *PushLoop) streamPluginResultStatus(

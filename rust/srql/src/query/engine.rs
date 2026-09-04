@@ -4,7 +4,7 @@ use super::{
     build_query_plan, capacity_forecasts, composite_results, cpu_metrics, dashboard_service_views,
     dashboards, device_graph, devices, disk_metrics, downsample, endpoint_inventory_scans,
     endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
-    field_survey, flows, gateways, graph_cypher, interfaces, is_full_profile_query, logs,
+    field_survey, flows, gateways, graph_cypher, identity, interfaces, is_full_profile_query, logs,
     memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
     public_endpoints, services, source_fact_disagreements, threat_intel_matches,
     timeseries_metrics, trace_summaries, traces, translate_request, virtualization,
@@ -69,6 +69,19 @@ impl QueryEngine {
                 Entity::AddonFleet => addon_fleet::execute(&mut conn, &plan).await?,
                 Entity::AddonStatuses => addon_statuses::execute(&mut conn, &plan).await?,
                 Entity::PublicEndpoints => public_endpoints::execute(&mut conn, &plan).await?,
+                Entity::MergeAudit => identity::merge_audit::execute(&mut conn, &plan).await?,
+                Entity::DeviceRevivalAudit => {
+                    identity::device_revival_audit::execute(&mut conn, &plan).await?
+                }
+                Entity::DeviceIdentifiers => {
+                    identity::device_identifiers::execute(&mut conn, &plan).await?
+                }
+                Entity::IdentityReconciliationRuns => {
+                    identity::reconciliation_runs::execute(&mut conn, &plan).await?
+                }
+                Entity::IdentityEvidenceEdges => {
+                    identity::evidence_edges::execute(&mut conn, &plan).await?
+                }
                 Entity::EndpointInventoryScans => {
                     endpoint_inventory_scans::execute(&mut conn, &plan).await?
                 }

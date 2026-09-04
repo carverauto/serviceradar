@@ -27,6 +27,8 @@ pub mod ipc;
 #[allow(dead_code)]
 pub mod ja4;
 pub mod kernel;
+#[allow(dead_code)]
+pub(crate) mod kernel_layout;
 pub mod lifecycle;
 pub mod mdns;
 pub mod metrics;

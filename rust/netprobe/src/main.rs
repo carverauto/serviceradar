@@ -36,6 +36,8 @@ mod ipc;
 mod ja4;
 mod kernel;
 #[allow(dead_code)]
+mod kernel_layout;
+#[allow(dead_code)]
 mod lifecycle;
 #[allow(dead_code)]
 mod mdns;

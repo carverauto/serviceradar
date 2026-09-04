@@ -34,6 +34,7 @@ mod field_survey;
 mod flows;
 mod gateways;
 mod graph_cypher;
+mod identity;
 mod interfaces;
 mod logs;
 mod memory_metrics;

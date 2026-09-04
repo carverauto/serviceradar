@@ -120,6 +120,25 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
     @tag :integration
     test "returns disabled config when no profile exists" do
+      actor = SystemActor.system(:test)
+
+      SNMPProfile
+      |> Ash.read!(actor: actor)
+      |> Enum.each(fn profile ->
+        profile =
+          if profile.is_default do
+            profile
+            |> Ash.Changeset.for_update(:unset_default, %{}, actor: actor)
+            |> Ash.update!(actor: actor)
+          else
+            profile
+          end
+
+        Ash.destroy!(profile, actor: actor)
+      end)
+
+      assert [] = Ash.read!(SNMPProfile, actor: actor)
+
       {:ok, config} = SNMPCompiler.compile("default", nil, [])
 
       assert config["enabled"] == false

@@ -1,6 +1,7 @@
 defmodule ServiceRadar.StatusHandlerTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Admission.FlowLane
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Addon.V1.TelemetrySource
@@ -50,6 +51,22 @@ defmodule ServiceRadar.StatusHandlerTest do
 
     assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
     assert_receive {:forwarded, ^status}
+  end
+
+  test "retained plugin admission compatibility gate defaults to the legacy path" do
+    original = Application.get_env(:serviceradar_core, StatusHandler)
+    Application.put_env(:serviceradar_core, StatusHandler, [])
+    on_exit(fn -> restore_env(StatusHandler, original) end)
+
+    status = %{
+      source: "plugin-result",
+      service_type: "plugin",
+      delivery_capabilities: ["plugin-result-retained:v1"],
+      message: Jason.encode!(%{"status" => "OK"})
+    }
+
+    assert {:reply, :ok, %{}} =
+             StatusHandler.handle_call({:status_update, status}, self(), %{})
   end
 
   test "endpoint inventory admission bypasses a busy ResultsRouter" do
@@ -171,9 +188,26 @@ defmodule ServiceRadar.StatusHandlerTest do
   describe "flow-attribution source" do
     setup do
       original = Application.get_env(:serviceradar_core, StatusHandler, [])
+      task_supervisor = start_supervised!({Task.Supervisor, []})
+
+      lane =
+        start_supervised!(
+          {FlowLane,
+           name: unique_name(:flow_lane),
+           task_supervisor: task_supervisor,
+           config: [
+             max_items: 16,
+             max_bytes: 64 * 1_024 * 1_024,
+             max_items_per_agent: 4,
+             queue_wait_ms: 100,
+             worker_timeout_ms: 1_000,
+             gateway_call_timeout_ms: 4_100
+           ]}
+        )
 
       Application.put_env(:serviceradar_core, StatusHandler,
-        flow_attribution_persister: {__MODULE__, :persist_flow_attribution, [self()]}
+        flow_attribution_persister: {__MODULE__, :persist_flow_attribution, [self()]},
+        flow_lane: lane
       )
 
       on_exit(fn ->
@@ -222,9 +256,14 @@ defmodule ServiceRadar.StatusHandlerTest do
     test "returns a synchronous failure when flow attribution persistence fails" do
       original = Application.get_env(:serviceradar_core, StatusHandler, [])
 
-      Application.put_env(:serviceradar_core, StatusHandler,
-        flow_attribution_persister:
+      Application.put_env(
+        :serviceradar_core,
+        StatusHandler,
+        Keyword.put(
+          original,
+          :flow_attribution_persister,
           {__MODULE__, :persist_flow_attribution_result, [self(), {:error, :deadlock_exhausted}]}
+        )
       )
 
       on_exit(fn -> Application.put_env(:serviceradar_core, StatusHandler, original) end)
@@ -253,8 +292,7 @@ defmodule ServiceRadar.StatusHandlerTest do
         message: batch
       }
 
-      assert {:reply, {:error, :deadlock_exhausted}, %{}} =
-               StatusHandler.handle_call({:status_update, status}, self(), %{})
+      assert {:error, :deadlock_exhausted} = admit_status(status)
 
       assert_receive {:flow_attribution_persisted, _events, "prod-east", "agent-a"}
     end
@@ -262,9 +300,14 @@ defmodule ServiceRadar.StatusHandlerTest do
     test "emits dropped-event telemetry only after a failed prefix retry persists" do
       {:ok, attempt_counter} = Agent.start_link(fn -> 0 end)
 
-      Application.put_env(:serviceradar_core, StatusHandler,
-        flow_attribution_persister:
+      Application.put_env(
+        :serviceradar_core,
+        StatusHandler,
+        Keyword.put(
+          Application.get_env(:serviceradar_core, StatusHandler, []),
+          :flow_attribution_persister,
           {__MODULE__, :persist_flow_attribution_fail_once, [self(), attempt_counter]}
+        )
       )
 
       handler_id = {__MODULE__, self(), make_ref()}
@@ -304,14 +347,12 @@ defmodule ServiceRadar.StatusHandlerTest do
         message: batch
       }
 
-      assert {:reply, {:error, :deadlock_exhausted}, %{}} =
-               StatusHandler.handle_call({:status_update, status}, self(), %{})
+      assert {:error, :deadlock_exhausted} = admit_status(status)
 
       assert_receive {:flow_attribution_persist_attempt, 1, _events, "prod-east", "agent-a"}
       refute_receive {:flow_attribution_batch_received, _, _, _}, 20
 
-      assert {:reply, :ok, %{}} =
-               StatusHandler.handle_call({:status_update, status}, self(), %{})
+      assert :ok = admit_status(status)
 
       assert_receive {:flow_attribution_persist_attempt, 2, _events, "prod-east", "agent-a"}
 
@@ -320,6 +361,94 @@ defmodule ServiceRadar.StatusHandlerTest do
                       %{partition_id: "prod-east", agent_id: "agent-a"}}
 
       refute_receive {:flow_attribution_batch_received, _, _, _}, 20
+    end
+
+    test "does not emit committed flow telemetry when lane acceptance misses its deadline" do
+      release_ref = make_ref()
+      handler_id = {__MODULE__, self(), make_ref()}
+
+      task_supervisor =
+        start_supervised!(Supervisor.child_spec({Task.Supervisor, []}, id: make_ref()))
+
+      lane =
+        start_supervised!(
+          {FlowLane,
+           name: unique_name(:deadline_flow_lane),
+           task_supervisor: task_supervisor,
+           config: [
+             max_items: 16,
+             max_bytes: 64 * 1_024 * 1_024,
+             max_items_per_agent: 4,
+             queue_wait_ms: 100,
+             worker_timeout_ms: 150,
+             gateway_call_timeout_ms: 3_250
+           ]}
+        )
+
+      Application.put_env(
+        :serviceradar_core,
+        StatusHandler,
+        :serviceradar_core
+        |> Application.get_env(StatusHandler, [])
+        |> Keyword.put(:flow_lane, lane)
+        |> Keyword.put(
+          :flow_attribution_persister,
+          {__MODULE__, :persist_flow_attribution_after_release, [self(), release_ref]}
+        )
+      )
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:serviceradar, :event_writer, :attributed_flow, :batch_received],
+          &__MODULE__.forward_flow_attribution_telemetry/4,
+          self()
+        )
+
+      on_exit(fn ->
+        if Process.alive?(lane), do: :sys.resume(lane)
+        :telemetry.detach(handler_id)
+      end)
+
+      batch =
+        FlowAttributionEventBatch.encode(%FlowAttributionEventBatch{
+          events: [
+            %FlowAttributionEvent{
+              local_ip: "192.0.2.1",
+              local_port: 50_000,
+              remote_ip: "198.51.100.2",
+              remote_port: 443,
+              transport_protocol: "TCP",
+              pid: 42,
+              comm: "synthetic-client"
+            }
+          ],
+          dropped_since_last: 3
+        })
+
+      status = %{
+        source: "flow-attribution",
+        service_type: "passive-netprobe",
+        service_name: "flow-attribution",
+        agent_id: "agent-synthetic",
+        partition: "synthetic-partition",
+        message: batch
+      }
+
+      reply_ref = make_ref()
+
+      assert {:noreply, %{}} =
+               StatusHandler.handle_call({:status_update, status}, {self(), reply_ref}, %{})
+
+      assert_receive {:flow_attribution_waiting, ^release_ref, worker}
+      :ok = :sys.suspend(lane)
+      Process.sleep(180)
+      send(worker, {:commit_flow_attribution, release_ref})
+      assert_receive {:flow_attribution_committed, ^release_ref}
+      :ok = :sys.resume(lane)
+
+      assert_receive {^reply_ref, {:error, :execution_timeout}}, 500
+      refute_receive {:flow_attribution_batch_received, _, _, _}, 30
     end
 
     test "ignores malformed flow-attribution messages without crashing" do
@@ -335,6 +464,19 @@ defmodule ServiceRadar.StatusHandlerTest do
       assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
     end
   end
+
+  defp admit_status(status) do
+    reply_ref = make_ref()
+
+    assert {:noreply, %{}} =
+             StatusHandler.handle_call({:status_update, status}, {self(), reply_ref}, %{})
+
+    assert_receive {^reply_ref, result}, 1_500
+    result
+  end
+
+  defp unique_name(suffix),
+    do: Module.concat(__MODULE__, "#{suffix}_#{System.unique_integer([:positive])}")
 
   defp start_endpoint_inventory_queue(parent) do
     spawn(fn -> endpoint_inventory_queue_loop(parent) end)
@@ -1009,6 +1151,16 @@ defmodule ServiceRadar.StatusHandlerTest do
     send(pid, {:flow_attribution_persist_attempt, attempt, events, partition_id, agent_id})
 
     if attempt == 1, do: {:error, :deadlock_exhausted}, else: :ok
+  end
+
+  def persist_flow_attribution_after_release(_events, _partition_id, _agent_id, pid, release_ref) do
+    send(pid, {:flow_attribution_waiting, release_ref, self()})
+
+    receive do
+      {:commit_flow_attribution, ^release_ref} ->
+        send(pid, {:flow_attribution_committed, release_ref})
+        :ok
+    end
   end
 
   def forward_flow_attribution_telemetry(event, measurements, metadata, pid) do

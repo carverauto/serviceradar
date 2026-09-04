@@ -19,6 +19,78 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 # Hard Rules (never violate)
 
+- **Never commit data captured from a live system, and never let a real value
+  become a fixture.** Every test fixture, example, doc snippet, README sample,
+  seed CSV, decoder unit test and debugging artifact MUST be synthetic —
+  invented from nothing, not exported from a running deployment and edited. This
+  applies to production, staging, lab, demo and any customer or partner
+  environment, and it applies to a value you pasted "just to reproduce a bug".
+
+  The classes below are forbidden in the repository when they are **real**. Use
+  the reserved/documentation alternative in parentheses:
+  - Hostnames, FQDNs, and any internal naming scheme — device, controller,
+    switch, AP, closet, site or rack names (`host01.example.com`, `SITE01-...`)
+  - Site, region, facility, airport or datacenter codes; the *scheme* counts,
+    not just the label
+  - IP addresses and CIDR blocks, including RFC1918 ranges belonging to someone
+    else's network plan (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`)
+  - MAC addresses with a real vendor OUI (`00:00:5e:00:53:xx`)
+  - Hardware serial numbers, asset tags, chassis IDs, manufacturing dates
+  - Exact firmware/software build numbers tied to a deployment
+  - GPS coordinates that resolve to a real facility (`0.0, 0.0`)
+  - Telephone numbers, including NOC and on-call lines (`555-0100`–`555-0199`)
+  - Person names, email addresses, usernames, employee or badge IDs
+  - Kubernetes namespaces, cluster names, tenant IDs, workspace names,
+    integration instance names, and account identifiers
+  - Policy, AAA/802.1X, RADIUS, VLAN, SSID and firewall-rule names
+  - Session IDs, syslog captures, packet captures, trace IDs, and any verbatim
+    slice of a real event stream
+  - Fleet scale figures (device counts, site counts, port counts) that describe
+    a real estate
+
+  **Removing the organization's name is not sufficient, and treating it as
+  sufficient is the specific failure this rule exists to prevent.** A scrub that
+  strips the label and keeps the fingerprint leaves the data fully attributable:
+  a naming convention, a coordinate pair, a firmware build number, a serial, or
+  a distinctive fleet shape identifies an organization on its own. When data
+  turns out to be real, **regenerate the fixture from scratch** — do not
+  search-and-replace it. Replacement preserves the shape, and the shape is the
+  tell.
+
+  Corollaries, each earned:
+  - **A real value spreads.** One captured MAC became the canonical
+    MAC-normalization fixture in three encodings across an unrelated test file.
+    Fix the value at its source before it is copied.
+  - **Non-test source counts.** Decoder unit tests, `README.md` examples and
+    docs-site pages ship. A capture pasted into a decoder test is shipped
+    product source, not a test artifact.
+  - **Comments count.** Do not narrate a customer's outage, environment name, or
+    ticket in a code comment. Describe the failure mode, not the site.
+  - **Downstream registries are immutable.** Content that reaches crates.io,
+    `proxy.golang.org`/`sum.golang.org`, npm, hex.pm, an OCI registry, or a
+    published docs site **cannot be recalled by rewriting git history**. A
+    version is permanent; yank and retract only discourage selection. Treat any
+    publish as irreversible, and check the fixture before the release, not after.
+  - **Scrubbing quietly.** A commit message, branch name, or PR title that names
+    the affected party re-publishes exactly what the commit removes. Describe the
+    change by class.
+  - **Commit identity is content.** Author and committer email are baked into
+    every commit and cannot be corrected without rewriting history. Verify
+    `git config user.email` in every clone and worktree; a global identity is
+    inherited by a fresh clone, so re-cloning does not fix it.
+
+  **When searching for such data, anchor every pattern.** An organization
+  abbreviation is usually a substring of ordinary English — in this repository a
+  bare three-letter match returned ~20,000 lines against ~480 real ones, because
+  it matched `equal`, `manual`, `actual`, `virtual`, `toEqual` and `quality`. An
+  unanchored expression fed to a history-rewriting tool corrupts every commit at
+  once, unreviewably. Use word boundaries or a qualifying delimiter, and prove
+  the pattern does not over-match before running it.
+
+  If you discover captured data already committed, do not quietly delete it:
+  determine how far it spread first — other fixtures, published packages, the
+  docs site, release tags — because the deletion is the easy half.
+
 - **GitHub is the collaboration host for this repository.** Issues, pull requests,
   reviews and comments for `carverauto/serviceradar` go through `gh` against
   <https://github.com/carverauto/serviceradar>. The Forgejo instance at
