@@ -25,6 +25,10 @@ The authorization resolver SHALL union permission keys from the user's base prof
 role profile attached to every current group membership. The result SHALL use set semantics,
 independent of query ordering and duplicate paths to a permission.
 
+The strict authority snapshot SHALL contain the effective permission set and every contributing
+profile's ID/update version in deterministic ID order. Current-user, callback-grant, secure
+execution, and child-launch issue/recheck paths SHALL preserve this same snapshot shape end to end.
+
 #### Scenario: Multiple group profiles are combined
 
 - **GIVEN** a user belongs to two groups with different role profiles
@@ -37,6 +41,21 @@ independent of query ordering and duplicate paths to a permission.
 - **GIVEN** a user's permission is contributed only by one group profile
 - **WHEN** that user's membership is removed and the mutation commits
 - **THEN** a subsequent current-authority check SHALL deny the permission
+
+#### Scenario: Security adapter uses the complete union
+
+- **GIVEN** a security-sensitive adapter previously resolved one effective profile
+- **AND** a required permission is supplied only by a current group profile
+- **WHEN** the adapter resolves current authority
+- **THEN** it SHALL use the complete effective-permission union
+- **AND** any authority snapshot digest SHALL include every contributing profile deterministically
+
+#### Scenario: Issue and recheck use the same multi-profile snapshot
+
+- **GIVEN** an authorization token or approval captures current authority from multiple profiles
+- **WHEN** a callback, secure execution, or child launch rechecks that authority
+- **THEN** both issuance and recheck SHALL compare the same sorted profile-version list and
+  permission digest
 
 ### Requirement: Current Authority Reloads Group-Derived Permissions
 
@@ -88,6 +107,12 @@ Ordinary shared-cache invalidation SHALL be observable across processes.
 - **WHEN** another process commits a mutation that revokes that user's group-derived permission
 - **THEN** the first process's next resolver call SHALL NOT receive the invalidated permission
 
+#### Scenario: Group deletion invalidates cascaded members
+
+- **GIVEN** a group profile contributes permissions to current members
+- **WHEN** an authorized actor deletes the group and its memberships cascade in the owned transaction
+- **THEN** every former member's ordinary permission cache SHALL be invalidated after commit
+
 ### Requirement: Privilege Mutations Own Transaction And Audit Boundaries
 
 The system SHALL run group-profile assignment, membership mutation, and role-profile
@@ -95,6 +120,10 @@ create/update/coordinated-delete through public boundaries that own their databa
 inside a caller-owned transaction SHALL return `{:error, :outer_transaction_not_supported}` before
 any write, audit event, or cache effect. Audit and cache effects SHALL occur only after commit, and
 an audit-delivery failure SHALL NOT reject or undo the committed mutation.
+
+The underlying custom-profile, group-profile, membership, and group-destroy resource actions SHALL
+require boundary-owned changeset context so an unsupported direct call fails before persistence.
+Trusted system-profile seeding SHALL use separate explicit create/update-system actions.
 
 #### Scenario: Caller-owned outer transaction is rejected
 
@@ -125,6 +154,22 @@ an audit-delivery failure SHALL NOT reject or undo the committed mutation.
 - **WHEN** an authorized actor updates that profile's permissions and the transaction commits
 - **THEN** both users' ordinary caches SHALL be invalidated
 - **AND** the audit event SHALL describe the committed profile change
+
+#### Scenario: Direct resource mutation cannot bypass the boundary
+
+- **GIVEN** application code calls a guarded membership or policy resource action without
+  boundary-owned context
+- **WHEN** Ash evaluates the mutation
+- **THEN** it SHALL fail before persistence
+- **AND** no audit or cache side effect SHALL occur
+
+#### Scenario: Trusted system profile seeding remains available
+
+- **GIVEN** startup reconciliation needs to create or update a built-in role profile
+- **WHEN** the trusted role-profile seeder uses its explicit system action
+- **THEN** the system profile SHALL be reconciled
+- **AND** the human mutation boundary SHALL remain unavailable to a system actor pretending to be a
+  user
 
 ### Requirement: IdP Membership Reconciliation Preserves Provenance And Availability
 

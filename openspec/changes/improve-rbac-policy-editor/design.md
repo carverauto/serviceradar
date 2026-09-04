@@ -57,6 +57,14 @@ diagnostics, but authorization depends only on set membership.
 A group profile augments the base profile; it does not replace it. A user with no associated group
 profiles receives the same permissions as before this change.
 
+Every security-sensitive adapter that currently asks for one effective profile moves to the strict
+effective-authority resolver. The shared snapshot shape is `%{permissions: MapSet.t(),
+profile_versions: [%{id: String.t(), updated_at: DateTime.t()}]}`, with profile versions sorted by
+ID. `CurrentUserAuthority` returns that shape alongside the reloaded user, and callback/secure
+execution issue and recheck paths preserve it end to end. Where an authorization grant digest must
+describe the snapshot, it includes all profile versions plus the permission-set digest; a
+single-profile timestamp is no longer sufficient.
+
 ### Decision 3: Sensitive decisions rebuild complete current authority
 
 `CurrentUserAuthority` remains the canonical boundary for sensitive actions. It reloads the active
@@ -82,7 +90,8 @@ revocation. The first process must miss the invalidated shared cache on its next
 
 Add three public boundaries:
 
-- `ServiceRadar.Identity.GroupPolicy` for assigning or clearing a group's profile;
+- `ServiceRadar.Identity.GroupPolicy` for assigning or clearing a group's profile and for deleting
+  a group whose cascading memberships may revoke derived permissions;
 - `ServiceRadar.Identity.RoleProfilePolicy` for creating, updating, and deleting role profiles,
   including coordinated clearing of direct-user and user-group references during deletion; and
 - `ServiceRadar.Identity.PrivilegedMembership` for adding, removing, and reconciling memberships.
@@ -98,9 +107,18 @@ append-only audit event containing actor, target, operation, and assignment iden
 effects never occur for a rollback. Audit-delivery failure is logged and observable but cannot
 reject or undo the committed authorization change.
 
+Audit submission is best effort after commit, matching the current audit transport. This change
+does not claim crash-proof exactly-once delivery; a transactional audit outbox would be a separate
+capability.
+
 All first-party membership, group-profile, and role-profile mutation callers, including LiveView
 and HTTP API paths, route through these boundaries. Raw resource actions remain internal
 implementation details rather than alternate public mutation paths.
+
+Boundary-owned changeset context is required by the custom-profile, group-profile, membership, and
+group-destroy resource actions. Unsupported direct calls fail before persistence. Trusted system
+profile seeding uses separate explicit create/update-system actions and remains covered by a
+regression test; it does not reopen the human mutation actions.
 
 `GroupPolicy` assignment/clear requires fresh `settings.rbac.manage` and
 `identity.user_groups.manage`; loading the assignment surface additionally requires
@@ -143,14 +161,29 @@ grant.
 `:edit`, and it does not change a packaged dashboard back to private after the last view grant is
 removed. Visibility tightening remains an explicit dashboard-owner operation.
 
-The Policy Editor entry actions require fresh `settings.rbac.manage` authority AND the canonical
-source-specific share permission AND target authorization. Dedicated authored/package resource
-actions encode this conjunction; the central service does not rely on the generic package grant or
-visibility actions whose existing policy clauses are alternatives. Dashboard-local controls use
-their existing local authorization entry actions. Both entry paths call the same internal
-monotonic mutation primitive, so authorization context can differ without grant semantics drifting.
-Authorized Ash reads/writes remain the enforcement boundary; user-facing operations never use
-`SystemActor`.
+Every first-party group-grant create/update/destroy, including local `:edit` changes, routes through
+the same coordinator. The coordinator takes a transaction-scoped PostgreSQL advisory lock derived
+from `(source, target_id, group_id)` before rereading the target/grant fingerprint. This serializes
+the absent-grant case that a target row lock alone cannot protect. Group-specific resource actions
+require boundary-owned context; user-subject grant actions remain unchanged.
+
+The Policy Editor entry actions require these exact conjunctions:
+
+- authored: fresh `settings.rbac.manage` AND `analytics.dashboards.share` AND one target-management
+  path (owner, explicit `:edit` grant, or `analytics.dashboards.edit`);
+- packaged: fresh `settings.rbac.manage` AND `dashboards.packages.share` AND one target-management
+  path (owner, explicit `:edit` grant, or `dashboards.packages.view_all`).
+
+Dedicated authored/package resource actions encode these conjunctions; the central service does not
+rely on the generic package grant or visibility actions whose existing policy clauses are
+alternatives. Dashboard-local controls use their existing local authorization entry actions. Both
+entry paths call the same internal monotonic mutation primitive, so authorization context can
+differ without grant semantics drifting. Authorized Ash reads/writes remain the enforcement
+boundary; user-facing operations never use `SystemActor`.
+
+The dashboard service rejects `Repo.in_transaction?/0` with
+`{:error, :outer_transaction_not_supported}` before work, then owns its transaction. This is needed
+for the same post-commit audit guarantee as the identity mutation boundaries.
 
 After a dashboard group-view transaction commits, the shared service emits an append-only audit
 event for ensure/revoke (and any package visibility transition). Audit failure is logged and cannot
@@ -163,7 +196,8 @@ Each cursor is opaque to the browser and bound to its source. Moving one source 
 advance the other.
 
 Each source page resets only that source's LiveView stream and replaces only that source's
-server-side expected-state window. The window contains at most the current page and maps an opaque
+server-side expected-state window. Each source retains only the current page's before/after keysets,
+not an accumulating navigation history. The window contains at most the current page and maps an opaque
 row token to the selected group identity, a monotonically changed group-selection epoch, target
 identity, and a canonical fingerprint (target visibility/version and explicit group-grant
 identity/access/version). Rows paged out of the stream are removed from the expected window.
@@ -215,8 +249,9 @@ not erase an authored-dashboard page or vice versa.
 - **Large catalogs exhaust LiveView memory.** Independent keyset pages reset bounded streams and
   expected-state windows.
 - **The UI appears to promise exclusive access.** Public visibility, stronger edit grants, and
-  global bypass access are shown explicitly; the editor labels its toggles as explicit group view
-  grants.
+  source-specific base read gates, stronger edit grants, and generic global-bypass guidance are
+  shown explicitly; the editor labels its toggles as explicit group view grants and does not claim
+  to enumerate every member's effective permission sources.
 
 ## Rejected Alternatives
 
