@@ -119,9 +119,30 @@ The packet path. No IPC surface yet -- provable on its own.
   Enhanced Packet Blocks carrying the ring's `tp_sec`/`tp_nsec`. (22.4)
 - [x] 1.6 Record frame direction from `PACKET_OUTGOING` so a session can
   request ingress, egress or both.
-- [ ] 1.7 Enforce `duration_s` and `byte_cap`; emit a terminal
-  `PcapngBlock` with `final = true` and the termination reason on either
-  cap or on graceful stop. (22.5)
+- [x] 1.7 `capture::session::CaptureSession` enforces `duration_s` and
+  `byte_cap` and produces the terminal block's contents. Caps are checked
+  BEFORE encoding, so a session never emits a block that carries it past a
+  limit the operator set, and a cap that has already fired wins over a later
+  `client_cancel` -- reporting the disconnect would misattribute why the
+  capture stopped.
+
+  The clock is a PARAMETER, not read inside: `offer` takes elapsed time. A
+  duration cap tested against a real clock either sleeps for the cap (slow,
+  and flaky under load -- this repo has a p99 test that fails at load average
+  130) or shrinks the cap until the assertion proves nothing. Passing elapsed
+  in makes "at the cap" and "one millisecond short" exact, and both are
+  asserted.
+
+  A closed session stays DRAINABLE rather than terminating instantly: frames
+  the kernel already counted can sit in a partially filled block until
+  `tp_retire_blk_tov`, so emitting the terminal block immediately truncates
+  the capture with nothing erroring. `Termination.complete` cross-checks our
+  own EPB count against the kernel's `tp_packets - tp_drops`; a mismatch is
+  data loss neither counter shows alone.
+
+  Tests verified to FAIL on mutation, not merely to pass: changing the
+  duration comparison from `>=` to `>` breaks 2, and dropping the count
+  cross-check breaks 1.
 - [x] 1.8 Poll `PACKET_STATISTICS` for `tp_drops`; expose it as a
   netprobe metric and carry it in the terminal block. (`design.md` D7)
 - [x] 1.9 Unit tests: the compiler accepts every documented form and
