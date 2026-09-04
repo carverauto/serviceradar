@@ -141,6 +141,8 @@ var errWorkCap = errors.New("helper work cap exceeded")
 
 var errEncodedOutputCap = errors.New("encoded output cap exceeded")
 
+var errProjectedWireByteBound = errors.New("projected wire byte bound overflow")
+
 var errResidentCap = errors.New("merge resident memory cap exceeded")
 
 //nolint:err113 // This internal validator returns exact CLI diagnostics; callers do not match these errors.
@@ -173,14 +175,14 @@ func validateLimits(lim limits) error {
 
 func projectedWireByteBound(lim limits) (int64, error) {
 	if lim.members <= 0 || lim.members > (math.MaxInt64-1)/2 {
-		return 0, errors.New("projected wire byte bound overflow")
+		return 0, errProjectedWireByteBound
 	}
 	return projectedRecordWireByteBound(2*lim.members, lim.frameBytes)
 }
 
 func projectedManifestWireByteBound(m *manifest, lim limits) (int64, error) {
 	if m == nil || m.OSV.Count < 0 || m.VEX.Count < 0 || m.OSV.Count > math.MaxInt64-m.VEX.Count {
-		return 0, errors.New("projected wire byte bound overflow")
+		return 0, errProjectedWireByteBound
 	}
 	return projectedRecordWireByteBound(m.OSV.Count+m.VEX.Count, lim.frameBytes)
 }
@@ -191,12 +193,12 @@ func projectedRecordWireByteBound(recordCount int64, configuredFrameLimit int) (
 		frameLimit = maxProjectionFrameBytes
 	}
 	if recordCount < 0 || recordCount == math.MaxInt64 || frameLimit <= 0 {
-		return 0, errors.New("projected wire byte bound overflow")
+		return 0, errProjectedWireByteBound
 	}
 	frameCount := recordCount + 1
 	framedBytes := int64(frameLimit) + 4
 	if frameCount > math.MaxInt64/framedBytes {
-		return 0, errors.New("projected wire byte bound overflow")
+		return 0, errProjectedWireByteBound
 	}
 	return frameCount * framedBytes, nil
 }
