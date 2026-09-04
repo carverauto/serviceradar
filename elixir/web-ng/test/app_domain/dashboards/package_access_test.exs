@@ -94,7 +94,9 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
 
     {:ok, group} =
       UserGroup
-      |> Ash.Changeset.for_create(:create, %{name: "pkg-access-#{System.unique_integer([:positive])}"})
+      |> Ash.Changeset.for_create(:create, %{
+        name: "pkg-access-#{System.unique_integer([:positive])}"
+      })
       |> Ash.create(actor: system)
 
     {:ok, _grant} =
@@ -111,16 +113,26 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
 
     {:ok, membership} =
       UserGroupMembership
-      |> Ash.Changeset.for_create(:create, %{group_id: group.id, user_id: viewer.id})
+      |> Ash.Changeset.for_create(:create_manual, %{group_id: group.id, user_id: viewer.id})
+      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create(actor: system)
 
     assert instance.id in enabled_ids(viewer_scope)
 
-    :ok = Ash.destroy(membership, actor: system)
+    :ok =
+      membership
+      |> Ash.Changeset.for_destroy(:destroy, %{})
+      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+      |> Ash.destroy(actor: system)
+
     refute instance.id in enabled_ids(viewer_scope)
   end
 
-  test "grants are deleted with the instance", %{owner: owner, owner_scope: owner_scope, system: system} do
+  test "grants are deleted with the instance", %{
+    owner: owner,
+    owner_scope: owner_scope,
+    system: system
+  } do
     {_package, instance} =
       create_instance!(owner_scope, visibility: :shared, owner_id: owner.id)
 
@@ -243,7 +255,10 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
     refute private_instance.id in viewer_ids
   end
 
-  test "create_instance records the scoped user as owner", %{admin: admin, admin_scope: admin_scope} do
+  test "create_instance records the scoped user as owner", %{
+    admin: admin,
+    admin_scope: admin_scope
+  } do
     package =
       DashboardPackage
       |> Ash.Changeset.for_create(:create, package_attrs())

@@ -8,12 +8,11 @@ defmodule ServiceRadar.Identity.UserGroupMembership do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Identity.Changes.RequirePrivilegeBoundary
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "identity.user_groups.view"}
   @manage_check {ActorHasPermission, permission: "identity.user_groups.manage"}
-  @fields [:group_id, :user_id, :role, :metadata, :source]
-
   postgres do
     table "user_group_memberships"
     repo ServiceRadar.Repo
@@ -29,27 +28,49 @@ defmodule ServiceRadar.Identity.UserGroupMembership do
   code_interface do
     define :list, action: :read
     define :list_by_user, action: :by_user, args: [:user_id]
-    define :create_membership, action: :create
-    define :update_membership, action: :update
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
 
-    create :create do
-      accept @fields
+    create :create_manual do
+      accept [:group_id, :user_id, :role, :metadata]
+      change set_attribute(:source, :manual)
       upsert? true
       upsert_identity :unique_group_user
       upsert_fields [:role, :metadata, :source, :updated_at]
+      validate RequirePrivilegeBoundary
     end
 
-    update :update do
-      accept [:role, :metadata]
+    create :create_idp do
+      accept [:group_id, :user_id, :metadata]
+      change set_attribute(:source, :idp)
+      upsert? true
+      upsert_identity :unique_group_user
+      upsert_condition expr(source == :idp)
+      upsert_fields [:metadata, :updated_at]
+      return_skipped_upsert? true
+      validate RequirePrivilegeBoundary
+    end
+
+    destroy :destroy do
+      validate RequirePrivilegeBoundary
     end
 
     read :by_user do
       argument :user_id, :uuid, allow_nil?: false
       filter expr(user_id == ^arg(:user_id))
+    end
+
+    read :for_group_privilege_boundary do
+      argument :group_id, :uuid, allow_nil?: false
+      filter expr(group_id == ^arg(:group_id))
+    end
+
+    read :for_membership_privilege_boundary do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
     end
   end
 
@@ -57,8 +78,14 @@ defmodule ServiceRadar.Identity.UserGroupMembership do
     import ServiceRadar.Policies
 
     system_bypass()
-    action_type_with_permission(:read, @view_check)
-    action_type_with_permission([:create, :update, :destroy], @manage_check)
+    action_with_permission([:read, :by_user], @view_check)
+
+    action_with_permission(
+      [:for_group_privilege_boundary, :for_membership_privilege_boundary],
+      @manage_check
+    )
+
+    action_type_with_permission([:create, :destroy], @manage_check)
   end
 
   attributes do

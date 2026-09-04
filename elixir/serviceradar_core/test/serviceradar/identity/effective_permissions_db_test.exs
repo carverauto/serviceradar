@@ -90,7 +90,12 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
     assert RBAC.permissions_for_user(user, actor: actor) ==
              MapSet.new(["devices.view", "alerts.acknowledge"])
 
-    assert :ok = Ash.destroy(membership, actor: actor)
+    assert :ok =
+             membership
+             |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor)
+             |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+             |> Ash.destroy(actor: actor)
+
     assert :ok = RBAC.invalidate_user_cache(user.id)
     assert RBAC.permissions_for_user(user, actor: actor) == MapSet.new(["devices.view"])
   end
@@ -191,21 +196,28 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
       )
 
     if role_profile_id do
-      Repo.update_all(
-        from(g in "user_groups", prefix: "platform", where: g.id == ^group.id),
-        set: [role_profile_id: role_profile_id]
-      )
-    end
+      {:ok, group} =
+        group
+        |> Ash.Changeset.for_update(:assign_role_profile, %{role_profile_id: role_profile_id},
+          actor: actor
+        )
+        |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+        |> Ash.update(actor: actor)
 
-    %{group | role_profile_id: role_profile_id}
+      group
+    else
+      group
+    end
   end
 
   defp membership!(actor, user_id, group_id) do
     {:ok, membership} =
-      UserGroupMembership.create_membership(
-        %{user_id: user_id, group_id: group_id, source: :manual},
+      UserGroupMembership
+      |> Ash.Changeset.for_create(:create_manual, %{user_id: user_id, group_id: group_id},
         actor: actor
       )
+      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+      |> Ash.create(actor: actor)
 
     membership
   end

@@ -8,10 +8,12 @@ defmodule ServiceRadar.Identity.UserGroup do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Identity.Changes.RequirePrivilegeBoundary
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "identity.user_groups.view"}
   @manage_check {ActorHasPermission, permission: "identity.user_groups.manage"}
+  @rbac_manage_check {ActorHasPermission, permission: "settings.rbac.manage"}
   @fields [:name, :description, :owner_id, :metadata]
 
   postgres do
@@ -33,7 +35,7 @@ defmodule ServiceRadar.Identity.UserGroup do
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
 
     create :create do
       accept @fields
@@ -42,14 +44,42 @@ defmodule ServiceRadar.Identity.UserGroup do
     update :update do
       accept @fields -- [:owner_id]
     end
+
+    read :for_privilege_boundary do
+      argument :id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+    end
+
+    update :assign_role_profile do
+      accept [:role_profile_id]
+      validate RequirePrivilegeBoundary
+    end
+
+    update :clear_role_profile do
+      accept []
+      change set_attribute(:role_profile_id, nil)
+      validate RequirePrivilegeBoundary
+    end
+
+    destroy :destroy do
+      validate RequirePrivilegeBoundary
+    end
   end
 
   policies do
     import ServiceRadar.Policies
 
     system_bypass()
-    action_type_with_permission(:read, @view_check)
-    action_type_with_permission([:create, :update, :destroy], @manage_check)
+    action_with_permission(:read, @view_check)
+    action_with_permission(:for_privilege_boundary, @manage_check)
+
+    action_with_permission(
+      [:create, :update, :assign_role_profile, :clear_role_profile, :destroy],
+      @manage_check
+    )
+
+    action_with_permission([:assign_role_profile, :clear_role_profile], @rbac_manage_check)
   end
 
   attributes do

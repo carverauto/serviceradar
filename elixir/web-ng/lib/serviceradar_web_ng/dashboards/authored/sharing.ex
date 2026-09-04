@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.Sharing do
   defmacro __using__(_opts) do
     quote do
       alias ServiceRadar.Dashboards.DashboardAccessGrant
+      alias ServiceRadar.Identity.PrivilegedMembership
       alias ServiceRadar.Identity.User
       alias ServiceRadar.Identity.UserGroup
       alias ServiceRadar.Identity.UserGroupMembership
@@ -107,11 +108,17 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.Sharing do
 
       def create_user_group(_scope, _attrs), do: {:error, :invalid_attributes}
 
-      @spec add_user_group_member(term(), map()) :: {:ok, UserGroupMembership.t()} | {:error, term()}
+      @spec add_user_group_member(term(), map()) ::
+              {:ok, UserGroupMembership.t()} | {:error, term()}
       def add_user_group_member(scope, attrs) when is_map(attrs) do
-        UserGroupMembership
-        |> Ash.Changeset.for_create(:create, user_group_membership_attrs(attrs))
-        |> create(scope)
+        attrs = user_group_membership_attrs(attrs)
+
+        PrivilegedMembership.add(
+          scope,
+          Map.get(attrs, :group_id),
+          Map.get(attrs, :user_id),
+          Map.take(attrs, [:role, :metadata])
+        )
       end
 
       def add_user_group_member(_scope, _attrs), do: {:error, :invalid_attributes}
