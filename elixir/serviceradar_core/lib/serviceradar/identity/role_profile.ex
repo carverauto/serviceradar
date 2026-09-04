@@ -131,6 +131,16 @@ defmodule ServiceRadar.Identity.RoleProfile do
     timestamps()
   end
 
+  relationships do
+    has_many :users, ServiceRadar.Identity.User do
+      destination_attribute :role_profile_id
+    end
+
+    has_many :user_groups, ServiceRadar.Identity.UserGroup do
+      destination_attribute :role_profile_id
+    end
+  end
+
   identities do
     identity :unique_name, [:name]
     identity :unique_system_name, [:system_name], where: expr(not is_nil(system_name))

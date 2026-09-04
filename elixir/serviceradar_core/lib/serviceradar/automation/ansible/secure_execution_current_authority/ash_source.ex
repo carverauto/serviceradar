@@ -3,8 +3,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthority.AshSou
   Fresh persistence reads for non-callback AWX launch authorization.
 
   The delegated source uses a `SystemActor` only to cross persistence policy
-  boundaries. It returns the initiating principal, that principal's effective
-  profile, current memberships, reviewed binding, and holds; system authority
+  boundaries. It returns the initiating principal, that principal's strict
+  effective authority snapshot, current memberships, reviewed binding, and holds; system authority
   is never returned or treated as launch authority.
   """
 

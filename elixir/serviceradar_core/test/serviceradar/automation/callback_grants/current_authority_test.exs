@@ -141,8 +141,45 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
   end
 
   test "activation rechecks current authority contraction", %{fixture: fixture} do
-    contracted = put_in(fixture.principal.profile.permissions, ["ansible.runs.launch"])
+    contracted =
+      put_in(fixture.principal.authority.permissions, MapSet.new(["ansible.runs.launch"]))
+
     assert {:error, :current_permission_denied} = authorize(:activate, contracted)
+  end
+
+  test "profile-version ordering is stable and either contributing profile invalidates recheck",
+       %{
+         fixture: fixture
+       } do
+    first = hd(fixture.principal.authority.profile_versions)
+
+    second = %{
+      id: "0190a4c2-1000-7000-8000-00000000000b",
+      updated_at: ~U[2026-07-12 20:03:00.000000Z]
+    }
+
+    issued = with_authority_versions(fixture, [first, second])
+
+    reordered = put_in(issued.principal.authority.profile_versions, [second, first])
+    assert {:ok, _authority} = authorize(:activate, reordered)
+
+    first_changed =
+      put_in(
+        issued,
+        [:principal, :authority, :profile_versions, Access.at(0), :updated_at],
+        DateTime.add(first.updated_at, 1)
+      )
+
+    assert {:error, :principal_changed} = authorize(:activate, first_changed)
+
+    second_changed =
+      put_in(
+        issued,
+        [:principal, :authority, :profile_versions, Access.at(1), :updated_at],
+        DateTime.add(second.updated_at, 1)
+      )
+
+    assert {:error, :principal_changed} = authorize(:activate, second_changed)
   end
 
   test "pre-launch reconstruction rejects a disabled initiating principal", %{
@@ -155,7 +192,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
   test "pre-launch reconstruction requires every callback permission", %{fixture: fixture} do
     for missing <- @permissions do
       remaining = @permissions -- [missing]
-      contracted = put_in(fixture.principal.profile.permissions, remaining)
+      contracted = put_in(fixture.principal.authority.permissions, MapSet.new(remaining))
       assert {:error, :current_permission_denied} = authorize(:bind_job, contracted)
     end
   end
@@ -178,7 +215,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
   end
 
   test "fails closed after permission contraction", %{fixture: fixture} do
-    contracted = put_in(fixture.principal.profile.permissions, ["ansible.runs.launch"])
+    contracted =
+      put_in(fixture.principal.authority.permissions, MapSet.new(["ansible.runs.launch"]))
+
     assert {:error, :current_permission_denied} = authorize(contracted)
   end
 
@@ -316,7 +355,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
 
   defp service_principal_fixture(fixture) do
     owner = fixture.principal.owner
-    profile = fixture.principal.profile
+    authority = fixture.principal.authority
 
     client = %{
       id: "0190a4c2-1000-7000-8000-00000000000a",
@@ -338,13 +377,15 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
         "owner_status" => "active",
         "owner_role" => "operator",
         "owner_updated_at" => DateTime.to_iso8601(owner.updated_at),
-        "profile_id" => profile.id,
-        "profile_updated_at" => DateTime.to_iso8601(profile.updated_at),
+        "profile_versions" =>
+          Enum.map(authority.profile_versions, fn version ->
+            {version.id, DateTime.to_iso8601(version.updated_at)}
+          end),
         "fresh_permissions" => @permissions
       })
 
     fixture
-    |> put_in([:principal], %{principal: client, owner: owner, profile: profile})
+    |> put_in([:principal], %{principal: client, owner: owner, authority: authority})
     |> put_in([:grant, :principal_type], :service_principal)
     |> put_in([:grant, :principal_id], client.id)
     |> put_in([:grant, :principal_owner_id], owner.id)
@@ -352,6 +393,26 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
     |> put_in([:operation, :initiator_principal_type], :service_principal)
     |> put_in([:operation, :initiator_principal_id], client.id)
     |> put_in([:operation, :service_principal_owner_id], owner.id)
+    |> put_in([:operation, :authorization_version], authorization_version)
+  end
+
+  defp with_authority_versions(fixture, profile_versions) do
+    authorization_version =
+      Targeting.snapshot_digest(%{
+        "actor_id" => fixture.principal.owner.id,
+        "actor_status" => "active",
+        "actor_role" => "operator",
+        "actor_updated_at" => DateTime.to_iso8601(fixture.principal.owner.updated_at),
+        "profile_versions" =>
+          profile_versions
+          |> Enum.map(&{&1.id, DateTime.to_iso8601(&1.updated_at)})
+          |> Enum.sort(),
+        "fresh_permissions" => @permissions
+      })
+
+    fixture
+    |> put_in([:principal, :authority, :profile_versions], profile_versions)
+    |> put_in([:grant, :authorization_version], authorization_version)
     |> put_in([:operation, :authorization_version], authorization_version)
   end
 
@@ -379,10 +440,9 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
       updated_at: ~U[2026-07-12 20:00:00.000000Z]
     }
 
-    profile = %{
-      id: ids.profile,
-      updated_at: ~U[2026-07-12 20:01:00.000000Z],
-      permissions: @permissions
+    authority = %{
+      permissions: MapSet.new(@permissions),
+      profile_versions: [%{id: ids.profile, updated_at: ~U[2026-07-12 20:01:00.000000Z]}]
     }
 
     authorization_version =
@@ -391,8 +451,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
         "actor_status" => "active",
         "actor_role" => "operator",
         "actor_updated_at" => DateTime.to_iso8601(owner.updated_at),
-        "profile_id" => profile.id,
-        "profile_updated_at" => DateTime.to_iso8601(profile.updated_at),
+        "profile_versions" =>
+          Enum.map(authority.profile_versions, fn version ->
+            {version.id, DateTime.to_iso8601(version.updated_at)}
+          end),
         "fresh_permissions" => @permissions
       })
 
@@ -649,7 +711,7 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
 
     %{
       grant: grant,
-      principal: %{principal: owner, owner: owner, profile: profile},
+      principal: %{principal: owner, owner: owner, authority: authority},
       operation: %{
         id: ids.operation,
         tenant_id: "platform",

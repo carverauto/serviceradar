@@ -6,12 +6,9 @@ defmodule ServiceRadar.Identity.RBAC.Cache do
   with configurable TTL. All BEAM processes in the VM share this cache,
   eliminating redundant DB queries for the same user's permissions.
 
-  ## Cache Tiers
-
-  This cache serves as L2 in a two-tier strategy:
-  - **L1**: Process dictionary (fastest, per-process, no TTL)
-  - **L2**: This ETS table (shared, with TTL, invalidation via PubSub)
-  - **L3**: Database query (fallback when both caches miss)
+  This ETS table is the only resolver cache. Every BEAM process observes the
+  same TTL-bound entries and invalidation broadcasts; there is no process-local
+  permission cache.
   """
   use GenServer
 

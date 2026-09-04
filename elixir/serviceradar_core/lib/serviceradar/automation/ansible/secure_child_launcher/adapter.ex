@@ -7,8 +7,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher.Adapter do
               {:ok,
                %{
                  required(:permissions) => MapSet.t(String.t()),
-                 optional(:profile_id) => String.t() | nil,
-                 optional(:profile_updated_at) => DateTime.t() | nil
+                 required(:profile_versions) => [%{id: String.t(), updated_at: DateTime.t()}]
                }}
               | {:error, term()}
 

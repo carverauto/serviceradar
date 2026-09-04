@@ -31,7 +31,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApprovalTest do
              )
 
     assert_received {:load_user, @actor_id}
-    assert_received {:load_permissions, @actor_id}
+    assert_received {:load_authority, @actor_id}
     refute_received :approve_membership
 
     cached_deny_scope = %{
@@ -220,9 +220,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApprovalTest do
         send(parent, {:load_user, actor_id})
         {:ok, %{id: actor_id, role: :admin, status: :active}}
       end,
-      load_permissions: fn user ->
-        send(parent, {:load_permissions, user.id})
-        {:ok, fresh_permissions}
+      load_authority: fn user ->
+        send(parent, {:load_authority, user.id})
+        {:ok, %{permissions: fresh_permissions, profile_versions: []}}
       end,
       load_membership: fn membership_id ->
         send(parent, {:load_membership, membership_id})

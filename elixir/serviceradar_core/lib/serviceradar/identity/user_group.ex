@@ -22,6 +22,7 @@ defmodule ServiceRadar.Identity.UserGroup do
 
     references do
       reference :owner, on_delete: :nilify
+      reference :role_profile, on_delete: :restrict
     end
   end
 
@@ -67,6 +68,10 @@ defmodule ServiceRadar.Identity.UserGroup do
       public? true
     end
 
+    attribute :role_profile_id, :uuid do
+      public? true
+    end
+
     attribute :metadata, :map do
       allow_nil? false
       public? true
@@ -83,6 +88,12 @@ defmodule ServiceRadar.Identity.UserGroup do
       public? true
       define_attribute? false
       source_attribute :owner_id
+    end
+
+    belongs_to :role_profile, ServiceRadar.Identity.RoleProfile do
+      public? true
+      define_attribute? false
+      source_attribute :role_profile_id
     end
 
     has_many :memberships, ServiceRadar.Identity.UserGroupMembership do

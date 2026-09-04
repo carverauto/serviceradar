@@ -88,13 +88,47 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
 
     assert {:error, :current_permission_denied} =
              running
-             |> put_in([:principal, :profile, :permissions], [])
+             |> put_in([:principal, :authority, :permissions], MapSet.new())
              |> authorize_attempt(attempt)
   end
 
   test "denies launch after current permission contraction", %{fixture: fixture} do
-    contracted = put_in(fixture.principal.profile.permissions, [])
+    contracted = put_in(fixture.principal.authority.permissions, MapSet.new())
     assert {:error, :current_permission_denied} = authorize(contracted)
+  end
+
+  test "profile-version ordering is stable and either contributing profile invalidates launch", %{
+    fixture: fixture
+  } do
+    first = hd(fixture.principal.authority.profile_versions)
+
+    second = %{
+      id: "018f3f56-1111-7222-8333-123456789ac1",
+      updated_at: ~U[2026-07-13 12:06:00.000000Z]
+    }
+
+    issued = with_authority_versions(fixture, [first, second])
+
+    assert :ok =
+             issued
+             |> put_in([:principal, :authority, :profile_versions], [second, first])
+             |> authorize()
+
+    assert {:error, :principal_changed} =
+             issued
+             |> put_in(
+               [:principal, :authority, :profile_versions, Access.at(0), :updated_at],
+               DateTime.add(first.updated_at, 1)
+             )
+             |> authorize()
+
+    assert {:error, :principal_changed} =
+             issued
+             |> put_in(
+               [:principal, :authority, :profile_versions, Access.at(1), :updated_at],
+               DateTime.add(second.updated_at, 1)
+             )
+             |> authorize()
   end
 
   test "denies launch after actor, approval, membership, or hold contraction", %{
@@ -160,6 +194,27 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
     )
   end
 
+  defp with_authority_versions(fixture, profile_versions) do
+    owner = fixture.principal.owner
+
+    authorization_version =
+      Targeting.snapshot_digest(%{
+        "actor_id" => owner.id,
+        "actor_status" => "active",
+        "actor_role" => "operator",
+        "actor_updated_at" => DateTime.to_iso8601(owner.updated_at),
+        "profile_versions" =>
+          profile_versions
+          |> Enum.map(&{&1.id, DateTime.to_iso8601(&1.updated_at)})
+          |> Enum.sort(),
+        "fresh_permissions" => ["ansible.runs.launch"]
+      })
+
+    fixture
+    |> put_in([:principal, :authority, :profile_versions], profile_versions)
+    |> put_in([:resources, :operation, :authorization_version], authorization_version)
+  end
+
   defp fixture do
     actor_updated_at = ~U[2026-07-13 12:00:00.000000Z]
     profile_updated_at = ~U[2026-07-13 12:05:00.000000Z]
@@ -173,10 +228,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
       updated_at: actor_updated_at
     }
 
-    profile = %{
-      id: @profile_id,
-      permissions: permissions,
-      updated_at: profile_updated_at
+    authority = %{
+      permissions: MapSet.new(permissions),
+      profile_versions: [%{id: @profile_id, updated_at: profile_updated_at}]
     }
 
     authorization_version =
@@ -185,8 +239,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
         "actor_status" => "active",
         "actor_role" => "operator",
         "actor_updated_at" => DateTime.to_iso8601(actor_updated_at),
-        "profile_id" => @profile_id,
-        "profile_updated_at" => DateTime.to_iso8601(profile_updated_at),
+        "profile_versions" => [{@profile_id, DateTime.to_iso8601(profile_updated_at)}],
         "fresh_permissions" => permissions
       })
 
@@ -322,7 +375,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
         controller: %{id: @controller_id},
         targets: [target]
       },
-      principal: %{principal: owner, owner: owner, profile: profile},
+      principal: %{principal: owner, owner: owner, authority: authority},
       memberships: [membership],
       binding: binding,
       holds: []

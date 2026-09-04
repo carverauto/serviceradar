@@ -1,0 +1,229 @@
+defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
+  use ServiceRadar.DataCase, async: false
+
+  import Ecto.Query
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Identity.User
+  alias ServiceRadar.Identity.UserGroup
+  alias ServiceRadar.Identity.UserGroupMembership
+  alias ServiceRadar.Identity.Users
+  alias ServiceRadar.Repo
+  alias ServiceRadar.TestSupport
+
+  @moduletag :integration
+  @moduletag sandbox: :unboxed
+
+  setup_all do
+    TestSupport.start_core!()
+    :ok
+  end
+
+  setup do
+    actor = SystemActor.system(:effective_permissions_db_test)
+    RBAC.invalidate_all_caches()
+
+    on_exit(fn ->
+      RBAC.invalidate_all_caches()
+      RBAC.clear_process_cache()
+    end)
+
+    {:ok, actor: actor}
+  end
+
+  test "strict authority unions a base profile and every group profile", %{actor: actor} do
+    user = user!(actor)
+    base = profile!(actor, ["devices.view", "services.update"])
+    group_profile = profile!(actor, ["services.update", "alerts.acknowledge"])
+    duplicate_profile = profile!(actor, ["devices.view"])
+    group = group!(actor, group_profile.id)
+    duplicate_group = group!(actor, duplicate_profile.id)
+    group_without_profile = group!(actor, nil)
+
+    {:ok, user} = User.update_role_profile(user, %{role_profile_id: base.id}, actor: actor)
+    membership!(actor, user.id, group.id)
+    membership!(actor, user.id, duplicate_group.id)
+    membership!(actor, user.id, group_without_profile.id)
+
+    assert {:ok, %{permissions: permissions, profile_versions: profile_versions}} =
+             RBAC.effective_authority(user, actor)
+
+    assert permissions ==
+             MapSet.new(["devices.view", "services.update", "alerts.acknowledge"])
+
+    assert Enum.map(profile_versions, & &1.id) ==
+             Enum.sort([base.id, group_profile.id, duplicate_profile.id])
+
+    assert {:ok, ^permissions} = RBAC.effective_permissions(user, actor)
+  end
+
+  test "strict authority preserves the base profile when the user has no group memberships", %{
+    actor: actor
+  } do
+    user = user!(actor)
+    base = profile!(actor, ["devices.view", "services.update"])
+
+    {:ok, user} = User.update_role_profile(user, %{role_profile_id: base.id}, actor: actor)
+
+    assert {:ok,
+            %{
+              permissions: permissions,
+              profile_versions: [%{id: base_id, updated_at: base_updated_at}]
+            }} = RBAC.effective_authority(user, actor)
+
+    assert permissions == MapSet.new(["devices.view", "services.update"])
+    assert base_id == base.id
+    assert base_updated_at == base.updated_at
+  end
+
+  test "removing a membership removes its group-derived permissions", %{actor: actor} do
+    user = user!(actor)
+    base = profile!(actor, ["devices.view"])
+    group_profile = profile!(actor, ["alerts.acknowledge"])
+    group = group!(actor, group_profile.id)
+
+    {:ok, user} = User.update_role_profile(user, %{role_profile_id: base.id}, actor: actor)
+    membership = membership!(actor, user.id, group.id)
+
+    assert RBAC.permissions_for_user(user, actor: actor) ==
+             MapSet.new(["devices.view", "alerts.acknowledge"])
+
+    assert :ok = Ash.destroy(membership, actor: actor)
+    assert :ok = RBAC.invalidate_user_cache(user.id)
+    assert RBAC.permissions_for_user(user, actor: actor) == MapSet.new(["devices.view"])
+  end
+
+  test "ordinary resolution does not use a stale process dictionary value", %{actor: actor} do
+    user = user!(actor)
+    base = profile!(actor, ["devices.view"])
+    group_profile = profile!(actor, ["alerts.acknowledge"])
+    group = group!(actor, group_profile.id)
+
+    {:ok, user} = User.update_role_profile(user, %{role_profile_id: base.id}, actor: actor)
+    membership!(actor, user.id, group.id)
+
+    stale = MapSet.new(["stale.permission"])
+    Process.put({:rbac_permissions, user.id}, stale)
+
+    assert RBAC.permissions_for_user(user, actor: actor) ==
+             MapSet.new(["devices.view", "alerts.acknowledge"])
+  end
+
+  test "invalidating shared cache refreshes resolution in a supervised resolver process", %{
+    actor: actor
+  } do
+    user = user!(actor)
+    base = profile!(actor, ["devices.view"])
+    group_profile = profile!(actor, ["services.update"])
+    group = group!(actor, group_profile.id)
+
+    {:ok, user} = User.update_role_profile(user, %{role_profile_id: base.id}, actor: actor)
+    membership!(actor, user.id, group.id)
+
+    assert {:ok, permissions} = RBAC.effective_permissions(user, actor)
+    assert permissions == MapSet.new(["devices.view", "services.update"])
+
+    resolver_spec =
+      fn ->
+        receive_loop = fn receive_loop ->
+          receive do
+            {:resolve, reply_to} ->
+              send(reply_to, {:resolved, RBAC.permissions_for_user(user)})
+              receive_loop.(receive_loop)
+
+            :stop ->
+              :ok
+          end
+        end
+
+        receive_loop.(receive_loop)
+      end
+      |> Task.child_spec()
+      |> Supervisor.child_spec(id: make_ref())
+
+    resolver = start_supervised!(resolver_spec)
+    resolver_ref = Process.monitor(resolver)
+
+    send(resolver, {:resolve, self()})
+    assert_receive {:resolved, before_revoke}
+    assert MapSet.member?(before_revoke, "services.update")
+
+    Repo.update_all(
+      from(g in "user_groups", prefix: "platform", where: g.id == ^group.id),
+      set: [role_profile_id: nil]
+    )
+
+    assert :ok = RBAC.invalidate_user_cache(user.id)
+    send(resolver, {:resolve, self()})
+    assert_receive {:resolved, after_revoke}
+    refute MapSet.member?(after_revoke, "services.update")
+    send(resolver, :stop)
+    assert_receive {:DOWN, ^resolver_ref, :process, ^resolver, :normal}
+  end
+
+  test "strict authority fails closed when the selected base profile cannot load", %{actor: actor} do
+    user = user!(actor)
+    missing_profile_user = %{user | role_profile_id: Ecto.UUID.generate()}
+
+    assert {:error, _reason} = RBAC.effective_authority(missing_profile_user, actor)
+  end
+
+  defp profile!(actor, permissions) do
+    {:ok, profile} =
+      RoleProfile.create_profile(
+        %{
+          name: "Authority profile #{System.unique_integer([:positive])}",
+          permissions: permissions
+        },
+        actor: actor
+      )
+
+    profile
+  end
+
+  defp group!(actor, role_profile_id) do
+    {:ok, group} =
+      UserGroup.create_group(
+        %{name: "Authority group #{System.unique_integer([:positive])}"},
+        actor: actor
+      )
+
+    if role_profile_id do
+      Repo.update_all(
+        from(g in "user_groups", prefix: "platform", where: g.id == ^group.id),
+        set: [role_profile_id: role_profile_id]
+      )
+    end
+
+    %{group | role_profile_id: role_profile_id}
+  end
+
+  defp membership!(actor, user_id, group_id) do
+    {:ok, membership} =
+      UserGroupMembership.create_membership(
+        %{user_id: user_id, group_id: group_id, source: :manual},
+        actor: actor
+      )
+
+    membership
+  end
+
+  defp user!(actor) do
+    suffix = System.unique_integer([:positive])
+    password = "SyntheticAuthority#{suffix}!"
+
+    {:ok, user} =
+      Users.register_with_password(
+        %{
+          email: "authority-#{suffix}@example.test",
+          password: password,
+          password_confirmation: password
+        },
+        actor: actor
+      )
+
+    user
+  end
+end
