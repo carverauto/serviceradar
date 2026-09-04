@@ -12,6 +12,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   alias ServiceRadar.Edge.RemoteAccessFileTransfers
   alias ServiceRadar.Edge.RemoteAccessPubSub
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadarAgentGateway.AgentRegistryProxy
   alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.ConfigSyncForwarder
   alias ServiceRadarAgentGateway.ControlStreamTelemetry
@@ -121,7 +122,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
       case register_session(key, metadata) do
         :ok ->
-          state = %{state | registry_key: key}
+          state = state |> Map.put(:registry_key, key) |> sync_delivery_capabilities()
           state = forward_reported_config_version(state, control_hello)
           ControlStreamTelemetry.connected(self(), %{gateway_id: Config.gateway_id(), partition_id: partition_id})
           {:reply, :ok, state}
@@ -260,6 +261,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       )
     end
 
+    _ = sync_delivery_capabilities(state)
+
     if state.registry_key && Process.whereis(ProcessRegistry.registry_name()) do
       ProcessRegistry.unregister(state.registry_key)
     end
@@ -364,6 +367,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
           |> update_control_evidence(hello)
           |> acknowledge_pending_config(hello.config_version)
 
+        state = sync_delivery_capabilities(state)
         {:noreply, state} = refresh_control_registration(state)
         {:noreply, forward_reported_config_version(state, hello)}
 
@@ -384,6 +388,14 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
       gateway_node: state.gateway_node
     }
   end
+
+  defp sync_delivery_capabilities(%{agent_id: agent_id, partition_id: partition_id} = state)
+       when is_binary(agent_id) and is_binary(partition_id) do
+    _ = AgentRegistryProxy.sync_delivery_capabilities(partition_id, agent_id, state.capabilities)
+    state
+  end
+
+  defp sync_delivery_capabilities(state), do: state
 
   # This comparison and the stream write execute in one GenServer call. A
   # config ACK/push or reconnect therefore cannot replace the authenticated

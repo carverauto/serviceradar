@@ -40,6 +40,7 @@ import (
 	"time"
 
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
+	"github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/proto"
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
 	gproto "google.golang.org/protobuf/proto"
@@ -195,6 +196,29 @@ func (q *flowAttributionDeliveryQueue) quarantineFirst(
 	return quarantined, remaining, true
 }
 
+func (q *flowAttributionDeliveryQueue) dropPrefix(
+	batch *flowAttributionPendingBatch,
+	eventCount int,
+) (int, bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if batch == nil || q.pending != batch || eventCount <= 0 || eventCount > len(batch.events) {
+		return 0, false
+	}
+
+	for i := range eventCount {
+		batch.events[i] = nil
+	}
+	batch.events = batch.events[eventCount:len(batch.events):len(batch.events)]
+	remaining := len(batch.events)
+	if remaining == 0 {
+		q.pending = nil
+	}
+
+	return remaining, true
+}
+
 // agentFlowAttributionEventsForwardedTotal counts the number of
 // FlowAttributionEvent records the agent has successfully forwarded
 // to the gateway, surfaced as
@@ -276,7 +300,7 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 		return false
 	}
 
-	gatewayID := p.gateway.GetGatewayID()
+	gatewayID := gatewayIDFromClient(p.gateway)
 	runtimeMetadata := currentRuntimeMetadata()
 	sourceIP := p.getSourceIP()
 	sentAny := false
@@ -304,12 +328,24 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 			runtimeMetadata,
 		)
 		if errors.Is(err, errFlowAttributionEventExceedsBatchBudget) {
+			poisonBytes := gproto.Size(&netprobepb.FlowAttributionEventBatch{
+				Events:             pending.events[:1],
+				BatchStartUnixNano: pending.batchStart.UnixNano(),
+				BatchEndUnixNano:   pending.batchEnd.UnixNano(),
+				DroppedSinceLast:   droppedSinceLast,
+			})
 			quarantined, remaining, ok := p.flowAttributionDelivery.quarantineFirst(pending)
 			if !ok {
 				p.logger.Warn().Msg("Flow attribution quarantine did not match the pending batch")
 				break
 			}
 
+			recordAgentRetainedPoisonDrop(
+				"flow-attribution",
+				retainedPoisonReasonNames[poisonReasonPayloadTooLarge],
+				1,
+				poisonBytes,
+			)
 			p.logger.Error().Err(err).
 				Uint32("pid", quarantined.GetPid()).
 				Str("comm", quarantined.GetComm()).
@@ -325,10 +361,26 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 		}
 
 		pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		resp, streamErr := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{window.chunk})
+		resp, streamErr := p.streamFlowAttributionStatus(pushCtx, []*proto.GatewayStatusChunk{window.chunk})
 		cancel()
 
 		if streamErr != nil {
+			if reason, terminal := retainedPoisonDropReason(streamErr); terminal {
+				remaining, ok := p.flowAttributionDelivery.dropPrefix(pending, window.eventCount)
+				if !ok {
+					p.logger.Warn().Msg("Flow attribution poison drop did not match the pending batch")
+					break
+				}
+
+				recordAgentRetainedPoisonDrop("flow-attribution", reason, window.eventCount, window.streamBytes)
+				p.logger.Error().Err(streamErr).
+					Str("reason", reason).
+					Int("event_count", window.eventCount).
+					Int("remaining_events", remaining).
+					Msg("Poison-dropped terminally invalid flow attribution window")
+				continue
+			}
+
 			p.logger.Error().Err(streamErr).
 				Int("event_count", window.eventCount).
 				Int("remaining_events", len(pending.events)).
@@ -372,6 +424,20 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 	}
 
 	return sentAny
+}
+
+func (p *PushLoop) streamFlowAttributionStatus(
+	ctx context.Context,
+	chunks []*proto.GatewayStatusChunk,
+) (*proto.GatewayStatusResponse, error) {
+	if p.flowAttributionStreamStatus != nil {
+		return p.flowAttributionStreamStatus(ctx, chunks)
+	}
+	if p.gateway == nil {
+		return nil, agentgateway.ErrGatewayNotConnected
+	}
+
+	return p.gateway.StreamStatus(ctx, chunks)
 }
 
 // buildFlowAttributionGatewayStatus packs the drained events into a

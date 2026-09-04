@@ -92,6 +92,7 @@ go_library(
         "push_loop_plugin_config.go",
         "push_loop_plugin_signals.go",
         "push_loop_plugins.go",
+        "push_loop_retained_delivery.go",
         "push_loop_snmp.go",
         "push_loop_state.go",
         "push_loop_status.go",

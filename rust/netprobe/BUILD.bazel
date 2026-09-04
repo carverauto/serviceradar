@@ -23,6 +23,7 @@ NETPROBE_PROC_MACROS = [
 
 NETPROBE_DEPS = [
     "//rust/addon-sdk:addon_sdk",
+    "//rust/afpacket:afpacket",
     "@crates//:anyhow",
     "@crates//:base64",
     "@crates//:clap",
@@ -82,7 +83,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.52"
+NETPROBE_VERSION = "0.2.56"
 
 cargo_build_script(
     name = "build_script",
@@ -132,6 +133,13 @@ rust_binary(
         "//third_party/netprobe_corpora:p0f/serviceradar-additions.fp",
         "//third_party/netprobe_corpora:recog/serviceradar-recog-additions.xml",
         "//third_party/netprobe_corpora:recog_xml",
+        # Read by `include_str!` in the #[cfg(test)] differential module, so it is a
+        # COMPILE-time input, not runfiles. Declared here rather than on a test target
+        # because every `crate = ":netprobe"` test compiles that module: naming it per
+        # test silently breaks the next test target added, which is exactly what
+        # happened to loaded_tcp_attribution_test. The binary never reads it -- cfg(test)
+        # -- this only makes the file visible to rustc.
+        "testdata/libpcap_reference_programs.tsv",
     ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
@@ -148,6 +156,36 @@ rust_test(
     crate = ":netprobe",
     data = ["//third_party/netprobe_corpora:satori_xml"],
     deps = ["@crates//:tempfile"],
+)
+
+# Privileged production-object gate for the TCP attribution lifecycle. This is
+# intentionally separate from :netprobe_test: it needs a Linux host with
+# CAP_BPF, CAP_PERFMON, and CAP_NET_ADMIN, loads the exact eBPF object shipped
+# in the native add-on, and exercises real loopback sockets rather than
+# synthetic records. Keep it manual so capability-free wildcard test lanes do
+# not turn a missing worker prerequisite into a product failure.
+rust_test(
+    name = "loaded_tcp_attribution_test",
+    args = [
+        "--ignored",
+        "ebpf_runtime::loaded_tcp_tests::loaded_object_tcp_loopback_emits_owner_resolved_client_and_server_events",
+        "--exact",
+        "--nocapture",
+    ],
+    crate = ":netprobe",
+    data = ["//rust/netprobe/ebpf:netprobe_ebpf_object"],
+    deps = ["@crates//:tempfile"],
+    env = {
+        "NETPROBE_TEST_EBPF_OBJECT": "$(rootpath //rust/netprobe/ebpf:netprobe_ebpf_object)",
+    },
+    tags = [
+        "integration_test",
+        "manual",
+        "requires_cap_bpf",
+        "requires_cap_net_admin",
+        "requires_cap_perfmon",
+    ],
+    target_compatible_with = ["@platforms//os:linux"],
 )
 
 ###############################################################################

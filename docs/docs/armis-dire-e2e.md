@@ -71,10 +71,11 @@ Both workflows use these repository secrets:
 - `SRQL_TEST_DATABASE_URL`
 - `SRQL_TEST_ADMIN_URL`
 
-The fixture CA is fetched live from the in-cluster bundle
-`http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt`
+The fixture CA is fetched live from
+`https://srql-fixture-ca.carverauto.dev/ca.crt`
 (or `kubectl get secret srql-fixture-server-ca`). Do not store
-`SRQL_TEST_DATABASE_CA_CERT` as a repository secret. There is no public CA URL.
+`SRQL_TEST_DATABASE_CA_CERT` as a repository secret. The URL is LAN HTTPS
+(Let's Encrypt on lan-shared-gateway), not a public VIP.
 
 If the fixture cluster requires client certificates, provide their paths to
 the runner through `SERVICERADAR_TEST_DATABASE_CERT` and

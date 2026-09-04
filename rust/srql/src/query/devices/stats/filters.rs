@@ -40,6 +40,8 @@ pub(super) fn build_grouped_stats_filter_clause(
         "vendor_name" => clauses::build_grouped_text_clause("vendor_name", filter, &mut binds)?,
         "model" => clauses::build_grouped_text_clause("model", filter, &mut binds)?,
         "risk_level" => clauses::build_grouped_text_clause("risk_level", filter, &mut binds)?,
+        "cve" | "cve_id" => build_match_cve_clause(filter, &mut binds)?,
+        "kev" => build_match_kev_clause(filter, &mut binds)?,
         "is_available" => build_bool_clause("is_available", filter, &mut binds)?,
         "first_seen" | "first_seen_time" => build_first_seen_clause(filter, &mut binds)?,
         "is_active" => build_active_clause(filter, &mut binds)?,
@@ -116,6 +118,63 @@ pub(super) fn build_grouped_stats_filter_clause(
     };
 
     Ok(Some((clause, binds)))
+}
+
+fn build_match_cve_clause(filter: &Filter, binds: &mut Vec<DeviceSqlBindValue>) -> Result<String> {
+    let prefix = "EXISTS (SELECT 1 FROM endpoint_vulnerability_matches m \
+         WHERE m.device_uid = ocsf_devices.uid AND m.status = 'active' AND ";
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::In | FilterOp::NotIn => {
+            let values = crate::query::advisory::cve_eq_values(filter)?;
+            if values.is_empty() {
+                return Ok("TRUE".into());
+            }
+            binds.push(DeviceSqlBindValue::TextArray(values));
+            let clause = format!("{prefix}m.cve_id = ANY(?))");
+            Ok(if matches!(filter.op, FilterOp::NotEq | FilterOp::NotIn) {
+                format!("NOT {clause}")
+            } else {
+                clause
+            })
+        }
+        FilterOp::Like => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!("{prefix}m.cve_id ILIKE ?)"))
+        }
+        FilterOp::NotLike => {
+            binds.push(DeviceSqlBindValue::Text(
+                filter.value.as_scalar()?.to_string(),
+            ));
+            Ok(format!("NOT {prefix}m.cve_id ILIKE ?)"))
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "cve filter only supports equality, membership, and % wildcards".into(),
+        )),
+    }
+}
+
+fn build_match_kev_clause(filter: &Filter, binds: &mut Vec<DeviceSqlBindValue>) -> Result<String> {
+    if !matches!(filter.op, FilterOp::Eq | FilterOp::NotEq) {
+        return Err(ServiceError::InvalidRequest(
+            "kev filter only supports equality".into(),
+        ));
+    }
+    let want = super::super::filters::parse_bool(filter.value.as_scalar()?)?;
+    let want = if matches!(filter.op, FilterOp::NotEq) {
+        !want
+    } else {
+        want
+    };
+    binds.push(DeviceSqlBindValue::Bool(true));
+    let clause = "EXISTS (SELECT 1 FROM endpoint_vulnerability_matches m \
+         WHERE m.device_uid = ocsf_devices.uid AND m.status = 'active' AND m.kev = ?)";
+    Ok(if want {
+        clause.to_string()
+    } else {
+        format!("NOT {clause}")
+    })
 }
 
 fn build_first_seen_clause(filter: &Filter, binds: &mut Vec<DeviceSqlBindValue>) -> Result<String> {

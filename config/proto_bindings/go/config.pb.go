@@ -335,6 +335,11 @@ type DatabaseConfig struct {
 	// was watching. Naming the endpoint means every client reads the CURRENT bundle and no
 	// human rotates anything.
 	//
+	// https:// only. The custom CA is the document being fetched. The hop that fetches it is
+	// terminated by a publicly trusted cert (Let's Encrypt on lan-shared-gateway) so scratch
+	// images verify it with the public roots they already carry. Serving this URL over plain
+	// HTTP is the TOFU hole the audits keep reducing every other hardening to.
+	//
 	// Absent means the CA comes from SecretManager (`database.ca_cert`) instead, for a
 	// deployment that mounts one.
 	CaBundleUrl   *string `protobuf:"bytes,14,opt,name=ca_bundle_url,json=caBundleUrl,proto3,oneof" json:"ca_bundle_url,omitempty"`
@@ -545,9 +550,10 @@ type DgraphConfig struct {
 	// rotates, so a copy pinned in a secret store is correct until the next rotation and then
 	// silently is not. Naming the endpoint means every client reads the CURRENT bundle.
 	//
-	// Published unauthenticated over plain HTTP, necessarily: a CA bundle is what a client needs
-	// BEFORE it can authenticate anything, so serving it over TLS would require the very bundle
-	// being fetched. Its integrity comes from the endpoint being in-cluster.
+	// https:// only. The custom CA is the document being fetched, not the trust anchor for
+	// this hop. TLS on the publisher is a publicly trusted cert (Let's Encrypt), which scratch
+	// images already have in their CA bundle. Wrapping this fetch in a cert issued by the
+	// custom CA is the circular case; wrapping it in a public CA is not.
 	//
 	// Absent means the CA comes from SecretManager (`dgraph.ca_cert`) instead, for a deployment
 	// that mounts one.

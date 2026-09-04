@@ -239,21 +239,20 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     {resolved_updates, strong_uids, device_records, identifier_records, interface_records}
   end
 
-  # Enrichment-only sources may describe a device but never create one.
+  # Updates that may not create a device are kept only when they already name
+  # one. This runs AFTER the bulk identifier lookup and BEFORE anything that
+  # writes, which is the only window where "does this device already exist" is
+  # both answered and still actionable. Downstream, BatchResolver mints a uid
+  # for any update that resolved to nothing -- that is its job for every other
+  # source, and there is no flag on the resolved tuple that would let a later
+  # step tell a minted device from a found one.
   #
-  # This runs AFTER the bulk identifier lookup and BEFORE anything that writes,
-  # which is the only window where "does this device already exist" is both
-  # answered and still actionable. Downstream, BatchResolver mints a uid for any
-  # update that resolved to nothing -- that is its job for every other source,
-  # and there is no flag on the resolved tuple that would let a later step tell
-  # a minted device from a found one.
-  #
-  # See SourcePolicy.enrichment_only_source?/1 for why mDNS is not allowed to
-  # bring a device into existence.
+  # See SourcePolicy.sufficient_to_create?/1: mDNS is enrichment-only, and an
+  # addressless census ARP probe is the wrong kind of evidence to mint a row.
   defp drop_unmatched_enrichment_updates(updates, existing_mappings, existing_ip_to_device) do
     {kept, dropped} =
       Enum.split_with(updates, fn update ->
-        not SourcePolicy.enrichment_only_source?(update) or
+        SourcePolicy.sufficient_to_create?(update) or
           Lookups.matches_existing_device?(update, existing_mappings) or
           enrichment_ip_matches_existing_device?(update, existing_ip_to_device)
       end)
@@ -263,11 +262,28 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       # all unknown to inventory and a collector whose MACs never match look
       # identical from outside, and only one of them is working as intended.
       Logger.debug(
-        "SyncIngestor: dropped #{length(dropped)} enrichment-only update(s) matching no existing device"
+        "SyncIngestor: dropped #{length(dropped)} update(s) ineligible to create a device and matching no existing device"
       )
     end
 
-    kept
+    # Blank IP is an explicit clear in DeviceWrites (`btrim(EXCLUDED.ip) = ''
+    # THEN NULL`). An ineligible observation kept as enrichment must not
+    # vacate a stored address. Nil means omit.
+    Enum.map(kept, &omit_blank_ip_unless_creating/1)
+  end
+
+  defp omit_blank_ip_unless_creating(update) do
+    if SourcePolicy.sufficient_to_create?(update) do
+      update
+    else
+      case update.ip do
+        ip when is_binary(ip) ->
+          if String.trim(ip) == "", do: %{update | ip: nil}, else: update
+
+        _ ->
+          update
+      end
+    end
   end
 
   # An address already claimed by a device is a legitimate anchor for enrichment,

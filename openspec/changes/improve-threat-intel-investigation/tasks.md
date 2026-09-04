@@ -4,63 +4,63 @@
   `add-cti-signal-coverage`, `improve-attributed-flow-investigation`, and SRQL.
 - [ ] 1.2 Confirm the documented match-count semantics against representative
   production data and the current dashboard queries.
-- [ ] 1.3 Approve the proposal before implementation begins.
+- [x] 1.3 Approve the proposal before implementation begins.
 
 ## 2. Query Boundary And Current-Match Read Model
 
-- [ ] 2.1 Add a project-owned threat-intel investigation query module that pages
+- [x] 2.1 Add a project-owned threat-intel investigation query module that pages
   live `IpThreatIntelCache` endpoint matches and resolves individual active
   `ThreatIntelIndicator` rows without per-row queries.
 - [ ] 2.2 Return explicit fields for cache evaluation/expiry and indicator
   identity/source/label/severity/confidence/validity; attach source-object context
   only when the relationship is unambiguous.
-- [ ] 2.3 Keep current cache matches and `OTXRetrohuntFinding` evidence as distinct
+- [x] 2.3 Keep current cache matches and `OTXRetrohuntFinding` evidence as distinct
   result kinds and labels.
 - [ ] 2.4 Add deterministic keyset pagination and bounded source, indicator,
   observed-IP, severity, freshness, and status filters.
 - [ ] 2.5 Run `EXPLAIN (ANALYZE, BUFFERS)` on production-sized fixtures and add only
   the supporting live-cache/index migration proven necessary by the plan.
-- [ ] 2.6 Fix match metric naming so distinct endpoints and
+- [x] 2.6 Fix match metric naming so distinct endpoints and
   endpoint-to-indicator memberships are never reported as flow occurrence counts.
-- [ ] 2.7 Return explicit timeout/query errors instead of converting errors into
+- [x] 2.7 Return explicit timeout/query errors instead of converting errors into
   empty result sets.
 
 ## 3. SRQL Threat Intel Surface
 
-- [ ] 3.1 Add `ThreatIntelMatches` to the SRQL entity parser, plan/query dispatch,
+- [x] 3.1 Add `ThreatIntelMatches` to the SRQL entity parser, plan/query dispatch,
   schema/model projection, visualization metadata, and web-ng catalog.
-- [ ] 3.2 Implement `in:threat_intel_matches` filters, sorts, limits, and keyset
+- [x] 3.2 Implement `in:threat_intel_matches` filters, sorts, limits, and keyset
   pagination for the documented first-increment fields.
-- [ ] 3.3 Add `threat_matched`, `threat_source`, `threat_indicator`,
+- [x] 3.3 Add `threat_matched`, `threat_source`, `threat_indicator`,
   `threat_observed_ip`, and `threat_severity` filters to both `in:flows` and
   `in:attributed_flows`.
 - [ ] 3.4 Project bounded source/destination threat summaries without multiplying
   one flow into multiple result rows.
-- [ ] 3.5 Require/default a bounded time range for interactive threat-aware flow
+- [x] 3.5 Require/default a bounded time range for interactive threat-aware flow
   queries and route longer searches through retrohunt.
-- [ ] 3.6 Parameterize every threat filter and reject unsupported operators, sort
+- [x] 3.6 Parameterize every threat filter and reject unsupported operators, sort
   fields, cursors, or unbounded requests with a typed SRQL error.
-- [ ] 3.7 Add catalog autocomplete/examples for threat matches, normal flows, and
+- [x] 3.7 Add catalog autocomplete/examples for threat matches, normal flows, and
   attributed flows.
 
 ## 4. Threat Intel Investigation UI
 
-- [ ] 4.1 Add `/security/threat-intel` inside the existing authenticated
+- [x] 4.1 Add `/security/threat-intel` inside the existing authenticated
   `live_session :require_authenticated_user` and authorize mount and all events
   with `observability.netflow.view` because the route exposes NetFlow evidence.
-- [ ] 4.2 Build a paginated current-match list with explicit loading, empty, stale,
+- [x] 4.2 Build a paginated current-match list with explicit loading, empty, stale,
   timeout, and retry states.
-- [ ] 4.3 Add a selectable detail view for endpoint, indicator, provider context,
+- [x] 4.3 Add a selectable detail view for endpoint, indicator, provider context,
   severity/confidence, validity, cache freshness, and available historical
   evidence.
-- [ ] 4.4 Add URL-backed filters and `View flows` / `View attributed flows` pivots
+- [x] 4.4 Add URL-backed filters and `View flows` / `View attributed flows` pivots
   that preserve endpoint, indicator/source, and time state.
 - [ ] 4.5 Add separate inventory and retrohunt evidence views without presenting
   imported-only IOCs as local sightings.
-- [ ] 4.6 Change the dashboard Threat Intel summary body to open the investigation
+- [x] 4.6 Change the dashboard Threat Intel summary body to open the investigation
   route; retain a separate `Manage` command to settings and preserve accessible
   keyboard/focus behavior.
-- [ ] 4.7 Replace settings-page evidence samples with concise operational summaries
+- [x] 4.7 Replace settings-page evidence samples with concise operational summaries
   and links to investigation, while leaving sync, assignment, credentials, and
   manual administrative actions in settings.
 - [ ] 4.8 Keep all list/detail dimensions stable across loading and dynamic content,
@@ -89,7 +89,7 @@
 
 ## 6. Security, Performance, And Observability
 
-- [ ] 6.1 Enforce `observability.netflow.view` on the LiveView, SRQL entity, and any
+- [x] 6.1 Enforce `observability.netflow.view` on the LiveView, SRQL entity, and any
   API/query endpoint; keep all mutations behind `plugins.assign`.
 - [ ] 6.2 Verify that API keys, secret references, raw payloads, and unredacted
   provider errors never enter results, URLs, logs, telemetry, or rendered HTML.
@@ -102,9 +102,9 @@
 
 ## 7. Tests And Verification
 
-- [ ] 7.1 Add SRQL parser/planner/model tests for `in:threat_intel_matches` and every
+- [x] 7.1 Add SRQL parser/planner/model tests for `in:threat_intel_matches` and every
   supported filter/operator/sort/error path.
-- [ ] 7.2 Add flow and attributed-flow tests proving identical threat filter
+- [x] 7.2 Add flow and attributed-flow tests proving identical threat filter
   semantics and no duplicate flow rows when multiple indicators match one endpoint.
 - [ ] 7.3 Add Elixir data-layer tests for live/expired cache rows, overlapping CIDRs,
   missing source-object context, retrohunt separation, pagination, and timeout
@@ -126,9 +126,9 @@
 
 ## 8. Documentation And Rollout
 
-- [ ] 8.1 Document imported inventory vs current match vs retrohunt evidence vs
+- [x] 8.1 Document imported inventory vs current match vs retrohunt evidence vs
   canonical finding semantics and the exact dashboard metric definitions.
-- [ ] 8.2 Document SRQL threat-intel examples and the interactive time-window limits.
+- [x] 8.2 Document SRQL threat-intel examples and the interactive time-window limits.
 - [x] 8.3 Document OTX continuation behavior and clarify that the removed `Max IOCs`
   setting was never a retained-corpus cap.
 - [ ] 8.4 Canary the change with an intentionally partial OTX walk, confirm cursor

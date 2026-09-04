@@ -10,6 +10,12 @@ TLS verification is against the name DIALED, not the address reached, so a host 
 SAN fails the handshake at runtime -- after deploy, in whichever environment was edited last,
 with an error that names neither file. The mismatch is invisible to `helm template`, to the
 Rust type system, and to every test that does not read both files at once.
+
+CI also fetches the private CA over HTTPS terminated by the LAN shared gateway's public
+Let's Encrypt cert. Scratch images already trust that issuer; wrapping the custom CA in the
+same CA is the circular case the audits reject. The URL, HTTPRoute hostname, namespace
+gateway label, and BuildBuddy RFC1918 allowlist have to agree or the fetch is either
+plaintext or black-holed by the executor SSRF filter.
 """
 
 import re
@@ -28,6 +34,12 @@ ENV_TO_DEPLOYMENT = {
     "demo": "demo",
     "saas": "demo",
 }
+
+# Public-zone name on lan-shared-gateway. Let's Encrypt will not issue for
+# *.svc.cluster.local; scratch images already have the public roots.
+CI_CA_BUNDLE_URL = "https://dgraph-ci-ca.carverauto.dev/ca.crt"
+CI_CA_HOSTNAME = "dgraph-ci-ca.carverauto.dev"
+LAN_GATEWAY_VIP = "192.168.6.87/32"
 
 
 def dgraph_host_and_port(env):
@@ -131,6 +143,44 @@ class DgraphEndpointContract(unittest.TestCase):
             with self.subTest(env=env):
                 _, port = dgraph_host_and_port(env)
                 self.assertEqual(port, 9080, f"{env} does not dial Alpha's gRPC port")
+
+    def test_ci_fetches_the_private_ca_over_public_https(self):
+        # Plain HTTP is the hole the audits keep reducing every other hardening to. The
+        # publisher stays HTTP behind Envoy; the URL clients dial must be HTTPS so the first
+        # hop verifies against the public roots already in the scratch image.
+        block = re.search(
+            r"^dgraph \{.*?^\}",
+            (ENVIRONMENTS / "ci.textproto").read_text(),
+            re.S | re.M,
+        )
+        self.assertIsNotNone(block, "ci.textproto has no dgraph block")
+        url = re.search(r'ca_bundle_url:\s*"([^"]+)"', block.group(0))
+        self.assertIsNotNone(url, "ci dgraph block has no ca_bundle_url")
+        self.assertEqual(url.group(1), CI_CA_BUNDLE_URL)
+        self.assertTrue(url.group(1).startswith("https://"), url.group(1))
+
+    def test_ci_ca_httproute_uses_the_config_hostname(self):
+        route = (K8S / "ci" / "httproute-ca.yaml").read_text()
+        self.assertIn(f"hostname: {CI_CA_HOSTNAME}", route)
+        self.assertIn(f"- {CI_CA_HOSTNAME}", route)
+        self.assertIn("name: lan-shared-gateway", route)
+        self.assertIn("namespace: lan-edge", route)
+        self.assertIn("sectionName: https-carverauto", route)
+        self.assertIn("name: dgraph-ca-incluster", route)
+        self.assertIn("cloudflare-proxied: \"false\"", route)
+
+    def test_ci_namespace_may_attach_to_the_lan_gateway(self):
+        ns = (K8S / "ci" / "namespace.yaml").read_text()
+        self.assertIn('carverauto.com/lan-gateway-access: "true"', ns)
+
+    def test_buildbuddy_allows_the_lan_gateway_vip(self):
+        # BuildBuddy rejects RFC1918 unless it is listed. 192.168.6.87 is the LAN
+        # shared-gateway VIP; without this allow, HTTPS CA fetches from workflow
+        # actions are Connection refused and look like a dead publisher.
+        for name in ("values.yaml", "values-workflows.yaml"):
+            with self.subTest(values=name):
+                text = (REPO / "k8s" / "buildbuddy" / name).read_text()
+                self.assertIn(LAN_GATEWAY_VIP, text, name)
 
 
 if __name__ == "__main__":

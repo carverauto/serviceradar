@@ -1737,6 +1737,7 @@ fixtures {
       tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
     }
   }
+  expected_violations { code: "DATABASE_CA_BUNDLE_URL_HTTPS" field_path: "database.ca_bundle_url" }
   expected_violations { code: "DATABASE_CA_BUNDLE_URL_NON_EMPTY" field_path: "database.ca_bundle_url" }
 }
 
@@ -1777,5 +1778,86 @@ fixtures {
       ca_bundle_url: ""
     }
   }
+  expected_violations { code: "DGRAPH_CA_BUNDLE_URL_HTTPS" field_path: "dgraph.ca_bundle_url" }
   expected_violations { code: "DGRAPH_CA_BUNDLE_URL_NON_EMPTY" field_path: "dgraph.ca_bundle_url" }
+}
+
+fixtures {
+  name: "database_ca_bundle_url_http"
+  description: "Plain HTTP is the TOFU hole. A CA bundle URL must be https:// so the fetch verifies against public roots already in the image."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      ca_bundle_url: "http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+    }
+  }
+  expected_violations { code: "DATABASE_CA_BUNDLE_URL_HTTPS" field_path: "database.ca_bundle_url" }
+}
+
+fixtures {
+  name: "dgraph_ca_bundle_url_http"
+  description: "Same constraint as the database CA URL: the Dgraph CA fetch must be https://."
+  phase: PHASE_CONFIG
+  instance {
+    kind: ENVIRONMENT_KIND_CI
+    database {
+      host: "db"
+      port: 5432
+      database: "srql_fixture"
+      connecting_role: "srql_test"
+      owning_role: "srql_test"
+      tls_mode: TLS_MODE_VERIFY_FULL
+      tls_server_name: "db"
+      search_path: "platform, ag_catalog"
+      pool_size: 10
+      queue_target_ms: 500
+      queue_interval_ms: 1000
+      ownership_timeout_ms: 60000
+    }
+    nats {
+      url: "nats://nats:4222"
+      server_name: "nats"
+    }
+    core {
+      address: "core:50052"
+      api_url: "http://core:8090"
+      security_mode: SECURITY_MODE_MTLS
+      server_name: "core"
+    }
+    dgraph {
+      host: "dgraph"
+      port: 9080
+      tls_mode: DGRAPH_TLS_MODE_VERIFY_CA
+      ca_bundle_url: "http://dgraph-ca-incluster.dgraph-ci.svc.cluster.local/ca.crt"
+    }
+  }
+  expected_violations { code: "DGRAPH_CA_BUNDLE_URL_HTTPS" field_path: "dgraph.ca_bundle_url" }
 }

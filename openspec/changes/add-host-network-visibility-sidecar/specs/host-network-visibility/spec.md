@@ -357,28 +357,25 @@ the agent can suppress unchanged snapshots downstream.
 - **AND** the agent suppresses re-publication downstream while
   preserving the freshness timestamp on the agent host's device record
 
-### Requirement: External NetFlow attribution join
+### Requirement: Local flow attribution observations
 
-`serviceradar-netprobe` SHALL accept `ExternalFlowRecord` messages
-forwarded by the agent and annotate them with local process attribution
-when their 5-tuple matches an observed local socket lifecycle entry
-within a configurable matching window. Annotated records MUST be
-emitted as `FlowAttributionEvent` records with `source =
-"external_netflow"`. Unmatched records MUST be dropped silently and
-counted.
+`serviceradar-netprobe` SHALL emit locally observed socket/process
+attributions to the agent without requiring external NetFlow records to be
+replayed down to the host. This requirement governs producer-to-agent handoff;
+the downstream acknowledgement, retry-ownership, and core-persistence contract
+is owned by the `flow-attribution` and `edge-architecture` capabilities. Core
+SHALL correlate persisted observations with independently ingested NetFlow/IPFIX
+inside CNPG.
 
-#### Scenario: External NetFlow record matches a local socket
-- **WHEN** the agent forwards a NetFlow record whose 5-tuple matches an
-  active local TCP connection owned by `nginx` PID 1234
-- **THEN** the sidecar emits a `FlowAttributionEvent` with
-  `source = "external_netflow"`, `pid = 1234`, and `comm = "nginx"`
+#### Scenario: Local TCP connection produces an agent-up observation
+- **WHEN** a process on the host opens a TCP connection owned by `nginx` PID 1234
+- **THEN** the sidecar emits a `FlowAttributionEvent` containing the local socket tuple, `pid = 1234`, and `comm = "nginx"`
+- **AND** the agent sends that event through the dedicated flow-attribution status path
 
-#### Scenario: Unmatched external record is dropped and counted
-- **WHEN** the agent forwards a NetFlow record whose 5-tuple does not
-  match any local socket within the matching window
-- **THEN** the sidecar does not emit a `FlowAttributionEvent` for it
-- **AND** increments
-  `serviceradar_netprobe_external_flow_unmatched_total`
+#### Scenario: Observation is retained without sampled-flow overlap
+- **WHEN** core persists a local attribution observation for which no eligible NetFlow/IPFIX row exists in the correlation window
+- **THEN** the current attribution observation remains available for its configured retention window
+- **AND** no NetFlow record is replayed down to the agent or netprobe to manufacture a match
 
 ### Requirement: Sample-interval rate limiting
 
@@ -425,11 +422,13 @@ domain socket using length-prefixed protobuf framing. The protocol MUST
 expose at least `ApplyConfig(VisibilityAgentConfig)`,
 `Ping()/PingAck()`, four server-streamed event channels
 (`FingerprintEvents`, `DpiEvents`, `FlowAttributionEvents`,
-`ProcessSnapshots`), and one client-streamed channel
-(`IngestExternalFlows`) as defined in
+`ProcessSnapshots`) as defined in
 `proto/agent/netprobe/v1/netprobe.proto`. Each frame MUST be prefixed
 with a 4-byte big-endian length and MUST NOT exceed 4 MiB. The schema
-MUST be additive only within the v1 package.
+MUST be additive only within the v1 package. The legacy
+`IngestExternalFlows` channel MAY remain for compatibility while its field and
+persisted config are retired, but production attribution MUST NOT depend on
+replaying external NetFlow down to netprobe.
 
 #### Scenario: Oversized frame is rejected
 - **WHEN** either party receives a frame whose declared length exceeds

@@ -37,6 +37,12 @@ pub(in crate::query::devices) fn collect_filter_params(
             params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
             Ok(())
         }
+        "cve" | "cve_id" => collect_match_cve_params(params, filter),
+        "kev" => {
+            let _ = parse_bool(filter.value.as_scalar()?)?;
+            params.push(BindParam::Bool(true));
+            Ok(())
+        }
         "type" | "device_type" => collect_device_type_params(params, filter),
         "availability_source_fresh_within" | "availability_source_stale_after" => {
             params.push(BindParam::timestamptz(freshness_threshold(filter)?));
@@ -164,6 +170,26 @@ pub(in crate::query::devices) fn collect_filter_params(
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field '{other}'"
         ))),
+    }
+}
+
+fn collect_match_cve_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::In | FilterOp::NotIn => {
+            let values = crate::query::advisory::cve_eq_values(filter)?;
+            if values.is_empty() {
+                return Ok(());
+            }
+            params.push(BindParam::TextArray(values));
+            Ok(())
+        }
+        FilterOp::Like | FilterOp::NotLike => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        _ => Err(ServiceError::InvalidRequest(
+            "cve filter only supports equality, membership, and % wildcards".into(),
+        )),
     }
 }
 

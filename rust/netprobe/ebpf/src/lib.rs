@@ -114,6 +114,7 @@ const TRACE_SADDR_V4_OFFSET: usize = 32;
 const TRACE_DADDR_V4_OFFSET: usize = 36;
 const TRACE_SADDR_V6_OFFSET: usize = 40;
 const TRACE_DADDR_V6_OFFSET: usize = 56;
+const TRACE_RHEL9_LAYOUT_SHIFT: usize = 8;
 
 // `struct sock` field reads for the kprobe attribution path.
 //
@@ -131,9 +132,9 @@ const TRACE_DADDR_V6_OFFSET: usize = 56;
 // skc_rcv_saddr@4, skc_dport@12, skc_num@14, skc_family@16, skc_v6_daddr@56,
 // skc_v6_rcv_saddr@72. NOTE (kernel fragility): these offsets are NOT
 // CO-RE-relocated, so a kernel whose sock_common layout differs from the target
-// 6.8 dump would mis-read; the addrs/ports are validated in userspace
-// (flow_key_from_record) so a bad read drops the record rather than corrupting
-// attribution.
+// 6.8 dump would mis-read. The userspace loader therefore validates these
+// exact field offsets against `/sys/kernel/btf/vmlinux` before attaching any
+// attribution probe and reports TCP attribution unavailable on a mismatch.
 #[repr(C)]
 struct In6Addr {
     addr: [u8; 16],
@@ -617,9 +618,12 @@ pub fn tcp_close(ctx: ProbeContext) -> u32 {
 
     if let Some(tuple) = socket_tuple(sock, IPPROTO_TCP, true) {
         if !tuple_destination_is_zero(&tuple) {
-            if let Some(canonical_flow) = flow_key_from_tuple(&tuple) {
-                remove_flow_pid_by_key(&canonical_flow.key);
-            }
+            // Use the cached socket owner because tcp_close may run outside the
+            // owning task. The close helper snapshots the owner and then evicts
+            // both the actual attribution gate key and socket key before it can
+            // return, even when the ring is full. If the tracepoint also fires,
+            // its later duplicate has no cached owner and is suppressed.
+            emit_event_with_cached_owner(&ctx, EVENT_TCP_CLOSE, sock, tuple, 0, 0);
         }
     }
     remove_socket_pid_by_address(sock as u64);
@@ -742,25 +746,39 @@ fn emit_icmp_send(ctx: &ProbeContext) {
 
 #[tracepoint(name = "inet_sock_set_state", category = "sock")]
 pub fn inet_sock_set_state(ctx: TracePointContext) -> u32 {
-    let Ok(sock) = trace_read::<*const c_void>(&ctx, TRACE_SKADDR_OFFSET) else {
+    emit_inet_sock_set_state::<0>(&ctx)
+}
+
+// RHEL/Alma 9's 5.14 tracepoint carries a 16-byte common header, while the
+// Ubuntu 6.8 layout used by the original program carries an 8-byte header.
+// Userspace validates the live tracefs field offsets and attaches exactly one
+// of these programs; unsupported layouts fail startup as TCP-unavailable.
+#[tracepoint(name = "inet_sock_set_state_rhel9", category = "sock")]
+pub fn inet_sock_set_state_rhel9(ctx: TracePointContext) -> u32 {
+    emit_inet_sock_set_state::<TRACE_RHEL9_LAYOUT_SHIFT>(&ctx)
+}
+
+#[inline(always)]
+fn emit_inet_sock_set_state<const SHIFT: usize>(ctx: &TracePointContext) -> u32 {
+    let Ok(sock) = trace_read::<*const c_void>(ctx, TRACE_SKADDR_OFFSET + SHIFT) else {
         return 0;
     };
-    let Ok(old_state) = trace_read::<i32>(&ctx, TRACE_OLDSTATE_OFFSET) else {
+    let Ok(old_state) = trace_read::<i32>(ctx, TRACE_OLDSTATE_OFFSET + SHIFT) else {
         return 0;
     };
-    let Ok(new_state) = trace_read::<i32>(&ctx, TRACE_NEWSTATE_OFFSET) else {
+    let Ok(new_state) = trace_read::<i32>(ctx, TRACE_NEWSTATE_OFFSET + SHIFT) else {
         return 0;
     };
-    let Ok(family) = trace_read::<u16>(&ctx, TRACE_FAMILY_OFFSET) else {
+    let Ok(family) = trace_read::<u16>(ctx, TRACE_FAMILY_OFFSET + SHIFT) else {
         return 0;
     };
-    let Ok(protocol) = trace_read::<u16>(&ctx, TRACE_PROTOCOL_OFFSET) else {
+    let Ok(protocol) = trace_read::<u16>(ctx, TRACE_PROTOCOL_OFFSET + SHIFT) else {
         return 0;
     };
-    let Ok(source_port) = trace_read::<u16>(&ctx, TRACE_SPORT_OFFSET) else {
+    let Ok(source_port) = trace_read::<u16>(ctx, TRACE_SPORT_OFFSET + SHIFT) else {
         return 0;
     };
-    let Ok(destination_port) = trace_read::<u16>(&ctx, TRACE_DPORT_OFFSET) else {
+    let Ok(destination_port) = trace_read::<u16>(ctx, TRACE_DPORT_OFFSET + SHIFT) else {
         return 0;
     };
 
@@ -780,19 +798,19 @@ pub fn inet_sock_set_state(ctx: TracePointContext) -> u32 {
     tuple.destination_port = destination_port;
 
     if family == AF_INET {
-        let Ok(source_addr) = trace_read::<[u8; 4]>(&ctx, TRACE_SADDR_V4_OFFSET) else {
+        let Ok(source_addr) = trace_read::<[u8; 4]>(ctx, TRACE_SADDR_V4_OFFSET + SHIFT) else {
             return 0;
         };
-        let Ok(destination_addr) = trace_read::<[u8; 4]>(&ctx, TRACE_DADDR_V4_OFFSET) else {
+        let Ok(destination_addr) = trace_read::<[u8; 4]>(ctx, TRACE_DADDR_V4_OFFSET + SHIFT) else {
             return 0;
         };
         tuple.source_addr[..4].copy_from_slice(&source_addr);
         tuple.destination_addr[..4].copy_from_slice(&destination_addr);
     } else if family == AF_INET6 {
-        let Ok(source_addr) = trace_read::<[u8; 16]>(&ctx, TRACE_SADDR_V6_OFFSET) else {
+        let Ok(source_addr) = trace_read::<[u8; 16]>(ctx, TRACE_SADDR_V6_OFFSET + SHIFT) else {
             return 0;
         };
-        let Ok(destination_addr) = trace_read::<[u8; 16]>(&ctx, TRACE_DADDR_V6_OFFSET) else {
+        let Ok(destination_addr) = trace_read::<[u8; 16]>(ctx, TRACE_DADDR_V6_OFFSET + SHIFT) else {
             return 0;
         };
         tuple.source_addr = source_addr;
@@ -802,7 +820,7 @@ pub fn inet_sock_set_state(ctx: TracePointContext) -> u32 {
     }
 
     emit_event_with_cached_owner(
-        &ctx,
+        ctx,
         EVENT_INET_SOCK_SET_STATE,
         sock,
         tuple,
@@ -1057,15 +1075,18 @@ fn emit_event(
     let now = now_ns();
     let socket_address = sock as u64;
     let close_event = is_close_event(event_kind, new_state);
-    let gate_flow_key = if close_event {
-        canonical_flow.key
-    } else {
-        attribution_gate_flow_key(&canonical_flow)
-    };
+    let gate_flow_key = attribution_gate_flow_key(&canonical_flow);
     // Prefer socket owner map (filled at connect/accept). Only fall back to the
     // current task when it has a non-zero pid — never attribute process identity
     // from the idle task (pid 0 / swapper) or other zero-pid contexts.
     let cached_owner = cached_owner_for_event(&gate_flow_key, socket_address);
+    if close_event {
+        // Cleanup is a lifecycle invariant, not a side effect of successful
+        // publication. Remove the exact key that non-close emission stored and
+        // the socket owner before any owner-miss or ring-reservation return.
+        remove_flow_pid_by_key(&gate_flow_key);
+        remove_socket_pid_by_address(socket_address);
+    }
     let owner_record = if let Some(owner) = cached_owner {
         owner_pid_record(
             owner,
@@ -1134,10 +1155,7 @@ fn emit_event(
     // SAFETY: All fields were initialized above and the ring-buffer slot is not
     // submitted until after the map updates finish.
     let record_ref = unsafe { &*record };
-    if close_event {
-        remove_flow_pid_by_key(&canonical_flow.key);
-        remove_socket_pid_by_address(socket_address);
-    } else {
+    if !close_event {
         if is_valid_process_owner_ids(owner_record.pid, owner_record.tgid) {
             record_process_info(record_ref, now);
             record_flow_pid_by_key(&gate_flow_key, &owner_record);
@@ -1162,12 +1180,15 @@ fn emit_event_with_cached_owner(
     let now = now_ns();
     let socket_address = sock as u64;
     let close_event = is_close_event(event_kind, new_state);
-    let gate_flow_key = if close_event {
-        canonical_flow.key
-    } else {
-        attribution_gate_flow_key(&canonical_flow)
-    };
+    let gate_flow_key = attribution_gate_flow_key(&canonical_flow);
     let cached_owner = cached_owner_for_event(&gate_flow_key, socket_address);
+    if close_event {
+        // Snapshot above, then unconditionally evict before any early return.
+        // In particular, a missing owner or full ring must never retain a stale
+        // service-coalesced gate entry and suppress a later socket reuse.
+        remove_flow_pid_by_key(&gate_flow_key);
+        remove_socket_pid_by_address(socket_address);
+    }
     // State-change hooks often run in softirq / idle context. Process identity
     // MUST come from the socket owner map only — never invent it from the
     // currently scheduled task (that produces swapper/ksoftirq false owners).
@@ -1239,10 +1260,7 @@ fn emit_event_with_cached_owner(
     // SAFETY: All fields were initialized above and the ring-buffer slot is not
     // submitted until after the map updates finish.
     let record_ref = unsafe { &*record };
-    if close_event {
-        remove_flow_pid_by_key(&canonical_flow.key);
-        remove_socket_pid_by_address(socket_address);
-    } else if is_valid_process_owner_ids(owner_record.pid, owner_record.tgid) {
+    if !close_event && is_valid_process_owner_ids(owner_record.pid, owner_record.tgid) {
         record_process_info(record_ref, now);
         record_flow_pid_by_key(&gate_flow_key, &owner_record);
     }

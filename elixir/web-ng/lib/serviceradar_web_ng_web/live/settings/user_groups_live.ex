@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Identity.MappedUserGroups
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -247,6 +248,10 @@ defmodule ServiceRadarWebNGWeb.Settings.UserGroupsLive do
   end
 
   defp load_access_controls(scope, assigns) do
+    if assigns.can_manage_groups? or assigns.can_view_share_principals? do
+      MappedUserGroups.reconcile()
+    end
+
     users = if assigns.can_view_share_principals?, do: Dashboards.list_share_principals(scope), else: []
 
     {groups, memberships} =

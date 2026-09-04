@@ -1056,47 +1056,6 @@ mod tests {
         task.await.unwrap().unwrap();
     }
 
-    #[cfg(feature = "remote-capture")]
-    #[tokio::test]
-    async fn streams_fixture_traffic_events_to_connected_client() {
-        let dir = TempDir::new().unwrap();
-        let socket = dir.path().join("ipc.sock");
-        let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, event_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
-        let (census_tx, _) = broadcast::channel(16);
-        let (mdns_tx, _) = broadcast::channel(16);
-        let server = IpcServer::new(
-            &socket,
-            flow_tx,
-            flow_rx,
-            census_tx,
-            mdns_tx,
-            test_external_flow_matcher(),
-            RuntimeConfig::new(&Config::default()),
-            Metrics::new().unwrap(),
-        );
-        let task = tokio::spawn(server.run(shutdown_rx));
-
-        wait_for_socket(&socket).await;
-
-        let mut client = UnixStream::connect(&socket).await.unwrap();
-
-        let mut engine = crate::fingerprint::FingerprintEngine::phase1().unwrap();
-        for event in engine.analyze_packet("eth0", 789, &tls_server_hello_packet()) {
-            event_tx.try_send(event).unwrap();
-        }
-
-        let (event, tls) = read_tls_fixture_event(&mut client).await;
-        assert_eq!(event.ip, "198.51.100.40");
-        assert_eq!(event.interface_name, "eth0");
-        assert_eq!(tls.ja4, "");
-        assert_eq!(tls.ja4s, "t1302h2_1301_b9a491fefe05");
-
-        shutdown_tx.send(true).unwrap();
-        task.await.unwrap().unwrap();
-    }
-
     #[tokio::test]
     async fn applies_visibility_config() {
         let dir = TempDir::new().unwrap();
@@ -1169,27 +1128,6 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         panic!("server did not subscribe to fingerprint events");
-    }
-
-    #[cfg(feature = "remote-capture")]
-    async fn read_tls_fixture_event(
-        client: &mut UnixStream,
-    ) -> (FingerprintEvent, crate::proto::netprobe::TlsFingerprint) {
-        for _ in 0..5 {
-            let response =
-                tokio::time::timeout(std::time::Duration::from_secs(1), read_frame(client))
-                    .await
-                    .expect("timed out waiting for fixture event")
-                    .unwrap()
-                    .unwrap();
-            if let Some(netprobe_frame::Payload::FingerprintEvent(event)) = response.payload {
-                if let Some(fingerprint_event::Evidence::Tls(tls)) = event.evidence.clone() {
-                    return (event, tls);
-                }
-            }
-        }
-
-        panic!("expected TLS fingerprint event");
     }
 
     // Exercises the deprecated-but-still-supported tcp evidence path.
@@ -1357,92 +1295,5 @@ mod tests {
             packets: 9,
             ..Default::default()
         }
-    }
-
-    #[cfg(feature = "remote-capture")]
-    fn tls_server_hello_packet() -> Vec<u8> {
-        ipv4_tcp_packet(
-            [198, 51, 100, 40],
-            [192, 0, 2, 22],
-            443,
-            49_153,
-            &tls_server_hello_payload(),
-        )
-    }
-
-    #[cfg(feature = "remote-capture")]
-    fn tls_server_hello_payload() -> Vec<u8> {
-        let mut body = Vec::new();
-        body.extend_from_slice(&[0x03, 0x03]);
-        body.extend_from_slice(&[0u8; 32]);
-        body.push(0x00);
-        body.extend_from_slice(&0x1301u16.to_be_bytes());
-        body.push(0x00);
-
-        let mut extensions = Vec::new();
-        extensions.extend_from_slice(&0x002bu16.to_be_bytes());
-        extensions.extend_from_slice(&2u16.to_be_bytes());
-        extensions.extend_from_slice(&0x0304u16.to_be_bytes());
-        extensions.extend_from_slice(&0x0010u16.to_be_bytes());
-        extensions.extend_from_slice(&5u16.to_be_bytes());
-        extensions.extend_from_slice(&3u16.to_be_bytes());
-        extensions.push(2);
-        extensions.extend_from_slice(b"h2");
-
-        body.extend_from_slice(&(extensions.len() as u16).to_be_bytes());
-        body.extend_from_slice(&extensions);
-
-        let body_len = body.len() as u32;
-        let mut handshake = vec![
-            0x02,
-            ((body_len >> 16) & 0xff) as u8,
-            ((body_len >> 8) & 0xff) as u8,
-            (body_len & 0xff) as u8,
-        ];
-        handshake.extend_from_slice(&body);
-
-        let record_len = handshake.len() as u16;
-        let mut record = vec![0x16, 0x03, 0x03];
-        record.extend_from_slice(&record_len.to_be_bytes());
-        record.extend_from_slice(&handshake);
-        record
-    }
-
-    #[cfg(feature = "remote-capture")]
-    fn ipv4_tcp_packet(
-        source_ip: [u8; 4],
-        destination_ip: [u8; 4],
-        source_port: u16,
-        destination_port: u16,
-        payload: &[u8],
-    ) -> Vec<u8> {
-        let total_len = 20 + 20 + payload.len();
-        let mut packet = Vec::with_capacity(total_len);
-        packet.extend_from_slice(&[
-            0x45,
-            0x00,
-            ((total_len >> 8) & 0xff) as u8,
-            (total_len & 0xff) as u8,
-            0x12,
-            0x34,
-            0x40,
-            0x00,
-            0x40,
-            0x06,
-            0x00,
-            0x00,
-        ]);
-        packet.extend_from_slice(&source_ip);
-        packet.extend_from_slice(&destination_ip);
-        packet.extend_from_slice(&source_port.to_be_bytes());
-        packet.extend_from_slice(&destination_port.to_be_bytes());
-        packet.extend_from_slice(&[0x01, 0x02, 0x03, 0x04]);
-        packet.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]);
-        packet.extend_from_slice(&[0x50, 0x18]);
-        packet.extend_from_slice(&0xfa_f0u16.to_be_bytes());
-        packet.extend_from_slice(&0u16.to_be_bytes());
-        packet.extend_from_slice(&0u16.to_be_bytes());
-        packet.extend_from_slice(payload);
-        packet
     }
 }

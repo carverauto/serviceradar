@@ -43,8 +43,11 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
     :response_time_ms,
     :sweep_modes_results,
     :open_ports,
+    :scanned_ports,
     :error_message,
-    :device_id
+    :device_id,
+    :agent_id,
+    :sweep_group_id
   ]
 
   postgres do
@@ -171,6 +174,25 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
       public? true
       default []
       description "List of open TCP ports discovered"
+    end
+
+    attribute :scanned_ports, {:array, :integer} do
+      allow_nil? false
+      public? true
+      default []
+      description "Every TCP port the sweep attempted; closed ports are these minus open_ports"
+    end
+
+    attribute :agent_id, :string do
+      allow_nil? true
+      public? true
+      description "Agent that produced this result, denormalized from the execution"
+    end
+
+    attribute :sweep_group_id, :uuid do
+      allow_nil? true
+      public? true
+      description "Sweep group that produced this result, denormalized from the execution"
     end
 
     attribute :error_message, :string do

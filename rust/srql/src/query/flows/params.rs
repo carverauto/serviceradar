@@ -99,6 +99,38 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
         "tag" | "src_tag" | "dst_tag" => Ok(()),
         // Proximity filters inline validated lat/lng/radius (no binds).
         "near" | "src_near" | "dst_near" => Ok(()),
+        "threat_matched" => Ok(()),
+        "threat_source" => match filter.op {
+            FilterOp::Eq => {
+                params.push(BindParam::TextArray(vec![filter
+                    .value
+                    .as_scalar()?
+                    .to_string()]));
+                Ok(())
+            }
+            FilterOp::In => {
+                let values = filter.value.as_list()?.to_vec();
+                if values.is_empty() {
+                    return Ok(());
+                }
+                params.push(BindParam::TextArray(values));
+                Ok(())
+            }
+            _ => Err(ServiceError::InvalidRequest(
+                "threat_source only supports equality and membership".into(),
+            )),
+        },
+        "threat_observed_ip" | "threat_indicator" => {
+            params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        "threat_severity" => {
+            let value = filter.value.as_scalar()?.parse::<i64>().map_err(|_| {
+                ServiceError::InvalidRequest("threat_severity must be an integer".into())
+            })?;
+            params.push(BindParam::Int(value));
+            Ok(())
+        }
         "protocol_num" | "proto" => {
             let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
                 ServiceError::InvalidRequest(format!("{} must be an integer", filter.field))

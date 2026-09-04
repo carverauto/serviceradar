@@ -350,7 +350,15 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
 
               <div id="netflow-matches" class="rounded-xl border border-sr-line bg-sr-surface p-4">
                 <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-                  <div class="text-sm font-semibold">Current NetFlow IOC Matches</div>
+                  <div class="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                    Current NetFlow matches
+                    <.link
+                      href={ThreatIntelLinks.investigation_path()}
+                      class="link link-hover text-xs font-normal"
+                    >
+                      Open investigation
+                    </.link>
+                  </div>
                   <.ui_badge
                     size="xs"
                     variant={
@@ -364,7 +372,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                 </div>
                 <div class="grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                   <.status_count label="Matched IPs" value={@netflow_findings.matched_ips} />
-                  <.status_count label="IOC Hits" value={@netflow_findings.indicator_matches} />
+                  <.status_count
+                    label="Indicator matches"
+                    value={@netflow_findings.indicator_matches}
+                  />
                   <.status_count label="Max Severity" value={@netflow_findings.max_severity || 0} />
                   <.status_count label="Sources" value={length(@netflow_findings.sources)} />
                 </div>

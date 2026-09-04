@@ -179,4 +179,38 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicyCensusTest do
       assert SourcePolicy.passive_census_source?(update("netprobe-census", %{}))
     end
   end
+
+  describe "addressless census observations may not create a device" do
+    # RFC 5227 ARP probes are a designed, golden-pinned observation: a host
+    # asking whether an address is free sends ARP with a zero sender address.
+    # The decoder keeps them. What was never decided -- until GitHub #4050 --
+    # is that they should become a permanent ocsf_devices row. They describe
+    # an address being claimed, not one that is held.
+    defp census(ip) do
+      %{source: "netprobe-census", ip: ip, metadata: %{"identity_source" => "netprobe_census"}}
+    end
+
+    test "a census sighting with an address may still create" do
+      assert SourcePolicy.sufficient_to_create?(census("192.0.2.10"))
+    end
+
+    test "an ARP probe with no address may not create" do
+      refute SourcePolicy.sufficient_to_create?(census(""))
+      refute SourcePolicy.sufficient_to_create?(census(nil))
+      refute SourcePolicy.sufficient_to_create?(update("netprobe-census", %{}))
+    end
+
+    test "mDNS remains unable to create, as before" do
+      refute SourcePolicy.sufficient_to_create?(update("netprobe-mdns", %{}))
+    end
+
+    test "an AWX host addressed only by DNS name may still create" do
+      # Per-source, not global. A DNS-only ansible host is real inventory with
+      # no IP to record; refusing it drops the row. The ARP probe is the
+      # opposite judgement.
+      awx = %{source: "awx", ip: nil, metadata: %{"integration_id" => "awx:v2:ctrl:host:1"}}
+
+      assert SourcePolicy.sufficient_to_create?(awx)
+    end
+  end
 end

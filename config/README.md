@@ -94,7 +94,9 @@ a password or key could be recovered from belongs to SecretManager. A build-time
 this; see section 6.
 
 `ca_bundle_url` is the deliberate edge case: a CA bundle is what a client needs *before* it can
-authenticate anything, so it is published unauthenticated and is configuration, not a secret.
+authenticate the custom CA's subjects, so it cannot itself be a SecretManager credential. It is
+still configuration, and it is `https://` only: the hop that fetches it is terminated by a
+publicly trusted cert, not by the custom CA being fetched.
 
 ### Instances -- `environments/*.textproto`
 

@@ -63,9 +63,13 @@ Three tripwires, all coordinator-scheduled:
 
 Wire `default_source_opt_ins` end to end: env `SERVICERADAR_CAPACITY_FORECASTING_SOURCE_OPT_INS` (comma-separated source names, validated against `Source.all/0`) in both runtime.exs; new `default_source_opt_ins` array field on `CapacityForecastConfig` + `AnomalyConfigRuntime` mapping + Settings UI multi-select (DB wins over env, same precedence as other knobs). Do not change the default set (memory+disk is the overhaul's deliberate soundness decision). Surface skips: shipped SRQL queries drop the phantom `at_risk,exhaustion_projected` tokens; the Observability→Health capacity card gets a "N series skipped (top reasons)" line sourced from a `status:skipped` aggregate so "no forecasts" is explainable in-product.
 
-### D9. Verdict durability (defect 7, NATS)
+### D9. Verdict durability and explicit consumer ownership (defect 7, NATS)
 
-`signals.analytics.predictions.>` currently rides the shared `events` stream with MaxAge 30m — a >30m core/EventWriter outage permanently discards all verdicts (episodes then stale-close and re-open, but transitions are lost). Provision the subjects onto a dedicated stream (or raise MaxAge for these subjects via a separate stream) with ≥24h age / bounded bytes. Also remove or provision the four consumers polling nonexistent streams (falco_events, ATTRIBUTED_FLOW, SFLOW_RAW, NETFLOW_RAW → ~2.3 error polls/min each).
+`signals.analytics.predictions.>` historically rode the shared `events` stream with MaxAge 30m — a >30m core/EventWriter outage permanently discarded all verdicts (episodes then stale-close and re-open, but transitions were lost). The implemented choice provisions a dedicated `analytics_predictions` stream with ≥24h age and bounded bytes; existing deployments require the subject-transfer procedure in `runbook-demo.md`. Realign the stale `falco_events` registration to the existing `events` stream and `falco.logs` subject.
+
+`ATTRIBUTED_FLOW` is not a dormant pipeline awaiting a producer. It is a legacy EventWriter registration for the retired demo-canary subject `flow.attributed.>`. Production attribution now persists agent-up process observations, correlates them with independently ingested raw flows in CNPG, and stamps `event_type = "attributed_flow"` on the existing OCSF row. Remove the release registration; default and release configuration MUST NOT provision an attributed-flow subject, stream, or durable, and rollback MUST NOT recreate one. A verified-empty orphan durable or `attributed_flow` stream may be deleted after the registration is gone.
+
+`NETFLOW_RAW` and `SFLOW_RAW` are active logical consumer names for `flows.raw.netflow` and `flows.raw.sflow`, not nonexistent stream names and not part of attributed-flow cleanup. `scale-netflow-ingest-isolation` owns their dedicated `flows` stream, consumer lifecycle, subject transfer, and rollback. This change MUST leave that raw-flow ownership untouched.
 
 ### D10. Seeder correctness on fresh installs (defect 7, config)
 
@@ -83,11 +87,11 @@ Helm renders `SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON` default `{}`, wh
 
 1. Phase A (P0, one release): D1 (crons incl. projector, minus resolve-stale until D5 merges), D2 migration + seeder reconcile, D3 gateway opt-out + loud shards, D4 margin fix + episodes default ON. Verify on demo: rule matches live finding; shards all on core nodes with rules_count>0; `anomaly_episodes` populating; device panel shows episodes; seasonal workers running at :47/:53; baselines appear on profiles (host classes first; interface drift stays off pending overhaul 4.5).
 2. Phase B (P1): D5, then enable the resolve-stale cron; D7 tripwires; D8 capacity opt-in + skip surfacing.
-3. Phase C (P2): D9 stream provisioning, D10 seeder fixes, profile-uniqueness validation, spec-debt deltas archive.
+3. Phase C (P2): D9 prediction-stream provisioning and FALCO realignment; remove the retired `ATTRIBUTED_FLOW` registration and verified-empty orphan state without touching raw-flow consumers owned by `scale-netflow-ingest-isolation`; D10 seeder fixes; profile-uniqueness validation; spec-debt deltas archive.
 4. Rollback: every new default has an env kill switch (`EVENT_WRITER_ANOMALY_EPISODES=false`, `SERVICERADAR_ANOMALY_EDGE_CONFIG_PROJECTION=false`, per-cron `*_ENABLED=false`); the rule migration is forward-only but the seeder reconcile can re-stamp; gateway opt-out is a config revert.
 
 ## Open Questions
 
 - Demo's `capacity_forecast_configs.minimum_history_points` reads **24** live while every code/helm/seeder path defaults 72 — the row predates or was edited outside any current code path. Refresh via Settings during the demo runbook step; no code change needed (24 is looser, not a suppressor).
 - Should the gateway also set `join_process_registry: false` (web-ng parity), or does it legitimately register cluster-visible processes? Verify during D3.
-- Dedicated predictions stream (D9): new stream vs. subject-transfer on `events` — pick during implementation with NATS provisioning owners.
+- Dedicated predictions stream (D9): implementation chose the separate `analytics_predictions` stream plus the existing-deployment subject transfer in `runbook-demo.md`. This choice does not reopen `flow.attributed.>`; that retired namespace remains unprovisioned, while raw-flow stream decisions remain with `scale-netflow-ingest-isolation`.

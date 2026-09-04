@@ -62,6 +62,19 @@ defmodule ServiceRadar.ResultsRouter do
     process_and_publish(status, endpoint_inventory_reply_to: reply_to)
   end
 
+  @doc false
+  @spec process_retained_plugin(map()) :: :ok | {:error, term()}
+  def process_retained_plugin(status) when is_map(status) do
+    case handle_plugin_results(status) do
+      # PluginResultIngestor returns the handler-domain error after it has
+      # durably committed the corresponding failure marker. Retained delivery
+      # may therefore acknowledge this terminal outcome, while persistence
+      # failures below remain retryable.
+      {:error, {:plugin_result_handlers_failed, _errors}} -> :ok
+      result -> result
+    end
+  end
+
   @impl true
   def init(_state) do
     Logger.info("ResultsRouter started on node #{Node.self()}")

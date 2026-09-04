@@ -1,5 +1,5 @@
-github.com/carverauto/serviceradar-sdk-go v0.3.0 h1:UeP8LpF+Y4gsl1N5BychCcQPF4zBRMAr1d9ynrvZsRs=
-github.com/carverauto/serviceradar-sdk-go v0.3.0/go.mod h1:tMMF+WXki1H+nh+soQlNcgb2yZmiUSeZuTmuj/wwdq0=
+github.com/carverauto/serviceradar-sdk-go v0.3.1 h1:e1X8S38SAXNBBseCkR8VQryD59Bf3sPq/LNCNt9iIdg=
+github.com/carverauto/serviceradar-sdk-go v0.3.1/go.mod h1:tMMF+WXki1H+nh+soQlNcgb2yZmiUSeZuTmuj/wwdq0=
 github.com/tidwall/gjson v1.19.0 h1:xwxm7n691Uf3u5OFjzngavjGTh55KX5q/9w9xHW88JU=
 github.com/tidwall/gjson v1.19.0/go.mod h1:V37/opeE/JbLUOfH0QTXiNez2l0RUjYUhpT4szFQAfc=
 github.com/tidwall/match v1.2.0 h1:0pt8FlkOwjN2fPt4bIl4BoNxb98gGHN2ObFEDkrfZnM=

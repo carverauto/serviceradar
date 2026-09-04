@@ -11,6 +11,20 @@ Exporters → flow-collector (UDP) → JetStream stream `events` subject `flows.
          → web-ng NetFlow map (last ~15 min of flow time)
 ```
 
+Flow attribution is a separate agent-up path and does not add a JetStream
+subject to the raw-flow stream:
+
+```
+netprobe → agent (`FlowAttributionEventBatch`) → gateway (`StreamStatus`) → core
+         → platform.flow_process_attribution_current
+         → core correlator updates the matching existing OCSF row in place
+```
+
+The earlier demo canary sent per-host flow slices down to agents and published
+results on `flow.attributed.*`. That experiment remains relevant historical
+evidence, but both canary subjects are retired and are not current or future
+attribution routing.
+
 Evidence from demo incident (2026-08-09):
 
 | Stage | Observation |
@@ -54,18 +68,21 @@ Evidence from demo incident (2026-08-09):
 
 - `flows.raw.netflow`
 - `flows.raw.sflow`
-- concrete extension leaves such as `flows.raw.ipfix` when configured
+- configured concrete extension leaves such as `flows.raw.ipfix`
 
-EventWriter consumers require **concrete** `flows.raw.<name>` leaves only.
+Only configured concrete `flows.raw.<name>` leaves are flow-collector-owned by
+this change. EventWriter consumers require the corresponding **concrete**
+leaves only.
 Whole-token ownership wildcards such as `flows.raw.>`, `flows.>`, or `*.>` are
 **rejected** by collector validation and are **not** auto-consumed by EventWriter:
 they leave future leaves stored without a consumer and can block subject rehome
 onto the dedicated stream (overlap with `events.>`).
 
-Host-slice (`flow.host-slice.<agent_id>`) publication/rehome may still appear in
-collector config for host-network-visibility, but **this change does not restore
-the attribution joiner/subscriber** (deleted separately). Host-slice must not
-become EventWriter flow consumers; joining is a follow-up change.
+Historical configs and canary records may mention
+`flow.host-slice.<agent_id>` or `flow.attributed.<partition>`. The dedicated
+stream does not own, publish, rehome, or consume either namespace, and this
+change does not reserve them for a follow-up join. Current attribution instead
+uses the agent-up status/current-state/core-correlation path described above.
 
 **Rationale:** Isolation of retention and storage from logs/OTEL. Metrics already moved toward a dedicated `metrics` stream pattern; flows get the same treatment.
 
@@ -85,7 +102,8 @@ become EventWriter flow consumers; joining is a follow-up change.
 
 **flow-collector change:** On existing stream, reconcile:
 
-- subjects (union, as today)
+- configured concrete `flows.raw.<name>` subjects without adopting retired
+  canary namespaces as flow-collector-owned routes
 - `num_replicas`
 - `max_bytes` (from config)
 - `max_age` (from config; new field if missing)
@@ -99,9 +117,12 @@ Do not shrink limits below the configured values when another process had tempor
 
 - `NETFLOW_RAW` → `flows.raw.netflow`
 - `SFLOW_RAW` → `flows.raw.sflow`
-- `ATTRIBUTED_FLOW` if it remains on flow subjects
+- any configured raw extension consumer → its exact `flows.raw.<name>` leaf
 
 The existing EventWriter pipeline keeps logs, metrics, Falco, OTEL, etc.
+Agent-up process-attribution batches bypass this raw-flow Broadway demand
+domain; core persists them as bounded current state and correlates them against
+OCSF rows written by the raw-flow pipeline.
 
 **Rationale:** GenStage demand is per producer process. Fair-sharing one demand counter across ~15 durables is the root demand bug for high-volume NetFlow. Separate pipeline ⇒ independent `handle_demand`, independent pull budget, independent `max_ack_pending` / buffer caps.
 
@@ -173,11 +194,20 @@ Discard policy remains `old` (limits retention). Prefer alerting when lag > 25% 
 
 ### Decision 6: Migration sequence
 
-1. Deploy EventWriter + flow-collector that can **create/consume `flows`** while still reading `events` for `flows.raw.*` (dual consumer, single publish target switches in step 2).
+1. Deploy EventWriter + flow-collector that can **create/consume `flows`** while
+   still reading `events` for the configured concrete `flows.raw.<name>`
+   subjects (dual consumer, single publish target switches in step 2).
 2. Cut flow-collector `stream_name` to `flows` (publish only to new stream).
 3. Confirm EventWriter flow pipeline lag healthy; drain `events` netflow durables to zero pending.
-4. Remove `flows.raw.*` filter consumers from the shared EventWriter pipeline and remove flow subjects from `events` if they were listed.
+4. Remove the configured concrete `flows.raw.<name>` filter consumers from the
+   shared EventWriter pipeline and remove those subjects from `events` if they
+   were listed.
 5. Raise NATS file store / PVC as needed before raising stream max_bytes (JetStream rejects over-reservation).
+
+Any `flow.host-slice.*` or `flow.attributed.*` entries found in historical
+canary configuration are cleanup evidence, not subjects to transfer to the new
+stream. Migration and rollback MUST NOT recreate a publisher, consumer, or
+subject route for them.
 
 **CNPG:** no dual-write. Only one EventWriter path inserts `ocsf_network_activity` for a given message (ack after insert). Dual-consumer window must use mutually exclusive stream sources (old stream drain + new stream only after cutover publish), not two consumers on the same messages.
 
@@ -219,14 +249,15 @@ Exporters
    │ UDP 2055/6343
    ▼
 flow-collector ──publish──► JetStream stream `flows`
-                            subjects: flows.raw.netflow, flows.raw.sflow, ...
+                            subjects: configured concrete flows.raw.<name> leaves
+                            (including flows.raw.netflow and flows.raw.sflow)
                             max_bytes/max_age owned by flow config
    │
    │  pull (long-poll, demand-sized)
    ▼
 EventWriter.FlowPipeline (Broadway)
    producer: flow-only demand domain
-   batcher: netflow_raw / sflow_raw / attributed
+   batcher: configured concrete raw-flow leaves
    │
    ▼
 platform.ocsf_network_activity
@@ -236,6 +267,10 @@ web-ng NetFlow map (last 15 min)
 
 events stream (unchanged ownership)
    logs / falco / otel / … → EventWriter (existing pipeline)
+
+netprobe → agent FlowAttributionEventBatch → gateway StreamStatus → core
+         → platform.flow_process_attribution_current → core correlator
+         → update matching platform.ocsf_network_activity row in place
 ```
 
 ## Risks / Trade-offs
@@ -252,10 +287,19 @@ events stream (unchanged ownership)
 
 ## Open Questions (resolved during implementation)
 
-1. **Host-slice subjects** — resolved via existing collector subject merge (`flows.raw.*` / host-slice subjects stay on the dedicated `stream_name`).
-2. **Attributed flows** — remain on `flow.attributed.>` / shared pipeline (not `flows.raw.*`); raw NetFlow/sFlow only on the flow demand domain.
+1. **Host-slice subjects** — the checked demo canary remains historical
+   evidence, but `flow.host-slice.*` is retired and is neither merged into the
+   dedicated stream nor reserved for future attribution routing.
+2. **Attributed flows** — there is no `flow.attributed.>` production subject.
+   The core correlator stamps the existing `platform.ocsf_network_activity` row
+   in place from agent-up state in `platform.flow_process_attribution_current`.
 3. **Demo R=3 vs R=1** — **keep R=3**. Size demo to `flows` 8 GiB / 2h MaxAge and `maxFileStore` 30G within the existing 30Gi PVC with reduced demo datasvc object/KV reservations (never mutate volumeClaimTemplates via Helm).
-4. **Review fixes** — rehome only concrete `flows.raw.*` subjects; no stream-fallback for flow durables; collector owns retention reconcile; long-poll per-subject inflight accounting; lag reporter covers flow streams; docs never say `nats stream rm flows`; pre-migration Helm downgrade runs the current-image reverse transfer before restoring the old image.
+4. **Review fixes** — rehome only configured concrete `flows.raw.<name>`
+   subjects; no stream-fallback for flow durables; collector owns retention
+   reconcile; long-poll per-subject inflight accounting; lag reporter covers
+   flow streams; docs never say `nats stream rm flows`; pre-migration Helm
+   downgrade runs the current-image reverse transfer before restoring the old
+   image.
 
 ## References
 

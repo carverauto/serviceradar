@@ -5,12 +5,13 @@
 //! libpq and a Postgres connection pool -- to perform an HTTP GET. `rust/integration-db` already
 //! did exactly that.
 //!
-//! Not a secret, and not authenticated by us. A CA bundle is what a client needs BEFORE it can
-//! authenticate anything, so it is published unauthenticated over plain HTTP and its integrity
-//! comes from whatever protects the endpoint -- the same bootstrap shape as fetching a JWKS.
-//! `//k8s/srql-fixtures/ca-bundle.yaml` is the in-cluster publisher: it serves one path, holds
-//! no private key, and is HTTP-only on purpose, because TLS here would need the very bundle
-//! being fetched.
+//! Not a secret. A CA bundle is what a client needs BEFORE it can authenticate the *custom*
+//! CA's subjects, so it cannot itself be authenticated by that CA. It is published over HTTPS
+//! terminated by a publicly trusted cert (Let's Encrypt on lan-shared-gateway). Scratch images
+//! already carry those public roots, so `ureq`'s default TLS transport verifies the hop.
+//! Wrapping this fetch in a cert issued by the custom CA is the circular case; wrapping it in
+//! a public CA is not. `//k8s/srql-fixtures/ca-bundle.yaml` is the publisher: one path, no
+//! private key, HTTP behind Envoy.
 
 use crate::errors::ca_bundle_error::CaBundleError;
 

@@ -27,6 +27,9 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       endpoint_packages endpoint_package endpoint_inventory_packages endpoint_inventory packages
       endpoint_package_catalog endpoint_package_catalogs endpoint_software_packages
       endpoint_software_package package_catalog package_catalogs
+      vulnerability_advisories vulnerability_advisory advisories cves
+      advisory_coordinates advisory_cpes cpe_coordinates
+      endpoint_vulnerability_matches vulnerability_matches cve_matches advisory_matches
       device_graph devicegraph graph graph_cypher graphcypher cypher
       field_survey_sessions fieldsurvey_sessions survey_sessions
       field_survey_rasters fieldsurvey_rasters survey_coverage_rasters survey_rasters
@@ -50,6 +53,11 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       virtualization_host_disks virtualization_disks host_disks
       virtualization_network_interfaces virtualization_nics hypervisor_nics
       virtualization_storage_systems storage_systems ceph
+      merge_audit device_merges merges
+      device_revival_audit device_revivals revivals
+      device_identifiers identifiers device_identity
+      identity_reconciliation_runs reconciliation_runs dire_runs
+      identity_evidence_edges identity_evidence evidence_edges
     ),
     "services.view" => ~w(
       services service
@@ -88,6 +96,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
     "observability.netflow.view" => ~w(
       flows flow network_activity
       attributed_flows attributed_flow flow_attributions flow_attribution
+      threat_intel_matches threat_intel_match ioc_matches ioc_match
     ),
     "observability.alerts.view" => ~w(alerts alert)
   }

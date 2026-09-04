@@ -164,8 +164,15 @@ path_belongs_to_addon() {
       # nightly bump touches neither addons/netprobe nor rust/netprobe, and without
       # it here the gate would let a changed artifact ship under an unchanged
       # version -- the false negative it exists to prevent.
+      # rust/afpacket is compiled INTO this binary (the AF_PACKET capture ring),
+      # exactly as rust/addon-sdk is, so a change there changes the shipped
+      # bytes. Without it the gate would let an afpacket-only fix ship under an
+      # unchanged add-on version -- the same false negative the vendor-tree note
+      # above describes. path_is_test_only already exempts rust/*/tests/*, so
+      # rust/afpacket/tests/live_capture.rs does not force a spurious bump.
       case "${path}" in
         addons/netprobe/*|rust/netprobe/*|rust/addon-sdk/*) return 0 ;;
+        rust/afpacket/*) return 0 ;;
         third_party/netprobe_ebpf_vendor/*) return 0 ;;
       esac
       ;;

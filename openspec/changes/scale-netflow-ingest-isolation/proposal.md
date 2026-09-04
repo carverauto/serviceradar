@@ -15,14 +15,26 @@ Related completed work: `fix-eventwriter-backpressure-hotpath` introduced demand
 
 ## What Changes
 
-- Move raw flow subjects (`flows.raw.netflow`, `flows.raw.sflow`, and host-slice flow subjects if configured) onto a **dedicated JetStream stream** (default name `flows`), separate from the shared `events` stream.
+- Move raw flow subjects (`flows.raw.netflow`, `flows.raw.sflow`, and
+  configured concrete `flows.raw.<name>` extensions) onto a **dedicated
+  JetStream stream** (default name `flows`), separate from the shared `events`
+  stream. These concrete raw-flow leaves are the subjects this change owns.
+- Keep flow attribution outside that raw-flow stream: the agent sends retained
+  `FlowAttributionEventBatch` payloads through `StreamStatus` to the
+  authenticated gateway, which forwards them to core; core persists bounded state in
+  `platform.flow_process_attribution_current`, and the correlator stamps the
+  matching existing `platform.ocsf_network_activity` row in place. The
+  historical `flow.host-slice.*` and `flow.attributed.*` demo-canary subjects
+  are retired, not current or future routing.
 - Give the flow stream **explicit, flow-owned retention** (`max_bytes`, `max_age`, replicas, discard policy) that no log/OTEL reconciler may overwrite.
 - Make flow-collector **reconcile** stream `max_bytes` / `max_age` / subjects / replicas on an existing stream (today it only merges subjects and replicas on update).
 - Split EventWriter so flow subjects run on a **dedicated Broadway pipeline (or dedicated producer)** whose GenStage demand is not fair-shared with logs/metrics/Falco.
 - Replace the netflow path’s `no_wait` + 100 ms timer pull loop with **demand-gated long-poll** JetStream fetches (expires-based), sized by remaining demand and a netflow-tuned pull batch / `max_ack_pending`.
 - Raise production and demo defaults for flow stream size and NATS `max_file_store` / PVC guidance so R=3 retention can hold peak lag; keep discard-old as the overload safety valve.
 - Add lag / retention-risk telemetry and runbook checks so operators can see when flow consumer lag approaches MaxAge before the UI goes empty.
-- Document migration: dual-read/create `flows` stream, cut over publishers, drain old `events` filter consumers, remove `flows.raw.*` from the shared `events` subject list.
+- Document migration: dual-read/create the `flows` stream, cut over publishers,
+  drain old `events` filter consumers, and remove the configured concrete
+  `flows.raw.<name>` subjects from the shared `events` subject list.
 - Guard downgrades across the ownership cutover: run the current image's reverse-transfer path to move concrete flow subjects back to `events` before Helm or GitOps restores an older image.
 
 ## Impact
@@ -44,3 +56,7 @@ Related completed work: `fix-eventwriter-backpressure-hotpath` introduced demand
 - Flow stream MaxAge/MaxBytes are owned only by flow configuration; restarting log-collector/OTEL does not shrink them.
 - GenStage demand for flows is independent of log/metric demand (no fair-share dilution across ~15 durables).
 - Demo chart defaults no longer pin the **flow** path to a 1 GiB shared bus; demo may still use a smaller *flows* stream than production, but it must be sized for multi-hour lag headroom relative to EventWriter throughput.
+- Flow-collector publishes and manages only configured concrete
+  `flows.raw.<name>` subjects on the dedicated stream, including
+  `flows.raw.netflow` and `flows.raw.sflow`; no host-slice or attributed-flow
+  canary subject is restored during migration or rollback.

@@ -97,14 +97,14 @@ RBAC permission.
 ### Requirement: Attributed Flows View
 
 The Flows dashboard SHALL expose an "Attributed Flows" view rendering
-`attributed_flow` records (per `flow-collector`). The view MUST include
-the standard NetFlow columns (timestamp, src/dst IP and port, bytes,
-packets, protocol) plus attribution columns (`pid`, `comm`,
-redacted `cmdline`, `uid`, `container_id`) when the source agent's
-`netprobe` reported them.
+persisted `platform.ocsf_network_activity` rows whose OCSF payload was stamped
+in place with `event_type = "attributed_flow"` by core correlation. The view
+MUST include the standard NetFlow columns (timestamp, src/dst IP and port,
+bytes, packets, protocol) plus attribution columns (`pid`, `comm`, redacted
+`cmdline`, `uid`, `container_id`) from the agent-up process observation.
 
 #### Scenario: Attributed flow row carries process columns
-- **WHEN** a flow record arrived with attribution
+- **WHEN** core correlation stamps an existing OCSF flow row with attribution
   (`pid = 1234, comm = "nginx"`)
 - **THEN** the row displays both the NetFlow tuple and the process
   attribution fields

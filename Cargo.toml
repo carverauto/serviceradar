@@ -19,6 +19,7 @@ members = [
     "rust/trapd",
     "rust/otel",
     "rust/log-collector",
+    "rust/afpacket",
     "rust/netprobe",
     "rust/workload-identity",
     "rust/powerdns",

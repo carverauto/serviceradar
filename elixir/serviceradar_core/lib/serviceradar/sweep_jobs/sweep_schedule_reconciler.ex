@@ -10,6 +10,7 @@ defmodule ServiceRadar.SweepJobs.SweepScheduleReconciler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.SweepJobs.ObanSupport
+  alias ServiceRadar.SweepJobs.SweepCoverageRollupWorker
   alias ServiceRadar.SweepJobs.SweepDataCleanupWorker
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepMonitorWorker
@@ -65,6 +66,10 @@ defmodule ServiceRadar.SweepJobs.SweepScheduleReconciler do
 
   defp handle_groups({:ok, _groups}) do
     schedule_worker(SweepMonitorWorker, "sweep monitor")
+    # Rollup is scheduled ahead of cleanup so it has a chance to run first;
+    # SweepDataCleanupWorker's own watermark guard is the actual safety
+    # mechanism and does not depend on this ordering.
+    schedule_worker(SweepCoverageRollupWorker, "sweep coverage rollup")
     schedule_worker(SweepDataCleanupWorker, "sweep data cleanup")
   end
 

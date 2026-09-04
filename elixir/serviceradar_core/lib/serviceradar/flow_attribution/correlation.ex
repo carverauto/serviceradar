@@ -485,7 +485,9 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
           UNION ALL
 
           -- Public VIP as destination → process on post-DNAT backend pod socket.
-          -- match_rank uses exposure_rank (Gateway preferred over LoadBalancer).
+          -- Public matches follow all local strategies (ranks 0..2); the raw
+          -- exposure rank keeps Gateway ahead of LoadBalancer/ExternalIP and
+          -- both ahead of other public endpoint classes.
           SELECT
             a.agent_id,
             a.pid,
@@ -496,7 +498,7 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
             a.workload_identity,
             a.local_ip,
             a.local_port,
-            pe.exposure_rank AS match_rank,
+            3 + pe.exposure_rank AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
           FROM attribution_sources AS a
@@ -532,7 +534,7 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
             a.workload_identity,
             a.local_ip,
             a.local_port,
-            pe.exposure_rank AS match_rank,
+            3 + pe.exposure_rank AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
           FROM attribution_sources AS a

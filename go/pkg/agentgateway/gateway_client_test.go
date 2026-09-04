@@ -230,6 +230,79 @@ func TestValidateStreamStatusChunksRejectsOversizedStreamWindow(t *testing.T) {
 	}
 }
 
+func TestStreamStatusNegativeAcknowledgementKeepsConnectionUsable(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockClient := proto.NewMockAgentGatewayServiceClient(ctrl)
+	client := NewGatewayClient("gateway:50052", nil, logger.NewTestLogger())
+	client.client = mockClient
+	client.connected = true
+
+	mockClient.EXPECT().
+		StreamStatus(gomock.Any()).
+		Return(&statusReplyStream{response: &proto.GatewayStatusResponse{Received: false}}, nil)
+
+	resp, err := client.StreamStatus(t.Context(), []*proto.GatewayStatusChunk{statusChunkWithMessage("valid")})
+	if err != nil {
+		t.Fatalf("StreamStatus returned error: %v", err)
+	}
+	if resp.GetReceived() {
+		t.Fatal("StreamStatus response received = true, want false")
+	}
+	if !client.connected || client.client == nil {
+		t.Fatal("negative application acknowledgement disconnected the shared gateway client")
+	}
+}
+
+func TestStreamStatusLocalSizeSentinelKeepsConnectionUsable(t *testing.T) {
+	tests := []struct {
+		name   string
+		chunks func() []*proto.GatewayStatusChunk
+		want   error
+	}{
+		{
+			name: "chunk excess",
+			chunks: func() []*proto.GatewayStatusChunk {
+				return []*proto.GatewayStatusChunk{
+					statusChunkWithMessage(strings.Repeat("x", streamStatusChunkMax+1)),
+				}
+			},
+			want: ErrStreamStatusChunkTooLarge,
+		},
+		{
+			name: "stream budget excess",
+			chunks: func() []*proto.GatewayStatusChunk {
+				const messageBytes = 15 * 1024 * 1024
+				return []*proto.GatewayStatusChunk{
+					statusChunkWithMessage(strings.Repeat("a", messageBytes)),
+					statusChunkWithMessage(strings.Repeat("b", messageBytes)),
+					statusChunkWithMessage(strings.Repeat("c", messageBytes)),
+					statusChunkWithMessage(strings.Repeat("d", messageBytes)),
+					statusChunkWithMessage(strings.Repeat("e", messageBytes)),
+				}
+			},
+			want: ErrStreamStatusBudgetExceeded,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockClient := proto.NewMockAgentGatewayServiceClient(ctrl)
+			client := NewGatewayClient("gateway:50052", nil, logger.NewTestLogger())
+			client.client = mockClient
+			client.connected = true
+
+			_, err := client.StreamStatus(t.Context(), tt.chunks())
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("StreamStatus error = %v, want %v", err, tt.want)
+			}
+			if !client.connected || client.client == nil {
+				t.Fatal("local size sentinel disconnected the shared gateway client")
+			}
+		})
+	}
+}
+
 func statusChunkWithMessage(message string) *proto.GatewayStatusChunk {
 	return &proto.GatewayStatusChunk{
 		AgentId:     "agent-1",
@@ -289,6 +362,19 @@ type configChunkStream struct {
 	grpc.ClientStream
 	chunks []*proto.AgentConfigChunk
 	index  int
+}
+
+type statusReplyStream struct {
+	grpc.ClientStream
+	response *proto.GatewayStatusResponse
+}
+
+func (*statusReplyStream) Send(*proto.GatewayStatusChunk) error {
+	return nil
+}
+
+func (s *statusReplyStream) CloseAndRecv() (*proto.GatewayStatusResponse, error) {
+	return s.response, nil
 }
 
 func (s *configChunkStream) Recv() (*proto.AgentConfigChunk, error) {

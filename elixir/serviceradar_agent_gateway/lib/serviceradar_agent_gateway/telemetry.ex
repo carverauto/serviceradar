@@ -43,12 +43,24 @@ defmodule ServiceRadarAgentGateway.Telemetry do
       ),
       counter("serviceradar.agent_gateway.results.buffer.dropped.count",
         event_name: [:serviceradar, :agent_gateway, :results, :buffer, :dropped],
-        tags: [:reason, :gateway_id, :partition],
+        tags: [:reason, :source, :service_type, :gateway_id, :partition],
+        tag_values: &buffer_tag_values/1
+      ),
+      sum("serviceradar.agent_gateway.results.buffer.dropped.bytes",
+        event_name: [:serviceradar, :agent_gateway, :results, :buffer, :dropped],
+        measurement: :bytes,
+        tags: [:reason, :source, :service_type, :gateway_id, :partition],
         tag_values: &buffer_tag_values/1
       ),
       last_value("serviceradar.agent_gateway.results.buffer.depth",
         event_name: [:serviceradar, :agent_gateway, :results, :buffer, :depth],
         measurement: :depth,
+        tags: [:gateway_id],
+        tag_values: &buffer_tag_values/1
+      ),
+      last_value("serviceradar.agent_gateway.results.buffer.bytes",
+        event_name: [:serviceradar, :agent_gateway, :results, :buffer, :depth],
+        measurement: :bytes,
         tags: [:gateway_id],
         tag_values: &buffer_tag_values/1
       ),
@@ -104,6 +116,8 @@ defmodule ServiceRadarAgentGateway.Telemetry do
   defp buffer_tag_values(metadata) do
     %{
       reason: stringify(metadata[:reason], "unknown"),
+      source: stringify(metadata[:source], "unknown"),
+      service_type: stringify(metadata[:service_type], "unknown"),
       gateway_id: stringify(metadata[:gateway_id], "unknown"),
       partition: stringify(metadata[:partition], "default")
     }

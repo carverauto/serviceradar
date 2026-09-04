@@ -86,6 +86,26 @@ defmodule ServiceRadar.TimeZone do
     end
   end
 
+  @doc """
+  Ordered names for the profile timezone picker.
+
+  `Etc/UTC` is always first. Remaining names are unique and sorted. `extras`
+  may include a persisted preference that is no longer in PostgreSQL's catalog
+  so the current value stays visible.
+  """
+  @spec profile_picker_zones([String.t()], [String.t()]) :: [String.t()]
+  def profile_picker_zones(zones, extras \\ []) when is_list(zones) and is_list(extras) do
+    rest =
+      (extras ++ zones)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == "" or &1 == "Etc/UTC"))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    ["Etc/UTC" | rest]
+  end
+
   @doc "Normalizes a timezone preference before checking it against the catalog."
   @spec normalize_preference(term()) :: {:ok, String.t()} | {:error, :invalid_timezone}
   def normalize_preference(value) when is_binary(value) do

@@ -36,6 +36,8 @@ mod ipc;
 mod ja4;
 mod kernel;
 #[allow(dead_code)]
+mod kernel_layout;
+#[allow(dead_code)]
 mod lifecycle;
 #[allow(dead_code)]
 mod mdns;
@@ -57,10 +59,6 @@ mod runtime_config;
 #[allow(dead_code)]
 mod satori;
 mod server;
-#[cfg(feature = "remote-capture")]
-#[allow(dead_code)]
-mod tls_server;
-
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -74,7 +72,7 @@ use tokio::sync::{broadcast, watch};
 use crate::{
     config::Config,
     external_flow::SharedExternalFlowMatcher,
-    lifecycle::{StartupOps, SystemStartupOps},
+    lifecycle::SystemStartupOps,
     metrics::{Metrics, serve_metrics},
     runtime_config::{DpiEventGate, FingerprintEventGate, RuntimeConfig},
     server::IpcServer,
@@ -210,10 +208,22 @@ async fn main() -> Result<()> {
     let _dpi_gate = Arc::new(DpiEventGate::new(runtime_config.clone()));
     let metrics = Metrics::new()?;
     let mut startup_ops = SystemStartupOps;
+    // Held for the life of the process. These are the AF_PACKET descriptors a
+    // capture session takes later over IPC; dropping this closes them, and
+    // they cannot be reopened once privileges are gone.
+    let _capture_handles;
     let _visibility_runtime = match select_visibility_startup(&config, args.ebpf_object.is_some())?
     {
         VisibilityStartupMode::Disabled => {
-            startup_ops.drop_privileges(args.drop_user.as_deref(), args.allow_root)?;
+            // Opens the capture descriptors and drops privileges, in that
+            // order. This branch previously dropped without opening.
+            _capture_handles = Some(lifecycle::initialize_privileged_resources(
+                &mut startup_ops,
+                &config,
+                args.drop_user.as_deref(),
+                args.skip_cap_check,
+                args.allow_root,
+            )?);
             VisibilityRuntime::Disabled
         }
         VisibilityStartupMode::Ebpf => {
@@ -228,7 +238,11 @@ async fn main() -> Result<()> {
                     .ebpf_object
                     .as_deref()
                     .expect("checked ebpf_object is present");
-                prepare_ebpf_privileged_resources(&mut startup_ops, &config, args.skip_cap_check)?;
+                let opened_captures = prepare_ebpf_privileged_resources(
+                    &mut startup_ops,
+                    &config,
+                    args.skip_cap_check,
+                )?;
                 let runtime = ebpf_runtime::NetprobeEbpfRuntime::start(
                     ebpf_object,
                     &config,
@@ -246,11 +260,12 @@ async fn main() -> Result<()> {
                     Arc::clone(&_dpi_gate),
                 )
                 .context("failed to start eBPF/AF_XDP visibility runtime")?;
-                drop_runtime_privileges(
+                _capture_handles = Some(drop_runtime_privileges(
                     &mut startup_ops,
+                    opened_captures,
                     args.drop_user.as_deref(),
                     args.allow_root,
-                )?;
+                )?);
                 log::info!(
                     "started eBPF/AF_XDP visibility runtime for {} capture interface(s)",
                     config.capture_interfaces.len()
