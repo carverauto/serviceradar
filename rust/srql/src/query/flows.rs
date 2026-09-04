@@ -28,6 +28,11 @@ use self::{
     stats::{execute_stats, to_sql_and_params_stats},
 };
 use super::{BindParam, QueryPlan};
+
+// The query object `execute_stats` loads, so the placeholder guard can render the
+// real execution path with `debug_query`; see `query/tests/placeholders.rs`.
+#[cfg(test)]
+pub(super) use stats::execution_query;
 use crate::{
     error::{Result, ServiceError},
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
