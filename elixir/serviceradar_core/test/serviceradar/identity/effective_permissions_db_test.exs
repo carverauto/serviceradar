@@ -176,14 +176,18 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
   end
 
   defp profile!(actor, permissions) do
-    {:ok, profile} =
-      RoleProfile.create_profile(
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
         %{
           name: "Authority profile #{System.unique_integer([:positive])}",
           permissions: permissions
         },
         actor: actor
       )
+      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+      |> Ash.create!()
 
     profile
   end

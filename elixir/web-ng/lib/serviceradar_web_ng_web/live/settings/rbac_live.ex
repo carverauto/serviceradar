@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Identity.RoleProfilePolicy
   alias ServiceRadarWebNG.RBAC, as: WebRBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -128,7 +129,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         {:noreply, put_flash(socket, :error, "Name is required")}
 
       true ->
-        case update_role_profile(scope, profile, %{name: name}) do
+        case RoleProfilePolicy.update(scope, profile.id, %{name: name}) do
           {:ok, updated} ->
             {:noreply,
              socket
@@ -142,7 +143,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
-  def handle_event("toggle_permission", %{"profile-id" => profile_id, "permission" => permission}, socket) do
+  def handle_event(
+        "toggle_permission",
+        %{"profile-id" => profile_id, "permission" => permission},
+        socket
+      ) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
     if profile == nil or profile_locked?(profile) do
@@ -157,7 +162,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
-  def handle_event("toggle_resource", %{"profile-id" => profile_id, "resource" => resource}, socket) do
+  def handle_event(
+        "toggle_resource",
+        %{"profile-id" => profile_id, "resource" => resource},
+        socket
+      ) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
     if profile == nil or profile_locked?(profile) do
@@ -225,7 +234,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     {:noreply, socket}
   end
 
-  def handle_event("set_profile_permissions", %{"profile-id" => profile_id, "mode" => mode}, socket) do
+  def handle_event(
+        "set_profile_permissions",
+        %{"profile-id" => profile_id, "mode" => mode},
+        socket
+      ) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
     if profile == nil or profile_locked?(profile) do
@@ -273,7 +286,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       permissions: base_permissions
     }
 
-    case create_role_profile(scope, attrs) do
+    case RoleProfilePolicy.create(scope, attrs) do
       {:ok, profile} ->
         {:noreply,
          socket
@@ -314,16 +327,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         {:noreply, put_flash(socket, :error, "System profiles cannot be deleted")}
 
       true ->
-        case delete_role_profile(scope, profile.id) do
-          :ok ->
-            {:noreply,
-             socket
-             |> assign(:profiles, Enum.reject(socket.assigns.profiles, &(&1.id == profile.id)))
-             |> assign(:dirty_profiles, MapSet.delete(socket.assigns.dirty_profiles, profile.id))
-             |> assign(:confirm_delete_profile, nil)
-             |> put_flash(:info, "Role profile deleted")}
-
-          {:ok, _} ->
+        case RoleProfilePolicy.delete(scope, profile.id) do
+          {:ok, _deleted_profile} ->
             {:noreply,
              socket
              |> assign(:profiles, Enum.reject(socket.assigns.profiles, &(&1.id == profile.id)))
@@ -499,13 +504,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   # ── Component: profile_card ───────────────────────────────────
 
-  attr :profile, :map, required: true
-  attr :grid, :map, required: true
-  attr :dirty, :boolean, default: false
-  attr :renaming_profile_id, :any, default: nil
-  attr :rename_form, :any, required: true
-  attr :sections, :list, required: true
-  attr :active_section, :string, default: nil
+  attr(:profile, :map, required: true)
+  attr(:grid, :map, required: true)
+  attr(:dirty, :boolean, default: false)
+  attr(:renaming_profile_id, :any, default: nil)
+  attr(:rename_form, :any, required: true)
+  attr(:sections, :list, required: true)
+  attr(:active_section, :string, default: nil)
 
   defp profile_card(assigns) do
     assigns = assign(assigns, :unmapped, unmapped_permissions(assigns.profile, assigns.grid))
@@ -759,7 +764,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   # ── Component: new_profile_modal ──────────────────────────────
 
-  attr :form, :any, required: true
+  attr(:form, :any, required: true)
 
   defp new_profile_modal(assigns) do
     ~H"""
@@ -793,7 +798,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
   # ── Component: delete_profile_modal ───────────────────────────
 
-  attr :profile, :map, required: true
+  attr(:profile, :map, required: true)
 
   defp delete_profile_modal(assigns) do
     ~H"""
@@ -1050,29 +1055,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
-  defp create_role_profile(scope, attrs) do
-    RoleProfile
-    |> Ash.Changeset.for_create(:create, attrs, scope: scope)
-    |> Ash.create(scope: scope)
-  end
-
-  defp delete_role_profile(scope, id) do
-    with {:ok, profile} <- Ash.get(RoleProfile, id, scope: scope) do
-      Ash.destroy(profile, scope: scope)
-    end
-  end
-
   defp persist_profile(socket, scope, profile) do
-    result =
-      case Ash.get(RoleProfile, profile.id, scope: scope) do
-        {:ok, record} ->
-          record
-          |> Ash.Changeset.for_update(:update, %{permissions: profile.permissions}, scope: scope)
-          |> Ash.update(scope: scope)
-
-        {:error, error} ->
-          {:error, error}
-      end
+    result = RoleProfilePolicy.update(scope, profile.id, %{permissions: profile.permissions})
 
     case result do
       {:ok, updated} ->
@@ -1083,14 +1067,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
 
       {:error, error} ->
         put_flash(socket, :error, format_ash_error(error))
-    end
-  end
-
-  defp update_role_profile(scope, profile, attrs) do
-    with {:ok, record} <- Ash.get(RoleProfile, profile.id, scope: scope) do
-      record
-      |> Ash.Changeset.for_update(:update, attrs, scope: scope)
-      |> Ash.update(scope: scope)
     end
   end
 

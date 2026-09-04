@@ -51,12 +51,23 @@ defmodule ServiceRadar.Identity.UserGroup do
       filter expr(id == ^arg(:id))
     end
 
+    read :for_role_profile_boundary do
+      argument :role_profile_id, :uuid, allow_nil?: false
+      filter expr(role_profile_id == ^arg(:role_profile_id))
+    end
+
     update :assign_role_profile do
       accept [:role_profile_id]
       validate RequirePrivilegeBoundary
     end
 
     update :clear_role_profile do
+      accept []
+      change set_attribute(:role_profile_id, nil)
+      validate RequirePrivilegeBoundary
+    end
+
+    update :clear_role_profile_for_boundary do
       accept []
       change set_attribute(:role_profile_id, nil)
       validate RequirePrivilegeBoundary
@@ -73,6 +84,7 @@ defmodule ServiceRadar.Identity.UserGroup do
     system_bypass()
     action_with_permission(:read, @view_check)
     action_with_permission(:for_privilege_boundary, @manage_check)
+    action_with_permission(:for_role_profile_boundary, @rbac_manage_check)
 
     action_with_permission(
       [:create, :update, :assign_role_profile, :clear_role_profile, :destroy],
@@ -80,6 +92,7 @@ defmodule ServiceRadar.Identity.UserGroup do
     )
 
     action_with_permission([:assign_role_profile, :clear_role_profile], @rbac_manage_check)
+    action_with_permission(:clear_role_profile_for_boundary, @rbac_manage_check)
   end
 
   attributes do

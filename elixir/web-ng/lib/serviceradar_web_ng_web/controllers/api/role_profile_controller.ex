@@ -11,10 +11,11 @@ defmodule ServiceRadarWebNGWeb.Api.RoleProfileController do
 
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadarWebNG.AdminApi
 
   require Ash.Query
 
-  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
+  action_fallback(ServiceRadarWebNGWeb.Api.FallbackController)
 
   @impl true
   # Permit.Phoenix.Controller defaults to preloading records for actions like
@@ -58,49 +59,40 @@ defmodule ServiceRadarWebNGWeb.Api.RoleProfileController do
       permissions: normalize_permissions(params["permissions"])
     }
 
-    case RoleProfile
-         |> Ash.Changeset.for_create(:create, attrs, scope: scope)
-         |> Ash.create(scope: scope) do
+    case AdminApi.create_role_profile(scope, attrs) do
       {:ok, profile} ->
         conn
         |> put_status(:created)
         |> json(role_profile_to_json(profile))
 
       {:error, error} ->
-        {:error, error}
+        normalize_mutation_error(error)
     end
   end
 
   def update(conn, %{"id" => id} = params) do
     scope = conn.assigns.current_scope
 
-    with {:ok, profile} <- Ash.get(RoleProfile, id, scope: scope) do
-      attrs = %{
-        name: Map.get(params, "name"),
-        description: Map.get(params, "description"),
-        permissions: normalize_permissions(Map.get(params, "permissions"))
-      }
+    attrs = %{
+      name: Map.get(params, "name"),
+      description: Map.get(params, "description"),
+      permissions: normalize_permissions(Map.get(params, "permissions"))
+    }
 
-      attrs = attrs |> Enum.reject(fn {_key, value} -> is_nil(value) end) |> Map.new()
+    attrs = attrs |> Enum.reject(fn {_key, value} -> is_nil(value) end) |> Map.new()
 
-      case profile
-           |> Ash.Changeset.for_update(:update, attrs, scope: scope)
-           |> Ash.update(scope: scope) do
-        {:ok, updated} -> json(conn, role_profile_to_json(updated))
-        {:error, error} -> {:error, error}
-      end
+    case AdminApi.update_role_profile(scope, id, attrs) do
+      {:ok, updated} -> json(conn, role_profile_to_json(updated))
+      {:error, error} -> normalize_mutation_error(error)
     end
   end
 
   def delete(conn, %{"id" => id}) do
     scope = conn.assigns.current_scope
 
-    with {:ok, profile} <- Ash.get(RoleProfile, id, scope: scope) do
-      case Ash.destroy(profile, scope: scope) do
-        :ok -> json(conn, %{status: "deleted"})
-        {:ok, _} -> json(conn, %{status: "deleted"})
-        {:error, error} -> {:error, error}
-      end
+    case AdminApi.delete_role_profile(scope, id) do
+      {:ok, _result} -> json(conn, %{status: "deleted"})
+      {:error, error} -> normalize_mutation_error(error)
     end
   end
 
@@ -128,6 +120,9 @@ defmodule ServiceRadarWebNGWeb.Api.RoleProfileController do
   end
 
   defp normalize_permissions(_), do: []
+
+  defp normalize_mutation_error(:current_authority_denied), do: {:error, :forbidden}
+  defp normalize_mutation_error(error), do: {:error, error}
 
   defp role_profile_to_json(profile) do
     %{

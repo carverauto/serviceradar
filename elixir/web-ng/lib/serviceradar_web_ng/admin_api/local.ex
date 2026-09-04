@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
   alias ServiceRadar.Identity.AuthorizationSettings
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Identity.RoleProfilePolicy
   alias ServiceRadar.Identity.User
   alias ServiceRadarWebNG.AdminApi.LocalParams
 
@@ -137,28 +138,19 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
 
   @impl true
   def create_role_profile(scope, attrs) do
-    RoleProfile
-    |> Ash.Changeset.for_create(:create, attrs, scope: scope)
-    |> Ash.create(scope: scope)
+    RoleProfilePolicy.create(scope, attrs)
   end
 
   @impl true
   def update_role_profile(scope, id, attrs) do
-    with {:ok, profile} <- Ash.get(RoleProfile, id, scope: scope) do
-      profile
-      |> Ash.Changeset.for_update(:update, attrs, scope: scope)
-      |> Ash.update(scope: scope)
-    end
+    RoleProfilePolicy.update(scope, id, attrs)
   end
 
   @impl true
   def delete_role_profile(scope, id) do
-    with {:ok, profile} <- Ash.get(RoleProfile, id, scope: scope) do
-      case Ash.destroy(profile, scope: scope) do
-        :ok -> {:ok, %{status: "deleted"}}
-        {:ok, _} -> {:ok, %{status: "deleted"}}
-        {:error, error} -> {:error, error}
-      end
+    case RoleProfilePolicy.delete(scope, id) do
+      {:ok, _profile} -> {:ok, %{status: "deleted"}}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -194,9 +186,11 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
   defp role_from_attrs(%{"role" => role}), do: role
   defp role_from_attrs(_), do: nil
 
-  defp role_profile_id_from_attrs(%{role_profile_id: role_profile_id}), do: normalize_profile_id(role_profile_id)
+  defp role_profile_id_from_attrs(%{role_profile_id: role_profile_id}),
+    do: normalize_profile_id(role_profile_id)
 
-  defp role_profile_id_from_attrs(%{"role_profile_id" => role_profile_id}), do: normalize_profile_id(role_profile_id)
+  defp role_profile_id_from_attrs(%{"role_profile_id" => role_profile_id}),
+    do: normalize_profile_id(role_profile_id)
 
   defp role_profile_id_from_attrs(_), do: @not_provided
 
@@ -221,7 +215,9 @@ defmodule ServiceRadarWebNG.AdminApi.Local do
 
   defp maybe_update_role_profile(user, role_profile_id, scope) do
     user
-    |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: role_profile_id}, scope: scope)
+    |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: role_profile_id},
+      scope: scope
+    )
     |> Ash.update(scope: scope)
   end
 

@@ -8,6 +8,8 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
   alias ServiceRadar.Identity.PrivilegedMembership
   alias ServiceRadar.Identity.PrivilegeMutationEffects
   alias ServiceRadar.Identity.RoleProfile
+  alias ServiceRadar.Identity.RoleProfilePolicy
+  alias ServiceRadar.Identity.RoleProfileSeeder
   alias ServiceRadar.Identity.User
   alias ServiceRadar.Identity.UserGroup
   alias ServiceRadar.Identity.UserGroupMembership
@@ -74,6 +76,266 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
              memberships_for(member.id, context.system)
 
     assert membership_id == membership.id
+  end
+
+  test "outer role-profile lifecycle transactions are rejected before authorization or effects",
+       context do
+    profile = profile!(context.system, context.marker, ["devices.view"])
+    opts = effect_opts(self())
+
+    assert Repo.transaction(fn ->
+             [
+               RoleProfilePolicy.create(
+                 context.scope,
+                 %{name: "#{context.marker}-outer-create", permissions: []},
+                 opts
+               ),
+               RoleProfilePolicy.update(
+                 context.scope,
+                 profile.id,
+                 %{description: "blocked"},
+                 opts
+               ),
+               RoleProfilePolicy.delete(context.scope, profile.id, opts)
+             ]
+           end) ==
+             {:ok, List.duplicate({:error, :outer_transaction_not_supported}, 3)}
+
+    refute_receive {:audit, _}
+    refute_receive {:invalidate, _}
+    assert {:ok, persisted} = Ash.get(RoleProfile, profile.id, actor: context.system)
+    assert is_nil(persisted.description)
+  end
+
+  test "create update and delete reconstruct current human authority", context do
+    update_target = profile!(context.system, context.marker, ["devices.view"])
+    delete_target = profile!(context.system, context.marker, ["devices.view"])
+    revoke_profile!(context.system, context.actor.role_profile_id)
+    opts = effect_opts(self())
+
+    assert RoleProfilePolicy.create(
+             context.scope,
+             %{name: "#{context.marker}-revoked-create", permissions: []},
+             opts
+           ) == {:error, :current_authority_denied}
+
+    assert RoleProfilePolicy.update(
+             context.scope,
+             update_target.id,
+             %{description: "must not persist"},
+             opts
+           ) == {:error, :current_authority_denied}
+
+    assert RoleProfilePolicy.delete(context.scope, delete_target.id, opts) ==
+             {:error, :current_authority_denied}
+
+    refute_receive {:audit, _}
+    refute_receive {:invalidate, _}
+    assert {:ok, unchanged_update} = Ash.get(RoleProfile, update_target.id, actor: context.system)
+    assert is_nil(unchanged_update.description)
+    assert {:ok, %RoleProfile{}} = Ash.get(RoleProfile, delete_target.id, actor: context.system)
+  end
+
+  test "custom profile creation commits before its audit effect", context do
+    attrs = %{
+      name: "#{context.marker}-created-profile",
+      description: "Synthetic created profile",
+      permissions: ["devices.view"]
+    }
+
+    assert {:ok, %RoleProfile{name: name} = profile} =
+             RoleProfilePolicy.create(context.scope, attrs, effect_opts(self()))
+
+    assert name == attrs.name
+    refute_receive {:invalidate, _}
+    assert_receive {:audit, audit}
+    assert audit[:action] == :create
+    assert audit[:resource_id] == profile.id
+    assert {:ok, %RoleProfile{id: id}} = Ash.get(RoleProfile, profile.id, actor: context.system)
+    assert id == profile.id
+  end
+
+  test "profile update invalidates direct and group users once after commit", context do
+    profile = profile!(context.system, context.marker, ["devices.view"])
+    group = group!(context.system, context.marker)
+    direct_and_group = user!(context.system, context.marker, "direct-and-group")
+    group_only = user!(context.system, context.marker, "group-only")
+
+    {:ok, _user} =
+      User.update_role_profile(
+        direct_and_group,
+        %{role_profile_id: profile.id},
+        actor: context.system
+      )
+
+    assign_group_profile!(context.system, group, profile.id)
+    manual_membership!(context.system, group.id, direct_and_group.id)
+    manual_membership!(context.system, group.id, group_only.id)
+
+    assert {:ok, %RoleProfile{permissions: ["devices.view", "services.view"]}} =
+             RoleProfilePolicy.update(
+               context.scope,
+               profile.id,
+               %{permissions: ["devices.view", "services.view"]},
+               effect_opts(self())
+             )
+
+    assert_receive {:invalidate, first}
+    assert_receive {:invalidate, second}
+
+    assert MapSet.new([first, second]) ==
+             MapSet.new([direct_and_group.id, group_only.id])
+
+    refute_receive {:invalidate, _}
+    assert_receive {:audit, audit}
+    assert audit[:action] == :update
+  end
+
+  test "profile deletion clears direct and group references atomically", context do
+    profile = profile!(context.system, context.marker, ["devices.view"])
+    group = group!(context.system, context.marker)
+    direct_user = user!(context.system, context.marker, "delete-direct")
+    group_user = user!(context.system, context.marker, "delete-group")
+
+    {:ok, _user} =
+      User.update_role_profile(direct_user, %{role_profile_id: profile.id}, actor: context.system)
+
+    assign_group_profile!(context.system, group, profile.id)
+    manual_membership!(context.system, group.id, group_user.id)
+
+    assert {:ok, %RoleProfile{id: deleted_id}} =
+             RoleProfilePolicy.delete(context.scope, profile.id, effect_opts(self()))
+
+    assert deleted_id == profile.id
+    assert {:ok, nil} = Ash.get(RoleProfile, profile.id, actor: context.system)
+    assert {:ok, %{role_profile_id: nil}} = User.get_by_id(direct_user.id, actor: context.system)
+    assert {:ok, %{role_profile_id: nil}} = Ash.get(UserGroup, group.id, actor: context.system)
+    assert_receive {:invalidate, first}
+    assert_receive {:invalidate, second}
+    assert MapSet.new([first, second]) == MapSet.new([direct_user.id, group_user.id])
+    refute_receive {:invalidate, _}
+    assert_receive {:audit, audit}
+    assert audit[:action] == :delete
+  end
+
+  test "profile deletion rollback restores the profile and both reference kinds", context do
+    profile = profile!(context.system, context.marker, ["devices.view"])
+    group = group!(context.system, context.marker)
+    direct_user = user!(context.system, context.marker, "rollback-direct")
+    group_user = user!(context.system, context.marker, "rollback-group")
+
+    {:ok, _user} =
+      User.update_role_profile(direct_user, %{role_profile_id: profile.id}, actor: context.system)
+
+    assign_group_profile!(context.system, group, profile.id)
+    manual_membership!(context.system, group.id, group_user.id)
+
+    opts =
+      self()
+      |> effect_opts()
+      |> Keyword.put(:after_references_cleared, fn -> {:error, :synthetic_delete_failure} end)
+
+    assert RoleProfilePolicy.delete(context.scope, profile.id, opts) ==
+             {:error, :synthetic_delete_failure}
+
+    refute_receive {:audit, _}
+    refute_receive {:invalidate, _}
+    assert {:ok, %RoleProfile{}} = Ash.get(RoleProfile, profile.id, actor: context.system)
+
+    assert {:ok, %{role_profile_id: direct_profile_id}} =
+             User.get_by_id(direct_user.id, actor: context.system)
+
+    assert direct_profile_id == profile.id
+
+    assert {:ok, %{role_profile_id: group_profile_id}} =
+             Ash.get(UserGroup, group.id, actor: context.system)
+
+    assert group_profile_id == profile.id
+  end
+
+  test "raw custom-profile and boundary clear actions fail without boundary context", context do
+    profile = profile!(context.system, context.marker, ["devices.view"])
+    group = group!(context.system, context.marker)
+    user = user!(context.system, context.marker, "raw-profile")
+
+    assert {:error, create_error} =
+             RoleProfile
+             |> Ash.Changeset.for_create(:create, %{
+               name: "#{context.marker}-raw-create",
+               permissions: []
+             })
+             |> Ash.create(actor: context.system)
+
+    assert Exception.message(create_error) =~ "privilege mutation boundary"
+
+    assert {:error, update_error} =
+             profile
+             |> Ash.Changeset.for_update(:update, %{description: "blocked"})
+             |> Ash.update(actor: context.system)
+
+    assert Exception.message(update_error) =~ "privilege mutation boundary"
+    assert {:error, destroy_error} = Ash.destroy(profile, actor: context.system)
+    assert Exception.message(destroy_error) =~ "privilege mutation boundary"
+
+    assert {:error, user_clear_error} =
+             user
+             |> Ash.Changeset.for_update(:clear_role_profile_for_boundary, %{})
+             |> Ash.update(actor: context.system)
+
+    assert Exception.message(user_clear_error) =~ "privilege mutation boundary"
+
+    assert {:error, group_clear_error} =
+             group
+             |> Ash.Changeset.for_update(:clear_role_profile_for_boundary, %{})
+             |> Ash.update(actor: context.system)
+
+    assert Exception.message(group_clear_error) =~ "privilege mutation boundary"
+  end
+
+  test "trusted system profile create and update actions remain distinct", context do
+    system_name = "#{context.marker}-trusted-system"
+
+    assert {:ok, profile} =
+             RoleProfile.create_system_profile(
+               %{
+                 system_name: system_name,
+                 name: "#{context.marker}-trusted-system",
+                 permissions: ["devices.view"]
+               },
+               actor: context.system
+             )
+
+    assert {:ok, %RoleProfile{description: "Synthetic trusted update"}} =
+             RoleProfile.update_system_profile(
+               profile,
+               %{description: "Synthetic trusted update"},
+               actor: context.system
+             )
+  end
+
+  test "the seeder updates a changed built-in profile through the trusted action", context do
+    assert {:ok, viewer} = RoleProfile.get_by_system_name("viewer", actor: context.system)
+    original = Map.take(viewer, [:name, :description, :permissions])
+
+    on_exit(fn ->
+      {:ok, current} = RoleProfile.get_by_system_name("viewer", actor: context.system)
+
+      {:ok, _restored} =
+        RoleProfile.update_system_profile(current, original, actor: context.system)
+    end)
+
+    assert {:ok, changed} =
+             RoleProfile.update_system_profile(
+               viewer,
+               %{description: "Synthetic changed built-in", permissions: []},
+               actor: context.system
+             )
+
+    assert changed.description == "Synthetic changed built-in"
+    assert :ok = RoleProfileSeeder.seed()
+    assert {:ok, refreshed} = RoleProfile.get_by_system_name("viewer", actor: context.system)
+    refute refreshed.description == "Synthetic changed built-in"
+    refute refreshed.permissions == []
   end
 
   test "an owned transaction rollback publishes no audit or cache effects", context do
@@ -325,16 +587,38 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
   end
 
   defp profile!(actor, marker, permissions) do
-    {:ok, profile} =
-      RoleProfile.create_profile(
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
         %{
           name: "#{marker}-profile-#{System.unique_integer([:positive])}",
           permissions: permissions
         },
         actor: actor
       )
+      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+      |> Ash.create!()
 
     profile
+  end
+
+  defp revoke_profile!(actor, profile_id) do
+    profile = RoleProfile.get_by_id!(profile_id, actor: actor)
+
+    profile
+    |> Ash.Changeset.for_update(:update, %{permissions: []}, actor: actor)
+    |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+    |> Ash.update!()
+  end
+
+  defp assign_group_profile!(actor, group, profile_id) do
+    group
+    |> Ash.Changeset.for_update(:assign_role_profile, %{role_profile_id: profile_id},
+      actor: actor
+    )
+    |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+    |> Ash.update!()
   end
 
   defp group!(actor, marker) do

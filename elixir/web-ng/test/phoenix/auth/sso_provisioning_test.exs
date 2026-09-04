@@ -250,14 +250,18 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
   end
 
   defp role_profile!(actor) do
-    {:ok, profile} =
-      RoleProfile.create_profile(
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
         %{
           name: "plugin-authors-#{System.unique_integer([:positive])}",
           permissions: ["settings.auth.manage"]
         },
         actor: actor
       )
+      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+      |> Ash.create!()
 
     profile
   end

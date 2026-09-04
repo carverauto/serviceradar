@@ -1339,6 +1339,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
                },
                actor: actor
              )
+             |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
              |> Ash.create(actor: actor)
 
     assert {:ok, user} =

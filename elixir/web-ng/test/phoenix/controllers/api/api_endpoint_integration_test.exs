@@ -115,8 +115,10 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   defp restrict_user(user, permissions) do
     actor = SystemActor.system(:srql_rbac_test)
 
-    {:ok, profile} =
-      RoleProfile.create_profile(
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
         %{
           name: "srql-rbac-#{System.unique_integer([:positive])}",
           description: "catalog-gate fixture",
@@ -124,6 +126,8 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
         },
         actor: actor
       )
+      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+      |> Ash.create!()
 
     {:ok, assigned} = User.update_role_profile(user, %{role_profile_id: profile.id}, actor: actor)
     RBAC.invalidate_user_cache(assigned.id)
@@ -213,7 +217,11 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
     end
 
     test "missing grant_type returns 400 invalid_request", %{client: client, secret: secret} do
-      conn = post(build_conn(), ~p"/oauth/token", %{"client_id" => client.id, "client_secret" => secret})
+      conn =
+        post(build_conn(), ~p"/oauth/token", %{
+          "client_id" => client.id,
+          "client_secret" => secret
+        })
 
       assert json_response(conn, 400)["error"] == "invalid_request"
     end
@@ -384,7 +392,13 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
 
     test "honors limit/offset", ctx do
       seed_devices(4)
-      body = json_response(get(authed(ctx), ~p"/api/devices/ocsf/export?#{[limit: 2, offset: 0]}"), 200)
+
+      body =
+        json_response(
+          get(authed(ctx), ~p"/api/devices/ocsf/export?#{[limit: 2, offset: 0]}"),
+          200
+        )
+
       assert body["count"] == 2
       assert body["pagination"]["next_offset"] == 2
     end
@@ -418,7 +432,11 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       end)
 
       {client, secret} = client_for_user(owner, owner, ["read"])
-      conn = post(authed(%{client: client, secret: secret}), ~p"/api/query", %{"query" => "in:logs limit:1"})
+
+      conn =
+        post(authed(%{client: client, secret: secret}), ~p"/api/query", %{
+          "query" => "in:logs limit:1"
+        })
 
       assert %{"results" => [%{"time" => "2026-08-30T18:00:00Z"}]} = json_response(conn, 200)
     end
@@ -472,14 +490,24 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
 
     test "a custom profile without devices.view cannot query in:devices", %{owner: owner} do
       {client, secret} = restricted_client(owner, ["observability.logs.view"])
-      conn = post(authed(%{client: client, secret: secret}), ~p"/api/query", %{"query" => "in:devices limit:1"})
+
+      conn =
+        post(authed(%{client: client, secret: secret}), ~p"/api/query", %{
+          "query" => "in:devices limit:1"
+        })
+
       body = json_response(conn, 403)
       assert body["error"] == "forbidden"
     end
 
     test "a custom profile without observability.logs.view cannot query in:logs", %{owner: owner} do
       {client, secret} = restricted_client(owner, ["devices.view"])
-      conn = post(authed(%{client: client, secret: secret}), ~p"/api/query", %{"query" => "in:logs limit:1"})
+
+      conn =
+        post(authed(%{client: client, secret: secret}), ~p"/api/query", %{
+          "query" => "in:logs limit:1"
+        })
+
       body = json_response(conn, 403)
       assert body["error"] == "forbidden"
     end
@@ -488,14 +516,24 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
       seed_devices(1)
       viewer = viewer_user_fixture()
       {client, secret} = client_for_user(owner, viewer, ["read"])
-      conn = post(authed(%{client: client, secret: secret}), ~p"/api/query", %{"query" => "in:devices limit:10"})
+
+      conn =
+        post(authed(%{client: client, secret: secret}), ~p"/api/query", %{
+          "query" => "in:devices limit:10"
+        })
+
       body = json_response(conn, 200)
       assert is_list(body["results"])
     end
 
     test "in:dashboards is not catalog-forbidden for a custom profile", %{owner: owner} do
       {client, secret} = restricted_client(owner, ["observability.logs.view"])
-      conn = post(authed(%{client: client, secret: secret}), ~p"/api/query", %{"query" => "in:dashboards"})
+
+      conn =
+        post(authed(%{client: client, secret: secret}), ~p"/api/query", %{
+          "query" => "in:dashboards"
+        })
+
       refute conn.status == 403
       assert conn.status in 200..499
     end
@@ -534,7 +572,9 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
     end
 
     test "invalid request body returns 400 before touching live infra", ctx do
-      conn = post(authed(ctx), ~p"/api/camera-relay-sessions", %{"camera_source_id" => "not-a-uuid"})
+      conn =
+        post(authed(ctx), ~p"/api/camera-relay-sessions", %{"camera_source_id" => "not-a-uuid"})
+
       body = json_response(conn, 400)
       assert body["error"] == "invalid_request"
     end

@@ -421,11 +421,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
         },
         actor: system_actor()
       )
+      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     updated =
       user
-      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id},
+        actor: system_actor()
+      )
       |> Ash.update!()
 
     RBAC.clear_process_cache()

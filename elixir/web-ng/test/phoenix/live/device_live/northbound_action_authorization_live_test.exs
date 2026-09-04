@@ -72,6 +72,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundActionAuthorizationLiveTest 
         },
         actor: actor
       )
+      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     updated =

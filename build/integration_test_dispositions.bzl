@@ -378,7 +378,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/identity/device_lookup_alias_test.exs": 6,
     "test/serviceradar/identity/effective_permissions_db_test.exs": 6,
     "test/serviceradar/identity/identity_cache_test.exs": 3,
-    "test/serviceradar/identity/privilege_mutation_boundaries_db_test.exs": 13,
+    "test/serviceradar/identity/privilege_mutation_boundaries_db_test.exs": 22,
     "test/serviceradar/infrastructure/health_tracker_test.exs": 18,
     "test/serviceradar/integrations/armis_dire_e2e_test.exs": 2,
     "test/serviceradar/integrations/composite_northbound_values_test.exs": 10,

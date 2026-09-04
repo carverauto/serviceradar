@@ -106,6 +106,7 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
         },
         actor: @system_actor
       )
+      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!(actor: @system_actor)
 
     User

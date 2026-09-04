@@ -86,7 +86,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
 
   test "RDP user with view-all permission can review another user's RDP recording", %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :viewer})
-    user = grant_permissions(user, ["devices.remote_access.rdp.open", "devices.remote_access.recordings.view_all"])
+
+    user =
+      grant_permissions(user, [
+        "devices.remote_access.rdp.open",
+        "devices.remote_access.recordings.view_all"
+      ])
+
     owner = AccountsFixtures.user_fixture(%{role: :viewer})
     rdp_recording = recording_fixture(owner, protocol: :rdp, store_payloads?: false)
     conn = log_in_user(conn, user)
@@ -206,11 +212,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
         },
         actor: system_actor()
       )
+      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     updated =
       user
-      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id},
+        actor: system_actor()
+      )
       |> Ash.update!()
 
     RBAC.clear_process_cache()

@@ -107,7 +107,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
 
     {:ok, %{host_key: trusted}} =
       RemoteAccessHostKeys.observe(
-        observation(target_host, fingerprint_sha256: "SHA256:old-#{target_host}", source: :trust_on_first_use),
+        observation(target_host,
+          fingerprint_sha256: "SHA256:old-#{target_host}",
+          source: :trust_on_first_use
+        ),
         actor: system_actor()
       )
 
@@ -194,11 +197,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
         },
         actor: system_actor()
       )
+      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     updated =
       user
-      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id},
+        actor: system_actor()
+      )
       |> Ash.update!()
 
     RBAC.clear_process_cache()

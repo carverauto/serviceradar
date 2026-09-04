@@ -105,7 +105,13 @@ defmodule ServiceRadarWebNGWeb.AnsibleLaunchLiveTest do
     html = render_change(view, "validate", %{"playbook_id" => playbook.id})
 
     assert html =~ "Reviewed binding and exact target memberships are ready."
-    assert has_element?(view, "#secure-ansible-launch-readiness.alert-success", "Binding approved")
+
+    assert has_element?(
+             view,
+             "#secure-ansible-launch-readiness.alert-success",
+             "Binding approved"
+           )
+
     assert has_element?(view, "#secure-ansible-launch-submit:not([disabled])")
   end
 
@@ -206,6 +212,7 @@ defmodule ServiceRadarWebNGWeb.AnsibleLaunchLiveTest do
         },
         actor: actor
       )
+      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     updated =

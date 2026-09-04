@@ -2,13 +2,13 @@ load("@aspect_bazel_lib//lib:copy_to_bin.bzl", "copy_to_bin")
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
 load("@rules_elixir//:mix_app.bzl", "mix_app")
+load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
 load(
     "//build:elixir_release.bzl",
     "SHIPPED_ERTS_OTP_ROOT",
     "SHIPPED_ERTS_ROOT_MARKER",
     "elixir_release",
 )
-load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
 
 # REMOVED FOR NOW: :precommit / :precommit_check, and the two mix_deps cache layers
 # (:deps_cache, :path_deps_cache) that existed only to feed them.
@@ -337,7 +337,6 @@ elixir_release(
 )
 
 ex_unit_tests(
-    config_loader = "//build:elixir_test_config_loader.exs",
     name = "unit_tests",
     # test/integration and test/property are excluded because this target is the
     # DATABASE-FREE tier, and not one file in either directory carries
@@ -362,6 +361,7 @@ ex_unit_tests(
             "test/property/**",
         ],
     ),
+    config_loader = "//build:elixir_test_config_loader.exs",
     data = glob(
         [
             "config/**",
@@ -429,6 +429,7 @@ ex_unit_test(
     srcs = [
         "test/app_domain/dashboards/report_jobs_test.exs",
         "test/phoenix/auth/sso_provisioning_test.exs",
+        "test/phoenix/controllers/api/admin_authorization_test.exs",
         "test/phoenix/controllers/api/api_endpoint_integration_test.exs",
         "test/phoenix/live/alert_live/show_test.exs",
         "test/phoenix/live/authored_dashboard_live_test.exs",
@@ -442,8 +443,9 @@ ex_unit_test(
         "test/phoenix/live/metric_live/timestamp_rendering_test.exs",
         "test/phoenix/live/security_dashboard_routes_test.exs",
         "test/phoenix/live/settings/networks_live_test.exs",
-        "test/phoenix/live/settings/snmp_profiles_live/profile_lifecycle_test.exs",
         "test/phoenix/live/settings/notifications_live_test.exs",
+        "test/phoenix/live/settings/rbac_live_test.exs",
+        "test/phoenix/live/settings/snmp_profiles_live/profile_lifecycle_test.exs",
         "test/phoenix/live/trace_live/show_test.exs",
         "test/phoenix/live/user_live/settings_test.exs",
         "test/serviceradar/identity/timezone_migration_db_test.exs",

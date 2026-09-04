@@ -44,6 +44,14 @@ defmodule ServiceRadarWebNG.DataCase do
   @doc """
   Sets up the sandbox based on the test tags.
   """
+  def setup_sandbox(%{sandbox: :unboxed}) do
+    Sandbox.mode(ServiceRadar.Repo, :auto)
+
+    on_exit(fn ->
+      Sandbox.mode(ServiceRadar.Repo, :manual)
+    end)
+  end
+
   def setup_sandbox(tags) do
     # Use ServiceRadar.Repo directly for sandbox operations (from serviceradar_core)
     pid = Sandbox.start_owner!(ServiceRadar.Repo, shared: not tags[:async])
