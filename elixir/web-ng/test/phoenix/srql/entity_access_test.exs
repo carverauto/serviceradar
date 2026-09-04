@@ -201,4 +201,64 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
       assert {:error, :forbidden} = EntityAccess.authorize("In:devices", scope)
     end
   end
+
+  # Sweep diagnostics (issue 4167, task 7): these five entities were ungated
+  # -- `permission_for_entity/1` fell through to `:passthrough` -- so any
+  # authenticated caller could read sweep configuration, execution history,
+  # and per-host results regardless of scope. Enumerate every parser alias
+  # (rust/srql/src/parser/entity.rs), not just the canonical id, the same way
+  # the identity-diagnostic aliases above are enumerated: a missing alias is
+  # an ungated back door to an otherwise-gated entity.
+  @sweep_diagnostic_aliases [
+    {"sweep_groups", ~w(sweep_groups sweep_group sweeps)},
+    {"sweep_profiles", ~w(sweep_profiles sweep_profile scanner_profiles scanner_profile)},
+    {"sweep_executions", ~w(sweep_executions sweep_execution sweep_group_executions)},
+    {"sweep_results", ~w(sweep_results sweep_result sweep_host_results)},
+    {"sweep_coverage", ~w(sweep_coverage sweep_coverage_daily)}
+  ]
+
+  test "every sweep diagnostic alias is gated by networks.sweeps.view, never passthrough" do
+    unmapped =
+      for {_canonical, aliases} <- @sweep_diagnostic_aliases,
+          entity <- aliases,
+          EntityAccess.permission_for_entity(entity) != {:ok, "networks.sweeps.view"} do
+        {entity, EntityAccess.permission_for_entity(entity)}
+      end
+
+    assert unmapped == [],
+           "sweep diagnostic aliases missing from the RBAC map: #{inspect(unmapped)}"
+  end
+
+  test "every sweep diagnostic alias the RBAC map claims is accepted by the parser" do
+    unsupported =
+      for {_canonical, aliases} <- @sweep_diagnostic_aliases,
+          entity <- aliases,
+          not match?({:ok, _}, Native.parse_ast("in:#{entity} limit:1")) do
+        entity
+      end
+
+    assert unsupported == []
+  end
+
+  # Proves the gate actually denies: before this task these five entities
+  # (and every alias) were :passthrough, so this test must fail red against
+  # the pre-fix code (no `networks.sweeps.view` mapping) and pass green once
+  # the mapping exists.
+  test "a caller without networks.sweeps.view is refused every sweep diagnostic entity and alias" do
+    scope = %Scope{user: nil, permissions: MapSet.new(["observability.logs.view"])}
+
+    for {_canonical, aliases} <- @sweep_diagnostic_aliases,
+        entity <- aliases do
+      assert {:error, :forbidden} = EntityAccess.authorize("in:#{entity} limit:1", scope),
+             "expected in:#{entity} to be forbidden without networks.sweeps.view"
+    end
+  end
+
+  test "a caller with networks.sweeps.view is authorized for every sweep diagnostic entity" do
+    scope = %Scope{user: nil, permissions: MapSet.new(["networks.sweeps.view"])}
+
+    for {canonical, _aliases} <- @sweep_diagnostic_aliases do
+      assert :ok = EntityAccess.authorize("in:#{canonical} limit:1", scope)
+    end
+  end
 end

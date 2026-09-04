@@ -98,7 +98,14 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       attributed_flows attributed_flow flow_attributions flow_attribution
       threat_intel_matches threat_intel_match ioc_matches ioc_match
     ),
-    "observability.alerts.view" => ~w(alerts alert)
+    "observability.alerts.view" => ~w(alerts alert),
+    "networks.sweeps.view" => ~w(
+      sweep_groups sweep_group sweeps
+      sweep_profiles sweep_profile scanner_profiles scanner_profile
+      sweep_executions sweep_execution sweep_group_executions
+      sweep_results sweep_result sweep_host_results
+      sweep_coverage sweep_coverage_daily
+    )
   }
 
   @entity_permissions (for {permission, entities} <- @permission_entities,
