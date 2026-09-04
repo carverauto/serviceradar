@@ -319,7 +319,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
 }
 
 SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
-    "test/integration/advisory_feed_loader_integration_test.exs": 24,
+    "test/integration/advisory_feed_loader_integration_test.exs": 25,
     "test/integration/advisory_feed_loader_products_integration_test.exs": 11,
     "test/integration/credential_event_writer_resolution_integration_test.exs": 4,
     "test/integration/netflow_ingestion_integration_test.exs": 2,
@@ -379,14 +379,14 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/integrations/armis_dire_e2e_test.exs": 2,
     "test/serviceradar/integrations/composite_northbound_values_test.exs": 10,
     "test/serviceradar/inventory/advisory_feeds/acquisition_test.exs": 1,
-    "test/serviceradar/inventory/advisory_feeds/feed_definition_seeder_test.exs": 12,
+    "test/serviceradar/inventory/advisory_feeds/feed_definition_seeder_test.exs": 13,
     "test/serviceradar/inventory/advisory_feeds/feed_worker_scheduling_test.exs": 2,
     "test/serviceradar/inventory/bumblebee_catalog_refresh_worker_test.exs": 3,
     "test/serviceradar/inventory/device_identifier_cache_invalidation_test.exs": 2,
     "test/serviceradar/inventory/device_identifier_gc_worker_test.exs": 4,
     "test/serviceradar/inventory/endpoint_inventory_ingestor_queue_test.exs": 11,
     "test/serviceradar/inventory/endpoint_inventory_ingestor_test.exs": 27,
-    "test/serviceradar/inventory/endpoint_vulnerability_assessment_matcher_test.exs": 22,
+    "test/serviceradar/inventory/endpoint_vulnerability_assessment_matcher_test.exs": 29,
     "test/serviceradar/inventory/endpoint_vulnerability_consumers_db_test.exs": 2,
     "test/serviceradar/inventory/endpoint_vulnerability_matcher_test.exs": 13,
     "test/serviceradar/inventory/identity/fence_test.exs": 11,
