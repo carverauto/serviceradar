@@ -89,13 +89,35 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
 
   @tag :web_ng_shared_fixture_db
   @tag sandbox: :unboxed
-  test "a group query failure is retryable and never exposes its internal reason", %{conn: conn} do
+  test "a failed refresh replaces successful group controls with loading and a retryable error",
+       %{
+         conn: conn
+       } do
     fixture = group_profile_fixture!()
     marker = "synthetic-internal-group-query-marker"
+    test_pid = self()
+    query_mode = start_supervised!({Agent, fn -> :success end})
 
     install_group_profile_query!(fn
-      :groups, _scope -> {:error, {:synthetic_backend_failure, marker}}
-      :profiles, _scope -> {:error, :profiles_must_not_be_queried_after_group_failure}
+      :groups, _scope ->
+        case Agent.get(query_mode, & &1) do
+          :success ->
+            {:ok, [fixture.group]}
+
+          :failure ->
+            send(test_pid, {:failed_group_refresh_waiting, self()})
+
+            receive do
+              :release_failed_group_refresh ->
+                {:error, {:synthetic_backend_failure, marker}}
+            end
+        end
+
+      :profiles, _scope ->
+        case Agent.get(query_mode, & &1) do
+          :success -> {:ok, [fixture.target_profile]}
+          :failure -> {:error, :profiles_must_not_be_queried_after_group_failure}
+        end
     end)
 
     {:ok, live_view, _html} =
@@ -103,10 +125,34 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
       |> log_in_user(fixture.user)
       |> live(~p"/settings/auth/rbac")
 
+    _html = render_async(live_view, 5_000)
+
+    assert has_element?(live_view, "#rbac-group-profile-controls[data-state='success']")
+
+    {group_token, profile_token} =
+      group_profile_tokens(live_view, fixture.group.name, fixture.target_profile.name)
+
+    Agent.update(query_mode, fn _mode -> :failure end)
+
+    live_view
+    |> form("#rbac-group-profile-form-#{group_token}", %{
+      "group-token" => group_token,
+      "profile-token" => profile_token
+    })
+    |> render_change()
+
+    assert_receive {:failed_group_refresh_waiting, failed_query_pid}, 1_000
+
+    loading_html = render(live_view)
+    assert loading_html =~ "rbac-group-profile-loading"
+    refute loading_html =~ "rbac-group-profile-controls"
+
+    send(failed_query_pid, :release_failed_group_refresh)
     html = render_async(live_view, 5_000)
 
     assert has_element?(live_view, "#rbac-group-profile-error[data-state='error']")
     assert html =~ "Unable to load user groups. Try again."
+    refute html =~ "rbac-group-profile-controls"
     refute html =~ marker
     refute html =~ "No user groups have been created yet."
   end

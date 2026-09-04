@@ -1138,16 +1138,20 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     socket
     |> cancel_async(:group_profile_assignments)
     |> assign(:group_profile_generation, generation)
-    |> assign_async(:group_profile_assignments, fn ->
-      case PolicyData.load_group_profiles(scope) do
-        {:ok, data} ->
-          {:ok, %{group_profile_assignments: Map.put(data, :generation, generation)}}
+    |> assign_async(
+      :group_profile_assignments,
+      fn ->
+        case PolicyData.load_group_profiles(scope) do
+          {:ok, data} ->
+            {:ok, %{group_profile_assignments: Map.put(data, :generation, generation)}}
 
-        {:error, reason} ->
-          Logger.warning("RBAC group profile load failed: #{inspect(reason)}")
-          {:error, :group_profile_load_failed}
-      end
-    end)
+          {:error, reason} ->
+            Logger.warning("RBAC group profile load failed: #{inspect(reason)}")
+            {:error, :group_profile_load_failed}
+        end
+      end,
+      reset: true
+    )
   end
 
   defp current_group_profile_data(%{assigns: %{group_profile_assignments: async_result}}) do

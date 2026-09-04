@@ -77,6 +77,45 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.ComponentsTest do
     refute html =~ raw_profile_id
   end
 
+  test "a reset refresh replaces prior controls with loading and then a retryable error" do
+    data = %{
+      generation: 3,
+      groups: [
+        %{
+          id: "55555555-5555-4555-8555-555555555555",
+          name: "Synthetic refresh group",
+          description: nil,
+          role_profile_id: nil
+        }
+      ],
+      profiles: [],
+      group_tokens: %{
+        "opaque-refresh-group" => "55555555-5555-4555-8555-555555555555"
+      },
+      profile_tokens: %{}
+    }
+
+    success_html =
+      render_component(&Components.group_profile_controls/1,
+        result: AsyncResult.ok(AsyncResult.loading(), data)
+      )
+
+    assert success_html =~ "rbac-group-profile-controls"
+
+    loading = AsyncResult.loading()
+    loading_html = render_component(&Components.group_profile_controls/1, result: loading)
+
+    assert loading_html =~ "rbac-group-profile-loading"
+    refute loading_html =~ "rbac-group-profile-controls"
+
+    failure = AsyncResult.failed(loading, :synthetic_refresh_failure)
+    failure_html = render_component(&Components.group_profile_controls/1, result: failure)
+
+    assert failure_html =~ "Unable to load user groups. Try again."
+    assert failure_html =~ "rbac-group-profile-error"
+    refute failure_html =~ "rbac-group-profile-controls"
+  end
+
   test "failure state renders the exact generic retry message and omits the reason" do
     marker = "internal-query-marker-must-stay-server-side"
     result = AsyncResult.failed(AsyncResult.loading(), {:error, {:groups, marker}})
