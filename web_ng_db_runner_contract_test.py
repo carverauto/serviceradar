@@ -11,7 +11,10 @@ WEB_TEST_CONFIG = ROOT / "elixir/web-ng/config/test.exs"
 WORKFLOW = ROOT / "buildbuddy.yaml"
 TARGET = "//elixir/web-ng:networks_live_db_test"
 SHARED_FIXTURE_SOURCES = {
+    "test/app_domain/dashboards/group_access_db_test.exs",
     "test/app_domain/dashboards/report_jobs_test.exs",
+    "test/phoenix/auth/sso_provisioning_test.exs",
+    "test/phoenix/controllers/api/admin_authorization_test.exs",
     "test/phoenix/controllers/api/api_endpoint_integration_test.exs",
     "test/phoenix/live/alert_live/show_test.exs",
     "test/phoenix/live/authored_dashboard_live_test.exs",
@@ -27,6 +30,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/live/settings/networks_live_test.exs",
     "test/phoenix/live/settings/snmp_profiles_live/profile_lifecycle_test.exs",
     "test/phoenix/live/settings/notifications_live_test.exs",
+    "test/phoenix/live/settings/rbac_live_test.exs",
     "test/phoenix/live/trace_live/show_test.exs",
     "test/phoenix/live/user_live/settings_test.exs",
     "test/serviceradar/identity/timezone_migration_db_test.exs",
