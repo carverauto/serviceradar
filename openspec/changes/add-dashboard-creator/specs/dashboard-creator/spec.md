@@ -100,7 +100,8 @@ The web UI SHALL provide an Analytics dashboard workspace where users can list, 
 - **GIVEN** a user owns a dashboard or has dashboard edit permission
 - **WHEN** they open the saved dashboard and choose Settings
 - **THEN** the settings surface SHALL let them manage SRQL panel definitions, visualization choices, report schedules, and dashboard access grants
-- **AND** these controls SHALL NOT be embedded in the global RBAC policy editor.
+- **AND** dashboard-local access controls SHALL remain available to authorized owners and editors
+- **AND** a central Policy Editor MAY provide an administrator-facing mirror for managing the same canonical group grants.
 
 ### Requirement: Dashboard discovery hub and preferences
 The system SHALL provide a user-facing `/dashboards` hub where authenticated users can find authored dashboards they own, authored dashboards shared with them, and enabled dashboard package routes.
