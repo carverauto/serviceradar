@@ -1413,25 +1413,101 @@ mod tests {
     }
 
     #[test]
+    fn a_sign_cannot_slip_past_the_radix_sniffer() {
+        // The subtle half of the radix rule, and the half that shipped
+        // unguarded. `parse_c_integer` chooses the radix from the RAW string
+        // and parses the digits afterwards, and `from_str_radix` accepts its
+        // own leading sign -- so without an explicit refusal the two halves
+        // disagree with each other. `+010` does not start with `0`, so it took
+        // the decimal arm and meant port 10, while `010` meant port 8: two
+        // spellings an operator reads as one literal, resolving to different
+        // ports. `0+70` was worse, taking the octal arm with digits `+70` and
+        // compiling to port 56.
+        for expr in [
+            "port +80",
+            "port -80",
+            "port +010",
+            "port 0+70",
+            "port 0+7",
+            "port 0x+f",
+            "port +0x50",
+            "portrange +010-020",
+            "portrange 10-+20",
+        ] {
+            assert!(
+                compile(expr, 262_144).is_err(),
+                "{expr} must be refused rather than silently meaning some other port"
+            );
+        }
+
+        // Refusing a sign is a NARROWING -- libpcap's strtol would take some of
+        // these. That direction is safe: the operator sees an error and
+        // retypes. The unsafe direction is capturing a port they did not write.
+        assert!(compile("port 80", 262_144).is_ok());
+        assert!(compile("portrange 10-20", 262_144).is_ok());
+    }
+
+    #[test]
+    fn a_cidr_prefix_length_follows_the_same_radix_rule_as_a_port() {
+        // The same divergence class as a port literal, one function away, and
+        // it also shipped unguarded. tcpdump reads `net 10.0.0.0/010` as /8;
+        // reading it as /10 silently NARROWS the filter, so the capture quietly
+        // misses traffic the operator asked for.
+        assert_eq!(
+            compile("net 192.0.2.0/030", 262_144).unwrap(),
+            compile("net 192.0.2.0/24", 262_144).unwrap(),
+            "a leading zero is octal here too: 030 octal is 24"
+        );
+        assert_eq!(
+            compile("net 192.0.2.0/0x18", 262_144).unwrap(),
+            compile("net 192.0.2.0/24", 262_144).unwrap()
+        );
+        for expr in ["net 192.0.2.0/+24", "net 192.0.2.0/08", "net 192.0.2.0/0x"] {
+            assert!(compile(expr, 262_144).is_err(), "{expr} must be refused");
+        }
+    }
+
+    #[test]
     fn a_direction_before_a_primitive_that_has_none_is_refused() {
         // libpcap answers `syntax error` to both of these, verified against
         // 4.99.4. Accepting them and silently DROPPING the direction compiled a
         // strictly wider filter than the operator wrote: `src ip` captured both
         // directions, which is exactly the silent widening the never-widen rule
         // exists to prevent -- and it looks like it worked.
+        // EVERY primitive named in the guard's match arm, in both directions.
+        // The first version of this list covered nine of eighteen and omitted
+        // `icmp6` entirely, so that one could have been dropped from the guard
+        // -- restoring the silent widening for icmp6 traffic -- with the whole
+        // suite still green.
         for expr in [
             "src ip",
             "dst ip",
             "src ip6",
+            "dst ip6",
+            "src arp",
             "dst arp",
             "src icmp",
+            "dst icmp",
+            "src icmp6",
+            "dst icmp6",
+            "src tcp",
             "dst tcp",
             "src udp",
+            "dst udp",
+            "src inbound",
             "dst inbound",
             "src outbound",
+            "dst outbound",
         ] {
-            let err =
-                compile(expr, 262_144).expect_err("{expr} must be refused, as libpcap refuses it");
+            // `expect_err` takes a plain message, NOT a format string: the
+            // previous `expect_err("{expr} must be refused")` printed the
+            // literal braces and named nothing, so a regression said only that
+            // *something* compiled. Match instead, so the panic identifies the
+            // expression.
+            let err = match compile(expr, 262_144) {
+                Err(err) => err,
+                Ok(_) => panic!("{expr} must be refused, as libpcap refuses it"),
+            };
             assert!(
                 matches!(err, FilterError::ModifierNotApplicable { .. }),
                 "{expr} refused for the wrong reason: {err}"
