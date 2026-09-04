@@ -82,7 +82,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.52"
+NETPROBE_VERSION = "0.2.53"
 
 cargo_build_script(
     name = "build_script",
@@ -146,6 +146,10 @@ rust_test(
     name = "netprobe_test",
     proc_macro_deps = NETPROBE_PROC_MACROS,
     crate = ":netprobe",
+    # `include_str!` is a COMPILE-time read, so the differential corpus has to be
+    # compile_data, not data: runfiles do not exist yet when rustc runs. cargo hides
+    # this by compiling in the source tree, so this only fails under Bazel.
+    compile_data = ["testdata/libpcap_reference_programs.tsv"],
     data = ["//third_party/netprobe_corpora:satori_xml"],
     deps = ["@crates//:tempfile"],
 )

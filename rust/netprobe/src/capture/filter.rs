@@ -349,6 +349,15 @@ impl<'a> Parser<'a> {
             "inbound" => Ok(Expr::Not(Box::new(Expr::Outbound))),
             "outbound" => Ok(Expr::Outbound),
             "host" => {
+                // tcpdump refuses `tcp host X` outright ("'tcp' modifier applied
+                // to host"). Dropping the qualifier silently compiled a strictly
+                // WIDER filter than the operator wrote.
+                if let Some(p) = proto {
+                    return Err(FilterError::ModifierNotApplicable {
+                        modifier: proto_name(p),
+                        primitive: "host",
+                    });
+                }
                 let raw = self
                     .next()
                     .ok_or(FilterError::UnexpectedEnd("an address"))?;
@@ -358,6 +367,12 @@ impl<'a> Parser<'a> {
                 Ok(Expr::Host { addr, dir })
             }
             "net" => {
+                if let Some(p) = proto {
+                    return Err(FilterError::ModifierNotApplicable {
+                        modifier: proto_name(p),
+                        primitive: "net",
+                    });
+                }
                 let raw = self
                     .next()
                     .ok_or(FilterError::UnexpectedEnd("a CIDR block"))?;
@@ -410,6 +425,12 @@ fn parse_cidr(raw: &str) -> Result<(Ipv4Addr, u32), FilterError> {
         return Err(FilterError::BadCidr(raw.to_string()));
     }
     let mask = if len == 0 { 0 } else { u32::MAX << (32 - len) };
+    // libpcap refuses a network address with bits outside its prefix rather than
+    // masking them away. Masking silently WIDENS the filter: `net 10.1.2.3/8`
+    // would quietly become `net 10.0.0.0/8`.
+    if u32::from(addr) & !mask != 0 {
+        return Err(FilterError::BadCidr(raw.to_string()));
+    }
     Ok((addr, mask))
 }
 

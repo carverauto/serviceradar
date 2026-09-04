@@ -477,7 +477,7 @@ mod tests {
         let mut blocks = 0usize;
         while off < stream.len() {
             let total = u32_at(&stream, off + 4) as usize;
-            assert!(total >= 12 && total % 4 == 0, "block at {off} len {total}");
+            assert!(total >= 12 && total.is_multiple_of(4), "block at {off} len {total}");
             assert_eq!(
                 u32_at(&stream, off + total - 4),
                 total as u32,

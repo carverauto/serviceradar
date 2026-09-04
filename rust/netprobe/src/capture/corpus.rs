@@ -68,9 +68,7 @@ fn ipv4(
     frame.extend_from_slice(&src);
     frame.extend_from_slice(&dst);
     // Options, if any. 0x01 is NOP, which is a legal filler.
-    for _ in 20..header_len {
-        frame.push(0x01);
-    }
+    frame.extend(std::iter::repeat_n(0x01, header_len.saturating_sub(20)));
     frame.extend_from_slice(payload);
     frame
 }

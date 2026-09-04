@@ -16,8 +16,6 @@
 //! A test that shells out to a host binary goes green by silently skipping
 //! when the binary is absent, which on an RBE executor is always.
 
-#![cfg(test)]
-
 use std::collections::BTreeMap;
 
 use super::{
