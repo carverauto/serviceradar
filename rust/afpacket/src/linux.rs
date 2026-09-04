@@ -423,7 +423,9 @@ impl Ring {
         // mapping.
         let (count, first_offset) = unsafe {
             let hdr = std::ptr::addr_of!(
-                (*self.base.add(offset).cast::<libc::tpacket_block_desc>()).hdr.bh1
+                (*self.base.add(offset).cast::<libc::tpacket_block_desc>())
+                    .hdr
+                    .bh1
             );
             (
                 std::ptr::read_volatile(std::ptr::addr_of!((*hdr).num_pkts)) as usize,
