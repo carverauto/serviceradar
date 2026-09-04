@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.Sharing do
       alias ServiceRadar.Identity.User
       alias ServiceRadar.Identity.UserGroup
       alias ServiceRadar.Identity.UserGroupMembership
+      alias ServiceRadarWebNG.Dashboards.GroupAccess
 
       require Ash.Query
 
@@ -49,19 +50,42 @@ defmodule ServiceRadarWebNG.Dashboards.Authored.Sharing do
       @spec grant_dashboard_to_group(term(), map()) ::
               {:ok, DashboardAccessGrant.t()} | {:error, term()}
       def grant_dashboard_to_group(scope, attrs) when is_map(attrs) do
-        attrs =
-          attrs
-          |> access_grant_attrs()
-          |> Map.put_new(:granted_by_id, owner_id(scope))
+        attrs = access_grant_attrs(attrs)
 
-        DashboardAccessGrant
-        |> Ash.Changeset.for_create(:create_group, attrs)
-        |> create(scope)
+        with dashboard_id when is_binary(dashboard_id) <- Map.get(attrs, :dashboard_id),
+             group_id when is_binary(group_id) <- Map.get(attrs, :subject_group_id),
+             access when access in [:view, :edit] <- Map.get(attrs, :access),
+             {:ok, %{grant: grant}} <-
+               GroupAccess.set_group_access(
+                 scope,
+                 {:local, :authored},
+                 dashboard_id,
+                 group_id,
+                 access,
+                 metadata: Map.get(attrs, :metadata, %{})
+               ) do
+          {:ok, grant}
+        else
+          nil -> {:error, :invalid_attributes}
+          {:error, _reason} = error -> error
+        end
       end
 
       def grant_dashboard_to_group(_scope, _attrs), do: {:error, :invalid_attributes}
 
       @spec revoke_access_grant(term(), DashboardAccessGrant.t()) :: :ok | {:error, term()}
+      def revoke_access_grant(scope, %DashboardAccessGrant{subject_type: :group} = grant) do
+        case GroupAccess.revoke_group_access(
+               scope,
+               {:local, :authored},
+               grant.dashboard_id,
+               grant.subject_group_id
+             ) do
+          {:ok, _result} -> :ok
+          {:error, _reason} = error -> error
+        end
+      end
+
       def revoke_access_grant(scope, %DashboardAccessGrant{} = grant) do
         destroy_result(destroy(grant, scope))
       end

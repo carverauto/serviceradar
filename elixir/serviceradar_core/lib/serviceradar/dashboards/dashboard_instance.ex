@@ -9,8 +9,10 @@ defmodule ServiceRadar.Dashboards.DashboardInstance do
     extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Dashboards.Changes.RequireGroupAccessBoundary
   alias ServiceRadar.Dashboards.Checks.ActorCanAccessDashboardInstance
   alias ServiceRadar.Dashboards.Checks.ActorCanEditDashboardInstance
+  alias ServiceRadar.Dashboards.Preparations.PolicyEditorAudience
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_all_check {ActorHasPermission, permission: "dashboards.packages.view_all"}
@@ -18,6 +20,7 @@ defmodule ServiceRadar.Dashboards.DashboardInstance do
   @enable_check {ActorHasPermission, permission: "dashboards.packages.enable"}
   @disable_check {ActorHasPermission, permission: "dashboards.packages.disable"}
   @publish_check {ActorHasPermission, permission: "dashboards.packages.publish"}
+  @rbac_manage_check {ActorHasPermission, permission: "settings.rbac.manage"}
   @upsert_fields [
     :dashboard_package_id,
     :name,
@@ -82,6 +85,28 @@ defmodule ServiceRadar.Dashboards.DashboardInstance do
       filter expr(placement == ^arg(:placement) and enabled == true)
     end
 
+    read :policy_editor_audience do
+      argument :group_id, :uuid, allow_nil?: false
+      pagination keyset?: true, required?: true, default_limit: 50, max_page_size: 50
+      prepare {PolicyEditorAudience, source: :package}
+    end
+
+    read :policy_editor_group_access_target do
+      argument :id, :uuid, allow_nil?: false
+      argument :group_id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+      prepare {PolicyEditorAudience, source: :package}
+    end
+
+    read :local_group_access_target do
+      argument :id, :uuid, allow_nil?: false
+      argument :group_id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+      prepare {PolicyEditorAudience, source: :package}
+    end
+
     create :create do
       accept @fields
       change &put_default_visibility/2
@@ -114,6 +139,18 @@ defmodule ServiceRadar.Dashboards.DashboardInstance do
       accept [:is_default]
       change set_attribute(:is_default, true)
     end
+
+    update :set_shared_for_policy_editor do
+      accept []
+      change set_attribute(:visibility, :shared)
+      validate RequireGroupAccessBoundary
+    end
+
+    update :set_shared_for_local_group_access do
+      accept []
+      change set_attribute(:visibility, :shared)
+      validate RequireGroupAccessBoundary
+    end
   end
 
   policies do
@@ -121,9 +158,33 @@ defmodule ServiceRadar.Dashboards.DashboardInstance do
 
     system_bypass()
 
-    policy action_type(:read) do
+    policy action([:read, :by_id, :enabled, :by_placement]) do
       authorize_if @view_all_check
       authorize_if ActorCanAccessDashboardInstance
+    end
+
+    policy action([:policy_editor_audience, :policy_editor_group_access_target]) do
+      forbid_unless @rbac_manage_check
+      forbid_unless @share_check
+      authorize_if @view_all_check
+      authorize_if ActorCanEditDashboardInstance
+    end
+
+    policy action(:local_group_access_target) do
+      authorize_if @share_check
+      authorize_if ActorCanEditDashboardInstance
+    end
+
+    policy action(:set_shared_for_policy_editor) do
+      forbid_unless @rbac_manage_check
+      forbid_unless @share_check
+      authorize_if @view_all_check
+      authorize_if ActorCanEditDashboardInstance
+    end
+
+    policy action(:set_shared_for_local_group_access) do
+      authorize_if @share_check
+      authorize_if ActorCanEditDashboardInstance
     end
 
     policy action_type(:create) do
@@ -230,6 +291,10 @@ defmodule ServiceRadar.Dashboards.DashboardInstance do
     has_many :access_grants, ServiceRadar.Dashboards.DashboardInstanceAccessGrant do
       destination_attribute :dashboard_instance_id
     end
+  end
+
+  calculations do
+    calculate :policy_editor_sort_key, :string, expr(fragment("lower(?)", name))
   end
 
   identities do

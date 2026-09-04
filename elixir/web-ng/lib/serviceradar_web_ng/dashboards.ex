@@ -9,7 +9,21 @@ defmodule ServiceRadarWebNG.Dashboards do
     exports: :all
 
   alias ServiceRadarWebNG.Dashboards.Authored
+  alias ServiceRadarWebNG.Dashboards.GroupAccess
   alias ServiceRadarWebNG.Dashboards.Packages
+
+  defdelegate page_group_access(scope, entrypoint_source, group_id, selector),
+    to: GroupAccess,
+    as: :page
+
+  defdelegate ensure_group_view(scope, entrypoint_source, target_id, group_id, opts \\ []),
+    to: GroupAccess
+
+  defdelegate revoke_group_view(scope, entrypoint_source, target_id, group_id, opts \\ []),
+    to: GroupAccess
+
+  defdelegate set_group_access(scope, entrypoint_source, target_id, group_id, access, opts \\ []),
+    to: GroupAccess
 
   defdelegate list_packages(filters \\ %{}, opts \\ []), to: Packages, as: :list
   defdelegate get_package(id, opts \\ []), to: Packages, as: :get

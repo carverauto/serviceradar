@@ -107,6 +107,7 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
         access: :view,
         granted_by_id: owner.id
       })
+      |> Ash.Changeset.set_context(%{dashboard_group_access_boundary_owned: true})
       |> Ash.create(actor: system)
 
     refute instance.id in enabled_ids(viewer_scope)

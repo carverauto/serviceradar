@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.Dashboards.PackageImport
   alias ServiceRadar.Plugins.ConfigSchema
+  alias ServiceRadarWebNG.Dashboards.GroupAccess
   alias ServiceRadarWebNG.Plugins.GitHubImporter
   alias ServiceRadarWebNG.Plugins.Storage
 
@@ -339,20 +340,46 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
   @spec grant_instance_to_group(term(), map()) ::
           {:ok, DashboardInstanceAccessGrant.t()} | {:error, term()}
   def grant_instance_to_group(scope, attrs) when is_map(attrs) do
-    attrs =
-      attrs
-      |> instance_grant_attrs()
-      |> Map.put_new(:granted_by_id, owner_id_from(scope))
+    attrs = instance_grant_attrs(attrs)
 
-    DashboardInstanceAccessGrant
-    |> Ash.Changeset.for_create(:create_group, attrs)
-    |> create_resource(scope)
+    with instance_id when is_binary(instance_id) <- Map.get(attrs, :dashboard_instance_id),
+         group_id when is_binary(group_id) <- Map.get(attrs, :subject_group_id),
+         access when access in [:view, :edit] <- Map.get(attrs, :access),
+         {:ok, %{grant: grant}} <-
+           GroupAccess.set_group_access(
+             scope,
+             {:local, :package},
+             instance_id,
+             group_id,
+             access,
+             metadata: Map.get(attrs, :metadata, %{})
+           ) do
+      {:ok, grant}
+    else
+      nil -> {:error, :invalid_attributes}
+      {:error, _reason} = error -> error
+    end
   end
 
   def grant_instance_to_group(_scope, _attrs), do: {:error, :invalid_attributes}
 
   @spec revoke_instance_access_grant(term(), DashboardInstanceAccessGrant.t()) ::
           :ok | {:error, term()}
+  def revoke_instance_access_grant(
+        scope,
+        %DashboardInstanceAccessGrant{subject_type: :group} = grant
+      ) do
+    case GroupAccess.revoke_group_access(
+           scope,
+           {:local, :package},
+           grant.dashboard_instance_id,
+           grant.subject_group_id
+         ) do
+      {:ok, _result} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
   def revoke_instance_access_grant(scope, %DashboardInstanceAccessGrant{} = grant) do
     case Ash.destroy(grant, destroy_opts(scope)) do
       :ok -> :ok
