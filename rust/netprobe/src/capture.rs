@@ -48,6 +48,8 @@ pub mod filter;
 pub mod interp;
 /// pcapng encoding for a capture session's output stream.
 pub mod pcapng;
+/// One capture session: caps, counters and the terminal block.
+pub mod session;
 
 /// Why a session could not obtain a capture descriptor.
 ///

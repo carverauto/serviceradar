@@ -119,9 +119,30 @@ The packet path. No IPC surface yet -- provable on its own.
   Enhanced Packet Blocks carrying the ring's `tp_sec`/`tp_nsec`. (22.4)
 - [x] 1.6 Record frame direction from `PACKET_OUTGOING` so a session can
   request ingress, egress or both.
-- [ ] 1.7 Enforce `duration_s` and `byte_cap`; emit a terminal
-  `PcapngBlock` with `final = true` and the termination reason on either
-  cap or on graceful stop. (22.5)
+- [x] 1.7 `capture::session::CaptureSession` enforces `duration_s` and
+  `byte_cap` and produces the terminal block's contents. Caps are checked
+  BEFORE encoding, so a session never emits a block that carries it past a
+  limit the operator set, and a cap that has already fired wins over a later
+  `client_cancel` -- reporting the disconnect would misattribute why the
+  capture stopped.
+
+  The clock is a PARAMETER, not read inside: `offer` takes elapsed time. A
+  duration cap tested against a real clock either sleeps for the cap (slow,
+  and flaky under load -- this repo has a p99 test that fails at load average
+  130) or shrinks the cap until the assertion proves nothing. Passing elapsed
+  in makes "at the cap" and "one millisecond short" exact, and both are
+  asserted.
+
+  A closed session stays DRAINABLE rather than terminating instantly: frames
+  the kernel already counted can sit in a partially filled block until
+  `tp_retire_blk_tov`, so emitting the terminal block immediately truncates
+  the capture with nothing erroring. `Termination.complete` cross-checks our
+  own EPB count against the kernel's `tp_packets - tp_drops`; a mismatch is
+  data loss neither counter shows alone.
+
+  Tests verified to FAIL on mutation, not merely to pass: changing the
+  duration comparison from `>=` to `>` breaks 2, and dropping the count
+  cross-check breaks 1.
 - [x] 1.8 Poll `PACKET_STATISTICS` for `tp_drops`; expose it as a
   netprobe metric and carry it in the terminal block. (`design.md` D7)
 - [x] 1.9 Unit tests: the compiler accepts every documented form and
@@ -138,10 +159,34 @@ The packet path. No IPC surface yet -- provable on its own.
   packets as libpcap's own compilation of the same string, over a fixture
   pcap. This is the only real check that the subset means what tcpdump
   means.
-- [ ] 1.12 Force a ring-full condition; assert `tp_drops` is non-zero and
-  the terminal block reports it.
-- [ ] 1.13 Measure capture cost: sustained packets/second and CPU at a
-  realistic rate, recorded in this change.
+- [x] 1.12 Ring-full behaviour verified on a real host, not simulated.
+  A deliberately tiny ring (one 4 KiB block, two frames) under a 20k-datagram
+  flood: `Stats { captured: 19, dropped: 79981, malformed: 0 }`, and
+  `is_complete()` false. The assertion that matters is the completeness flag,
+  not the drop count -- a small ring under load will always drop; the failure
+  being guarded is dropping SILENTLY, which is what happens if anything else
+  reads `PACKET_STATISTICS` and takes the drops out of the session's total.
+- [x] 1.13 Capture cost measured on 192.168.1.62 (Ubuntu 24.04, kernel 6.8,
+  16 cores) at load average 0.18, with the default ring geometry:
+
+      frames=800000  elapsed=5.00s  pps=159,995  18.3 MiB/s
+      cpu=1.42s (~28% of one core)  1.8 CPU-seconds per million packets
+      Stats { captured: 800000, dropped: 0, malformed: 0 }
+
+  Zero drops at 160k pps is the result that matters: the default geometry
+  sustains that rate on loopback without loss, so the AF_XDP fast path
+  considered in design.md D1 has no case to answer yet.
+
+  Note on the frame count: a 200k-datagram flood yields 800k frames because
+  loopback delivers each frame twice (PACKET_HOST and PACKET_OUTGOING) AND
+  nothing listens on the target port, so each datagram also produces an ICMP
+  port-unreachable. Real frames through the ring either way, but the 4x is
+  not what it appears.
+
+  Deliberately printed rather than asserted against a threshold: a pps or CPU
+  bound hard-coded here would be one machine at one load, and this repository
+  already has a p99 assertion that fails at load average 130 for reasons
+  unrelated to the code under test.
 
 ## S2. netprobe capture session RPC
 
