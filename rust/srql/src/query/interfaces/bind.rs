@@ -28,5 +28,8 @@ pub(super) fn bind_param<'a>(
             Ok(query.bind::<Timestamptz, _>(timestamp))
         }
         BindParam::Uuid(value) => Ok(query.bind::<diesel::sql_types::Uuid, _>(value)),
+        BindParam::Date(_) => Err(ServiceError::InvalidRequest(
+            "unsupported bind type for interfaces".into(),
+        )),
     }
 }

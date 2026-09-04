@@ -2,7 +2,7 @@
 //! service status.
 
 use crate::jsonb::DbJson;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use diesel::deserialize::QueryableByName;
 use diesel::prelude::*;
 use diesel::sql_types::{Bool, Int4, Jsonb, Nullable, Text, Timestamptz, Uuid as SqlUuid};
@@ -579,6 +579,60 @@ impl SweepResultRow {
             "agent_id": self.agent_id,
             "sweep_group_id": self.sweep_group_id,
             "inserted_at": self.inserted_at,
+        })
+    }
+}
+
+/// Daily rollup of sweep coverage for one device/IP: execution counts, port
+/// coverage, and requested-vs-observed sweep modes for that day (issue 4167).
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::sweep_coverage_daily, check_for_backend(diesel::pg::Pg))]
+pub struct SweepCoverageRow {
+    pub id: Uuid,
+    pub day: NaiveDate,
+    pub device_uid: Option<String>,
+    pub ip: String,
+    pub sweep_group_id: Option<Uuid>,
+    pub agent_id: Option<String>,
+    pub execution_count: i64,
+    pub available_count: i64,
+    pub unavailable_count: i64,
+    pub error_count: i64,
+    pub first_seen_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
+    pub scanned_ports: Vec<i64>,
+    pub open_ports: Vec<i64>,
+    pub modes_requested: Vec<String>,
+    pub modes_observed: Vec<String>,
+    pub last_status: Option<String>,
+    pub last_response_time_ms: Option<i64>,
+    pub inserted_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl SweepCoverageRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "day": self.day,
+            "device_uid": self.device_uid,
+            "ip": self.ip,
+            "sweep_group_id": self.sweep_group_id,
+            "agent_id": self.agent_id,
+            "execution_count": self.execution_count,
+            "available_count": self.available_count,
+            "unavailable_count": self.unavailable_count,
+            "error_count": self.error_count,
+            "first_seen_at": self.first_seen_at,
+            "last_seen_at": self.last_seen_at,
+            "scanned_ports": self.scanned_ports,
+            "open_ports": self.open_ports,
+            "modes_requested": self.modes_requested,
+            "modes_observed": self.modes_observed,
+            "last_status": self.last_status,
+            "last_response_time_ms": self.last_response_time_ms,
+            "inserted_at": self.inserted_at,
+            "updated_at": self.updated_at,
         })
     }
 }

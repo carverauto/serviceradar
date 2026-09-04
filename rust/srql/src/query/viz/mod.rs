@@ -178,6 +178,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::SweepProfiles => inventory::sweep_profiles(),
         Entity::SweepExecutions => inventory::sweep_executions(),
         Entity::SweepResults => inventory::sweep_results(),
+        Entity::SweepCoverage => inventory::sweep_coverage(),
         Entity::MergeAudit => inventory::merge_audit(),
         Entity::DeviceRevivalAudit => inventory::device_revival_audit(),
         Entity::DeviceIdentifiers => inventory::device_identifiers(),

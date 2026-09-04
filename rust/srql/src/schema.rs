@@ -1008,4 +1008,35 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    /// Daily rollup of sweep coverage per device/IP: how many times a host
+    /// was scanned, its port coverage, and requested-vs-observed sweep
+    /// modes for that day (issue 4167).
+    sweep_coverage_daily (id) {
+        id -> Uuid,
+        day -> Date,
+        device_uid -> Nullable<Text>,
+        ip -> Text,
+        sweep_group_id -> Nullable<Uuid>,
+        agent_id -> Nullable<Text>,
+        execution_count -> Int8,
+        available_count -> Int8,
+        unavailable_count -> Int8,
+        error_count -> Int8,
+        first_seen_at -> Timestamptz,
+        last_seen_at -> Timestamptz,
+        scanned_ports -> Array<Int8>,
+        open_ports -> Array<Int8>,
+        modes_requested -> Array<Text>,
+        modes_observed -> Array<Text>,
+        last_status -> Nullable<Text>,
+        last_response_time_ms -> Nullable<Int8>,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(device_identifiers, ocsf_devices);

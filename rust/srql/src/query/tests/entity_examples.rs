@@ -926,3 +926,27 @@ fn sweep_results_example_ip_and_status() {
         "expected default inserted_at desc ordering, got: {sql}"
     );
 }
+
+#[test]
+fn sweep_coverage_example_device_uid_and_ip() {
+    let query = "in:sweep_coverage device_uid:dev-1 ip:192.0.2.10";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SweepCoverage));
+    let (sql, _) =
+        sweep_coverage::to_sql_and_params(&plan).expect("should build sweep_coverage SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"sweep_coverage_daily\""),
+        "expected query against sweep_coverage_daily, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"sweep_coverage_daily\".\"device_uid\" =")
+            && lower.contains("\"sweep_coverage_daily\".\"ip\" ="),
+        "expected device_uid + ip filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"sweep_coverage_daily\".\"day\" desc"),
+        "expected default day desc ordering, got: {sql}"
+    );
+}

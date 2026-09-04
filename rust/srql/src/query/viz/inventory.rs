@@ -543,6 +543,40 @@ pub(super) fn sweep_results() -> VizMeta {
     }
 }
 
+pub(super) fn sweep_coverage() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            // `day` is a real `date` column; there is no distinct viz
+            // column type for it, so it is surfaced as the closest fit
+            // (Timestamptz) with a Time semantic.
+            col("day", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),
+            col("device_uid", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("ip", ColumnType::Text, None),
+            col("sweep_group_id", ColumnType::Text, None),
+            col("agent_id", ColumnType::Text, None),
+            col("execution_count", ColumnType::Int, None),
+            col("available_count", ColumnType::Int, None),
+            col("unavailable_count", ColumnType::Int, None),
+            col("error_count", ColumnType::Int, None),
+            col("first_seen_at", ColumnType::Timestamptz, None),
+            col("last_seen_at", ColumnType::Timestamptz, None),
+            col("scanned_ports", ColumnType::IntArray, None),
+            col("open_ports", ColumnType::IntArray, None),
+            col("modes_requested", ColumnType::TextArray, None),
+            col("modes_observed", ColumnType::TextArray, None),
+            col("last_status", ColumnType::Text, None),
+            col("last_response_time_ms", ColumnType::Int, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 fn virtualization_table_meta(columns: Vec<ColumnMeta>) -> VizMeta {
     VizMeta {
         columns,

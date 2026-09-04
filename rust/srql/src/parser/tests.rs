@@ -481,6 +481,17 @@ fn parses_sweep_results_aliases() {
 }
 
 #[test]
+fn parses_sweep_coverage_aliases() {
+    for alias in ["sweep_coverage", "sweep_coverage_daily"] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepCoverage),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
 fn parses_security_signal_entity_aliases() {
     for raw in [
         "security_findings",
