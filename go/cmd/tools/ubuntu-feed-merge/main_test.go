@@ -1054,6 +1054,66 @@ func TestTokenPreflightRejectsExactDuplicateFieldsAtEveryMaterializedLevel(t *te
 	}
 }
 
+func TestTokenPreflightReleasesSequentialVEXProductFields(t *testing.T) {
+	cve := "CVE-2099-1722"
+	productsPerStatement := maxJSONStoredFields/2 + 1
+	raw := syntheticVEXWithSequentialProducts(cve, productsPerStatement, 2)
+
+	doc, err := parseVEX(cve, []byte(raw))
+	if err != nil {
+		t.Fatalf("sequential shallow VEX products rejected: %v", err)
+	}
+	if len(doc.Statements) != 2 {
+		t.Fatalf("statement count = %d, want 2", len(doc.Statements))
+	}
+	for i := range doc.Statements {
+		if got := len(doc.Statements[i].Products); got != productsPerStatement {
+			t.Fatalf("statement %d product count = %d, want %d", i, got, productsPerStatement)
+		}
+	}
+}
+
+func TestTokenPreflightStillCapsSimultaneouslyLiveObjectFields(t *testing.T) {
+	cve := "CVE-2099-1723"
+	raw := fmt.Sprintf(
+		`{"id":%q,"ignored":%s}`,
+		"UBUNTU-"+cve,
+		syntheticNestedObjectFieldPressure(17, maxJSONObjectFields),
+	)
+
+	err := validateIdentityWithLimits(osvKind, cve, []byte(raw), defaultProjectionLimits())
+	if err == nil || !strings.Contains(err.Error(), "field storage cap") {
+		t.Fatalf("simultaneously live JSON object fields error = %v", err)
+	}
+}
+
+func TestFinishContainerClearsPoppedFieldStorage(t *testing.T) {
+	decoder := json.NewDecoder(strings.NewReader(`{}`))
+	preflight := &structuralPreflight{
+		decoder: decoder,
+		limits:  defaultProjectionLimits(),
+	}
+	opened, err := preflight.startContainer('{', false)
+	if err != nil || !opened {
+		t.Fatalf("start container = %t, %v", opened, err)
+	}
+	preflight.containers[0].fields = map[string]struct{}{"synthetic": {}}
+	preflight.containers[0].fieldBytes = int64(len("synthetic"))
+	preflight.storedFields = 1
+	preflight.storedFieldBytes = int64(len("synthetic"))
+
+	if err := preflight.finishContainer('}'); err != nil {
+		t.Fatalf("finish container: %v", err)
+	}
+	if preflight.storedFields != 0 || preflight.storedFieldBytes != 0 {
+		t.Fatalf("released accounting = (%d, %d), want (0, 0)", preflight.storedFields, preflight.storedFieldBytes)
+	}
+	backing := preflight.containers[:cap(preflight.containers)]
+	if backing[0].fields != nil || backing[0].fieldBytes != 0 {
+		t.Fatalf("popped container retains field storage: %#v", backing[0])
+	}
+}
+
 func TestTokenPreflightRejectsOversizedProductComponents(t *testing.T) {
 	cve := "CVE-2099-1717"
 	oversized := strings.Repeat("x", maxPURLBytes+1)
@@ -2209,6 +2269,55 @@ func syntheticDeepVEX(cve string, nesting int) string {
     "status":"fixed"
   }]
 }`, cve, product)
+}
+
+func syntheticVEXWithSequentialProducts(cve string, productsPerStatement, statementCount int) string {
+	var document strings.Builder
+	fmt.Fprintf(&document, `{"@context":%q,"@id":%q,"author":%q,"timestamp":"2099-03-04T05:06:07Z","version":1,"statements":[`,
+		canonicalTombstoneContext,
+		"https://metadata.example.invalid/vex/"+cve,
+		canonicalAuthor,
+	)
+	for statement := 0; statement < statementCount; statement++ {
+		if statement > 0 {
+			document.WriteByte(',')
+		}
+		fmt.Fprintf(&document, `{"vulnerability":{"name":%q},"products":[`, cve)
+		for product := 0; product < productsPerStatement; product++ {
+			if product > 0 {
+				document.WriteByte(',')
+			}
+			fmt.Fprintf(
+				&document,
+				`{"@id":"pkg:deb/ubuntu/synthetic-widget-%d-%d@1.0-test1?arch=amd64&distro=aurora"}`,
+				statement,
+				product,
+			)
+		}
+		document.WriteString(`],"status":"fixed"}`)
+	}
+	document.WriteString(`]}`)
+	return document.String()
+}
+
+func syntheticNestedObjectFieldPressure(levels, fieldsPerObject int) string {
+	value := `null`
+	for level := 0; level < levels; level++ {
+		var object strings.Builder
+		object.WriteByte('{')
+		for field := 0; field < fieldsPerObject-1; field++ {
+			if field > 0 {
+				object.WriteByte(',')
+			}
+			fmt.Fprintf(&object, `"field-%d":null`, field)
+		}
+		if fieldsPerObject > 1 {
+			object.WriteByte(',')
+		}
+		fmt.Fprintf(&object, `"nested":%s}`, value)
+		value = object.String()
+	}
+	return value
 }
 
 func syntheticRun(t *testing.T, dir, name string, records []runRecord) string {

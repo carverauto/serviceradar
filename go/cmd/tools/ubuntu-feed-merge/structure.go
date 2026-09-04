@@ -83,8 +83,9 @@ type structuralPreflight struct {
 }
 
 type jsonContainer struct {
-	delimiter json.Delim
-	fields    map[string]struct{}
+	delimiter  json.Delim
+	fields     map[string]struct{}
+	fieldBytes int64
 }
 
 //nolint:err113 // Structural validation diagnostics are consumed as text by the internal parser.
@@ -176,8 +177,17 @@ func (preflight *structuralPreflight) finishContainer(want json.Delim) error {
 	if preflight.nesting <= 0 || len(preflight.containers) != preflight.nesting || preflight.containers[len(preflight.containers)-1].delimiter != matchingOpenDelimiter(want) {
 		return errors.New("invalid JSON structure")
 	}
+	last := len(preflight.containers) - 1
+	container := preflight.containers[last]
+	fieldCount := int64(len(container.fields))
+	if preflight.storedFields < fieldCount || container.fieldBytes < 0 || preflight.storedFieldBytes < container.fieldBytes {
+		return errors.New("invalid JSON field storage accounting")
+	}
+	preflight.storedFields -= fieldCount
+	preflight.storedFieldBytes -= container.fieldBytes
 	preflight.nesting--
-	preflight.containers = preflight.containers[:len(preflight.containers)-1]
+	preflight.containers[last] = jsonContainer{}
+	preflight.containers = preflight.containers[:last]
 	return nil
 }
 
@@ -218,6 +228,7 @@ func (preflight *structuralPreflight) nextFieldName() (string, error) {
 		container.fields = make(map[string]struct{})
 	}
 	container.fields[field] = struct{}{}
+	container.fieldBytes += int64(len(field))
 	preflight.storedFields++
 	preflight.storedFieldBytes += int64(len(field))
 	return field, nil
