@@ -958,4 +958,29 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    use diesel::sql_types::*;
+
+    /// Individual runs of a sweep group: status, timing, and result counts
+    /// for a single scheduled or ad-hoc sweep execution (issue 4167).
+    sweep_group_executions (id) {
+        id -> Uuid,
+        status -> Text,
+        started_at -> Nullable<Timestamptz>,
+        completed_at -> Nullable<Timestamptz>,
+        duration_ms -> Nullable<Int8>,
+        hosts_total -> Nullable<Int8>,
+        hosts_available -> Nullable<Int8>,
+        hosts_failed -> Nullable<Int8>,
+        error_message -> Nullable<Text>,
+        agent_id -> Nullable<Text>,
+        config_version -> Nullable<Text>,
+        sweep_group_id -> Uuid,
+        scanner_metrics -> Jsonb,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        banner_grab_summary -> Jsonb,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(device_identifiers, ocsf_devices);

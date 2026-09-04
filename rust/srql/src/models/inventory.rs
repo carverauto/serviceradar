@@ -486,3 +486,51 @@ impl SweepProfileRow {
         })
     }
 }
+
+/// A single run of a sweep group: status, timing, and per-run result
+/// counts (issue 4167).
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::sweep_group_executions, check_for_backend(diesel::pg::Pg))]
+pub struct SweepExecutionRow {
+    pub id: Uuid,
+    pub status: String,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub duration_ms: Option<i64>,
+    pub hosts_total: Option<i64>,
+    pub hosts_available: Option<i64>,
+    pub hosts_failed: Option<i64>,
+    pub error_message: Option<String>,
+    pub agent_id: Option<String>,
+    pub config_version: Option<String>,
+    pub sweep_group_id: Uuid,
+    pub scanner_metrics: DbJson,
+    pub inserted_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub banner_grab_summary: DbJson,
+}
+
+impl SweepExecutionRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "status": self.status,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+            "duration_ms": self.duration_ms,
+            "hosts_total": self.hosts_total,
+            "hosts_available": self.hosts_available,
+            "hosts_failed": self.hosts_failed,
+            "error_message": self.error_message,
+            "agent_id": self.agent_id,
+            "config_version": self.config_version,
+            "sweep_group_id": self.sweep_group_id,
+            // Counters only (probe/match/empty/error counts, total bytes);
+            // no attacker-controlled key survives into this map.
+            "scanner_metrics": serde_json::Value::from(self.scanner_metrics),
+            "inserted_at": self.inserted_at,
+            "updated_at": self.updated_at,
+            "banner_grab_summary": serde_json::Value::from(self.banner_grab_summary),
+        })
+    }
+}

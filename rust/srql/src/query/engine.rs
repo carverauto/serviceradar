@@ -6,9 +6,9 @@ use super::{
     endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
     field_survey, flows, gateways, graph_cypher, identity, interfaces, is_full_profile_query, logs,
     memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
-    public_endpoints, services, source_fact_disagreements, sweep_groups, sweep_profiles,
-    threat_intel_matches, timeseries_metrics, trace_summaries, traces, translate_request,
-    virtualization, vulnerability_advisories, wifi_map,
+    public_endpoints, services, source_fact_disagreements, sweep_executions, sweep_groups,
+    sweep_profiles, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
+    translate_request, virtualization, vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -159,6 +159,7 @@ impl QueryEngine {
                 }
                 Entity::SweepGroups => sweep_groups::execute(&mut conn, &plan).await?,
                 Entity::SweepProfiles => sweep_profiles::execute(&mut conn, &plan).await?,
+                Entity::SweepExecutions => sweep_executions::execute(&mut conn, &plan).await?,
                 Entity::VulnerabilityAdvisories => {
                     vulnerability_advisories::execute(&mut conn, &plan).await?
                 }

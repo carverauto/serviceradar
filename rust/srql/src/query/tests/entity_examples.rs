@@ -879,3 +879,27 @@ fn sweep_profiles_example_name_and_enabled() {
         "expected default name asc ordering, got: {sql}"
     );
 }
+
+#[test]
+fn sweep_executions_example_status_and_agent() {
+    let query = "in:sweep_executions status:success agent_id:agent-01";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SweepExecutions));
+    let (sql, _) =
+        sweep_executions::to_sql_and_params(&plan).expect("should build sweep_executions SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"sweep_group_executions\""),
+        "expected query against sweep_group_executions, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"sweep_group_executions\".\"status\" =")
+            && lower.contains("\"sweep_group_executions\".\"agent_id\" ="),
+        "expected status + agent_id filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"sweep_group_executions\".\"started_at\" desc"),
+        "expected default started_at desc ordering, got: {sql}"
+    );
+}

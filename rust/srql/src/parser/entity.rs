@@ -171,6 +171,9 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "sweep_profiles" | "sweep_profile" | "scanner_profiles" | "scanner_profile" => {
             Ok(Entity::SweepProfiles)
         }
+        "sweep_executions" | "sweep_execution" | "sweep_group_executions" => {
+            Ok(Entity::SweepExecutions)
+        }
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),

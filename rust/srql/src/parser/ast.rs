@@ -81,6 +81,7 @@ pub enum Entity {
     ThreatIntelMatches,
     SweepGroups,
     SweepProfiles,
+    SweepExecutions,
 }
 
 #[derive(Debug, Clone, Serialize)]

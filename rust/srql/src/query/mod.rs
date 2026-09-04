@@ -45,6 +45,7 @@ mod process_metrics;
 mod public_endpoints;
 mod services;
 mod source_fact_disagreements;
+mod sweep_executions;
 mod sweep_groups;
 mod sweep_profiles;
 mod threat_intel_matches;

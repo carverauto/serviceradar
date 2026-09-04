@@ -6,9 +6,9 @@ use super::{
     endpoint_packages, endpoint_vulnerability_matches, events, field_survey, flows, gateways,
     graph_cypher, identity, interfaces, is_full_profile_query, logs, memory_metrics, mtr_traces,
     otel_metric_points, otel_metrics, process_metrics, public_endpoints, services,
-    source_fact_disagreements, sweep_groups, sweep_profiles, threat_intel_matches,
-    timeseries_metrics, trace_summaries, traces, virtualization, viz, vulnerability_advisories,
-    wifi_map,
+    source_fact_disagreements, sweep_executions, sweep_groups, sweep_profiles,
+    threat_intel_matches, timeseries_metrics, trace_summaries, traces, virtualization, viz,
+    vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -115,6 +115,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::SourceFactDisagreements => source_fact_disagreements::to_sql_and_params(&plan)?,
             Entity::SweepGroups => sweep_groups::to_sql_and_params(&plan)?,
             Entity::SweepProfiles => sweep_profiles::to_sql_and_params(&plan)?,
+            Entity::SweepExecutions => sweep_executions::to_sql_and_params(&plan)?,
             Entity::VulnerabilityAdvisories => vulnerability_advisories::to_sql_and_params(&plan)?,
             Entity::AdvisoryCoordinates => advisory_coordinates::to_sql_and_params(&plan)?,
             Entity::EndpointVulnerabilityMatches => {
