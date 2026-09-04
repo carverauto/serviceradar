@@ -284,10 +284,22 @@ The packet path. No IPC surface yet -- provable on its own.
 
 Modelled on the camera relay (`design.md` D4).
 
-- [ ] 3.1 Add a `RemotePacketCapture` gRPC service to the agent to
-  agent-gateway proto: `Stream(StartRemoteCaptureSession) returns (stream
-  RemotePacketCaptureFrame)`, the frame a oneof of `PcapngBlock` and
-  `SessionStateChanged`. (23.1, 27.1)
+- [x] 3.1 **CORRECTED while implementing.** The task specified a
+  SERVER-streaming RPC. That points the data the wrong way: the gateway is
+  the gRPC server and the agent is the client ("communication flows UP only
+  (agent to gateway); the gateway never connects back to agents"), so
+  server-streaming would have had the gateway streaming pcapng to the agent.
+  Client-streaming carries the bytes correctly but gives the server no
+  channel to speak on until the client finishes, which cannot meet 3.6's
+  1-second cancel -- a capture matching nothing produces no messages to
+  piggyback on, and that is the session most likely to need stopping.
+
+  What landed is `proto/remote_capture.proto`: a BIDIRECTIONAL
+  `RemotePacketCaptureService.StreamCapture`, modelled on
+  `DesktopMediaService.StreamDesktopMedia`, which already uses this shape for
+  the same reasons. pcapng flows client to server; credit and cancellation
+  flow server to client on their own channel. Spec delta corrected to match.
+  (23.1, 27.1)
 - [ ] 3.2 Prove the RPC multiplexes onto the existing mTLS HTTP/2
   connection: assert no second TCP or TLS session is opened. (23.2)
 - [ ] 3.3 Implement `go/pkg/agent/netprobe/capture.go`: receive the gRPC

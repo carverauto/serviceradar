@@ -62,6 +62,8 @@ go_library(
         "monitoring_grpc.pb.go",
         "nats_account.pb.go",
         "nats_account_grpc.pb.go",
+        "remote_capture.pb.go",
+        "remote_capture_grpc.pb.go",
     ],
     importpath = "github.com/carverauto/serviceradar/proto",
     visibility = ["//visibility:public"],
