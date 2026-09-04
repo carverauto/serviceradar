@@ -905,4 +905,33 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    /// Sweep group definitions: which devices a group targets, on what
+    /// schedule, and via which agent(s) (issue 4167).
+    sweep_groups (id) {
+        id -> Uuid,
+        name -> Text,
+        description -> Nullable<Text>,
+        partition -> Text,
+        agent_id -> Nullable<Text>,
+        agent_ids -> Array<Text>,
+        enabled -> Bool,
+        interval -> Text,
+        schedule_type -> Text,
+        cron_expression -> Nullable<Text>,
+        static_targets -> Array<Text>,
+        ports -> Nullable<Array<Int8>>,
+        sweep_modes -> Nullable<Array<Text>>,
+        emit_availability_events -> Bool,
+        last_run_at -> Nullable<Timestamptz>,
+        profile_id -> Nullable<Uuid>,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        target_query -> Nullable<Text>,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(device_identifiers, ocsf_devices);

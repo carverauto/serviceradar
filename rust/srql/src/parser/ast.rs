@@ -79,6 +79,7 @@ pub enum Entity {
     AdvisoryCoordinates,
     EndpointVulnerabilityMatches,
     ThreatIntelMatches,
+    SweepGroups,
 }
 
 #[derive(Debug, Clone, Serialize)]

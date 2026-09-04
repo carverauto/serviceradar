@@ -167,6 +167,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         | "vulnerability_matches"
         | "cve_matches"
         | "advisory_matches" => Ok(Entity::EndpointVulnerabilityMatches),
+        "sweep_groups" | "sweep_group" | "sweeps" => Ok(Entity::SweepGroups),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),

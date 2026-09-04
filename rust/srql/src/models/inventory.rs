@@ -379,3 +379,51 @@ impl SourceFactDisagreementRow {
         })
     }
 }
+
+/// Sweep group definition: device-targeting query, schedule, and assigned
+/// agent(s) for an active-scan sweep (issue 4167).
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::sweep_groups, check_for_backend(diesel::pg::Pg))]
+pub struct SweepGroupRow {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub partition: String,
+    pub agent_ids: Vec<String>,
+    pub enabled: bool,
+    pub interval: String,
+    pub schedule_type: String,
+    pub cron_expression: Option<String>,
+    pub static_targets: Vec<String>,
+    pub ports: Option<Vec<i64>>,
+    pub sweep_modes: Option<Vec<String>>,
+    pub emit_availability_events: bool,
+    pub last_run_at: Option<DateTime<Utc>>,
+    pub profile_id: Option<Uuid>,
+    pub updated_at: DateTime<Utc>,
+    pub target_query: Option<String>,
+}
+
+impl SweepGroupRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "sweep_group_id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "partition": self.partition,
+            "agent_ids": self.agent_ids,
+            "enabled": self.enabled,
+            "interval": self.interval,
+            "schedule_type": self.schedule_type,
+            "cron_expression": self.cron_expression,
+            "static_targets": self.static_targets,
+            "ports": self.ports,
+            "sweep_modes": self.sweep_modes,
+            "emit_availability_events": self.emit_availability_events,
+            "last_run_at": self.last_run_at,
+            "profile_id": self.profile_id,
+            "updated_at": self.updated_at,
+            "target_query": self.target_query,
+        })
+    }
+}

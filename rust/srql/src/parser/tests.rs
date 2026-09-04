@@ -428,6 +428,17 @@ fn parses_endpoint_inventory_scan_entity_aliases() {
 }
 
 #[test]
+fn parses_sweep_groups_aliases() {
+    for alias in ["sweep_groups", "sweep_group", "sweeps"] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepGroups),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
 fn parses_security_signal_entity_aliases() {
     for raw in [
         "security_findings",

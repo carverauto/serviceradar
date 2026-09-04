@@ -831,3 +831,26 @@ fn composite_results_stats_rejects_unsupported_aggregation() {
         "error should say only count() is supported, got: {err}"
     );
 }
+
+#[test]
+fn sweep_groups_example_partition_and_enabled() {
+    let query = "in:sweep_groups partition:default enabled:true sort:name:asc";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SweepGroups));
+    let (sql, _) = sweep_groups::to_sql_and_params(&plan).expect("should build sweep_groups SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"sweep_groups\""),
+        "expected query against sweep_groups, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"sweep_groups\".\"partition\" =")
+            && lower.contains("\"sweep_groups\".\"enabled\" ="),
+        "expected partition + enabled filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"sweep_groups\".\"name\" asc"),
+        "expected name asc ordering, got: {sql}"
+    );
+}

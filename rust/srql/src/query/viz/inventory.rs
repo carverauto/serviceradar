@@ -428,6 +428,33 @@ pub(super) fn graph_cypher() -> VizMeta {
     }
 }
 
+pub(super) fn sweep_groups() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("sweep_group_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("name", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("partition", ColumnType::Text, None),
+            col("agent_ids", ColumnType::TextArray, None),
+            col("enabled", ColumnType::Bool, None),
+            col("interval", ColumnType::Text, None),
+            col("schedule_type", ColumnType::Text, None),
+            col("ports", ColumnType::IntArray, None),
+            col("sweep_modes", ColumnType::TextArray, None),
+            col(
+                "last_run_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 fn virtualization_table_meta(columns: Vec<ColumnMeta>) -> VizMeta {
     VizMeta {
         columns,
