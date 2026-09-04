@@ -2,6 +2,22 @@ use anyhow::{Context, Result};
 
 use crate::config::Config;
 
+/// Classic BPF encoding shared by both capture filter front doors.
+pub mod bpf;
+/// A crafted packet corpus that makes filter-compiler mistakes observable.
+#[cfg(test)]
+pub mod corpus;
+/// Differential test of our compiler against libpcap (task 1.11).
+#[cfg(test)]
+mod differential;
+/// tcpdump-subset expression compiler producing classic BPF.
+pub mod filter;
+/// A classic BPF interpreter, used to compare programs over crafted packets.
+#[cfg(test)]
+pub mod interp;
+/// pcapng encoding for a capture session's output stream.
+pub mod pcapng;
+
 #[cfg(feature = "remote-capture")]
 const HEADER_FINGERPRINT_SNAPLEN: i32 = 512;
 

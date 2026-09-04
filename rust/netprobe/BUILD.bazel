@@ -82,7 +82,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.53"
+NETPROBE_VERSION = "0.2.54"
 
 cargo_build_script(
     name = "build_script",
@@ -132,6 +132,13 @@ rust_binary(
         "//third_party/netprobe_corpora:p0f/serviceradar-additions.fp",
         "//third_party/netprobe_corpora:recog/serviceradar-recog-additions.xml",
         "//third_party/netprobe_corpora:recog_xml",
+        # Read by `include_str!` in the #[cfg(test)] differential module, so it is a
+        # COMPILE-time input, not runfiles. Declared here rather than on a test target
+        # because every `crate = ":netprobe"` test compiles that module: naming it per
+        # test silently breaks the next test target added, which is exactly what
+        # happened to loaded_tcp_attribution_test. The binary never reads it -- cfg(test)
+        # -- this only makes the file visible to rustc.
+        "testdata/libpcap_reference_programs.tsv",
     ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
