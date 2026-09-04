@@ -77,6 +77,29 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityTest do
     assert authority.job_state == :running
   end
 
+  test "rechecks a legacy singular-profile grant and operation together", %{fixture: fixture} do
+    owner = fixture.principal.owner
+    [profile_version] = fixture.principal.authority.profile_versions
+
+    legacy_authorization_version =
+      Targeting.snapshot_digest(%{
+        "actor_id" => owner.id,
+        "actor_status" => "active",
+        "actor_role" => "operator",
+        "actor_updated_at" => DateTime.to_iso8601(owner.updated_at),
+        "profile_id" => profile_version.id,
+        "profile_updated_at" => DateTime.to_iso8601(profile_version.updated_at),
+        "fresh_permissions" => @permissions
+      })
+
+    legacy_records =
+      fixture
+      |> put_in([:grant, :authorization_version], legacy_authorization_version)
+      |> put_in([:operation, :authorization_version], legacy_authorization_version)
+
+    assert {:ok, _authority} = authorize(:activate, legacy_records)
+  end
+
   test "activation fails closed while the accepted execution is only launching", %{
     fixture: fixture
   } do

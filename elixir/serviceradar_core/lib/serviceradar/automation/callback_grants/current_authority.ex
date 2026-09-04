@@ -228,11 +228,10 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
          true <-
            Enum.all?(@required_permissions, &(&1 in permissions)) ||
              {:error, :current_permission_denied},
-         authorization_version =
-           authorization_version(type, principal, owner, profile_versions, profile_permissions),
+         authorization_version = to_string(value(grant, :authorization_version)),
          true <-
            authorization_version_matches?(
-             to_string(value(grant, :authorization_version)),
+             authorization_version,
              type,
              principal,
              owner,

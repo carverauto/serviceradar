@@ -45,6 +45,30 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthorityTest do
     assert :ok = authorize(fixture)
   end
 
+  test "rechecks a legacy singular-profile operation through launch", %{fixture: fixture} do
+    owner = fixture.principal.owner
+    [profile_version] = fixture.principal.authority.profile_versions
+
+    legacy_authorization_version =
+      Targeting.snapshot_digest(%{
+        "actor_id" => owner.id,
+        "actor_status" => "active",
+        "actor_role" => "operator",
+        "actor_updated_at" => DateTime.to_iso8601(owner.updated_at),
+        "profile_id" => profile_version.id,
+        "profile_updated_at" => DateTime.to_iso8601(profile_version.updated_at),
+        "fresh_permissions" => ["ansible.runs.launch"]
+      })
+
+    legacy_record =
+      put_in(
+        fixture.resources.operation.authorization_version,
+        legacy_authorization_version
+      )
+
+    assert :ok = authorize(legacy_record)
+  end
+
   test "reauthorizes every known-child phase from the immutable initiating authority", %{
     fixture: fixture
   } do

@@ -131,11 +131,10 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthority do
            (required_permissions != [] and @launch_permission in required_permissions and
               Enum.all?(required_permissions, &(&1 in permissions))) ||
              {:error, :current_permission_denied},
-         authorization_version =
-           authorization_version(type, principal, owner, profile_versions, permissions),
+         authorization_version = to_string(value(operation, :authorization_version)),
          true <-
            authorization_version_matches?(
-             to_string(value(operation, :authorization_version)),
+             authorization_version,
              type,
              principal,
              owner,
