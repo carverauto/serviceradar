@@ -98,6 +98,25 @@ source diagnostics, package-set hash, artifact hash, and upload reason are shown
 so the operator can distinguish "scanner found nothing" from "scanner found
 packages but persistence did not keep them."
 
+## Fleet queries (SRQL)
+
+The Software tab is per-device. For fleet questions use SRQL. Walkthrough:
+[Threat Investigation](./threat-investigation.md).
+
+```srql
+in:devices kev:true
+in:devices cve:CVE-2024-1234
+in:endpoint_packages cve:CVE-2024-1234 current:true
+in:endpoint_packages cpe:cpe:2.3:a:nginx:nginx:% current:true
+in:cve_matches kev:true sort:cvss_score:desc
+in:cves cve:CVE-2024-1234
+in:advisory_cpes cve:CVE-2024-1234 coordinate_type:cpe
+```
+
+`in:cves` is the global catalog. `in:cve_matches` is matcher output for this
+deployment. `in:endpoint_packages cpe:` is installed CPE overlap, not NVD
+version matching. There is no `in:devices cpe:` and no `in:cpes` entity.
+
 ## Vulnerability Intelligence Sources
 
 Vulnerability feeds are source-owned. A native add-on or Wasm plugin fetches,

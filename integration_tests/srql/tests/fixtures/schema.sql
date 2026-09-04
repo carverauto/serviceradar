@@ -2,6 +2,9 @@
 -- The harness drops tables before creation so each test starts cleanly.
 
 DROP TABLE IF EXISTS device_agent_availability;
+DROP TABLE IF EXISTS endpoint_vulnerability_matches;
+DROP TABLE IF EXISTS advisory_coordinates;
+DROP TABLE IF EXISTS vulnerability_advisories;
 DROP TABLE IF EXISTS endpoint_inventory_packages;
 DROP TABLE IF EXISTS endpoint_packages;
 DROP TABLE IF EXISTS endpoint_inventory_scans;
@@ -163,6 +166,85 @@ CREATE TABLE endpoint_inventory_packages (
     metadata            JSONB       NOT NULL DEFAULT '{}',
     inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE vulnerability_advisories (
+    id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    snapshot_ref            UUID,
+    provider                TEXT        NOT NULL,
+    feed_key                TEXT        NOT NULL,
+    source_object_id        TEXT        NOT NULL,
+    advisory_id             TEXT        NOT NULL,
+    cve_id                  TEXT,
+    title                   TEXT,
+    description             TEXT,
+    severity                TEXT,
+    cvss_score              DOUBLE PRECISION,
+    cvss_vector             TEXT,
+    published_at            TIMESTAMPTZ,
+    modified_at             TIMESTAMPTZ,
+    kev                     BOOLEAN     NOT NULL DEFAULT FALSE,
+    exploit_available       BOOLEAN     NOT NULL DEFAULT FALSE,
+    affected_coordinates    JSONB[]     NOT NULL DEFAULT '{}',
+    "references"            TEXT[]      NOT NULL DEFAULT '{}',
+    metadata                JSONB       NOT NULL DEFAULT '{}',
+    inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    raw                     JSONB       NOT NULL DEFAULT '{}',
+    generation              BIGINT      NOT NULL DEFAULT 0,
+    current                 BOOLEAN     NOT NULL DEFAULT TRUE
+);
+
+CREATE TABLE advisory_coordinates (
+    id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    advisory_ref            UUID        NOT NULL REFERENCES vulnerability_advisories(id) ON DELETE CASCADE,
+    provider                TEXT        NOT NULL,
+    feed_key                TEXT        NOT NULL,
+    generation              BIGINT      NOT NULL DEFAULT 0,
+    coordinate_type         TEXT        NOT NULL,
+    value                   TEXT        NOT NULL,
+    cpe_part                TEXT,
+    cpe_vendor              TEXT,
+    cpe_product             TEXT,
+    cpe_version             TEXT,
+    version_start           TEXT,
+    version_start_inclusive BOOLEAN,
+    version_end             TEXT,
+    version_end_inclusive   BOOLEAN,
+    metadata                JSONB       NOT NULL DEFAULT '{}',
+    inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE endpoint_vulnerability_matches (
+    id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_uid              TEXT        NOT NULL,
+    agent_id                TEXT,
+    scan_ref                UUID,
+    inventory_package_ref   UUID,
+    endpoint_package_ref    UUID        NOT NULL REFERENCES endpoint_packages(id) ON DELETE SET NULL,
+    advisory_ref            UUID        NOT NULL REFERENCES vulnerability_advisories(id) ON DELETE CASCADE,
+    provider                TEXT        NOT NULL,
+    feed_key                TEXT        NOT NULL,
+    advisory_id             TEXT        NOT NULL,
+    cve_id                  TEXT,
+    coordinate_type         TEXT        NOT NULL,
+    coordinate_value        TEXT        NOT NULL,
+    version_evidence        JSONB       NOT NULL DEFAULT '{}',
+    confidence              TEXT        NOT NULL DEFAULT 'medium',
+    status                  TEXT        NOT NULL DEFAULT 'active',
+    severity                TEXT,
+    cvss_score              DOUBLE PRECISION,
+    fixed_version           TEXT,
+    kev                     BOOLEAN     NOT NULL DEFAULT FALSE,
+    exploit_available       BOOLEAN     NOT NULL DEFAULT FALSE,
+    evidence                JSONB       NOT NULL DEFAULT '{}',
+    first_seen_at           TIMESTAMPTZ NOT NULL,
+    last_seen_at            TIMESTAMPTZ NOT NULL,
+    resolved_at             TIMESTAMPTZ,
+    metadata                JSONB       NOT NULL DEFAULT '{}',
+    inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE endpoint_inventory_current_package_counts (
@@ -782,3 +864,86 @@ CREATE TABLE source_fact_disagreements (
 
 CREATE OR REPLACE VIEW platform.source_fact_disagreements AS
     SELECT * FROM public.source_fact_disagreements;
+
+-- Identity reconciliation diagnostics (GitHub #4229).
+--
+-- Five SRQL entities read from four tables. `device_identifiers` already exists
+-- above for the logs correlation path; the rest are created here, in public with
+-- a platform view, exactly as everything else in this file is.
+--
+-- `device_interface_macs` is not itself an SRQL entity. It is joined by
+-- `in:device_identifiers` to decide `matches_current_facts`: a MAC identifier is
+-- corroborated when the owner reports it either as its current `mac` column OR on
+-- one of its interfaces. Without this table that projection silently reports
+-- every interface-only MAC as historical.
+DROP TABLE IF EXISTS merge_audit CASCADE;
+
+CREATE TABLE merge_audit (
+    event_id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    from_device_id      TEXT        NOT NULL,
+    to_device_id        TEXT        NOT NULL,
+    reason              TEXT,
+    confidence_score    NUMERIC,
+    source              TEXT,
+    details             JSONB       DEFAULT '{}'::jsonb,
+    created_at          TIMESTAMPTZ
+);
+
+CREATE OR REPLACE VIEW platform.merge_audit AS
+    SELECT * FROM public.merge_audit;
+
+DROP TABLE IF EXISTS device_revival_audit CASCADE;
+
+CREATE TABLE device_revival_audit (
+    event_id                BIGSERIAL   PRIMARY KEY,
+    device_uid              TEXT        NOT NULL,
+    previous_deleted_at     TIMESTAMPTZ NOT NULL,
+    previous_deleted_by     TEXT,
+    previous_deleted_reason TEXT,
+    revived_at              TIMESTAMPTZ NOT NULL,
+    revived_by_application  TEXT
+);
+
+CREATE OR REPLACE VIEW platform.device_revival_audit AS
+    SELECT * FROM public.device_revival_audit;
+
+DROP TABLE IF EXISTS device_interface_macs CASCADE;
+
+CREATE TABLE device_interface_macs (
+    device_id   TEXT        NOT NULL,
+    mac         TEXT        NOT NULL,
+    partition   TEXT,
+    first_seen  TIMESTAMPTZ,
+    last_seen   TIMESTAMPTZ,
+    PRIMARY KEY (device_id, mac)
+);
+
+CREATE OR REPLACE VIEW platform.device_interface_macs AS
+    SELECT * FROM public.device_interface_macs;
+
+DROP TABLE IF EXISTS identity_reconciliation_runs CASCADE;
+
+CREATE TABLE identity_reconciliation_runs (
+    run_id                      UUID        PRIMARY KEY,
+    started_at                  TIMESTAMPTZ NOT NULL,
+    completed_at                TIMESTAMPTZ,
+    duration_ms                 BIGINT,
+    status                      TEXT        NOT NULL,
+    error_summary               TEXT,
+    duplicate_identifier_count  INT         NOT NULL DEFAULT 0,
+    duplicate_components        INT         NOT NULL DEFAULT 0,
+    mergeable_components        INT         NOT NULL DEFAULT 0,
+    blocked_components          INT         NOT NULL DEFAULT 0,
+    blocked_devices             INT         NOT NULL DEFAULT 0,
+    largest_blocked_component   INT         NOT NULL DEFAULT 0,
+    merges                      INT         NOT NULL DEFAULT 0,
+    errors                      INT         NOT NULL DEFAULT 0,
+    max_merges_configured       INT,
+    merge_cap_reached           BOOLEAN     NOT NULL DEFAULT FALSE,
+    blocked_component_devices   JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    trigger                     TEXT        NOT NULL DEFAULT 'scheduled',
+    job_schedule_id             BIGINT
+);
+
+CREATE OR REPLACE VIEW platform.identity_reconciliation_runs AS
+    SELECT * FROM public.identity_reconciliation_runs;

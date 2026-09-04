@@ -1014,6 +1014,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/dashboards", DashboardHubLive.Index, :index)
       live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
       live("/security", SecurityLive.Index, :index)
+      live("/security/threat-intel", Security.ThreatIntelLive.Index, :index)
       live("/devices", DeviceLive.Index, :index)
       live("/devices/wifi", DeviceLive.Wifi, :index)
       live("/devices/:uid", DeviceLive.Show, :show)

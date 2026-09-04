@@ -61,6 +61,8 @@ exports_files([
     "elixir/.credo.jump_checks.exs",
     "elixir/.credo.ex_slop.exs",
     "k8s/argocd/applications/demo-prod.yaml",
+    "buildbuddy.yaml",
+    "buildbuddy_setup_fixture_env.sh",
 ])
 
 ###############################################################################
@@ -87,6 +89,25 @@ py_test(
         "//elixir/web-ng:config/config.exs",
         "//helm/serviceradar:values.yaml",
         "//helm/serviceradar:values-demo.yaml",
+    ],
+)
+
+# Fails when the committed schema baseline falls too far behind the migrations on disk, or when
+# its recorded checksum no longer matches its own SQL file. Nothing detected either before: the
+# only consumer of `included_through` / `schema_sha256` was startup_migrations.ex, so the
+# baseline sat 118 migrations behind silently. That matters more now that the fixture template
+# and the developer migrate task bootstrap from it, not just service startup.
+#
+# A DRIFT check, not schema-diff validation. It does not prove the baseline reproduces what a
+# full migration replay produces -- see the module docstring.
+py_test(
+    name = "schema_baseline_freshness_test",
+    size = "small",
+    srcs = ["schema_baseline_freshness_test.py"],
+    data = [
+        "//elixir/serviceradar_core:migrations",
+        "//elixir/serviceradar_core:priv/repo/baseline/metadata.json",
+        "//elixir/serviceradar_core:priv/repo/baseline/platform_schema.sql",
     ],
 )
 

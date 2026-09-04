@@ -34,6 +34,13 @@
 - [ ] 6.3 Confirm capture/DPI still works when opted in via advanced settings
 
 ## 7. Netprobe performance architecture
+
+Remaining TCP producer correctness, correlation diagnostics, bounded core
+admission, and truthful gateway acknowledgement are owned by
+`harden-flow-attribution-pipeline` for GitHub #4029, #4030, and #4031. This
+section retains netprobe-specific performance and configuration work and must
+not independently reintroduce host-slice routing or change delivery ownership.
+
 - [x] 7.1 Make the attribution ring reader event-driven instead of sleeping/polling between drains
 - [x] 7.2 Replace the cross-thread attribution event bridge polling loop with a wake-driven Tokio channel
 - [x] 7.3 Cache per-process cmdline/container enrichment so flow events do not repeatedly read `/proc/<pid>/cmdline` and `/proc/<pid>/cgroup`
@@ -42,17 +49,15 @@
 - [ ] 7.6 Add eBPF listener/socket lifecycle events for TCP listen/state/close and UDP bind/unbind coverage
 - [x] 7.7 Replace recurring `process_snapshot` procfs listener discovery with a user-space cache fed by lifecycle events; keep procfs only for bounded cold-path metadata enrichment
 - [x] 7.8 Add unit/integration coverage proving snapshot emission does not call the procfs listener walker in steady state
-- [ ] 7.9 Add bounded queue/drop/lag counters for eBPF ring reads, netprobe IPC delivery, agent sidecar buffers, and gateway push batches
+- [ ] 7.9 Add bounded queue/drop/lag counters for eBPF ring reads, netprobe IPC delivery, and agent-side retained-queue handoff; gateway/core delivery telemetry is owned by `harden-flow-attribution-pipeline`.
 - [x] 7.10 Add local IPC batching/coalescing for bursty attribution delivery so a slow agent reader drains multiple events per wakeup without unbounded memory growth
-- [ ] 7.11 Add protocol-aware OCSF correlation coverage for TCP, UDP, ICMP, ICMPv6, pod-local, and node-SNAT cases
+- [~] 7.11 Superseded by `harden-flow-attribution-pipeline`, which owns the deployed TCP, UDP, ICMP/ICMPv6, wildcard-listener, node-SNAT, and public-endpoint candidate families and makes exact-local precedence deterministic.
 - [x] 7.11a Wire `EVENT_WRITER_HOST_SLICE_SUBSCRIBER_ENABLED` into core runtime config and enable it in demo so `flow.host-slice.>` records can reach the in-memory attribution joiner.
 - [x] 7.11b Fix `flow-collector` host-slice fanout to publish `Flowpb.AttributedFlowMessage` payloads instead of raw `FlowMessage` bytes, matching `HostSliceSubscriber` and `AttributedFlowJoiner` expectations.
 - [x] 7.11c Add temporary demo host-slice routing for the known Kubernetes worker agents and the `sr-test-pve04` test host so NetFlow records involving those host IPs are published to `flow.host-slice.<agent_id>` for attribution validation. This is a canary bridge only, not a production routing model.
 - [x] 7.11c2 Remove the demo static host-slice routing and stop enabling the host-slice subscriber in the demo overlay so demo attribution uses the agent-up persisted attribution feed plus core-side CNPG correlation instead of Helm-maintained per-agent routing.
-- [ ] 7.11d Replace static Helm `host_slices` / `host_slice_allowlist` with DB/settings-driven host-network visibility state. The settings UI stores assignments/profiles, core compiles effective agent config, and agent-gateway pushes config changes through the existing command bus/control stream.
-- [ ] 7.11e Add a control-plane-generated host-slice routing feed for flow collectors, keyed by agent identity, partition, current host IPs, and host-network visibility status. Flow collectors must update routes from this feed without Helm redeploys or per-agent values.
-- [ ] 7.11f Remove or disable the demo Helm static host-slice entries once the control-plane routing feed is available, and add a scale test proving a 25,000-agent visibility cohort does not grow Helm values.
-- [ ] 7.12 Add a Linux worker performance smoke script or documented gate that records CPU, ring drops, IPC/queue lag, event rates, cache sizes, attribution row freshness, and protocol hit rates over a multi-minute sample
+- [ ] 7.11d Store host-network visibility assignment/profile state in the database/settings UI, compile it into effective agent config, and push changes through the existing command bus/control stream; keep flow observations on the agent-up persisted path and do not recreate host-slice routing.
+- [ ] 7.12 Add a Linux worker Bazel performance target or documented gate that records CPU, ring drops, IPC/queue lag, event rates, cache sizes, attribution row freshness, and protocol hit rates over a multi-minute sample
 - [ ] 7.13 Verify attribution-only netprobe stays below 1% sustained process CPU on representative busy Kubernetes workers with no persistent ring drops, IPC lag, queue drops, or attribution hit-rate regressions
 - [x] 7.14 Formalize the ServiceRadar attribution backend boundary (`EbpfAttributionBackend` plus bounded `MetadataEnricher`) so eBPF is the only PID/tuple attribution source and procfs is limited to post-attribution cmdline/container enrichment
 - [x] 7.15 Surface backend hit/miss, cold procfs metadata reads, and cache-size stats through netprobe Prometheus metrics
@@ -65,7 +70,7 @@
 - [x] 7.22 Remove synchronous procfs metadata reads from flow attribution: emitted rows use eBPF PID/TGID/UID/GID/comm immediately, while rate-limited cold-path cmdline/container enrichment re-emits cached events when metadata becomes available.
 - [x] 7.23 Emit dirty listener snapshots immediately after eBPF ring drains, keeping the 30s snapshot timer as a prune/reconciliation heartbeat instead of delaying real inventory changes behind a longer interval.
 - [ ] 7.24 Preserve cmdline and container ID as required forensic enrichment fields while replacing procfs cmdline/container reads with eBPF process exec argument capture plus cgroup/container metadata keyed by process generation, keeping procfs out of normal attribution/enrichment on busy workers.
-- [ ] 7.25 Replace raw `FlowAttributionEventBatch` as the steady-state telemetry feed with a bounded agent-up local network/process observation stream. Core must persist forensic observations even when no NetFlow exists, then correlate with NetFlow/IPFIX when available; netprobe CPU must be fixed by profiling/eBPF/coalescing hot paths, not by requiring a NetFlow down-to-agent replay loop.
+- [~] 7.25 Superseded for transport shape: keep the existing bounded `FlowAttributionEventBatch` on the dedicated agent-owned `StreamStatus` path as the acknowledgement unit. Core continues persisting observations without NetFlow and correlating later; CPU work remains in the profiling/eBPF/coalescing tasks and MUST NOT reintroduce NetFlow down-to-agent replay.
 - [x] 7.25a Remove the experimental NATS self-subscribe/control-stream external-flow replay path from this branch so the architecture stays agent-up plus core-side correlation.
 - [x] 7.25b Fix the k8s-cp3-worker3 netprobe hot path where procfs metadata refresh scanned every cached flow for each process update. Maintain a process-key attribution index and prune/cache-cap live attribution entries independent of resend; live canary improved from 8.15% CPU / ~1.3 GiB RSS to 0.40% CPU / <50 MiB RSS in the first post-restart sample.
 - [x] 7.26 Publish/import netprobe `0.2.5` and restart assigned agents so CPU validation runs against the build containing the event-driven snapshot/resend changes. Verified the published amd64 tarball SHA `d5dc220ea5ac2c7e2b15c85577c1324709f3e9e26c0592a188e3a1bb5e0e924f` contains `serviceradar-netprobe` SHA `ad8919a7d8e689ab7774f2a36477353f731e5b1a5fae947ce0ee024584b38a74`; all seven targets have `current -> versions/0.2.5` with that binary hash.

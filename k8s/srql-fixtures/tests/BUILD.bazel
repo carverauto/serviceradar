@@ -1,0 +1,17 @@
+load("@rules_python//python:py_test.bzl", "py_test")
+
+py_test(
+    name = "ca_bundle_https_contract_test",
+    size = "small",
+    srcs = ["ca_bundle_https_contract_test.py"],
+    data = [
+        "//config/environments:ci.textproto",
+        "//k8s/buildbuddy:values.yaml",
+        "//k8s/buildbuddy:values-workflows.yaml",
+        "//k8s/srql-fixtures:httproute-ca.yaml",
+        "//k8s/srql-fixtures:namespace.yaml",
+        "//:buildbuddy.yaml",
+        "//:buildbuddy_setup_fixture_env.sh",
+        "//scripts:ci/configure-srql-fixture.sh",
+    ],
+)

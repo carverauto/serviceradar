@@ -8,6 +8,10 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
 
   use Supervisor
 
+  alias ServiceRadar.Admission.FlowLeaseSupervisor
+  alias ServiceRadar.Admission.FlowSupervisor
+  alias ServiceRadar.Admission.RetainedPluginLeaseSupervisor
+  alias ServiceRadar.Admission.RetainedPluginSupervisor
   alias ServiceRadar.Observability.LogPromotionConsumer
 
   def start_link(opts \\ []) do
@@ -25,6 +29,10 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
       [
         cluster_health_child(),
         state_monitor_child(),
+        flow_admission_lease_supervisor_child(),
+        retained_plugin_admission_lease_supervisor_child(),
+        flow_admission_supervisor_child(),
+        retained_plugin_admission_supervisor_child(),
         status_handler_child(),
         command_result_coordination_supervisor_child(),
         command_status_handler_child(),
@@ -40,7 +48,6 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         job_schedule_seeder_child(),
         device_cleanup_settings_seeder_child(),
         device_hostname_rdns_settings_seeder_child(),
-        snmp_profile_seeder_child(),
         role_profile_seeder_child(),
         mtr_settings_seeder_child(),
         anomaly_config_seeder_child(),
@@ -100,6 +107,36 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp status_handler_child do
     if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
       ServiceRadar.StatusHandler
+    end
+  end
+
+  defp flow_admission_lease_supervisor_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      Supervisor.child_spec(
+        {Task.Supervisor, name: FlowLeaseSupervisor},
+        id: FlowLeaseSupervisor
+      )
+    end
+  end
+
+  defp retained_plugin_admission_lease_supervisor_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      Supervisor.child_spec(
+        {Task.Supervisor, name: RetainedPluginLeaseSupervisor},
+        id: RetainedPluginLeaseSupervisor
+      )
+    end
+  end
+
+  defp flow_admission_supervisor_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      FlowSupervisor
+    end
+  end
+
+  defp retained_plugin_admission_supervisor_child do
+    if Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      RetainedPluginSupervisor
     end
   end
 
@@ -188,12 +225,6 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp device_hostname_rdns_settings_seeder_child do
     if enabled?(:seeders_enabled, true) do
       ServiceRadar.Inventory.DeviceHostnameRdnsSettingsSeeder
-    end
-  end
-
-  defp snmp_profile_seeder_child do
-    if enabled?(:seeders_enabled, true) do
-      ServiceRadar.SNMPProfiles.SNMPProfileSeeder
     end
   end
 

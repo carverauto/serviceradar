@@ -379,25 +379,17 @@
     "path": "lib/serviceradar_web_ng/srql.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
-    "fingerprint": "483e9f013f0036f143981790cf563eeb8f144596f2a3796c6a63a4d38f74a91b",
+    "fingerprint": "c81b22aa0c79957aa0a2d99b4c6d5774ecee163ee39e564a8bbd83c03513854d",
     "classification": "canonical_machine",
-    "reason": null
+    "reason": "canonical UTC encoding of typed DateTime SRQL result values"
   },
   {
     "path": "lib/serviceradar_web_ng/srql.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 2,
-    "fingerprint": "ab479433c34769a86733d8c22cc7b513d38e67caa0519a12179fe5d943d26661",
+    "fingerprint": "75c5c7f0bd431de362c80d1849af6e6c4117e296ac8f15b34757bd317a45aa71",
     "classification": "canonical_machine",
-    "reason": null
-  },
-  {
-    "path": "lib/serviceradar_web_ng/srql.ex",
-    "matcher": "naive_datetime_iso8601",
-    "occurrence": 1,
-    "fingerprint": "ad65034e8904d5d918b054e045a27dd37d3d4c3a45210d0db838fab59fb391d6",
-    "classification": "canonical_machine",
-    "reason": null
+    "reason": "canonical UTC encoding of typed naive database timestamps returned by SRQL"
   },
   {
     "path": "lib/serviceradar_web_ng/topology/god_view_stream.ex",

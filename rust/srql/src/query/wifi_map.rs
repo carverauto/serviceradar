@@ -22,10 +22,19 @@ struct JsonPayload {
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
-    let built = build_sql(plan)?;
-    let mut query = sql_query(&built.sql).into_boxed::<Pg>();
+    // Execution goes through `to_sql_and_params`, not around it, so the SQL that
+    // runs IS the SQL translate returns. Building it twice let the execute side
+    // send the `?` form straight to Diesel, which does not translate `?` for
+    // Postgres: `SqlQuery::walk_ast` pushes the query text verbatim and each
+    // bind then appends its own `$n`. Because `?` is a valid Postgres operator
+    // character (jsonb containment), the result was not an "unknown placeholder"
+    // error but a syntax error at the NEXT token, naming neither the placeholder
+    // nor the column. Measured: `ep.ip = ? ORDER BY` -> `syntax error at or near
+    // "ORDER"`.
+    let (sql, binds) = to_sql_and_params(plan)?;
+    let mut query = sql_query(&sql).into_boxed::<Pg>();
 
-    for bind in built.binds {
+    for bind in binds {
         query = bind_param(query, bind)?;
     }
 

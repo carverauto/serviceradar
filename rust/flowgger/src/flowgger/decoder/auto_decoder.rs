@@ -118,7 +118,7 @@ mod tests {
         let decoder = AutoDecoder::new(&config());
         let record = decoder
             .decode(
-                r#"<135>1 2026-07-15T14:24:54.169-05:00 CPPM-HOST-01.example.com ClearPass 1207790 4-1-0 [timeQuality tzKnown="1"][origin swVersion="1.0.0.000000" software="PolicyManager" ip="192.0.2.34" enterpriseId="1.3.6.1.4.1.14823"][clearPass@14823 eventId="3036"] ClearPass event"#,
+                r#"<135>1 2020-01-01T00:00:00.000-00:00 CPPM-HOST-01.example.com ClearPass 1000001 4-1-0 [timeQuality tzKnown="1"][origin swVersion="1.0.0.000000" software="PolicyManager" ip="192.0.2.34" enterpriseId="1.3.6.1.4.1.14823"][clearPass@14823 eventId="3036"] ClearPass event"#,
             )
             .unwrap();
 
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn detects_clearpass_standard_header() {
         let decoder = AutoDecoder::new(&config());
-        let line = r#"<135>2026-07-15 14:24:44,270 192.0.2.34 CPPM_Session_Detail 7304 1 0 id=10000001,session_id=R00000001-00-000000a1,type=INTERNAL_IN,attr_name=Endpoint:Device Insight Tags,attr_value=[Facilities & Building Automation], [Network Infrastructure], ml-IoT,timestamp=2026-07-15 14:24:41.787137-05"#;
+        let line = r#"<135>2020-01-01 00:00:00,000 192.0.2.34 CPPM_Session_Detail 7304 1 0 id=10000001,session_id=R00000001-00-000000a1,type=INTERNAL_IN,attr_name=Endpoint:Device Insight Tags,attr_value=[Example Tag A], [Example Tag B], example-iot,timestamp=2020-01-01 00:00:00.000000-00"#;
         let record = decoder.decode(line).unwrap();
 
         assert_eq!(record.hostname, "192.0.2.34");
@@ -149,7 +149,7 @@ mod tests {
         assert_eq!(
             record.msg.as_deref(),
             Some(
-                &line["<135>2026-07-15 14:24:44,270 192.0.2.34 CPPM_Session_Detail 7304 1 "
+                &line["<135>2020-01-01 00:00:00,000 192.0.2.34 CPPM_Session_Detail 7304 1 "
                     .len()..]
             )
         );
@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn preserves_clearpass_alert_body() {
         let decoder = AutoDecoder::new(&config());
-        let line = r#"<135>2026-07-15 14:24:51,181 192.0.2.34 CPPM_Alert 111 1 0 session_id=R00000002-00-000000a2,service_name=RADIUS,alert=EAP-TLS: fatal alert by server - unknown_ca\nTLS Handshake failed,timestamp=2026-07-15 14:23:41.27-05"#;
+        let line = r#"<135>2020-01-01 00:00:01,000 192.0.2.34 CPPM_Alert 111 1 0 session_id=R00000002-00-000000a2,service_name=RADIUS,alert=EAP-TLS: fatal alert by server - unknown_ca\nTLS Handshake failed,timestamp=2026-07-15 14:23:41.27-05"#;
         let record = decoder.decode(line).unwrap();
 
         assert_eq!(record.appname.as_deref(), Some("CPPM_Alert"));

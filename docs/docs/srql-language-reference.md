@@ -271,6 +271,7 @@ fields; using a field that the entity does not support returns an
 | `devices` | `device`, `device_inventory` | Device inventory and current state |
 | `events` | `activity` | Normalized OCSF events and activity |
 | `logs` | — | Application and system logs (OpenTelemetry) |
+| `threat_intel_matches` | `threat_intel_match`, `ioc_matches`, `ioc_match` | Current IP/CIDR cache-to-indicator memberships. Requires `observability.netflow.view`. |
 | `flows` | `flow`, `network_activity` | NetFlow / network activity records (raw 5-tuples) |
 | `attributed_flows` | `attributed_flow`, `flow_attributions`, `flow_attribution` | Flows joined with host process context (and optional public VIP owner) |
 | `public_endpoints` | — | Kubernetes public VIP / Gateway ownership inventory (current snapshot) |
@@ -289,6 +290,10 @@ fields; using a field that the entity does not support returns an
 | `otel_metrics` | `metrics` | OpenTelemetry span-derived metrics |
 | `traces` | `otel_traces`, `trace_spans` | OpenTelemetry trace spans |
 | `composite_results` | `composite_check_results`, `composite_verdicts` | Composite-check evaluations. Row queries return per-device verdicts; `stats:count()` groups by check / verdict / vantage (`input_*`). |
+| `endpoint_packages` | `endpoint_package`, `packages`, `endpoint_inventory` | Current and historical endpoint software inventory (installed packages, CPE arrays) |
+| `vulnerability_advisories` | `advisories`, `cves`, `vulnerability_advisory` | NVD/KEV advisory catalog. Default `current:true`. |
+| `advisory_coordinates` | `advisory_cpes`, `cpe_coordinates` | Per-advisory CPE/PURL rows with version bounds. Not an alias of `cpes`. |
+| `endpoint_vulnerability_matches` | `vulnerability_matches`, `cve_matches`, `advisory_matches` | Device-scoped matcher output. Default `status:active`. |
 
 > The engine also exposes specialized entities — device graph (`device_graph`),
 > device updates (`device_updates`), Wi-Fi site mapping (`wifi_sites`,
@@ -322,9 +327,12 @@ subsection heading matches the `in:` name used to select the entity.
 | `first_seen` | `first_seen_time` | When the device was first added. Accepts the same window tokens as `time:` (`last_7d`, `last_30d`, `today`, `[start,end]`). This does **not** change `time:`, which still filters `last_seen_time`. |
 | `tags` | | Device tags (JSONB map). Bare `tags:<key>` tests whether the key exists; list form `tags:(a,b)` matches any of them. Sub-key form: `tags.<key>:<value>` |
 | `metadata.<key>` | | Match an arbitrary metadata key, e.g. `metadata.integration_type:armis` |
+| `cve` | `cve_id` | Device has an active vulnerability match for this CVE (EXISTS). Case-insensitive. |
+| `kev` | | Device has an active KEV match (`true`/`false`) |
 
 Sortable fields include `hostname`, `ip`, `first_seen` / `first_seen_time`,
-`last_seen` / `last_seen_time`, and `type_id`.
+`last_seen` / `last_seen_time`, and `type_id`. There is no `cpe` filter on
+`in:devices`; query `in:endpoint_packages` or `in:cve_matches`.
 
 Control tokens: `include_inactive:true` returns devices regardless of lifecycle
 state; `include_deleted:true` includes soft-deleted records.
@@ -378,6 +386,28 @@ Sortable fields: `time` (aliases `event_timestamp`, `timestamp`).
 
 Sortable fields: `timestamp`, `severity_number`.
 
+### threat_intel_matches
+
+Current AlienVault OTX (and other IP/CIDR feed) matches. One row is one
+endpoint-to-indicator membership. `evaluated_at` is cache lookup time, not flow
+observation time. `indicator_match_count` is how many indicator CIDRs contain
+that endpoint, not how many flows hit it.
+
+| Field | Notes |
+|---|---|
+| `observed_ip` / `ip` | Cached endpoint |
+| `source` | Feed source (`alienvault_otx`, …) |
+| `indicator` | CIDR or IP |
+| `severity` | Integer comparison |
+| `stale:true` | Expired cache/indicator rows, labeled rather than mixed into the default |
+
+Default sort: `evaluated_at DESC, observed_ip, indicator_id`. Default query
+excludes expired rows.
+
+```srql
+in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100
+```
+
 ### flows
 
 | Field | Aliases | Description |
@@ -394,6 +424,11 @@ Sortable fields: `timestamp`, `severity_number`.
 | `src_endpoint_port` | `src_port` | Source port |
 | `dst_endpoint_port` | `dst_port` | Destination port |
 | `port` | `endpoint_port` | Matches **either** endpoint port — e.g. `port:22` for SSH regardless of direction |
+| `threat_matched` | | Live cache match on either flow endpoint. Interactive queries default to `time:last_24h` |
+| `threat_source` | | Feed source on the live cache row |
+| `threat_indicator` | | IP or CIDR of the matching indicator |
+| `threat_observed_ip` | | Specific cached endpoint IP |
+| `threat_severity` | | Compare live `max_severity` |
 | `protocol_name` | | Protocol name |
 | `protocol_num` | `proto` | Protocol number |
 | `protocol_group` | `proto_group` | Protocol group |
@@ -727,6 +762,76 @@ Sortable fields: `timestamp`, `service_name` / `service`, `metric_type` / `type`
 Sortable fields: `timestamp`, `start_time_unix_nano`, `end_time_unix_nano`,
 `service_name`.
 
+### endpoint_packages
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `device_uid` | `device_id` | Host that has the package |
+| `name` | `package` | Package name |
+| `version` | | Installed version |
+| `package_manager` | `manager` | Package manager (`dpkg`, `rpm`, …) |
+| `purl_canonical` | `canonical_purl`, `purl` | Canonical PURL |
+| `cpe` | `cpes` | Installed CPE array overlap (not NVD version matching) |
+| `cve` | `cve_id` | Package has an active matcher hit for this CVE (EXISTS) |
+| `kev` | | Package has an active KEV match |
+| `current` | | Current inventory row (`true`/`false`) |
+
+`rollup_stats:current_counts` and `rollup_stats:current_cpe_counts` read
+maintained count tables, not ad hoc `GROUP BY`.
+
+### vulnerability_advisories
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `cve` | `cve_id` | CVE identifier (uppercased on equality) |
+| `advisory_id` | | Source advisory id |
+| `provider` | | Feed provider |
+| `feed_key` | | Feed key (`nist-nvd2`, `cisa-kev`, …) |
+| `severity` | | Severity label |
+| `cvss_score` | | Numeric CVSS (supports `>=`, `>`) |
+| `kev` | | Listed in an enabled KEV feed |
+| `exploit_available` | | Exploit available flag |
+| `current` | | Current generation (default `true`) |
+| `title` | | Advisory title |
+| `cpe` / `cpe_vendor` / `cpe_product` | | EXISTS against `advisory_coordinates` |
+
+`time:` filters `published_at`. Projection omits `raw` and
+`affected_coordinates`. `stats:count()` groups by `severity`, `kev`,
+`provider`, `feed_key`, `cve_id`. No `downsample` / `rollup_stats`.
+
+### advisory_coordinates
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `cve` | `cve_id` | Joined advisory CVE |
+| `coordinate_type` | | `cpe`, `purl`, or `vendor_product` |
+| `value` | `cpe`, `cpes` | Coordinate string (`ILIKE` with `%`) |
+| `cpe_vendor` / `cpe_product` / `cpe_part` / `cpe_version` | | Parsed CPE 2.3 components |
+| `advisory_ref` | | Parent advisory UUID |
+| `kev` | | Joined advisory KEV flag |
+| `current` | | Joined advisory is current (default `true`) |
+
+`stats:count()` requires a selective filter (CVE, vendor+product, or CPE
+value). Version-bound columns are returned; they are not evaluated against
+installed versions.
+
+### endpoint_vulnerability_matches
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `device_uid` | `device_id` | Affected device |
+| `cve` | `cve_id` | Matched CVE |
+| `status` | | `active` (default) or `resolved` |
+| `kev` | | KEV overlay |
+| `exploit_available` | | Exploit flag |
+| `cvss_score` | | CVSS from the match |
+| `cpe` | `coordinate_value` | Matched coordinate |
+| `severity` / `confidence` | | Matcher fields |
+| `epss_score` / `due_date` / `ransomware_use` | | Lifted from match metadata |
+
+`time:` filters `last_seen_at`. Default sort is KEV, exploit, CVSS, last
+seen.
+
 ## Error handling
 
 | Message | Cause / fix |
@@ -739,8 +844,11 @@ Sortable fields: `timestamp`, `start_time_unix_nano`, `end_time_unix_nano`,
 | `invalid limit` / `limit must be a positive integer` | `limit:` requires a positive integer. |
 | `expected scalar value` / `expected list value` | Operator/value mismatch — e.g. a list value where a scalar is expected. |
 | `InvalidRequest` on `in:composite_results stats:` | Unsupported aggregation (only `count()`) or group field. See [Composite-result stats](#composite-result-stats). |
+| `advisory_coordinates stats require a selective filter` | Add `cve:`, `cpe_vendor`+`cpe_product`, or a CPE `value` before `stats:count()`. |
 
 ## See also
 
 - [SRQL Tutorial](./srql-tutorial.md) — step-by-step introduction for new users.
 - [SRQL Cookbook](./srql-cookbook.md) — task-oriented copy-paste recipes.
+- [Threat Investigation](./threat-investigation.md) — CVE, CPE, KEV, and matcher
+  queries.

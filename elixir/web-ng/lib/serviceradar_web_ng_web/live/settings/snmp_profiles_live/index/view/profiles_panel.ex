@@ -53,15 +53,18 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
             </tr>
             <%= for profile <- @profiles do %>
               <tr class="hover:bg-sr-subtle/40">
+                <!--
+                Status is read-only. It used to be a bare button element
+                wrapping a dot and the word "Enabled", with no button styling,
+                which reads as static text - operators reported having no way
+                to disable a profile at all (GitHub #4170). The control now
+                lives in Actions, where the other controls are.
+                -->
                 <td>
-                  <button
-                    phx-click="toggle_profile"
-                    phx-value-id={profile.id}
-                    class="flex items-center gap-1.5 cursor-pointer"
-                  >
+                  <div class="flex items-center gap-1.5">
                     <span class={"size-2 rounded-full #{if profile.enabled, do: "bg-success", else: "bg-sr-muted/30"}"}></span>
                     <span class="text-xs">{if profile.enabled, do: "Enabled", else: "Disabled"}</span>
-                  </button>
+                  </div>
                 </td>
                 <td>
                   <div class="flex items-center gap-2">
@@ -134,6 +137,24 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
                         <.icon name="hero-pencil" class="size-3" />
                       </.ui_button>
                     </.link>
+                    <!--
+                    Offered on every row, the default profile included: this is
+                    the only lever that retires a default in place, and the
+                    compiler honors `enabled` regardless of `is_default`.
+                    -->
+                    <.ui_button
+                      variant="ghost"
+                      size="xs"
+                      phx-click="toggle_profile"
+                      phx-value-id={profile.id}
+                      title={if profile.enabled, do: "Disable profile", else: "Enable profile"}
+                    >
+                      <.icon
+                        name={if profile.enabled, do: "hero-pause-circle", else: "hero-play-circle"}
+                        class="size-3"
+                      />
+                      <span class="ml-1">{if profile.enabled, do: "Disable", else: "Enable"}</span>
+                    </.ui_button>
                     <.ui_button
                       :if={!profile.is_default}
                       variant="ghost"
@@ -143,6 +164,23 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.View.ProfilesPane
                       title="Set as default"
                     >
                       <.icon name="hero-star" class="size-3" />
+                    </.ui_button>
+                    <!--
+                    A default profile cannot be destroyed (the Ash policy
+                    forbids it), so it gets demote instead of delete. Demoting
+                    reveals the delete button on the next render.
+                    -->
+                    <.ui_button
+                      :if={profile.is_default}
+                      variant="ghost"
+                      size="xs"
+                      phx-click="clear_default"
+                      phx-value-id={profile.id}
+                      data-confirm="Clear the default flag? Devices matching no other profile stop being polled. You can then delete this profile."
+                      title="Clear default (required before this profile can be deleted)"
+                    >
+                      <.icon name="hero-star-solid" class="size-3" />
+                      <span class="ml-1">Clear default</span>
                     </.ui_button>
                     <.ui_button
                       :if={!profile.is_default}

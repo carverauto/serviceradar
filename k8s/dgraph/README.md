@@ -123,17 +123,25 @@ dgraph://dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local:9080?sslmode=require
 
 `ci/certificate.yaml` builds a self-signed CA (`dgraph-ci-ca`) and issues the Alpha
 certificate from it, so there *is* a root to trust — a bare self-signed leaf could only be
-pinned. To get real verification, put that CA in the **system** trust store, the only store the
-client reads:
+pinned. CI callers fetch that CA live:
 
-```bash
-kubectl get secret dgraph-ci-ca -n dgraph-ci -o jsonpath='{.data.ca\.crt}' | base64 -d \
-  > dgraph-ci.crt
-# in the caller's image: COPY dgraph-ci.crt /usr/local/share/ca-certificates/ && update-ca-certificates
+```
+https://dgraph-ci-ca.carverauto.dev/ca.crt
 ```
 
-Then `sslmode=verify-ca` works against the private CA. Teaching the client to accept a CA path
-would be the alternative, and a larger change to `dgraph-client`.
+Envoy on `lan-shared-gateway` terminates TLS with the Let's Encrypt wildcard already in
+scratch images. The custom CA is the document being served. `config/environments/ci.textproto`
+names that URL as `dgraph.ca_bundle_url`; `dgraph-client` verifies Alpha against the fetched
+PEM (`sslmode=verify-ca`), not against the system roots.
+
+Workstation copy if you are not going through ConfigManager:
+
+```bash
+curl -fsS https://dgraph-ci-ca.carverauto.dev/ca.crt > dgraph-ci.crt
+# or:
+kubectl get secret dgraph-ci-ca -n dgraph-ci -o jsonpath='{.data.ca\.crt}' | base64 -d \
+  > dgraph-ci.crt
+```
 
 ## ACL and namespaces
 

@@ -1,0 +1,40 @@
+# LAN HTTPS publisher for the Dgraph CI CA (ca.crt only).
+#
+# Clients dial https://dgraph-ci-ca.carverauto.dev/ca.crt. Envoy terminates TLS with the
+# lan-shared-gateway Let's Encrypt wildcard. Scratch images already trust that issuer.
+# The custom CA is the document being served, not the certificate that terminates this fetch.
+#
+# Caddy behind this route stays HTTP. Do not put nginx on this path. The CA private key
+# is not in any volume on the publisher.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: dgraph-ci-ca
+  namespace: dgraph-ci
+  labels:
+    app: dgraph
+    app.kubernetes.io/component: fixture-ca-bundle
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: dgraph-ci-ca.carverauto.dev
+    external-dns.alpha.kubernetes.io/cloudflare-proxied: "false"
+    external-dns.alpha.kubernetes.io/ttl: "60"
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: lan-shared-gateway
+      namespace: lan-edge
+      sectionName: https-carverauto
+  hostnames:
+    - dgraph-ci-ca.carverauto.dev
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /ca.crt
+      backendRefs:
+        - group: ""
+          kind: Service
+          name: dgraph-ca-incluster
+          port: 80
+          weight: 1

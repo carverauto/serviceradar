@@ -209,7 +209,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert has_element?(events, ~s(#events time[datetime="2026-08-30T18:00:00Z"]))
 
     {:ok, alerts, _html} = live(conn, ~p"/observability/alerts")
-    assert has_element?(alerts, ~s(#alerts time[datetime="2026-08-30T18:00:00Z"]))
+    assert has_element?(alerts, ~s(#alerts time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"]))
+    refute has_element?(alerts, "#alerts span", "2026-08-30T18:00:00")
   end
 
   @tag :web_ng_shared_fixture_db
@@ -878,7 +879,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
       rows = [
         %{
           "id" => "alert-1",
-          "triggered_at" => "2026-08-30T18:00:00Z",
+          "triggered_at" => "2026-08-30T18:00:00",
           "severity" => "critical",
           "status" => "pending",
           "title" => "Alert"
@@ -890,7 +891,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           [
             %{
               "id" => "alert-2",
-              "triggered_at" => "2026-08-30T18:01:00Z",
+              "triggered_at" => "2026-08-30T18:01:00",
               "severity" => "warning",
               "status" => "pending",
               "title" => "Second alert"
@@ -900,7 +901,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
       rows
       |> ordered_identified_rows(identified_rows)
       |> duplicate_idless_rows(%{
-        "triggered_at" => "2026-08-30T18:00:00Z",
+        "triggered_at" => "2026-08-30T18:00:00",
         "severity" => "critical",
         "status" => "pending",
         "title" => "Identical id-less alert"

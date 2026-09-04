@@ -103,6 +103,36 @@ defmodule ServiceRadarWebNGWeb.Settings.SNMPProfilesLive.Index.Events.Profiles d
     end
   end
 
+  # Demoting is the only way to retire a default profile: `:destroy` is
+  # forbidden while `is_default` is true, and relaxing that guard would make
+  # "delete" able to silently remove the fallback every unmatched device uses.
+  # Clearing the flag first makes the two steps separately visible.
+  def handle_event("clear_default", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+
+    case Data.load_profile(scope, id) do
+      nil ->
+        {:noreply, put_flash(socket, :error, "Profile not found")}
+
+      profile ->
+        case profile
+             |> Ash.Changeset.for_update(:unset_default, %{})
+             |> Ash.update(scope: scope) do
+          {:ok, _updated} ->
+            {:noreply,
+             socket
+             |> Data.assign_profiles_with_counts(scope)
+             |> put_flash(
+               :info,
+               "#{profile.name} is no longer the default. Devices matching no other profile are not polled."
+             )}
+
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, "Failed to clear the default profile")}
+        end
+    end
+  end
+
   def handle_event("set_default", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 

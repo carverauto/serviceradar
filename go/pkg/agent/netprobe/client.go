@@ -22,9 +22,12 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/rs/zerolog"
 
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
 )
@@ -40,7 +43,14 @@ const (
 	EventStreamDPI           = "dpi"
 	EventStreamFlowAttr      = "flow_attribution"
 	EventStreamProcessSnap   = "process_snapshot"
+	EventStreamUnknown       = "unknown"
 	EventDropBackpressure    = "backpressure"
+
+	// EventDropUnhandledArm marks an unsolicited frame carrying a oneof arm
+	// this agent has no handler for. The usual cause is a netprobe newer than
+	// its agent: the two roll independently, so "new sidecar, old agent" is a
+	// normal intermediate state of any rollout. GitHub #4026.
+	EventDropUnhandledArm = "unhandled_arm"
 )
 
 var (
@@ -65,6 +75,15 @@ type EventDropRecorderFunc func(stream, reason string)
 
 func (f EventDropRecorderFunc) IncEventDrop(stream, reason string) {
 	f(stream, reason)
+}
+
+// WithLogger sets the logger used for client-level diagnostics. Without it a
+// Client logs to stderr, which the agent's unit sends to the journal -- a
+// silent default would defeat the point of the unhandled-arm warning below.
+func WithLogger(logger zerolog.Logger) ClientOption {
+	return func(c *Client) {
+		c.logger = logger
+	}
 }
 
 // ClientOption customizes a Client.
@@ -111,6 +130,9 @@ type Client struct {
 	droppedDPIEvents         atomic.Uint64
 	droppedFlowEvents        atomic.Uint64
 	droppedProcessSnapshots  atomic.Uint64
+	droppedUnknownFrames     atomic.Uint64
+	unknownArmsSeen          sync.Map
+	logger                   zerolog.Logger
 	eventDropRecorder        EventDropRecorder
 }
 
@@ -132,6 +154,7 @@ func NewClient(conn net.Conn, eventBuffer int, opts ...ClientOption) *Client {
 	}
 
 	c := &Client{
+		logger:           zerolog.New(os.Stderr).With().Timestamp().Logger(),
 		conn:             conn,
 		pending:          make(map[uint64]chan response),
 		events:           make(chan *netprobepb.FingerprintEvent, eventBuffer),
@@ -452,6 +475,14 @@ func (c *Client) DroppedProcessSnapshots() uint64 {
 	return c.droppedProcessSnapshots.Load()
 }
 
+// DroppedUnknownFrames counts unsolicited frames carrying a oneof arm this
+// agent has no handler for. A non-zero value means netprobe is emitting
+// something this build cannot consume -- almost always a version skew, and
+// previously invisible because readLoop had no default branch.
+func (c *Client) DroppedUnknownFrames() uint64 {
+	return c.droppedUnknownFrames.Load()
+}
+
 // Close closes the IPC connection and unblocks pending requests.
 func (c *Client) Close() error {
 	if c == nil {
@@ -537,7 +568,9 @@ func (c *Client) readLoop() {
 		}
 
 		if frame.GetSequence() == 0 {
+			handled := false
 			if event := frame.GetFingerprintEvent(); event != nil {
+				handled = true
 				select {
 				case c.events <- event:
 				default:
@@ -545,6 +578,7 @@ func (c *Client) readLoop() {
 				}
 			}
 			if event := frame.GetDpiEvent(); event != nil {
+				handled = true
 				select {
 				case c.dpiEvents <- event:
 				default:
@@ -552,19 +586,31 @@ func (c *Client) readLoop() {
 				}
 			}
 			if event := frame.GetFlowAttributionEvent(); event != nil {
+				handled = true
 				c.enqueueFlowAttributionEvent(event)
 			}
 			if batch := frame.GetFlowAttributionBatch(); batch != nil {
+				handled = true
 				for _, event := range batch.GetEvents() {
 					c.enqueueFlowAttributionEvent(event)
 				}
 			}
 			if snapshot := frame.GetProcessSnapshot(); snapshot != nil {
+				handled = true
 				select {
 				case c.processSnapshots <- snapshot:
 				default:
 					c.recordEventDrop(EventStreamProcessSnap, EventDropBackpressure)
 				}
+			}
+
+			// Deliberate default branch. Without it an arm this build has no
+			// handler for is dropped here with no log, no metric and no
+			// counter -- silent on both sides of a version skew. GitHub #4026:
+			// this must land before any oneof arm is ever retired, because it
+			// is what makes a retirement observable rather than invisible.
+			if !handled {
+				c.recordUnhandledFrame(frame)
 			}
 			continue
 		}
@@ -580,6 +626,26 @@ func (c *Client) readLoop() {
 	}
 }
 
+// recordUnhandledFrame reports an unsolicited frame this build cannot route.
+//
+// Logged at most once per payload type per client so an old agent facing a
+// chatty new sidecar reports the skew without flooding the journal -- the
+// counter keeps the true volume.
+func (c *Client) recordUnhandledFrame(frame *netprobepb.NetprobeFrame) {
+	c.recordEventDrop(EventStreamUnknown, EventDropUnhandledArm)
+
+	payload := fmt.Sprintf("%T", frame.GetPayload())
+	if _, seen := c.unknownArmsSeen.LoadOrStore(payload, struct{}{}); seen {
+		return
+	}
+
+	c.logger.Warn().
+		Str("payload", payload).
+		Msg("netprobe: dropping unsolicited frame with an unhandled payload; " +
+			"the sidecar is emitting a oneof arm this agent was not built to " +
+			"consume (most likely a netprobe newer than the agent)")
+}
+
 func (c *Client) enqueueFlowAttributionEvent(event *netprobepb.FlowAttributionEvent) {
 	if event == nil {
 		return
@@ -592,7 +658,6 @@ func (c *Client) enqueueFlowAttributionEvent(event *netprobepb.FlowAttributionEv
 	}
 }
 
-//nolint:unparam // reason parameterized for future per-stream policies
 func (c *Client) recordEventDrop(stream, reason string) {
 	if stream == EventStreamFingerprint && reason == EventDropBackpressure {
 		c.droppedFingerprintEvents.Add(1)
@@ -605,6 +670,9 @@ func (c *Client) recordEventDrop(stream, reason string) {
 	}
 	if stream == EventStreamProcessSnap && reason == EventDropBackpressure {
 		c.droppedProcessSnapshots.Add(1)
+	}
+	if stream == EventStreamUnknown && reason == EventDropUnhandledArm {
+		c.droppedUnknownFrames.Add(1)
 	}
 	if c.eventDropRecorder != nil {
 		c.eventDropRecorder.IncEventDrop(stream, reason)

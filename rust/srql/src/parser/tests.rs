@@ -132,6 +132,28 @@ fn implicitly_promotes_dynamic_jsonb_wildcards_to_like() {
 }
 
 #[test]
+fn parses_threat_intel_matches_entity() {
+    let ast =
+        parse("in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100")
+            .unwrap();
+    assert!(matches!(
+        ast.entity,
+        crate::parser::Entity::ThreatIntelMatches
+    ));
+    assert_eq!(ast.filters[0].field, "source");
+    assert_eq!(ast.order[0].field, "evaluated_at");
+}
+
+#[test]
+fn parses_ioc_matches_alias() {
+    let ast = parse("in:ioc_matches ip:198.51.100.10").unwrap();
+    assert!(matches!(
+        ast.entity,
+        crate::parser::Entity::ThreatIntelMatches
+    ));
+}
+
+#[test]
 fn parses_source_fact_disagreement_entity() {
     let ast = parse(
         "in:source_fact_disagreements fact_key:switch_port_attachment status:open sort:last_detected_at:desc",
@@ -143,6 +165,108 @@ fn parses_source_fact_disagreement_entity() {
     ));
     assert_eq!(ast.filters[0].field, "fact_key");
     assert_eq!(ast.filters[1].field, "status");
+}
+
+#[test]
+fn parses_every_identity_diagnostic_entity_alias() {
+    use crate::parser::Entity;
+
+    // Every alias here must ALSO appear in the web-ng SRQL EntityAccess map.
+    // `permission_for_query/1` returns :passthrough for entities it does not
+    // know, so an alias the parser accepts but the map omits is an ungated
+    // entity on the HTTP and MCP paths, failing open and silently.
+    let cases: &[(&str, Entity)] = &[
+        ("merge_audit", Entity::MergeAudit),
+        ("device_merges", Entity::MergeAudit),
+        ("merges", Entity::MergeAudit),
+        ("device_revival_audit", Entity::DeviceRevivalAudit),
+        ("device_revivals", Entity::DeviceRevivalAudit),
+        ("revivals", Entity::DeviceRevivalAudit),
+        ("device_identifiers", Entity::DeviceIdentifiers),
+        ("identifiers", Entity::DeviceIdentifiers),
+        ("device_identity", Entity::DeviceIdentifiers),
+        (
+            "identity_reconciliation_runs",
+            Entity::IdentityReconciliationRuns,
+        ),
+        ("reconciliation_runs", Entity::IdentityReconciliationRuns),
+        ("dire_runs", Entity::IdentityReconciliationRuns),
+        ("identity_evidence_edges", Entity::IdentityEvidenceEdges),
+        ("identity_evidence", Entity::IdentityEvidenceEdges),
+        ("evidence_edges", Entity::IdentityEvidenceEdges),
+    ];
+
+    for (alias, expected) in cases {
+        let ast = parse(&format!("in:{alias} limit:5"))
+            .unwrap_or_else(|err| panic!("alias {alias} failed to parse: {err:?}"));
+        assert_eq!(
+            std::mem::discriminant(&ast.entity),
+            std::mem::discriminant(expected),
+            "alias {alias} resolved to the wrong entity"
+        );
+    }
+}
+
+#[test]
+fn parses_advisory_entity_aliases() {
+    let cases = [
+        ("vulnerability_advisories", Entity::VulnerabilityAdvisories),
+        ("vulnerability_advisory", Entity::VulnerabilityAdvisories),
+        ("advisories", Entity::VulnerabilityAdvisories),
+        ("cves", Entity::VulnerabilityAdvisories),
+        ("advisory_coordinates", Entity::AdvisoryCoordinates),
+        ("advisory_cpes", Entity::AdvisoryCoordinates),
+        ("cpe_coordinates", Entity::AdvisoryCoordinates),
+        (
+            "endpoint_vulnerability_matches",
+            Entity::EndpointVulnerabilityMatches,
+        ),
+        (
+            "vulnerability_matches",
+            Entity::EndpointVulnerabilityMatches,
+        ),
+        ("cve_matches", Entity::EndpointVulnerabilityMatches),
+        ("advisory_matches", Entity::EndpointVulnerabilityMatches),
+    ];
+    for (raw, expected) in cases {
+        let ast = parse(&format!("in:{raw} limit:1")).unwrap();
+        assert_eq!(ast.entity, expected, "entity alias {raw}");
+    }
+}
+
+#[test]
+fn identity_entities_reject_unknown_aliases() {
+    // `identity_merges` and `device_evidence` look plausible and are not real.
+    for alias in ["identity_merges", "device_evidence", "revival_audit"] {
+        assert!(
+            parse(&format!("in:{alias} limit:5")).is_err(),
+            "{alias} must not parse"
+        );
+    }
+}
+
+#[test]
+fn parses_merge_audit_chain_and_evidence_seed_tokens() {
+    let ast = parse("in:merge_audit chain:sr:aaa depth:8").unwrap();
+    assert!(matches!(ast.entity, crate::parser::Entity::MergeAudit));
+    assert_eq!(ast.filters[0].field, "chain");
+    assert_eq!(ast.filters[1].field, "depth");
+
+    let ast = parse("in:identity_evidence_edges device:sr:bbb").unwrap();
+    assert!(matches!(
+        ast.entity,
+        crate::parser::Entity::IdentityEvidenceEdges
+    ));
+    assert_eq!(ast.filters[0].field, "device");
+}
+
+#[test]
+fn rejects_cpes_as_an_advisory_entity_alias() {
+    let err = parse("in:cpes limit:1").unwrap_err();
+    assert!(
+        matches!(err, ServiceError::InvalidRequest(ref message) if message.contains("unsupported entity")),
+        "in:cpes must not alias advisory coordinates, got {err:?}"
+    );
 }
 
 #[test]

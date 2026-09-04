@@ -16,7 +16,9 @@ import (
 )
 
 func TestServerWritePrometheusMetricsIncludesBannerGrabStats(t *testing.T) {
-	t.Parallel()
+	resetAgentRetainedPoisonDropCounters()
+	t.Cleanup(resetAgentRetainedPoisonDropCounters)
+	recordAgentRetainedPoisonDrop("plugin-result", "invalid_argument", 2, 512)
 
 	server := &Server{
 		services: []Service{
@@ -54,6 +56,10 @@ func TestServerWritePrometheusMetricsIncludesBannerGrabStats(t *testing.T) {
 		"# TYPE sweep_banner_grab_errors_total counter\nsweep_banner_grab_errors_total 13\n",
 		"# TYPE agent_flow_attribution_events_forwarded_total counter\n",
 		"# TYPE agent_flow_attribution_events_quarantined_total counter\n",
+		"# TYPE agent_retained_poison_dropped_items_total counter\n",
+		"# TYPE agent_retained_poison_dropped_bytes_total counter\n",
+		"agent_retained_poison_dropped_items_total{source=\"plugin-result\",reason=\"invalid_argument\"} 2\n",
+		"agent_retained_poison_dropped_bytes_total{source=\"plugin-result\",reason=\"invalid_argument\"} 512\n",
 	} {
 		if !strings.Contains(metrics, want) {
 			t.Fatalf("metrics missing %q in:\n%s", want, metrics)

@@ -10,13 +10,20 @@ There are three distinct NATS-related paths that must not be conflated:
 3. Optional direct-to-leaf OTLP, where an operator intentionally deploys a
    NATS leaf at the edge and configures the add-on to publish there.
 
-The current per-agent NATS package work was introduced for host-slice flow
-attribution. In the current implementation, the central flow collector
-publishes `flow.host-slice.<agent-id>` and core subscribes to that stream,
-while the agent sends local process-attribution events to the gateway. The
-agent-side `flowPublisher` is initialized from bootstrap fields but has no
-production publication call site, so its credential is not required by the
-active data path.
+The current per-agent NATS package work originated in a host-slice flow
+attribution canary. That canary granted an experimental per-agent publisher
+access to `flow.host-slice.<agent-id>` and had corresponding host-slice
+publication/subscription machinery. The canary is retired; those subjects and
+the old agent NATS credential are not part of the deployed attribution path.
+
+In the deployed split, raw sampled flows use the normal central/internal flow
+pipeline. The agent sends local process attribution to the gateway as
+`FlowAttributionEventBatch` payloads on the dedicated `StreamStatus` path.
+Core persists the received attribution in
+`platform.flow_process_attribution_current` and correlates it with sampled
+flows in CNPG. The former agent-side `flowPublisher` was initialized from
+legacy bootstrap fields but had no production publication call site. Its
+removal, and removal of its credential, does not alter the active data path.
 
 ## Goals / Non-Goals
 
@@ -95,12 +102,19 @@ clears the direct state. This makes credential rotation/revocation an
 explicit lifecycle operation instead of treating a file path as proof that
 the leaf has authorized the add-on.
 
-### 4. Flow attribution remains gateway/core mediated
+### 4. Flow attribution uses dedicated StreamStatus and core/CNPG correlation
 
-The central flow collector remains the publisher of raw flows and approved
-per-host slices. Core's host-slice subscriber consumes those slices, and the
-agent continues to send local attribution events through the gateway. The
-base agent does not need a NATS publish connection for this path.
+Raw sampled flows continue through the normal central/internal flow ingestion
+pipeline and are persisted in CNPG. Local process attribution is encoded as
+`FlowAttributionEventBatch` and sent from the agent to the gateway on the
+dedicated `StreamStatus` path. Core persists it in
+`platform.flow_process_attribution_current` and performs flow/process
+correlation in CNPG.
+
+The old `flow.host-slice.<agent-id>` publisher/subscriber path belongs to the
+retired canary and is not a prerequisite for this deployed split. The base
+agent does not publish or subscribe to NATS for flow attribution and does not
+need a NATS credential for it.
 
 If a future feature needs an agent-side NATS publisher, it must be introduced
 as a separately declared capability with an explicit transport, leaf
@@ -149,16 +163,21 @@ turn an optional durability optimization into a base dependency.
 3. Revoke legacy per-agent NATS users after confirming they are not required by
    a registered leaf deployment, and remove the known legacy credential file
    from upgraded agents.
-4. Validate a normal agent enrollment, default OTLP relay, and flow
-   attribution without any agent-side NATS credential.
+4. Validate a normal agent enrollment and default OTLP relay without any
+   agent-side NATS credential. For flow attribution, verify a fresh sampled
+   flow through the central/internal pipeline, a fresh
+   `FlowAttributionEventBatch` through `StreamStatus`, the corresponding
+   `platform.flow_process_attribution_current` row, and the correlated result
+   in CNPG.
 5. Validate direct-to-leaf separately with a test leaf, scoped identity,
    credential rotation, disable/revoke, and denial of central-hub access.
 
 ## Risks / Trade-offs
 
-- Removing the unused publisher may expose an undocumented deployment that
-  relied on it. A repository-wide call-site check and a migration metric/log
-  should be required before deletion.
+- Removing the retired canary's publisher/bootstrap remnants may expose an
+  undocumented deployment that relied on them. A repository-wide call-site
+  check plus runtime migration metrics/logs should confirm that no active
+  host-slice dependency remains before deletion.
 - Direct-leaf on-demand credentials add configuration lifecycle complexity.
   Keeping the relay default limits that complexity to operators who opt into
   leaf mode.

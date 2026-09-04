@@ -1,11 +1,14 @@
 ## 1. Confirm the active transport contract
 
-- [x] 1.1 Document and test the current default path: agent -> gateway relay
-      for OTLP and flow-attribution events; central flow collector -> NATS ->
-      core for host-slice joins.
-- [x] 1.2 Add a repository guard/test proving that the agent-side flow NATS
-      publisher has no active production publication dependency, or identify
-      and migrate any discovered caller before removal.
+- [x] 1.1 Document and test the deployed split: OTLP uses the durable
+      agent-to-gateway relay; raw sampled flows use the normal
+      central/internal flow pipeline; local attribution uses
+      `FlowAttributionEventBatch` on agent-to-gateway `StreamStatus`; and core
+      persists `flow_process_attribution_current` and correlates in CNPG.
+- [x] 1.2 Add a repository guard/test proving that the retired host-slice
+      canary's agent-side flow NATS publisher has no active production
+      publication dependency, or identify and migrate any discovered caller
+      before removal.
 
 ## 2. Remove the implicit base-onboarding dependency
 
@@ -14,9 +17,10 @@
 - [x] 2.2 Update package delivery and bundle generation so a missing
       `nats_credential_id` is valid for base agent onboarding and does not
       produce `nats.creds`, `nats_creds_file`, or a central `nats_url`.
-- [x] 2.3 Remove or retire the unused agent-side flow publisher and its
-      bootstrap fields, preserving compatibility behavior for one migration
-      window where needed.
+- [x] 2.3 Remove or retire the host-slice canary's unused agent-side flow
+      publisher and bootstrap fields, preserving compatibility behavior for
+      one migration window where needed. The deployed flow-attribution split
+      must not require replacement agent NATS credentials.
 - [x] 2.4 Remove the now-unused `:nats_account_name` and
       `:nats_account_seed` dependency from the ordinary agent startup path.
 

@@ -35,12 +35,12 @@ never reach operators:
   process-attribution path on its own, with no capture interfaces or device
   bindings required. A single fleet-wide assignment (Enable) is valid for any
   number of agents.
-- **Control-plane host visibility routing:** host-network visibility enablement
-  is stored in the database/settings UI and delivered as effective agent config
-  through agent-gateway commandbus/control-stream pushes. Flow collectors consume
-  generated host-slice routing state from the control plane instead of requiring
-  per-agent `host_slices` in Helm. The current demo static routes are canary
-  scaffolding only and must be removed or disabled after the generated feed lands.
+- **Control-plane host visibility assignment:** host-network visibility
+  enablement is stored in the database/settings UI and delivered as effective
+  agent config through agent-gateway commandbus/control-stream pushes. Local
+  network/process observations travel agent-up, are persisted by core, and are
+  correlated with independently ingested NetFlow/IPFIX in CNPG. Per-agent
+  `host_slices` in Helm and a NetFlow down-to-agent replay loop are not required.
 - **Capture/DPI demoted to advanced opt-in:** `capture_interfaces`, `dpi`,
   `default_sample_interval_ms`, `external_flow_match_window_ms`, and
   `device_bindings` become optional advanced fields, collapsed in the operator
@@ -81,6 +81,6 @@ never reach operators:
   - `.forgejo/workflows/native-addons.yml` — `v*` tag trigger (done in v1.2.90).
   - `rust/netprobe/ebpf/src/lib.rs`, `rust/netprobe/src/attribution.rs` — event-driven listener/process inventory, cache-backed snapshots, CPU gate.
   - `elixir/serviceradar_core/...` agent config compiler / `AgentCommandBus` — DB/settings-driven visibility config and commandbus push.
-  - `rust/flow-collector/...` — consume generated host-slice routing snapshots/deltas instead of static Helm-only routing.
-  - `elixir/serviceradar_core/lib/serviceradar/flow_attribution.ex` — protocol-aware OCSF correlation.
+  - `elixir/serviceradar_core/lib/serviceradar/flow_attribution.ex` — persist
+    agent-up observations and perform protocol-aware OCSF correlation.
   - `go/pkg/agent/netprobe/*`, `go/pkg/agent/push_loop_flow_attribution.go` — bounded event queues, drain sizing, and delivery counters.
