@@ -185,7 +185,8 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
     with {:ok, target, visibility_changed?} <-
            maybe_share_package(actor, entrypoint, source, target, operation),
          :ok <- run_hook(Keyword.get(opts, :before_grant)),
-         {:ok, grant, changed?} <- mutate_grant(actor, source, target, group_id, operation, opts) do
+         {:ok, grant, changed?} <-
+           mutate_grant(actor, entrypoint, source, target, group_id, operation, opts) do
       result = %{
         target: target,
         grant: grant,
@@ -245,8 +246,7 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
       end
 
     target
-    |> Ash.Changeset.for_update(action, %{}, actor: actor)
-    |> Ash.Changeset.set_context(@boundary_context)
+    |> Ash.Changeset.for_update(action, %{}, actor: actor, context: @boundary_context)
     |> Ash.update(actor: actor)
     |> case do
       {:ok, updated} -> {:ok, updated, true}
@@ -254,13 +254,13 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
     end
   end
 
-  defp mutate_grant(actor, source, target, group_id, {:set, :view}, _opts) do
-    attrs = grant_attrs(source, target.id, group_id, actor.id, :view, %{})
+  defp mutate_grant(actor, entrypoint, source, target, group_id, {:set, :view}, _opts) do
+    attrs = ensure_grant_attrs(source, target.id, group_id, actor.id)
+    action = ensure_group_view_action(entrypoint, source)
 
     source
     |> grant_resource()
-    |> Ash.Changeset.for_create(:ensure_group_view, attrs, actor: actor)
-    |> Ash.Changeset.set_context(@boundary_context)
+    |> Ash.Changeset.for_create(action, attrs, actor: actor, context: @boundary_context)
     |> Ash.create(actor: actor)
     |> case do
       {:ok, grant} -> {:ok, grant, true}
@@ -268,14 +268,14 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
     end
   end
 
-  defp mutate_grant(actor, source, target, group_id, {:set, :edit}, opts) do
+  defp mutate_grant(actor, entrypoint, source, target, group_id, {:set, :edit}, opts) do
     metadata = Keyword.get(opts, :metadata, %{})
     attrs = grant_attrs(source, target.id, group_id, actor.id, :edit, metadata)
+    action = set_group_access_action(entrypoint, source)
 
     source
     |> grant_resource()
-    |> Ash.Changeset.for_create(:set_group_access, attrs, actor: actor)
-    |> Ash.Changeset.set_context(@boundary_context)
+    |> Ash.Changeset.for_create(action, attrs, actor: actor, context: @boundary_context)
     |> Ash.create(actor: actor)
     |> case do
       {:ok, grant} -> {:ok, grant, true}
@@ -283,7 +283,7 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
     end
   end
 
-  defp mutate_grant(actor, _source, target, _group_id, revoke, _opts)
+  defp mutate_grant(actor, entrypoint, source, target, _group_id, revoke, _opts)
        when revoke in [:revoke_view, :revoke_access] do
     case selected_grant(target) do
       nil ->
@@ -293,12 +293,11 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
         {:ok, grant, false}
 
       grant ->
-        action = if revoke == :revoke_view, do: :revoke_group_view, else: :revoke_group_access
+        action = revoke_action(entrypoint, source, revoke)
 
         changeset =
           grant
-          |> Ash.Changeset.for_destroy(action, %{}, actor: actor)
-          |> Ash.Changeset.set_context(@boundary_context)
+          |> Ash.Changeset.for_destroy(action, %{}, actor: actor, context: @boundary_context)
           |> maybe_filter_exact_view(revoke)
 
         case Ash.destroy(changeset, actor: actor, return_destroyed?: true) do
@@ -333,6 +332,28 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
       metadata: metadata
     }
   end
+
+  defp ensure_grant_attrs(:authored, target_id, group_id, actor_id) do
+    %{dashboard_id: target_id, subject_group_id: group_id, granted_by_id: actor_id}
+  end
+
+  defp ensure_grant_attrs(:package, target_id, group_id, actor_id) do
+    %{dashboard_instance_id: target_id, subject_group_id: group_id, granted_by_id: actor_id}
+  end
+
+  defp ensure_group_view_action(:policy_editor, :authored), do: :policy_editor_ensure_group_view
+
+  defp ensure_group_view_action(_entrypoint, _source), do: :ensure_group_view
+
+  defp set_group_access_action(:policy_editor, :authored), do: :policy_editor_set_group_access
+
+  defp set_group_access_action(_entrypoint, _source), do: :set_group_access
+
+  defp revoke_action(:policy_editor, :authored, :revoke_view),
+    do: :policy_editor_revoke_group_view
+
+  defp revoke_action(_entrypoint, _source, :revoke_view), do: :revoke_group_view
+  defp revoke_action(_entrypoint, _source, :revoke_access), do: :revoke_group_access
 
   defp fingerprint(target) do
     grant = selected_grant(target)

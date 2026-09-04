@@ -101,13 +101,16 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
 
     {:ok, _grant} =
       DashboardInstanceAccessGrant
-      |> Ash.Changeset.for_create(:create_group, %{
-        dashboard_instance_id: instance.id,
-        subject_group_id: group.id,
-        access: :view,
-        granted_by_id: owner.id
-      })
-      |> Ash.Changeset.set_context(%{dashboard_group_access_boundary_owned: true})
+      |> Ash.Changeset.for_create(
+        :create_group,
+        %{
+          dashboard_instance_id: instance.id,
+          subject_group_id: group.id,
+          access: :view,
+          granted_by_id: owner.id
+        },
+        context: %{dashboard_group_access_boundary_owned: true}
+      )
       |> Ash.create(actor: system)
 
     refute instance.id in enabled_ids(viewer_scope)

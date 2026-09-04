@@ -308,8 +308,22 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessDbTest do
                %{user: global},
                {:policy_editor, :authored},
                target.id,
-               context.group.id
+               context.group.id,
+               audit_writer: fn _audit -> :ok end
              )
+
+    assert %{access: :view} = grant!(:authored, target.id, context.group.id, context.system)
+
+    assert {:ok, _result} =
+             GroupAccess.revoke_group_view(
+               %{user: global},
+               {:policy_editor, :authored},
+               target.id,
+               context.group.id,
+               audit_writer: fn _audit -> :ok end
+             )
+
+    assert count_group_grants(:authored, target.id, context.group.id) == 0
   end
 
   test "package policy editor uses the exact conjunction while a local owner needs no global share",
@@ -420,6 +434,80 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessDbTest do
                granted_by_id: context.actor.id
              })
              |> Ash.create(actor: context.system)
+  end
+
+  test "query-based atomic update and destroy reject groups but preserve user grant operations",
+       context do
+    target = authored!(context.marker, context.actor.id, "Atomic Boundary", :private)
+    recipient = actor!(context.system, context.marker, "atomic-recipient", [])
+
+    user_grant =
+      DashboardAccessGrant
+      |> Ash.Changeset.for_create(:create, %{
+        dashboard_id: target.id,
+        subject_user_id: recipient.id,
+        access: :view,
+        granted_by_id: context.actor.id
+      })
+      |> Ash.create!(actor: context.system)
+
+    group_grant =
+      group_grant!(
+        :authored,
+        target.id,
+        context.group.id,
+        context.actor.id,
+        :view,
+        context.system
+      )
+
+    assert %{status: :success} =
+             DashboardAccessGrant
+             |> Ash.Query.filter(id == ^user_grant.id)
+             |> Ash.bulk_update(:update, %{access: :edit},
+               actor: context.system,
+               strategy: [:atomic],
+               return_errors?: true
+             )
+
+    assert %{status: :error, errors: update_errors} =
+             DashboardAccessGrant
+             |> Ash.Query.filter(id == ^group_grant.id)
+             |> Ash.bulk_update(:update, %{access: :edit},
+               actor: context.system,
+               strategy: [:atomic],
+               return_errors?: true
+             )
+
+    assert Enum.any?(
+             List.wrap(update_errors),
+             &(Exception.message(&1) =~ "dashboard group access boundary")
+           )
+
+    assert %{status: :success} =
+             DashboardAccessGrant
+             |> Ash.Query.filter(id == ^user_grant.id)
+             |> Ash.bulk_destroy(:destroy, %{},
+               actor: context.system,
+               strategy: [:atomic],
+               return_errors?: true
+             )
+
+    assert %{status: :error, errors: destroy_errors} =
+             DashboardAccessGrant
+             |> Ash.Query.filter(id == ^group_grant.id)
+             |> Ash.bulk_destroy(:destroy, %{},
+               actor: context.system,
+               strategy: [:atomic],
+               return_errors?: true
+             )
+
+    assert Enum.any?(
+             List.wrap(destroy_errors),
+             &(Exception.message(&1) =~ "dashboard group access boundary")
+           )
+
+    assert %{access: :view} = grant!(:authored, target.id, context.group.id, context.system)
   end
 
   test "audit delivery failures cannot undo a committed group grant", context do
@@ -547,8 +635,10 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessDbTest do
 
     source
     |> grant_resource()
-    |> Ash.Changeset.for_create(:set_group_access, attrs, actor: system)
-    |> Ash.Changeset.set_context(%{dashboard_group_access_boundary_owned: true})
+    |> Ash.Changeset.for_create(:set_group_access, attrs,
+      actor: system,
+      context: %{dashboard_group_access_boundary_owned: true}
+    )
     |> Ash.create!()
   end
 

@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessContractTest do
 
   alias Ash.Resource.Info
   alias ServiceRadar.Dashboards.AuthoredDashboard
+  alias ServiceRadar.Dashboards.Changes.RequireGroupAccessBoundary
   alias ServiceRadar.Dashboards.DashboardAccessGrant
   alias ServiceRadar.Dashboards.DashboardInstance
   alias ServiceRadar.Dashboards.DashboardInstanceAccessGrant
@@ -44,7 +45,7 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessContractTest do
       assert action
 
       assert Enum.any?(action.changes, fn
-               %{validation: {ServiceRadar.Dashboards.Changes.RequireGroupAccessBoundary, _}} ->
+               %{validation: {RequireGroupAccessBoundary, _}} ->
                  true
 
                _ ->
@@ -52,8 +53,95 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessContractTest do
              end)
     end
 
+    for action_name <- [
+          :policy_editor_ensure_group_view,
+          :policy_editor_set_group_access,
+          :policy_editor_revoke_group_view
+        ] do
+      action = Info.action(DashboardAccessGrant, action_name)
+      assert action
+
+      assert Enum.any?(action.changes, fn
+               %{validation: {RequireGroupAccessBoundary, _}} -> true
+               _ -> false
+             end)
+    end
+
     refute function_exported?(DashboardAccessGrant, :create_group_grant, 2)
     refute function_exported?(DashboardInstanceAccessGrant, :create_group_grant, 2)
+  end
+
+  test "boundary context is present during construction and ensure view accepts only forced inputs" do
+    for {resource, target_key} <- [
+          {DashboardAccessGrant, :dashboard_id},
+          {DashboardInstanceAccessGrant, :dashboard_instance_id}
+        ] do
+      attrs = %{
+        target_key => Ecto.UUID.generate(),
+        subject_group_id: Ecto.UUID.generate(),
+        granted_by_id: Ecto.UUID.generate()
+      }
+
+      owned =
+        Ash.Changeset.for_create(resource, :ensure_group_view, attrs,
+          context: %{dashboard_group_access_boundary_owned: true}
+        )
+
+      assert owned.valid?, inspect(owned.errors)
+      assert owned.attributes.access == :view
+      assert owned.attributes.subject_type == :group
+
+      unowned = Ash.Changeset.for_create(resource, :ensure_group_view, attrs)
+      refute unowned.valid?
+
+      assert Enum.any?(
+               unowned.errors,
+               &(Exception.message(&1) =~ "dashboard group access boundary")
+             )
+    end
+
+    authored_attrs = %{
+      dashboard_id: Ecto.UUID.generate(),
+      subject_group_id: Ecto.UUID.generate(),
+      granted_by_id: Ecto.UUID.generate()
+    }
+
+    assert %{valid?: true} =
+             Ash.Changeset.for_create(
+               DashboardAccessGrant,
+               :policy_editor_ensure_group_view,
+               authored_attrs,
+               context: %{dashboard_group_access_boundary_owned: true}
+             )
+  end
+
+  test "record and atomic guards reject only unowned group mutations" do
+    for resource <- [DashboardAccessGrant, DashboardInstanceAccessGrant] do
+      group_record = grant_record(resource, :group)
+      user_record = grant_record(resource, :user)
+
+      assert %{valid?: true} =
+               Ash.Changeset.for_update(group_record, :update, %{access: :edit},
+                 context: %{dashboard_group_access_boundary_owned: true}
+               )
+
+      refute Ash.Changeset.for_update(group_record, :update, %{access: :edit}).valid?
+      assert Ash.Changeset.for_update(user_record, :update, %{access: :edit}).valid?
+      refute Ash.Changeset.for_destroy(group_record, :destroy).valid?
+      assert Ash.Changeset.for_destroy(user_record, :destroy).valid?
+
+      atomic_changeset = Ash.Changeset.new(resource)
+
+      assert {:atomic, [:subject_type], invalid_predicate, _error_expr} =
+               RequireGroupAccessBoundary.atomic(
+                 atomic_changeset,
+                 [group_only?: false],
+                 %{}
+               )
+
+      assert Ash.Expr.eval!(invalid_predicate, resource: resource, record: group_record)
+      refute Ash.Expr.eval!(invalid_predicate, resource: resource, record: user_record)
+    end
   end
 
   test "ensure-view actions encode a monotonic partial-identity upsert" do
@@ -67,8 +155,28 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessContractTest do
                upsert_fields: fields
              } = Info.action(resource, :ensure_group_view, :create)
 
-      refute is_nil(condition)
+      assert condition
       assert fields == [:access, :granted_by_id, :updated_at]
     end
+  end
+
+  defp grant_record(resource, subject_type) do
+    target =
+      case resource do
+        DashboardAccessGrant -> %{dashboard_id: Ecto.UUID.generate()}
+        DashboardInstanceAccessGrant -> %{dashboard_instance_id: Ecto.UUID.generate()}
+      end
+
+    struct(
+      resource,
+      Map.merge(target, %{
+        id: Ecto.UUID.generate(),
+        subject_type: subject_type,
+        subject_user_id: if(subject_type == :user, do: Ecto.UUID.generate()),
+        subject_group_id: if(subject_type == :group, do: Ecto.UUID.generate()),
+        access: :view,
+        metadata: %{}
+      })
+    )
   end
 end

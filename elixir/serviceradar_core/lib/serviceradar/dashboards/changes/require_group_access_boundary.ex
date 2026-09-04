@@ -26,7 +26,7 @@ defmodule ServiceRadar.Dashboards.Changes.RequireGroupAccessBoundary do
         {:error, @message}
 
       true ->
-        {:atomic, [:subject_type], expr(subject_type != :group),
+        {:atomic, [:subject_type], expr(subject_type == :group),
          expr(error(^InvalidChanges, %{fields: [:subject_type], message: ^@message}))}
     end
   end
