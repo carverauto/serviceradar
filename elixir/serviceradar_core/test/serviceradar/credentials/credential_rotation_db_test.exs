@@ -104,9 +104,9 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
           description: "Current-authority fixture for credential rotation",
           permissions: [@credential_permission]
         },
-        actor: @system_actor
+        actor: @system_actor,
+        context: %{privilege_boundary_owned: true}
       )
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!(actor: @system_actor)
 
     User

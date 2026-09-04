@@ -43,9 +43,9 @@ defmodule ServiceRadarWebNG.RBACTest do
           description: "Temporary test profile",
           permissions: ["devices.view"]
         },
-        actor: actor
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
       )
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     {:ok, assigned} = User.update_role_profile(user, %{role_profile_id: profile.id}, actor: actor)
@@ -65,8 +65,10 @@ defmodule ServiceRadarWebNG.RBACTest do
 
     assert {:error, %Invalid{} = error} =
              admin_profile
-             |> Ash.Changeset.for_destroy(:destroy, %{}, actor: %{role: :admin})
-             |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+             |> Ash.Changeset.for_destroy(:destroy, %{},
+               actor: %{role: :admin},
+               context: %{privilege_boundary_owned: true}
+             )
              |> Ash.destroy(actor: %{role: :admin})
 
     assert Exception.message(error) =~ "system profiles cannot be deleted"

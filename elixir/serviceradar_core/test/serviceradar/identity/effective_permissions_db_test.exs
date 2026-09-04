@@ -92,8 +92,10 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
 
     assert :ok =
              membership
-             |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor)
-             |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+             |> Ash.Changeset.for_destroy(:destroy, %{},
+               actor: actor,
+               context: %{privilege_boundary_owned: true}
+             )
              |> Ash.destroy(actor: actor)
 
     assert :ok = RBAC.invalidate_user_cache(user.id)
@@ -184,9 +186,9 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
           name: "Authority profile #{System.unique_integer([:positive])}",
           permissions: permissions
         },
-        actor: actor
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
       )
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     profile
@@ -203,9 +205,9 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
       {:ok, group} =
         group
         |> Ash.Changeset.for_update(:assign_role_profile, %{role_profile_id: role_profile_id},
-          actor: actor
+          actor: actor,
+          context: %{privilege_boundary_owned: true}
         )
-        |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
         |> Ash.update(actor: actor)
 
       group
@@ -218,9 +220,9 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
     {:ok, membership} =
       UserGroupMembership
       |> Ash.Changeset.for_create(:create_manual, %{user_id: user_id, group_id: group_id},
-        actor: actor
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
       )
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create(actor: actor)
 
     membership

@@ -141,15 +141,13 @@ defmodule ServiceRadar.Identity.GroupPolicy do
     attrs = if action == :assign_role_profile, do: %{role_profile_id: profile_id}, else: %{}
 
     group
-    |> Ash.Changeset.for_update(action, attrs, actor: actor)
-    |> Ash.Changeset.set_context(@boundary_context)
+    |> Ash.Changeset.for_update(action, attrs, actor: actor, context: @boundary_context)
     |> Ash.update(actor: actor)
   end
 
   defp destroy_group(actor, group) do
     group
-    |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor)
-    |> Ash.Changeset.set_context(@boundary_context)
+    |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor, context: @boundary_context)
     |> Ash.destroy(actor: actor, return_destroyed?: true)
   end
 

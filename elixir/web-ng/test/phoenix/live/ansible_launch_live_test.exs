@@ -210,9 +210,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleLaunchLiveTest do
           description: "Test profile for launch-only LiveView authorization",
           permissions: permissions
         },
-        actor: actor
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
       )
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     updated =

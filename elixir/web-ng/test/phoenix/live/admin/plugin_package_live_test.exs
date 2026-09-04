@@ -1680,9 +1680,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
           description: "Test profile for plugin recovery permissions",
           permissions: permissions
         },
-        actor: system_actor()
+        actor: system_actor(),
+        context: %{privilege_boundary_owned: true}
       )
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     updated =

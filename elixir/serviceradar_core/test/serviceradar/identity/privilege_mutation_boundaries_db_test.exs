@@ -632,9 +632,9 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
           name: "#{marker}-profile-#{System.unique_integer([:positive])}",
           permissions: permissions
         },
-        actor: actor
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
       )
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     profile
@@ -644,17 +644,19 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
     profile = RoleProfile.get_by_id!(profile_id, actor: actor)
 
     profile
-    |> Ash.Changeset.for_update(:update, %{permissions: []}, actor: actor)
-    |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+    |> Ash.Changeset.for_update(:update, %{permissions: []},
+      actor: actor,
+      context: %{privilege_boundary_owned: true}
+    )
     |> Ash.update!()
   end
 
   defp assign_group_profile!(actor, group, profile_id) do
     group
     |> Ash.Changeset.for_update(:assign_role_profile, %{role_profile_id: profile_id},
-      actor: actor
+      actor: actor,
+      context: %{privilege_boundary_owned: true}
     )
-    |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
     |> Ash.update!()
   end
 
@@ -687,8 +689,9 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
 
   defp manual_membership!(actor, group_id, user_id) do
     UserGroupMembership
-    |> Ash.Changeset.for_create(:create_manual, %{group_id: group_id, user_id: user_id})
-    |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+    |> Ash.Changeset.for_create(:create_manual, %{group_id: group_id, user_id: user_id},
+      context: %{privilege_boundary_owned: true}
+    )
     |> Ash.create!(actor: actor)
   end
 

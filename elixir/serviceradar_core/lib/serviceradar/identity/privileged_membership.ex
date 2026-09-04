@@ -100,8 +100,10 @@ defmodule ServiceRadar.Identity.PrivilegedMembership do
 
   defp create_manual(actor, attrs) do
     UserGroupMembership
-    |> Ash.Changeset.for_create(:create_manual, attrs, actor: actor)
-    |> Ash.Changeset.set_context(@boundary_context)
+    |> Ash.Changeset.for_create(:create_manual, attrs,
+      actor: actor,
+      context: @boundary_context
+    )
     |> Ash.create(actor: actor)
     |> case do
       {:ok, membership} ->
@@ -203,9 +205,9 @@ defmodule ServiceRadar.Identity.PrivilegedMembership do
     |> Ash.Changeset.for_create(
       :create_idp,
       %{user_id: user_id, group_id: group_id, metadata: %{}},
-      actor: actor
+      actor: actor,
+      context: @boundary_context
     )
-    |> Ash.Changeset.set_context(@boundary_context)
     |> Ash.create(actor: actor)
     |> case do
       {:ok, membership} ->
@@ -267,16 +269,14 @@ defmodule ServiceRadar.Identity.PrivilegedMembership do
 
   defp destroy_membership(actor, membership) do
     membership
-    |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor)
-    |> Ash.Changeset.set_context(@boundary_context)
+    |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor, context: @boundary_context)
     |> Ash.destroy(actor: actor, return_destroyed?: true)
   end
 
   defp destroy_idp_membership(actor, membership) do
     membership
-    |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor)
+    |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor, context: @boundary_context)
     |> Ash.Changeset.filter(Ash.Expr.expr(source == :idp))
-    |> Ash.Changeset.set_context(@boundary_context)
     |> Ash.destroy(actor: actor, return_destroyed?: true)
   end
 

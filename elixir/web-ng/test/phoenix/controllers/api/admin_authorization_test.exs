@@ -105,9 +105,9 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
         name: "#{marker}-profile",
         permissions: permissions
       },
-      actor: actor
+      actor: actor,
+      context: %{privilege_boundary_owned: true}
     )
-    |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
     |> Ash.create!()
   end
 

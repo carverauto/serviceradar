@@ -551,9 +551,9 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessDbTest do
     |> Ash.Changeset.for_create(
       :create,
       %{name: "#{marker}-#{label}-profile", permissions: permissions},
-      actor: system
+      actor: system,
+      context: %{privilege_boundary_owned: true}
     )
-    |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
     |> Ash.create!()
   end
 

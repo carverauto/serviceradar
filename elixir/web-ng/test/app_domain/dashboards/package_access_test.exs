@@ -117,16 +117,16 @@ defmodule ServiceRadarWebNG.Dashboards.PackageAccessTest do
 
     {:ok, membership} =
       UserGroupMembership
-      |> Ash.Changeset.for_create(:create_manual, %{group_id: group.id, user_id: viewer.id})
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+      |> Ash.Changeset.for_create(:create_manual, %{group_id: group.id, user_id: viewer.id},
+        context: %{privilege_boundary_owned: true}
+      )
       |> Ash.create(actor: system)
 
     assert instance.id in enabled_ids(viewer_scope)
 
     :ok =
       membership
-      |> Ash.Changeset.for_destroy(:destroy, %{})
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
+      |> Ash.Changeset.for_destroy(:destroy, %{}, context: %{privilege_boundary_owned: true})
       |> Ash.destroy(actor: system)
 
     refute instance.id in enabled_ids(viewer_scope)

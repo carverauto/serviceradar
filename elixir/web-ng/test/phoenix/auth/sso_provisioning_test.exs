@@ -258,9 +258,9 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningTest do
           name: "plugin-authors-#{System.unique_integer([:positive])}",
           permissions: ["settings.auth.manage"]
         },
-        actor: actor
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
       )
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     profile

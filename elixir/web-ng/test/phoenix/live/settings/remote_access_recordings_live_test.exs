@@ -210,9 +210,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
           description: "Test profile for RDP recording LiveView permissions",
           permissions: permissions
         },
-        actor: system_actor()
+        actor: system_actor(),
+        context: %{privilege_boundary_owned: true}
       )
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     updated =

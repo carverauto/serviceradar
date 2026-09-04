@@ -63,9 +63,9 @@ defmodule ServiceRadarWebNG.AdminApi.LocalTest do
         description: "Role profile for admin API tests",
         permissions: ["settings.auth.manage"]
       },
-      actor: system_actor()
+      actor: system_actor(),
+      context: %{privilege_boundary_owned: true}
     )
-    |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
     |> Ash.create!()
   end
 end

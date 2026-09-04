@@ -373,9 +373,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
           description: "Test profile for resource-specific Ansible settings permissions",
           permissions: permissions
         },
-        actor: system_actor()
+        actor: system_actor(),
+        context: %{privilege_boundary_owned: true}
       )
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     updated =

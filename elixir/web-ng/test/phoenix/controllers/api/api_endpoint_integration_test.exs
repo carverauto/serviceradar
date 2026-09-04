@@ -124,9 +124,9 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
           description: "catalog-gate fixture",
           permissions: permissions
         },
-        actor: actor
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
       )
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     {:ok, assigned} = User.update_role_profile(user, %{role_profile_id: profile.id}, actor: actor)

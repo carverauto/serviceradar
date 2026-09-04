@@ -88,8 +88,7 @@ defmodule ServiceRadar.Identity.RoleProfilePolicy do
 
   defp create_in_transaction(actor, attrs) do
     RoleProfile
-    |> Ash.Changeset.for_create(:create, attrs, actor: actor)
-    |> Ash.Changeset.set_context(@boundary_context)
+    |> Ash.Changeset.for_create(:create, attrs, actor: actor, context: @boundary_context)
     |> Ash.create(actor: actor)
     |> case do
       {:ok, profile} -> {:ok, profile, [], audit_options(:create, profile, actor)}
@@ -178,8 +177,7 @@ defmodule ServiceRadar.Identity.RoleProfilePolicy do
 
   defp update_profile(profile, attrs, actor) do
     profile
-    |> Ash.Changeset.for_update(:update, attrs, actor: actor)
-    |> Ash.Changeset.set_context(@boundary_context)
+    |> Ash.Changeset.for_update(:update, attrs, actor: actor, context: @boundary_context)
     |> Ash.update(actor: actor)
   end
 
@@ -224,8 +222,7 @@ defmodule ServiceRadar.Identity.RoleProfilePolicy do
 
   defp destroy_profile(profile, actor) do
     profile
-    |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor)
-    |> Ash.Changeset.set_context(@boundary_context)
+    |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor, context: @boundary_context)
     |> Ash.destroy(actor: actor)
   end
 

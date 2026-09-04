@@ -195,9 +195,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
           description: "Test profile for host-key LiveView permissions",
           permissions: permissions
         },
-        actor: system_actor()
+        actor: system_actor(),
+        context: %{privilege_boundary_owned: true}
       )
-      |> Ash.Changeset.set_context(%{privilege_boundary_owned: true})
       |> Ash.create!()
 
     updated =
