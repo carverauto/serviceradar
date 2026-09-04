@@ -48,6 +48,12 @@ pub mod filter;
 pub mod interp;
 /// pcapng encoding for a capture session's output stream.
 pub mod pcapng;
+/// Validating a wire `StartRemoteCapture` before anything is opened.
+pub mod request;
+/// The loop that turns a ring into a pcapng stream.
+pub mod runner;
+/// Session lifecycle: concurrency, descriptors, and the host-local record.
+pub mod service;
 /// One capture session: caps, counters and the terminal block.
 pub mod session;
 
@@ -123,6 +129,15 @@ impl<H> CaptureHandles<H> {
     #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.handles.is_empty()
+    }
+
+    /// The allowlist as it stood at pre-open time.
+    ///
+    /// Read by the capture service so a request is validated against what was
+    /// actually opened, not against a config that may have been edited since --
+    /// which is the distinction `NotPreOpened` exists to report.
+    pub fn allowlist(&self) -> &[String] {
+        &self.allowlist
     }
 
     #[allow(dead_code)]

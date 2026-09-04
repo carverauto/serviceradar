@@ -15,16 +15,22 @@
 //! average 130) or shrinks the cap until the test proves nothing. Passing
 //! elapsed time in makes "at the cap" and "one nanosecond past it" exact.
 //!
-//! # Why draining continues after a cap fires
+//! # Why a stopping session keeps draining
 //!
 //! TPACKET_V3 hands userspace a block only when it is full or when
 //! `tp_retire_blk_tov` expires. Frames the kernel has already counted in
 //! `tp_packets` can therefore be sitting in a partially filled block at the
-//! moment a cap trips. Emitting the terminal block immediately truncates the
-//! capture by up to that timeout, and nothing errors: the file just ends early
-//! and `packets_captured` disagrees with the kernel's count. So a session that
-//! hits a cap stops ACCEPTING frames but stays drainable, and the caller is
-//! expected to drain once more before calling [`CaptureSession::finish`].
+//! moment a session is told to stop. Emitting the terminal block immediately
+//! truncates the capture by up to that timeout, and nothing errors: the file
+//! just ends early and `packets_captured` disagrees with the kernel's count.
+//! So a session being CANCELLED keeps accepting frames while the caller drains
+//! for one retire timeout, and only then calls [`CaptureSession::finish`].
+//!
+//! A session ended by a CAP is the opposite case and is not drained for output:
+//! refusing everything past the cap is the point, so the frames the kernel
+//! delivered into the block being walked are counted by it and dropped by us.
+//! [`CaptureSession::finish`] excludes a capped session from the count
+//! cross-check for exactly that reason.
 
 use std::time::Duration;
 
@@ -35,7 +41,7 @@ use crate::proto::netprobe::CaptureTerminationReason;
 
 /// Hard bounds on a session. Both are optional; a session with neither runs
 /// until the caller stops it.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Limits {
     /// Wall-clock ceiling. `None` means no duration cap.
     pub duration: Option<Duration>,
@@ -167,7 +173,23 @@ impl CaptureSession {
         // `stats.captured` is the kernel's tp_packets minus tp_drops; ours is
         // the number of EPBs written. They should agree, and a mismatch is
         // itself data loss worth surfacing.
-        let complete = stats.is_complete() && stats.captured == self.packets_captured;
+        //
+        // EXCEPT when a cap ended the session, where they are expected to
+        // disagree and by an amount nobody controls. The kernel keeps
+        // delivering into the block being walked at the moment the cap trips,
+        // and those frames are counted by it and refused by us -- deliberately,
+        // since the whole point of a cap is that nothing past it is emitted.
+        // Whether the numbers happen to line up depends on where in a block the
+        // cap fell, so comparing them would make `complete` a coin flip on
+        // every capped capture. A signal that fires at random is not a signal,
+        // and this one exists to mean "frames vanished between the ring and the
+        // encoder". Drops still count against a capped session.
+        let counts_are_comparable = !matches!(
+            reason,
+            CaptureTerminationReason::DurationCap | CaptureTerminationReason::ByteCap
+        );
+        let complete = stats.is_complete()
+            && (!counts_are_comparable || stats.captured == self.packets_captured);
 
         Termination {
             reason,
@@ -370,6 +392,58 @@ mod tests {
             !t.complete,
             "a count mismatch is data loss and must not report complete"
         );
+    }
+
+    #[test]
+    fn a_capped_session_is_not_judged_by_a_count_it_does_not_control() {
+        // The kernel keeps filling the block being walked when a cap trips, so
+        // its count runs ahead of ours by however many frames happened to be in
+        // flight. Comparing them makes `complete` depend on where in a block the
+        // cap fell -- a coin flip on every capped capture, which would train an
+        // operator to ignore the flag that exists to mean "frames vanished".
+        let (mut s, _) = session(Limits {
+            byte_cap: Some(60 + 200),
+            ..Default::default()
+        });
+        let mut packets = 0u64;
+        while !s.is_closed() {
+            if let Offered::Encoded(_) = s.offer(frame(&[0u8; 64]), Duration::ZERO) {
+                packets += 1;
+            }
+        }
+
+        let t = s.finish(
+            CaptureTerminationReason::ClientCancel,
+            clean_stats(packets + 37),
+        );
+        assert_eq!(t.reason, CaptureTerminationReason::ByteCap);
+        assert!(
+            t.complete,
+            "a capped session with no drops is a complete capture of what was allowed"
+        );
+
+        // Drops still count, because those are real loss rather than the cap
+        // doing its job.
+        let (mut s, _) = session(Limits {
+            byte_cap: Some(60 + 200),
+            ..Default::default()
+        });
+        while !s.is_closed() {
+            let _ = s.offer(frame(&[0u8; 64]), Duration::ZERO);
+        }
+        let t = s.finish(
+            CaptureTerminationReason::ClientCancel,
+            Stats {
+                captured: packets,
+                dropped: 9,
+                malformed: 0,
+            },
+        );
+        assert!(
+            !t.complete,
+            "a capped session that dropped packets is not complete"
+        );
+        assert_eq!(t.packets_dropped, 9);
     }
 
     #[test]

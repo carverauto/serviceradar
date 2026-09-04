@@ -1,3 +1,4 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@aspect_bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
@@ -83,7 +84,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.58"
+NETPROBE_VERSION = "0.2.59"
 
 cargo_build_script(
     name = "build_script",
@@ -185,6 +186,36 @@ rust_test(
         "requires_cap_net_admin",
         "requires_cap_perfmon",
     ],
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+# S2 acceptance: a capture driven over the real IPC socket, against a real ring.
+#
+# Manual and Linux-only for the same reason as //rust/afpacket:afpacket_live_test:
+# it needs CAP_NET_RAW, which RBE executors do not have. The `build_test` below is
+# what keeps it compiling -- an integration test that only exists as a `manual`
+# target is one that silently stops building, which is how a test ends up
+# executing nowhere while looking present in the repo.
+rust_test(
+    name = "live_capture_ipc_test",
+    srcs = ["tests/live_capture_ipc.rs"],
+    proc_macro_deps = NETPROBE_PROC_MACROS,
+    crate_features = NETPROBE_FEATURES,
+    deps = NETPROBE_DEPS + [
+        ":netprobe_lib",
+        "@crates//:tempfile",
+    ],
+    tags = [
+        "integration_test",
+        "manual",
+        "requires_cap_net_raw",
+    ],
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+build_test(
+    name = "live_capture_ipc_build_test",
+    targets = [":live_capture_ipc_test"],
     target_compatible_with = ["@platforms//os:linux"],
 )
 
