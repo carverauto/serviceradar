@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "construction_mode": "full_replay",
+  "max_generations": 16,
+  "max_concurrent_builders": 1,
+  "max_total_bytes": 21474836480,
+  "retention_seconds": 86400,
+  "lease_seconds": 7200,
+  "lock_timeout_seconds": 300
+}

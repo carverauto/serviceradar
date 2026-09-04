@@ -34,6 +34,21 @@ TEMPLATE_WRITE_DATA = ["//build:template_authority_file"]
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files(["registry.sql"])
+
+filegroup(
+    name = "schema_template_construction_inputs",
+    srcs = [
+        "BUILD.bazel",
+        "Cargo.toml",
+        "registry.sql",
+        "src/bin/generation.rs",
+        "src/config/mod.rs",
+        "src/generation.rs",
+        "src/lib.rs",
+    ],
+)
+
 filegroup(
     name = "srcs",
     srcs = glob(
@@ -48,6 +63,7 @@ filegroup(
 rust_library(
     name = "serviceradar_integration_db",
     srcs = glob(["src/**/*.rs"]),
+    compile_data = ["registry.sql"],
     crate_name = "serviceradar_integration_db",
     deps = all_crate_deps(
         cargo_only = True,
@@ -65,6 +81,7 @@ rust_library(
 # typed fields rather than parsed and rewritten.
 rust_test(
     name = "serviceradar_integration_db_test",
+    compile_data = ["registry.sql"],
     crate = ":serviceradar_integration_db",
     # The one declared input this cached test needs: it checks that the authority marker is
     # readable from the path the write targets look it up by, which is the failure a fail-closed
@@ -326,3 +343,56 @@ rust_binary(
         "//rust/srql:srql_lib",
     ],
 )
+
+# Explicit opt-in keyed lifecycle. Keep legacy text prepare/provision callable during rollout.
+rust_test(
+    name = "generation_lifecycle_test",
+    size = "large",
+    srcs = ["tests/generation_lifecycle_test.rs"],
+    crate_root = "tests/generation_lifecycle_test.rs",
+    data = FIXTURE_DATA + [
+        "//build/schema_template:manifest",
+        "//build/schema_template:policy.json",
+    ],
+    tags = [
+        "external",
+        "integration_test",
+        "manual",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [":serviceradar_integration_db"],
+)
+
+[
+    rust_binary(
+        name = name,
+        srcs = ["src/bin/generation.rs"],
+        args = [operation],
+        data = FIXTURE_DATA + [
+            "//build/schema_template:manifest",
+            "//build/schema_template:policy.json",
+        ],
+        env = {"SERVICERADAR_TEST_DB_SHARDS": shards},
+        tags = ["manual"],
+        target_compatible_with = requires_shared_fixture(),
+        deps = all_crate_deps(
+            cargo_only = True,
+            normal = True,
+        ) + [":serviceradar_integration_db"],
+    )
+    for name, operation, shards in [
+        ("prepare_generation", "prepare", ""),
+        (
+            "provision_generation",
+            "clone",
+            ",".join(integration_lane_names()),
+        ),
+        ("provision_generation_large_ingestion", "clone", LARGE_INGESTION_DB_SHARD),
+        ("release_generation", "release", ""),
+        ("cleanup_generations", "cleanup", ""),
+    ]
+]

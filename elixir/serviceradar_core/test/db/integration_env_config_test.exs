@@ -189,6 +189,36 @@ defmodule ServiceRadar.DB.IntegrationEnvConfigTest do
              )
   end
 
+  test "template authorization permits only the manifest-selected generation" do
+    selected = "sr_tpl_" <> String.duplicate("a", 48)
+    other = "sr_tpl_" <> String.duplicate("b", 48)
+
+    System.put_env("SERVICERADAR_ENV", "ci")
+    System.put_env("SERVICERADAR_SECRET_DATABASE_PASSWORD", "synthetic-password")
+
+    url = fn name ->
+      FixtureConfig.resolve!(name, ca_fetcher: fn _ -> "synthetic-ca" end).url
+    end
+
+    opts = [ssl_mode: "verify-full", ca_configured?: true, template_lifecycle?: true]
+
+    assert_raise ArgumentError, fn -> TestDatabaseGuard.validate!(url.(selected), opts) end
+    TestDatabaseGuard.authorize_template_lifecycle!(selected)
+    assert :ok = TestDatabaseGuard.validate!(url.(selected), opts)
+    assert_raise ArgumentError, fn -> TestDatabaseGuard.validate!(url.(other), opts) end
+
+    assert_raise ArgumentError, fn ->
+      TestDatabaseGuard.validate!(url.("sr_core_template"), opts)
+    end
+
+    TestDatabaseGuard.clear_template_lifecycle_authorization!()
+    assert_raise ArgumentError, fn -> TestDatabaseGuard.validate!(url.(selected), opts) end
+
+    assert_raise ArgumentError, fn ->
+      TestDatabaseGuard.authorize_template_lifecycle!("sr_tpl_invalid")
+    end
+  end
+
   test "the database guard rejects unverified fixture connections" do
     url =
       "postgres://fixture:secret@srql-fixture-rw.srql-fixtures.svc.cluster.local/codex_guard_123"

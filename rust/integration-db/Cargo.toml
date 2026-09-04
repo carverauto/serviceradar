@@ -15,6 +15,9 @@ anyhow = { workspace = true }
 # hand-rolled TEST_SRCDIR reader that could not find runfiles under `bazel run` and could not
 # work in manifest mode at all.
 runfiles = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 rustls = { workspace = true, features = ["ring"] }
 rustls-pemfile = { workspace = true }
 srql = { path = "../srql" }
