@@ -18,8 +18,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
   alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.RoleProfilePolicy
+  alias ServiceRadarWebNG.Dashboards.GroupAccess
   alias ServiceRadarWebNG.RBAC, as: WebRBAC
   alias ServiceRadarWebNGWeb.Settings.RbacLive.Components
+  alias ServiceRadarWebNGWeb.Settings.RbacLive.DashboardAudience
   alias ServiceRadarWebNGWeb.Settings.RbacLive.PolicyData
   alias ServiceRadarWebNGWeb.Settings.Shell
 
@@ -57,6 +59,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
         |> assign(:rename_form, to_form(%{"name" => ""}, as: :profile))
         |> assign(:group_profile_assignments, AsyncResult.loading())
         |> assign(:group_profile_generation, 0)
+        |> assign(:dashboard_audience, DashboardAudience.new())
+        |> stream(:rbac_authored_dashboards, [])
+        |> stream(:rbac_package_dashboards, [])
         |> maybe_put_flash(profile_flash)
 
       socket = if connected?(socket), do: load_group_profiles(socket), else: socket
@@ -413,6 +418,96 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
+  def handle_event("select_dashboard_audience_group", params, socket) do
+    safe_params = Map.take(params, ["group-token"])
+
+    with {:ok, data} <- current_group_profile_data(socket),
+         {:ok, {group_id, nil}} <-
+           PolicyData.resolve_clear(
+             data,
+             socket.assigns.group_profile_generation,
+             safe_params
+           ),
+         group_token when is_binary(group_token) <- Map.get(safe_params, "group-token") do
+      audience =
+        DashboardAudience.select_group(socket.assigns.dashboard_audience, group_token, group_id)
+
+      {:noreply,
+       socket
+       |> assign(:dashboard_audience, audience)
+       |> stream(:rbac_authored_dashboards, [], reset: true)
+       |> stream(:rbac_package_dashboards, [], reset: true)
+       |> start_dashboard_audience_request(:authored, :first)
+       |> start_dashboard_audience_request(:package, :first)}
+    else
+      _reason ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "Dashboard audience changed. Reloaded the latest values.")
+         |> load_group_profiles()}
+    end
+  end
+
+  def handle_event("retry_authored_dashboard_audience", _params, socket) do
+    {:noreply, start_dashboard_audience_request(socket, :authored, :first)}
+  end
+
+  def handle_event("previous_authored_dashboard_audience", _params, socket) do
+    {:noreply, start_dashboard_audience_request(socket, :authored, :previous)}
+  end
+
+  def handle_event("next_authored_dashboard_audience", _params, socket) do
+    {:noreply, start_dashboard_audience_request(socket, :authored, :next)}
+  end
+
+  def handle_event("retry_package_dashboard_audience", _params, socket) do
+    {:noreply, start_dashboard_audience_request(socket, :package, :first)}
+  end
+
+  def handle_event("previous_package_dashboard_audience", _params, socket) do
+    {:noreply, start_dashboard_audience_request(socket, :package, :previous)}
+  end
+
+  def handle_event("next_package_dashboard_audience", _params, socket) do
+    {:noreply, start_dashboard_audience_request(socket, :package, :next)}
+  end
+
+  def handle_event("ensure_authored_dashboard_group_view", params, socket) do
+    {:noreply, mutate_dashboard_audience(socket, :authored, :ensure, params)}
+  end
+
+  def handle_event("revoke_authored_dashboard_group_view", params, socket) do
+    {:noreply, mutate_dashboard_audience(socket, :authored, :revoke, params)}
+  end
+
+  def handle_event("ensure_package_dashboard_group_view", params, socket) do
+    {:noreply, mutate_dashboard_audience(socket, :package, :ensure, params)}
+  end
+
+  def handle_event("revoke_package_dashboard_group_view", params, socket) do
+    {:noreply, mutate_dashboard_audience(socket, :package, :revoke, params)}
+  end
+
+  @impl true
+  def handle_async({:dashboard_audience, source, request_ref}, {:ok, {epoch, result}}, socket)
+      when source in [:authored, :package] do
+    {:noreply, accept_dashboard_audience_result(socket, source, epoch, request_ref, result)}
+  end
+
+  def handle_async({:dashboard_audience, source, request_ref}, {:exit, reason}, socket)
+      when source in [:authored, :package] do
+    Logger.warning("RBAC #{source} dashboard audience load failed: #{inspect(reason)}")
+
+    {:noreply,
+     accept_dashboard_audience_result(
+       socket,
+       source,
+       socket.assigns.dashboard_audience.epoch,
+       request_ref,
+       {:error, :load_failed}
+     )}
+  end
+
   # ── Permit callbacks ──────────────────────────────────────────
 
   @impl true
@@ -438,7 +533,18 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
       "close_delete_profile" => :read,
       "retry_group_profiles" => :read,
       "assign_group_profile" => :update,
-      "clear_group_profile" => :update
+      "clear_group_profile" => :update,
+      "select_dashboard_audience_group" => :read,
+      "retry_authored_dashboard_audience" => :read,
+      "previous_authored_dashboard_audience" => :read,
+      "next_authored_dashboard_audience" => :read,
+      "retry_package_dashboard_audience" => :read,
+      "previous_package_dashboard_audience" => :read,
+      "next_package_dashboard_audience" => :read,
+      "ensure_authored_dashboard_group_view" => :update,
+      "revoke_authored_dashboard_group_view" => :update,
+      "ensure_package_dashboard_group_view" => :update,
+      "revoke_package_dashboard_group_view" => :update
     })
   end
 
@@ -476,6 +582,17 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     assigns = assign(assigns, :active_profile, active_profile)
 
     assigns =
+      assign(
+        assigns,
+        :dashboard_group,
+        dashboard_group(
+          assigns.group_profile_assignments,
+          assigns.group_profile_generation,
+          assigns.dashboard_audience
+        )
+      )
+
+    assigns =
       assign(assigns, :section_grid, section_grid(assigns.grid, assigns.active_section))
 
     ~H"""
@@ -510,7 +627,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
             </div>
           </div>
 
-          <Components.group_profile_controls result={@group_profile_assignments} />
+          <Components.group_profile_controls
+            result={@group_profile_assignments}
+            selected_group_id={@dashboard_audience.group_id}
+          />
+
+          <Components.dashboard_audience
+            :if={@dashboard_group}
+            audience={@dashboard_audience}
+            group_token={@dashboard_group.token}
+            group_name={@dashboard_group.name}
+            authored_rows={@streams.rbac_authored_dashboards}
+            package_rows={@streams.rbac_package_dashboards}
+          />
 
           <div class="flex flex-wrap items-center justify-between gap-4">
             <label class="flex min-h-9 w-full max-w-sm items-center gap-2 rounded-sr-control border border-sr-line bg-sr-control px-3 shadow-sr-control">
@@ -1165,6 +1294,142 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     socket
     |> put_flash(:error, "Group assignments changed. Reloaded the latest values.")
     |> load_group_profiles()
+  end
+
+  defp start_dashboard_audience_request(socket, source, direction)
+       when source in [:authored, :package] do
+    audience = socket.assigns.dashboard_audience
+    request_ref = Integer.to_string(System.unique_integer([:positive, :monotonic]))
+
+    case DashboardAudience.start_request(audience, source, direction, request_ref) do
+      {:ok, requested, selector, epoch} ->
+        scope = socket.assigns.current_scope
+        group_id = requested.group_id
+
+        socket
+        |> assign(:dashboard_audience, requested)
+        |> start_async({:dashboard_audience, source, request_ref}, fn ->
+          {epoch, GroupAccess.page(scope, {:policy_editor, source}, group_id, selector)}
+        end)
+
+      {:error, :stale, _unchanged} ->
+        socket
+    end
+  end
+
+  defp accept_dashboard_audience_result(socket, source, epoch, request_ref, result) do
+    case DashboardAudience.accept_result(
+           socket.assigns.dashboard_audience,
+           source,
+           epoch,
+           request_ref,
+           result
+         ) do
+      {:replace, audience, rows} ->
+        socket
+        |> assign(:dashboard_audience, audience)
+        |> stream(dashboard_stream(source), rows, reset: true)
+
+      {:preserve, audience} ->
+        log_dashboard_audience_error(source, result)
+        assign(socket, :dashboard_audience, audience)
+
+      {:ignore, _audience} ->
+        socket
+    end
+  end
+
+  defp mutate_dashboard_audience(socket, source, operation, params)
+       when source in [:authored, :package] and operation in [:ensure, :revoke] do
+    safe_params = Map.take(params, ["group-token", "row-token"])
+    audience = socket.assigns.dashboard_audience
+
+    with {:ok, data} <- current_group_profile_data(socket),
+         {:ok, {group_id, nil}} <-
+           PolicyData.resolve_clear(
+             data,
+             socket.assigns.group_profile_generation,
+             safe_params
+           ),
+         group_token when is_binary(group_token) <- Map.get(safe_params, "group-token"),
+         row_token when is_binary(row_token) <- Map.get(safe_params, "row-token"),
+         {:ok, synced} <- DashboardAudience.sync_group_token(audience, group_token, group_id),
+         {:ok, expected} <- DashboardAudience.resolve_row(synced, source, row_token),
+         {:ok, _result} <-
+           run_dashboard_audience_mutation(
+             socket.assigns.current_scope,
+             source,
+             operation,
+             expected
+           ) do
+      socket
+      |> assign(:dashboard_audience, synced)
+      |> put_flash(:info, "Dashboard audience updated")
+      |> start_dashboard_audience_request(source, :first)
+    else
+      {:error, reason} ->
+        Logger.warning("RBAC #{source} dashboard audience mutation failed: #{inspect(reason)}")
+
+        socket
+        |> put_flash(
+          :error,
+          "Dashboard audience could not be updated. Reloaded the latest values."
+        )
+        |> start_dashboard_audience_request(source, :first)
+
+      _reason ->
+        socket
+        |> put_flash(
+          :error,
+          "Dashboard audience could not be updated. Reloaded the latest values."
+        )
+        |> start_dashboard_audience_request(source, :first)
+    end
+  end
+
+  defp run_dashboard_audience_mutation(scope, source, :ensure, expected) do
+    GroupAccess.ensure_group_view(
+      scope,
+      {:policy_editor, source},
+      expected.target_id,
+      expected.group_id,
+      expected_fingerprint: expected.fingerprint
+    )
+  end
+
+  defp run_dashboard_audience_mutation(scope, source, :revoke, expected) do
+    GroupAccess.revoke_group_view(
+      scope,
+      {:policy_editor, source},
+      expected.target_id,
+      expected.group_id,
+      expected_fingerprint: expected.fingerprint
+    )
+  end
+
+  defp dashboard_group(%AsyncResult{ok?: true, result: data}, generation, audience) do
+    with {:ok, current} <- PolicyData.accept_generation(generation, data),
+         group_id when is_binary(group_id) <- audience.group_id,
+         {token, ^group_id} <-
+           Enum.find(current.group_tokens, fn {_token, id} -> id == group_id end),
+         %{name: name} <- Enum.find(current.groups, &(to_string(&1.id) == group_id)) do
+      %{token: token, name: name}
+    else
+      _ -> nil
+    end
+  end
+
+  defp dashboard_group(_result, _generation, _audience), do: nil
+
+  defp dashboard_stream(:authored), do: :rbac_authored_dashboards
+  defp dashboard_stream(:package), do: :rbac_package_dashboards
+
+  defp log_dashboard_audience_error(source, {:error, reason}) do
+    Logger.warning("RBAC #{source} dashboard audience load failed: #{inspect(reason)}")
+  end
+
+  defp log_dashboard_audience_error(source, unexpected) do
+    Logger.warning("RBAC #{source} dashboard audience load returned: #{inspect(unexpected)}")
   end
 
   defp persist_profile(socket, scope, profile) do
