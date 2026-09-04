@@ -69,7 +69,7 @@ and password** if you cannot use an API key.
 | Secret | The API key (or username/password) you just saved |
 | Auth method | `api_key` (or `username_password`) |
 | Purpose | `camera_inventory` and `camera_stream` |
-| UniFi OS / Protect controller | The UniFi OS address. Required unless the target query already resolves that device. |
+| UniFi Protect controller host | The UniFi OS address (Dream Machine, Cloud Gateway, or UniFi OS console), not a camera IP. Required unless the target query already resolves that device. |
 | Target query | Devices this rule applies to. Start with `in:devices vendor:"Ubiquiti"`. |
 | Allowed ports | `443, 7447` |
 | TLS policy | `verify` when the agent can chain the controller certificate and it is valid for the address dialled; otherwise `skip_verify` |

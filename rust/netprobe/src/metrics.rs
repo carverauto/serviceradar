@@ -25,6 +25,7 @@ pub struct Metrics {
     external_flow_matched_total: IntCounter,
     attribution_backend_events_total: IntCounterVec,
     attribution_records_total: IntCounterVec,
+    attribution_stage_total: IntCounterVec,
     attribution_cache_entries: IntGaugeVec,
     #[allow(dead_code)]
     sampling_budget: IntGauge,
@@ -89,6 +90,13 @@ impl Metrics {
             ),
             &["event_kind", "protocol", "outcome", "service_coalesced"],
         )?;
+        let attribution_stage_total = IntCounterVec::new(
+            Opts::new(
+                "serviceradar_netprobe_attribution_stage_total",
+                "Flow attribution readiness and handoff outcomes by bounded pipeline stage and protocol",
+            ),
+            &["stage", "protocol", "outcome"],
+        )?;
         let attribution_cache_entries = IntGaugeVec::new(
             Opts::new(
                 "serviceradar_netprobe_attribution_cache_entries",
@@ -117,6 +125,7 @@ impl Metrics {
         registry.register(Box::new(external_flow_matched_total.clone()))?;
         registry.register(Box::new(attribution_backend_events_total.clone()))?;
         registry.register(Box::new(attribution_records_total.clone()))?;
+        registry.register(Box::new(attribution_stage_total.clone()))?;
         registry.register(Box::new(attribution_cache_entries.clone()))?;
         registry.register(Box::new(sampling_budget.clone()))?;
         registry.register(Box::new(uptime_seconds.clone()))?;
@@ -135,6 +144,7 @@ impl Metrics {
             external_flow_matched_total,
             attribution_backend_events_total,
             attribution_records_total,
+            attribution_stage_total,
             attribution_cache_entries,
             sampling_budget,
             uptime_seconds,
@@ -276,6 +286,13 @@ impl Metrics {
                 if service_coalesced { "true" } else { "false" },
             ])
             .inc_by(count);
+    }
+
+    #[allow(dead_code)]
+    pub fn inc_attribution_stage(&self, stage: &str, protocol: &str, outcome: &str) {
+        self.attribution_stage_total
+            .with_label_values(&[stage, protocol, outcome])
+            .inc();
     }
 
     #[allow(dead_code)]
