@@ -164,4 +164,41 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
       assert {:error, :forbidden} = EntityAccess.authorize("limit:1 in:devices", scope)
     end
   end
+
+  # Regression for review round 1, Critical A: the Rust parser
+  # (rust/srql/src/parser.rs) assigns `entity = Some(parse_entity(...))`
+  # unconditionally on every `in` token it sees while tokenizing, so the LAST
+  # `in:` token in the raw string is what actually executes. A gate that
+  # resolves the FIRST `in:` token authorizes one entity while the compiler
+  # executes a different one -- the gate and the compiler must agree on which
+  # token wins, or the gate can be bypassed by appending a second `in:` token
+  # naming a more sensitive entity.
+  describe "extract_entity/1 resolves the LAST in: token, matching the Rust parser" do
+    test "extract_entity/1 returns the last in: token" do
+      assert EntityAccess.extract_entity("in:logs limit:1 in:merge_audit") == "merge_audit"
+    end
+
+    test "authorize/3 denies based on the entity the compiler will actually execute" do
+      scope = %Scope{user: nil, permissions: MapSet.new(["observability.logs.view"])}
+
+      assert {:error, :forbidden} =
+               EntityAccess.authorize("in:logs limit:1 in:merge_audit", scope)
+    end
+  end
+
+  # Regression for review round 1, Critical B: `"in:" <> entity` is a
+  # case-sensitive literal match, so `IN:devices` never matches it and falls
+  # through to fallback_entity/1, which downcases the WHOLE token to the
+  # literal "in:devices" (no colon-split), matches no permission, and
+  # authorizes as :passthrough -- fully ungated. The Rust parser lowercases
+  # the token's key (`raw_key.trim().to_lowercase()`) before comparing it to
+  # "in", so `IN:devices` executes as Entity::Devices there.
+  describe "extract_entity/1 case-insensitive in: key" do
+    test "authorize/3 denies IN:devices and In:devices for a scope lacking devices.view" do
+      scope = %Scope{user: nil, permissions: MapSet.new(["observability.logs.view"])}
+
+      assert {:error, :forbidden} = EntityAccess.authorize("IN:devices", scope)
+      assert {:error, :forbidden} = EntityAccess.authorize("In:devices", scope)
+    end
+  end
 end

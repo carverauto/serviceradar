@@ -160,15 +160,28 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
     end
   end
 
+  # Mirrors rust/srql/src/parser.rs, which tokenizes on whitespace, lowercases
+  # each token's key before matching it against "in", and assigns
+  # `entity = Some(parse_entity(...))` unconditionally on every `in` token it
+  # sees -- so the LAST `in:` token in the raw string is what the compiler
+  # actually executes, regardless of case. The gate must resolve the same
+  # token or it authorizes an entity different from the one that runs.
   @spec extract_entity(String.t()) :: String.t()
   def extract_entity(query) when is_binary(query) do
     query
     |> String.trim()
     |> String.split(~r/[\s|]+/, trim: true)
-    |> Enum.find_value(fn token ->
-      case token do
-        "in:" <> entity when entity != "" -> normalize_entity(entity)
-        _ -> nil
+    |> Enum.reduce(nil, fn token, acc ->
+      case String.split(token, ":", parts: 2) do
+        [key, entity] when entity != "" ->
+          if String.downcase(key) == "in" do
+            normalize_entity(entity)
+          else
+            acc
+          end
+
+        _ ->
+          acc
       end
     end)
     |> case do
