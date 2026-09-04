@@ -658,7 +658,7 @@ func TestMergeIncludesVEXOnlyAndFinalCompleteness(t *testing.T) {
 	}
 }
 
-func TestMergeEmitsNothingWhenLaterRecordFailsSemanticProjection(t *testing.T) {
+func TestMergeOmitsTerminalWhenLaterRecordFailsSemanticProjection(t *testing.T) {
 	firstCVE := "CVE-2099-1311"
 	secondCVE := "CVE-2099-1312"
 	invalidSecondOSV := strings.Replace(
@@ -682,12 +682,14 @@ func TestMergeEmitsNothingWhenLaterRecordFailsSemanticProjection(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "invalid OSV modified timestamp") {
 		t.Fatalf("late semantic projection error = %v", err)
 	}
-	if out.Len() != 0 {
-		t.Fatalf("merge emitted %d bytes before a later semantic projection failure", out.Len())
+	frames := readFrames(t, out.Bytes())
+	if len(frames) != 1 || frames[0][0] != recordFrame {
+		t.Fatalf("late semantic failure frames = %d/types %v, want one record and no terminal", len(frames), frameTypes(frames))
 	}
+	assertIncompleteProjectionStream(t, out.Bytes())
 }
 
-func TestStreamEmitsNothingWhenLaterRecordExceedsFrameCap(t *testing.T) {
+func TestStreamOmitsTerminalWhenLaterRecordExceedsFrameCap(t *testing.T) {
 	firstCVE := "CVE-2099-1313"
 	secondCVE := "CVE-2099-1314"
 	dir := t.TempDir()
@@ -719,9 +721,11 @@ func TestStreamEmitsNothingWhenLaterRecordExceedsFrameCap(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "frame cap") {
 		t.Fatalf("late projection frame cap error = %v", err)
 	}
-	if out.Len() != 0 {
-		t.Fatalf("late projection frame failure emitted %d caller bytes", out.Len())
+	frames = readFrames(t, out.Bytes())
+	if len(frames) != 1 || frames[0][0] != recordFrame {
+		t.Fatalf("late frame-cap failure frames = %d/types %v, want one record and no terminal", len(frames), frameTypes(frames))
 	}
+	assertIncompleteProjectionStream(t, out.Bytes())
 }
 
 func TestMergeFailsClosed(t *testing.T) {
@@ -1416,6 +1420,11 @@ func TestAuditPreparedUsesProjectionStreamAndEmitsOnlyTerminalJSON(t *testing.T)
 	if err := prepare(osv, vex, prepared, defaultLimits()); err != nil {
 		t.Fatal(err)
 	}
+	blockedTemp := filepath.Join(dir, "not-a-directory")
+	if err := os.WriteFile(blockedTemp, []byte("synthetic"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", blockedTemp)
 	var summary bytes.Buffer
 	if err := auditPrepared(prepared, &summary, defaultLimits()); err != nil {
 		t.Fatal(err)
@@ -1903,7 +1912,7 @@ func TestMergeRunGroupBoundsAggregateCursorAndDecoderResidency(t *testing.T) {
 	}
 }
 
-func TestStreamTransactionalEncodedByteCapIsInclusiveAndCleansTempFiles(t *testing.T) {
+func TestStreamEncodedByteCapIsInclusiveWithoutProjectionTempFiles(t *testing.T) {
 	cve := "CVE-2099-7525"
 	dir := t.TempDir()
 	osv := archive(t, dir, "osv.tar.xz", []entry{{syntheticOSVPath(cve), validOSV(cve)}})
@@ -1917,11 +1926,11 @@ func TestStreamTransactionalEncodedByteCapIsInclusiveAndCleansTempFiles(t *testi
 	if err := streamPrepared(prepared, &baseline, defaultLimits()); err != nil {
 		t.Fatal(err)
 	}
-	tempRoot := filepath.Join(dir, "projection-temp")
-	if err := os.Mkdir(tempRoot, 0o700); err != nil {
+	blockedTemp := filepath.Join(dir, "not-a-directory")
+	if err := os.WriteFile(blockedTemp, []byte("synthetic"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TMPDIR", tempRoot)
+	t.Setenv("TMPDIR", blockedTemp)
 
 	lim := defaultLimits()
 	lim.encodedBytes = int64(baseline.Len())
@@ -1937,66 +1946,14 @@ func TestStreamTransactionalEncodedByteCapIsInclusiveAndCleansTempFiles(t *testi
 	if err := streamPrepared(prepared, &rejected, lim); err == nil || !strings.Contains(err.Error(), "encoded output cap") {
 		t.Fatalf("aggregate encoded byte cap+1 error = %v", err)
 	}
-	if rejected.Len() != 0 {
-		t.Fatalf("encoded cap failure emitted %d caller bytes", rejected.Len())
+	frames := readFrames(t, rejected.Bytes())
+	if len(frames) != 1 || frames[0][0] != recordFrame {
+		t.Fatalf("encoded-cap failure frames = %d/types %v, want one record and no terminal", len(frames), frameTypes(frames))
 	}
-	entries, err := os.ReadDir(tempRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("transactional projection left temporary paths: %v", entries)
-	}
-}
-
-func TestProjectedSpoolRemainsReadableAfterPreparedInputsDisappear(t *testing.T) {
-	cve := "CVE-2099-7526"
-	dir := t.TempDir()
-	osv := archive(t, dir, "osv.tar.xz", []entry{{syntheticOSVPath(cve), validOSV(cve)}})
-	vex := archive(t, dir, "vex.tar.xz", []entry{{syntheticVEXPath(cve), validVEX(cve)}})
-	prepared := filepath.Join(dir, "prepared")
-	if err := prepare(osv, vex, prepared, defaultLimits()); err != nil {
-		t.Fatal(err)
-	}
-	tempRoot := filepath.Join(dir, "projection-temp")
-	if err := os.Mkdir(tempRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("TMPDIR", tempRoot)
-
-	spool, err := buildProjectedSpool(prepared, defaultLimits())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer spool.close()
-	info, err := spool.file.Stat()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm()&0o222 != 0 {
-		t.Fatalf("projected spool is not read-only: mode=%v", info.Mode())
-	}
-	entries, err := os.ReadDir(tempRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("ready projected spool still has mutable filesystem paths: %v", entries)
-	}
-	if err := os.Remove(filepath.Join(prepared, "osv.spool")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(filepath.Join(prepared, "vex.spool")); err != nil {
-		t.Fatal(err)
-	}
-
-	var out bytes.Buffer
-	if err := spool.copyTo(&out); err != nil {
-		t.Fatalf("copy reread prepared input after projection: %v", err)
-	}
-	frames := readFrames(t, out.Bytes())
-	if len(frames) != 2 || frames[0][0] != recordFrame || frames[1][0] != controlFrame {
-		t.Fatalf("transactional frame types/count = %v/%d", frameTypes(frames), len(frames))
+	assertIncompleteProjectionStream(t, rejected.Bytes())
+	info, err := os.Stat(blockedTemp)
+	if err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("stream changed blocked TMPDIR sentinel: %v, %v", info, err)
 	}
 }
 
@@ -2011,6 +1968,49 @@ func TestScanRunRejectsOverflowingInjectedDecoderMemoryLimits(t *testing.T) {
 	lim.chunkBytes = math.MaxInt64
 	if _, err := scanRun(spool, 1, lim); err == nil || !strings.Contains(err.Error(), "invalid helper limits") {
 		t.Fatalf("overflowing decoder-memory limits error = %v", err)
+	}
+}
+
+func TestProjectedWireByteBoundIsExactAndOverflowChecked(t *testing.T) {
+	lim := defaultLimits()
+	lim.members = 3
+	lim.frameBytes = 1_024
+	got, err := projectedWireByteBound(lim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := int64((2*3 + 1) * (4 + 1_024)); got != want {
+		t.Fatalf("projected wire bound = %d, want %d", got, want)
+	}
+	lim.encodedBytes = got + 1
+	if err := validateLimits(lim); err != nil {
+		t.Fatalf("safe encoded cap above structural wire bound rejected: %v", err)
+	}
+
+	lim = defaultLimits()
+	frameBytes := int64(4 + maxProjectionFrameBytes)
+	lim.members = (math.MaxInt64/frameBytes-1)/2 + 1
+	if _, err := projectedWireByteBound(lim); err == nil {
+		t.Fatal("overflowing projected wire bound accepted")
+	}
+	if err := validateLimits(lim); err == nil || !strings.Contains(err.Error(), "invalid helper limits") {
+		t.Fatalf("overflowing projected wire limits error = %v", err)
+	}
+}
+
+func TestProjectedManifestWireByteBoundUsesValidatedRecordCounts(t *testing.T) {
+	lim := defaultLimits()
+	lim.frameBytes = 1_024
+	m := &manifest{
+		OSV: inventory{Count: 2},
+		VEX: inventory{Count: 3},
+	}
+	got, err := projectedManifestWireByteBound(m, lim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := int64((2 + 3 + 1) * (4 + 1_024)); got != want {
+		t.Fatalf("manifest wire bound = %d, want %d", got, want)
 	}
 }
 
@@ -2355,6 +2355,17 @@ func frameTypes(frames [][]byte) []byte {
 		}
 	}
 	return types
+}
+
+func assertIncompleteProjectionStream(t *testing.T, encoded []byte) {
+	t.Helper()
+	sink := &auditFrameWriter{}
+	if _, err := sink.Write(encoded); err != nil {
+		t.Fatalf("invalid complete-frame prefix: %v", err)
+	}
+	if _, err := sink.finish(); err == nil || !strings.Contains(err.Error(), "incomplete audit stream") {
+		t.Fatalf("failed projection prefix was accepted as complete: %v", err)
+	}
 }
 
 func maxPayloadLen(frames [][]byte) int {

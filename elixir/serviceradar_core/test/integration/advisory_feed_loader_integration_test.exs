@@ -662,6 +662,57 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.LoaderIntegrationTest do
     assert {updated_ats(feed_key), coordinate_updated_ats(feed_key)} == original_timestamps
   end
 
+  test "retained-count rejection preserves the prior complete generation", %{
+    feed_key: feed_key
+  } do
+    initial =
+      for index <- 1..10 do
+        record("ITEST-CVE-RETENTION-#{index}", "2024-01-01T00:00:00Z",
+          coordinates: [coordinate("retention-#{index}")]
+        )
+      end
+
+    load(feed_key, initial)
+    prior_source_ids = current_source_ids(feed_key)
+    generation = Loader.next_generation(@provider, feed_key)
+    observed = Enum.take(initial, 8)
+
+    completeness =
+      complete_snapshot(length(observed), %{
+        expected_minimum: 9,
+        retained_count_floor: %{
+          "policy" => "prior_complete_retention",
+          "prior_count" => 10,
+          "minimum_count" => 9,
+          "retained_percent" => 90,
+          "observed_count" => 8
+        }
+      })
+
+    assert {:error,
+            {:incomplete_snapshot,
+             [
+               {:below_expected_minimum,
+                %{
+                  "prior_count" => 10,
+                  "observed_count" => 8,
+                  "minimum_count" => 9
+                }}
+             ]}} =
+             Loader.load_and_finalize(observed,
+               provider: @provider,
+               feed_key: feed_key,
+               generation: generation,
+               completeness: completeness
+             )
+
+    assert current_source_ids(feed_key) == prior_source_ids
+
+    refute Enum.any?(initial, fn item ->
+             presence_exists?(feed_key, generation, item.advisory.source_object_id)
+           end)
+  end
+
   test "a later chunk failure rolls back earlier changed content in the same run", %{
     feed_key: feed_key
   } do

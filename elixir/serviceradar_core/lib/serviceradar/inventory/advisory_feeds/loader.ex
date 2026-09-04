@@ -157,6 +157,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     minimum = get(completeness, :expected_minimum)
     required = get(completeness, :required_trees)
     validation = get(completeness, :validation)
+    minimum_reason = below_expected_minimum_reason(completeness, seen, minimum)
 
     reasons =
       []
@@ -164,7 +165,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
       |> require_reason(is_integer(seen) and seen > 0, :empty_snapshot)
       |> require_reason(
         is_integer(minimum) and minimum > 0 and is_integer(seen) and seen >= minimum,
-        :below_expected_minimum
+        minimum_reason
       )
       |> require_reason(get(completeness, :parse_errors) == 0, :parse_errors)
       |> require_reason(get(completeness, :read_errors) == 0, :read_errors)
@@ -179,6 +180,19 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
   end
 
   def validate_completeness(_), do: {:error, {:incomplete_snapshot, [:missing_completeness]}}
+
+  defp below_expected_minimum_reason(completeness, seen, minimum) do
+    case get(completeness, :retained_count_floor) do
+      floor when is_map(floor) ->
+        {:below_expected_minimum,
+         floor
+         |> Map.put("observed_count", seen)
+         |> Map.put("minimum_count", minimum)}
+
+      _ ->
+        :below_expected_minimum
+    end
+  end
 
   @doc "Load and promote one validated snapshot in a single transaction."
   @spec load_and_finalize(Enumerable.t(), keyword()) :: {:ok, load_result()} | {:error, term()}

@@ -58,15 +58,17 @@ var (
 )
 
 type limits struct {
-	members          int64
-	pathBytes        int64
-	fileBytes        int64
-	totalBytes       int64
-	archiveBytes     int64
-	workBytes        int64
-	dictBytes        int
-	chunkBytes       int64
-	decodedBytes     int64
+	members      int64
+	pathBytes    int64
+	fileBytes    int64
+	totalBytes   int64
+	archiveBytes int64
+	workBytes    int64
+	dictBytes    int
+	chunkBytes   int64
+	decodedBytes int64
+	// encodedBytes optionally lowers the structural per-manifest wire bound.
+	// Zero uses the bound derived from validated record counts and frame size.
 	encodedBytes     int64
 	decoderBytes     int64
 	residentBytes    int64
@@ -87,7 +89,7 @@ func defaultLimits() limits {
 		dictBytes:     64 << 20,
 		chunkBytes:    64 << 20,
 		decodedBytes:  defaultDecodedBytesCap,
-		encodedBytes:  1 << 30,
+		encodedBytes:  0,
 		decoderBytes:  16 << 20,
 		residentBytes: 256 << 20,
 		fanIn:         16,
@@ -147,10 +149,13 @@ func validateLimits(lim limits) error {
 	if lim.members <= 0 || lim.pathBytes <= 0 || lim.pathBytes > maxInt ||
 		lim.fileBytes <= 0 || lim.fileBytes > maxInt || lim.totalBytes <= 0 ||
 		lim.archiveBytes <= 0 || lim.workBytes <= 0 || lim.dictBytes <= 0 ||
-		lim.chunkBytes <= 0 || lim.decodedBytes <= 0 || lim.encodedBytes <= 0 ||
+		lim.chunkBytes <= 0 || lim.decodedBytes <= 0 || lim.encodedBytes < 0 ||
 		lim.decoderBytes < minRunDecoderResidentBytes || lim.residentBytes <= 0 ||
 		lim.fanIn < 2 || lim.frameBytes <= 0 || lim.projection.logicalProducts <= 0 ||
 		lim.projection.assertions <= 0 || lim.projection.jsonTokens <= 0 || lim.projection.jsonNesting <= 0 {
+		return errors.New("invalid helper limits")
+	}
+	if _, err := projectedWireByteBound(lim); err != nil {
 		return errors.New("invalid helper limits")
 	}
 	if lim.members > (math.MaxInt64-(1<<20))/2048 {
@@ -164,6 +169,36 @@ func validateLimits(lim limits) error {
 		return errors.New("invalid helper limits")
 	}
 	return nil
+}
+
+func projectedWireByteBound(lim limits) (int64, error) {
+	if lim.members <= 0 || lim.members > (math.MaxInt64-1)/2 {
+		return 0, errors.New("projected wire byte bound overflow")
+	}
+	return projectedRecordWireByteBound(2*lim.members, lim.frameBytes)
+}
+
+func projectedManifestWireByteBound(m *manifest, lim limits) (int64, error) {
+	if m == nil || m.OSV.Count < 0 || m.VEX.Count < 0 || m.OSV.Count > math.MaxInt64-m.VEX.Count {
+		return 0, errors.New("projected wire byte bound overflow")
+	}
+	return projectedRecordWireByteBound(m.OSV.Count+m.VEX.Count, lim.frameBytes)
+}
+
+func projectedRecordWireByteBound(recordCount int64, configuredFrameLimit int) (int64, error) {
+	frameLimit := configuredFrameLimit
+	if frameLimit > maxProjectionFrameBytes {
+		frameLimit = maxProjectionFrameBytes
+	}
+	if recordCount < 0 || recordCount == math.MaxInt64 || frameLimit <= 0 {
+		return 0, errors.New("projected wire byte bound overflow")
+	}
+	frameCount := recordCount + 1
+	framedBytes := int64(frameLimit) + 4
+	if frameCount > math.MaxInt64/framedBytes {
+		return 0, errors.New("projected wire byte bound overflow")
+	}
+	return frameCount * framedBytes, nil
 }
 
 type workBudget struct {
@@ -194,29 +229,6 @@ type budgetWriter struct {
 	w       io.Writer
 	budget  *workBudget
 	written int64
-}
-
-type encodedCapWriter struct {
-	w       io.Writer
-	limit   int64
-	written int64
-}
-
-//nolint:err113 // The writer rejects malformed implementations with an exact internal diagnostic.
-func (w *encodedCapWriter) Write(p []byte) (int, error) {
-	nBytes := int64(len(p))
-	if w.limit <= 0 || w.written < 0 || w.written > w.limit || nBytes > w.limit-w.written {
-		return 0, errEncodedOutputCap
-	}
-	n, err := w.w.Write(p)
-	if n < 0 || n > len(p) {
-		return 0, errors.New("invalid projected spool write count")
-	}
-	w.written += int64(n)
-	if err == nil && n != len(p) {
-		err = io.ErrShortWrite
-	}
-	return n, err
 }
 
 //nolint:err113 // The writer rejects malformed implementations with an exact internal diagnostic.
@@ -1087,130 +1099,11 @@ func validateManifest(dir string, manifestBytes int64, m *manifest, lim limits) 
 	return nil
 }
 
-type projectedSpool struct {
-	file *os.File
-	size int64
-}
-
-func (spool *projectedSpool) close() {
-	if spool != nil && spool.file != nil {
-		_ = spool.file.Close()
-	}
-}
-
-//nolint:err113 // Sealed-spool validation diagnostics are local and are not matched.
-func (spool *projectedSpool) validate() error {
-	if spool == nil || spool.file == nil || spool.size <= 0 {
-		return errors.New("invalid projected spool")
-	}
-	if _, err := spool.file.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
-	sink := &auditFrameWriter{}
-	n, err := io.Copy(sink, spool.file)
-	if err != nil {
-		return fmt.Errorf("audit projected spool: %w", err)
-	}
-	if n != spool.size {
-		return errors.New("projected spool size changed")
-	}
-	if _, err := sink.finish(); err != nil {
-		return fmt.Errorf("audit projected spool: %w", err)
-	}
-	_, err = spool.file.Seek(0, io.SeekStart)
-	return err
-}
-
-func (spool *projectedSpool) copyTo(out io.Writer) error {
-	if err := spool.validate(); err != nil {
-		return err
-	}
-	n, err := io.Copy(out, io.LimitReader(spool.file, spool.size))
-	if err != nil {
-		return err
-	}
-	if n != spool.size {
-		return io.ErrUnexpectedEOF
-	}
-	return nil
-}
-
-//nolint:err113 // Sealed-spool validation diagnostics are local and are not matched.
-func buildProjectedSpool(dir string, lim limits) (spool *projectedSpool, err error) {
-	if err := validateLimits(lim); err != nil {
-		return nil, err
-	}
-	temporaryDir, err := os.MkdirTemp("", ".serviceradar-ubuntu-projection-")
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = os.RemoveAll(temporaryDir) }()
-	dirInfo, err := os.Stat(temporaryDir)
-	if err != nil || !dirInfo.IsDir() || dirInfo.Mode().Perm() != 0o700 {
-		return nil, errors.New("invalid projected spool directory")
-	}
-
-	filename := filepath.Join(temporaryDir, "frames")
-	writer, err := os.OpenFile(filename, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		if writer != nil {
-			_ = writer.Close()
-		}
-	}()
-	capped := &encodedCapWriter{w: writer, limit: lim.encodedBytes}
-	if err := projectPrepared(dir, capped, lim); err != nil {
-		return nil, err
-	}
-	if err := writer.Chmod(0o400); err != nil {
-		return nil, err
-	}
-	writtenInfo, err := writer.Stat()
-	if err != nil || !writtenInfo.Mode().IsRegular() || writtenInfo.Size() != capped.written || capped.written <= 0 || capped.written > lim.encodedBytes {
-		return nil, errors.New("invalid projected spool output")
-	}
-	reader, err := os.Open(filename)
-	if err != nil {
-		return nil, err
-	}
-	readerOwned := true
-	defer func() {
-		if readerOwned {
-			_ = reader.Close()
-		}
-	}()
-	readInfo, err := reader.Stat()
-	if err != nil || !readInfo.Mode().IsRegular() || readInfo.Mode().Perm()&0o222 != 0 || !os.SameFile(writtenInfo, readInfo) || readInfo.Size() != capped.written {
-		return nil, errors.New("projected spool changed while sealing")
-	}
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-	writer = nil
-	if err := os.Remove(filename); err != nil {
-		return nil, err
-	}
-	if err := os.Remove(temporaryDir); err != nil {
-		return nil, err
-	}
-
-	spool = &projectedSpool{file: reader, size: capped.written}
-	if err := spool.validate(); err != nil {
-		return nil, err
-	}
-	readerOwned = false
-	return spool, nil
-}
-
 func streamPrepared(dir string, out io.Writer, lim limits) error {
-	spool, err := buildProjectedSpool(dir, lim)
-	if err != nil {
-		return err
-	}
-	defer spool.close()
-	return spool.copyTo(out)
+	// The terminal frame plus a zero process exit is the stream's commit marker.
+	// Callers may receive complete record frames before a late error, but the
+	// loader keeps them inside one transaction and rolls back without a terminal.
+	return projectPrepared(dir, out, lim)
 }
 
 //nolint:err113 // Prepared-manifest validation diagnostics are consumed as CLI text.
@@ -1253,7 +1146,14 @@ func projectPreparedPass(or, vr *runReader, m *manifest, out io.Writer, lim limi
 	vRecord, vErr := vr.next(lim)
 	oi, vi, records := 0, 0, int64(0)
 	projection := newProjectionState()
-	wire := wireCounters{}
+	wireLimit, err := projectedManifestWireByteBound(m, lim)
+	if err != nil {
+		return err
+	}
+	if lim.encodedBytes > 0 && lim.encodedBytes < wireLimit {
+		wireLimit = lim.encodedBytes
+	}
+	wire := wireCounters{limit: wireLimit}
 	for !errors.Is(oErr, io.EOF) || !errors.Is(vErr, io.EOF) {
 		if oErr != nil && !errors.Is(oErr, io.EOF) {
 			return oErr
@@ -1297,6 +1197,9 @@ func projectPreparedPass(or, vr *runReader, m *manifest, out io.Writer, lim limi
 			return err
 		}
 		if err := writeCountedTypedFrame(out, recordFrame, encoded, lim.frameBytes, &wire); err != nil {
+			if errors.Is(err, errEncodedOutputCap) {
+				return err
+			}
 			return fmt.Errorf("%s projection frame: %w", cve, err)
 		}
 		records++
@@ -1339,6 +1242,7 @@ type wireCounters struct {
 	bytes    int64
 	frames   int64
 	maxFrame int64
+	limit    int64
 }
 
 //nolint:err113 // Frame validation diagnostics are local to the bounded wire encoder.
@@ -1353,6 +1257,10 @@ func writeCountedTypedFrame(w io.Writer, frameType byte, encoded []byte, configu
 	}
 	if frameLimit <= 0 || frameBytes > frameLimit || uint64(frameBytes) > uint64(^uint32(0)) {
 		return fmt.Errorf("frame cap exceeded: %d > %d bytes", frameBytes, frameLimit)
+	}
+	totalFrameBytes := int64(4 + frameBytes)
+	if counters.limit <= 0 || counters.bytes < 0 || counters.bytes > counters.limit || totalFrameBytes > counters.limit-counters.bytes {
+		return errEncodedOutputCap
 	}
 	var length [4]byte
 	binary.BigEndian.PutUint32(length[:], uint32(frameBytes))
@@ -1536,7 +1444,7 @@ func (w *auditFrameWriter) finish() (terminalDTO, error) {
 
 func auditPrepared(dir string, out io.Writer, lim limits) error {
 	sink := &auditFrameWriter{}
-	if err := streamPrepared(dir, sink, lim); err != nil {
+	if err := projectPrepared(dir, sink, lim); err != nil {
 		return err
 	}
 	terminal, err := sink.finish()

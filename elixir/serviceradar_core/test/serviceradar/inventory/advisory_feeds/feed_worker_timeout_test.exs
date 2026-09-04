@@ -2,6 +2,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorkerTimeoutTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker
+  alias ServiceRadar.Inventory.AdvisoryFeeds.Loader
 
   test "preflight treats parser skips as errors instead of a complete partial snapshot" do
     records_factory = fn -> [{:record, %{id: 1}}, :skip, {:record, %{id: 2}}] end
@@ -11,6 +12,85 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorkerTimeoutTest do
     assert completeness.complete_snapshot? == false
     assert completeness.source_objects_seen == 2
     assert completeness.parse_errors == 1
+  end
+
+  describe "prior-snapshot retention floor" do
+    test "guards only the three replace-on-absence feeds with a ceiling 90 percent floor" do
+      for feed <- ["cisa-kev", "vulncheck-kev", "nist-nvd2"] do
+        assert {91,
+                %{
+                  "policy" => "prior_complete_retention",
+                  "prior_count" => 101,
+                  "minimum_count" => 91,
+                  "retained_percent" => 90
+                }} = FeedWorker.snapshot_minimum(feed, 101, 1)
+      end
+
+      assert {1, nil} = FeedWorker.snapshot_minimum("ubuntu-osv-vex", 101, 1)
+      assert {1, nil} = FeedWorker.snapshot_minimum("other-feed", 101, 1)
+    end
+
+    test "keeps the absolute minimum and first-load minimum" do
+      assert {250, %{"minimum_count" => 250}} =
+               FeedWorker.snapshot_minimum("nist-nvd2", 100, 250)
+
+      assert {1, %{"prior_count" => 0, "minimum_count" => 1}} =
+               FeedWorker.snapshot_minimum("cisa-kev", 0, 1)
+    end
+
+    test "one-shot operator approval accepts a legitimate contraction and records the bypass" do
+      assert {1,
+              %{
+                "policy" => "operator_approved_contraction",
+                "prior_count" => 100,
+                "minimum_count" => 1,
+                "default_minimum_count" => 90,
+                "retained_percent" => 90
+              }} =
+               FeedWorker.snapshot_minimum("nist-nvd2", 100, 1, accept_snapshot_contraction: true)
+
+      assert {90, %{"policy" => "prior_complete_retention"}} =
+               FeedWorker.snapshot_minimum("nist-nvd2", 100, 1)
+    end
+
+    test "one-shot operator approval cannot carry into a retry acquisition" do
+      assert %Ecto.Changeset{changes: %{max_attempts: 1}} =
+               FeedWorker.job_changeset("nist-nvd2", accept_snapshot_contraction: true)
+
+      assert %Ecto.Changeset{changes: %{max_attempts: 4}} =
+               FeedWorker.job_changeset("nist-nvd2", [])
+    end
+
+    test "preflight rejection includes structured prior, observed, and minimum evidence" do
+      floor = %{
+        "policy" => "prior_complete_retention",
+        "prior_count" => 100,
+        "minimum_count" => 90,
+        "retained_percent" => 90
+      }
+
+      records_factory = fn -> List.duplicate({:record, %{synthetic: true}}, 89) end
+
+      completeness =
+        FeedWorker.preflight(records_factory, "records",
+          expected_minimum: 90,
+          retained_count_floor: floor
+        )
+
+      assert completeness.retained_count_floor["observed_count"] == 89
+
+      assert {:error,
+              {:incomplete_snapshot,
+               [
+                 {:below_expected_minimum,
+                  %{
+                    "prior_count" => 100,
+                    "observed_count" => 89,
+                    "minimum_count" => 90,
+                    "retained_percent" => 90
+                  }}
+               ]}} = Loader.validate_completeness(completeness)
+    end
   end
 
   test "status attrs preserve completion metadata on failure and expose it on success" do
@@ -60,8 +140,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorkerTimeoutTest do
     assert FeedWorker.timeout(%Oban.Job{args: %{"feed" => "vulncheck-kev"}}) == 180_000
   end
 
-  test "Ubuntu archive acquisition gets a bounded 30-minute timeout" do
-    assert FeedWorker.timeout(%Oban.Job{args: %{"feed" => "ubuntu-osv-vex"}}) == 1_800_000
+  test "Ubuntu full-corpus job gets a bounded 75-minute timeout" do
+    assert FeedWorker.timeout(%Oban.Job{args: %{"feed" => "ubuntu-osv-vex"}}) == 4_500_000
   end
 
   test "Ubuntu is a first-class worker feed and uses string-keyed Oban args" do
@@ -96,8 +176,13 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorkerTimeoutTest do
     end
 
     test "stays within one 6-hour refresh cycle" do
-      # Worst case: every attempt burns the full nist-nvd2 timeout before failing.
-      timeout_s = div(FeedWorker.timeout(%Oban.Job{args: %{"feed" => "nist-nvd2"}}), 1000)
+      # Worst case: every attempt burns the longest feed timeout before failing.
+      timeout_s =
+        ["nist-nvd2", "ubuntu-osv-vex"]
+        |> Enum.map(&FeedWorker.timeout(%Oban.Job{args: %{"feed" => &1}}))
+        |> Enum.max()
+        |> div(1000)
+
       attempts = 4
       worst = attempts * timeout_s + Enum.sum(Enum.map(1..3, &FeedWorker.backoff(job(&1))))
 

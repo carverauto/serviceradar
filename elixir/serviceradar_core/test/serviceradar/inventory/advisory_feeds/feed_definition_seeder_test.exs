@@ -146,6 +146,30 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
     assert_enqueued(worker: FeedWorker, args: %{feed: "vulncheck-kev"}, prefix: "platform")
   end
 
+  test "run_now can approve one snapshot contraction for the enqueued job", %{actor: actor} do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    definition = fetch(actor, "vulncheck", "vulncheck-kev")
+
+    assert {:ok, ran} =
+             definition
+             |> Ash.Changeset.for_update(
+               :run_now,
+               %{accept_snapshot_contraction: true},
+               actor: actor
+             )
+             |> Ash.update(actor: actor)
+
+    assert ran.last_status == "running"
+
+    assert_enqueued(
+      worker: FeedWorker,
+      args: %{feed: "vulncheck-kev", accept_snapshot_contraction: true},
+      max_attempts: 1,
+      prefix: "platform"
+    )
+  end
+
   test "Config.refresh_seconds reads the feed-def row as primary source", %{actor: actor} do
     assert :ok = FeedDefinitionSeeder.seed_defaults()
 
