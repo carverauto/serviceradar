@@ -3,7 +3,7 @@ module github.com/carverauto/serviceradar/contrib/plugins/go/netbox
 go 1.25.0
 
 require (
-	github.com/carverauto/serviceradar-sdk-go v0.3.0
+	github.com/carverauto/serviceradar-sdk-go v0.3.1
 	github.com/tidwall/gjson v1.19.0
 )
 

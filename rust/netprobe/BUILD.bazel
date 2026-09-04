@@ -1,3 +1,4 @@
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@aspect_bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
@@ -23,6 +24,7 @@ NETPROBE_PROC_MACROS = [
 
 NETPROBE_DEPS = [
     "//rust/addon-sdk:addon_sdk",
+    "//rust/afpacket:afpacket",
     "@crates//:anyhow",
     "@crates//:base64",
     "@crates//:clap",
@@ -82,7 +84,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.53"
+NETPROBE_VERSION = "0.2.59"
 
 cargo_build_script(
     name = "build_script",
@@ -132,6 +134,13 @@ rust_binary(
         "//third_party/netprobe_corpora:p0f/serviceradar-additions.fp",
         "//third_party/netprobe_corpora:recog/serviceradar-recog-additions.xml",
         "//third_party/netprobe_corpora:recog_xml",
+        # Read by `include_str!` in the #[cfg(test)] differential module, so it is a
+        # COMPILE-time input, not runfiles. Declared here rather than on a test target
+        # because every `crate = ":netprobe"` test compiles that module: naming it per
+        # test silently breaks the next test target added, which is exactly what
+        # happened to loaded_tcp_attribution_test. The binary never reads it -- cfg(test)
+        # -- this only makes the file visible to rustc.
+        "testdata/libpcap_reference_programs.tsv",
     ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
@@ -177,6 +186,36 @@ rust_test(
         "requires_cap_net_admin",
         "requires_cap_perfmon",
     ],
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+# S2 acceptance: a capture driven over the real IPC socket, against a real ring.
+#
+# Manual and Linux-only for the same reason as //rust/afpacket:afpacket_live_test:
+# it needs CAP_NET_RAW, which RBE executors do not have. The `build_test` below is
+# what keeps it compiling -- an integration test that only exists as a `manual`
+# target is one that silently stops building, which is how a test ends up
+# executing nowhere while looking present in the repo.
+rust_test(
+    name = "live_capture_ipc_test",
+    srcs = ["tests/live_capture_ipc.rs"],
+    proc_macro_deps = NETPROBE_PROC_MACROS,
+    crate_features = NETPROBE_FEATURES,
+    deps = NETPROBE_DEPS + [
+        ":netprobe_lib",
+        "@crates//:tempfile",
+    ],
+    tags = [
+        "integration_test",
+        "manual",
+        "requires_cap_net_raw",
+    ],
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+build_test(
+    name = "live_capture_ipc_build_test",
+    targets = [":live_capture_ipc_test"],
     target_compatible_with = ["@platforms//os:linux"],
 )
 

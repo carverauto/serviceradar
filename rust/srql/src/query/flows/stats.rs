@@ -38,3 +38,6 @@ pub(super) async fn execute_stats(
 pub(super) fn to_sql_and_params_stats(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     query::to_sql_and_params_stats(plan)
 }
+
+#[cfg(test)]
+pub(in crate::query) use query::execution_query;

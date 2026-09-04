@@ -31,12 +31,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
     // error but a syntax error at the NEXT token, naming neither the placeholder
     // nor the column. Measured: `ep.ip = ? ORDER BY` -> `syntax error at or near
     // "ORDER"`.
-    let (sql, binds) = to_sql_and_params(plan)?;
-    let mut query = sql_query(&sql).into_boxed::<Pg>();
-
-    for bind in binds {
-        query = bind_param(query, bind)?;
-    }
+    let query = execution_query(plan)?;
 
     let rows: Vec<JsonPayload> = query
         .load::<JsonPayload>(conn)
@@ -47,6 +42,17 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
         .into_iter()
         .map(|row| serde_json::Value::from(row.payload))
         .collect())
+}
+
+pub(super) fn execution_query(plan: &QueryPlan) -> Result<BoxedSqlQuery<'static, Pg, SqlQuery>> {
+    let (sql, binds) = to_sql_and_params(plan)?;
+    let mut query = sql_query(sql).into_boxed::<Pg>();
+
+    for bind in binds {
+        query = bind_param(query, bind)?;
+    }
+
+    Ok(query)
 }
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
