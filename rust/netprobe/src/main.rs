@@ -59,6 +59,7 @@ mod runtime_config;
 #[allow(dead_code)]
 mod satori;
 mod server;
+mod uds;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},

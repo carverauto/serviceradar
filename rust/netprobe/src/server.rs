@@ -82,6 +82,10 @@ impl IpcServer {
         prepare_socket(&self.socket_path)?;
         let listener = UnixListener::bind(&self.socket_path)
             .with_context(|| format!("failed to bind {}", self.socket_path.display()))?;
+        // Applied after bind, because the socket does not exist before it.
+        // Until this landed the mode was whatever the umask produced -- 0755
+        // under the usual 022, which is connectable by every local account.
+        crate::uds::restrict_to_owner(&self.socket_path, "the netprobe IPC socket")?;
 
         loop {
             tokio::select! {
@@ -92,6 +96,7 @@ impl IpcServer {
                 }
                 accepted = listener.accept() => {
                     let (stream, _) = accepted?;
+                    let peer = crate::uds::peer_credentials(&stream);
                     if self.active_client.swap(true, Ordering::SeqCst) {
                         tokio::spawn(async move {
                             let _ = reject_concurrent_client(stream).await;
@@ -107,6 +112,18 @@ impl IpcServer {
                     let external_flow_matcher = self.external_flow_matcher.clone();
                     let runtime_config = self.runtime_config.clone();
                     let metrics = self.metrics.clone();
+                    match peer {
+                        // Evidence, not authorization -- see
+                        // `crate::uds::PeerCredentials`. Logged at connect so
+                        // the journal on a captured host can say which local
+                        // process held the socket, independently of anything
+                        // the control plane records.
+                        Some(peer) => log::info!("netprobe IPC client connected: {peer}"),
+                        None => log::info!(
+                            "netprobe IPC client connected: peer credentials unavailable"
+                        ),
+                    }
+
                     tokio::spawn(async move {
                         let _guard = ActiveClientGuard(active_client);
                         let result = handle_client(
@@ -1101,6 +1118,47 @@ mod tests {
             response.payload,
             Some(netprobe_frame::Payload::ConfigAck(_))
         ));
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    /// The legacy IPC socket carries capture control, so its mode is the whole
+    /// local access control on it -- and until this test existed it was
+    /// whatever the umask happened to be.
+    ///
+    /// Pinned rather than trusted: a socket left at the default 0755 is
+    /// connectable by every local account, and nothing about that is visible
+    /// at runtime. `addon_service.rs` already pins its own socket this way and
+    /// its comment names this one as the gap.
+    #[tokio::test]
+    async fn the_ipc_socket_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
+        let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(
+            &socket,
+            flow_tx,
+            flow_rx,
+            census_tx,
+            mdns_tx,
+            test_external_flow_matcher(),
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
+        let task = tokio::spawn(server.run(shutdown_rx));
+        wait_for_socket(&socket).await;
+
+        let mode = std::fs::metadata(&socket).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "the IPC socket must not be reachable by other local accounts"
+        );
 
         shutdown_tx.send(true).unwrap();
         task.await.unwrap().unwrap();
