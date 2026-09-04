@@ -17,6 +17,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
   test "count, byte, per-agent, and source limits return distinct reasons" do
     parent = self()
     processor = held_processor(parent)
+    state_capture = capture_lane_state()
 
     count_lane = start_lane(processor, max_items: 2, max_items_per_agent: 2)
     first = admit(count_lane, status("agent-a", "one"))
@@ -32,6 +33,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
     send(second_release, :release)
     assert_receive {^second, :ok}
     assert_empty(count_lane)
+    assert_occupied_then_empty(state_capture)
 
     per_agent_lane = start_lane(processor, max_items: 3, max_items_per_agent: 1)
     admitted = admit(per_agent_lane, status("agent-a", "agent-one"))
@@ -129,6 +131,8 @@ defmodule ServiceRadar.AdmissionLaneTest do
   end
 
   test "worker runtime is bounded and late completion cannot reply twice" do
+    state_capture = capture_lane_state()
+
     lane =
       start_lane(
         fn _status ->
@@ -143,6 +147,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
     assert_receive {^reply_ref, {:error, :execution_timeout}}, 250
     refute_receive {^reply_ref, _late_result}, 250
     assert_empty(lane)
+    assert_occupied_then_empty(state_capture)
   end
 
   test "execution timeout does not start replacement work before the worker terminates" do
@@ -230,6 +235,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
   end
 
   test "a crashing worker releases capacity and returns worker_crash" do
+    state_capture = capture_lane_state()
     lane = start_lane(fn _status -> exit(:forced_crash) end, max_items: 1)
     reply_ref = admit(lane, status("agent-a", "crash"))
 
@@ -238,6 +244,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
     next_ref = admit(lane, status("agent-b", "also-crash"))
     assert_receive {^next_ref, {:error, :worker_crash}}, 250
     assert_empty(lane)
+    assert_occupied_then_empty(state_capture)
   end
 
   test "fast workers repeatedly complete after their running state is registered" do
@@ -348,36 +355,13 @@ defmodule ServiceRadar.AdmissionLaneTest do
     assert_receive {^reply_ref, {:error, :coordinator_restart}}, 500
   end
 
-  test "state telemetry returns to zero after work completes" do
-    parent = self()
-    handler_id = {__MODULE__, make_ref()}
-
-    :ok =
-      :telemetry.attach(
-        handler_id,
-        [:serviceradar, :admission_lane, :state],
-        fn event, measurements, metadata, pid ->
-          send(pid, {:lane_state, event, measurements, metadata})
-        end,
-        parent
-      )
-
-    on_exit(fn -> :telemetry.detach(handler_id) end)
-
+  test "state telemetry reports occupancy before returning to zero after success" do
+    state_capture = capture_lane_state()
     lane = start_lane(fn _ -> :ok end)
     reply_ref = admit(lane, status("agent-a", "telemetry"))
     assert_receive {^reply_ref, :ok}
-
-    assert_eventually(fn ->
-      receive do
-        {:lane_state, _event,
-         %{pending_count: 0, pending_bytes: 0, in_flight_count: 0, in_flight_bytes: 0},
-         %{lane: :test}} ->
-          true
-      after
-        0 -> false
-      end
-    end)
+    assert_empty(lane)
+    assert_occupied_then_empty(state_capture)
   end
 
   test "cast admission reports an unavailable flow lane and emits rejection telemetry" do
@@ -789,6 +773,60 @@ defmodule ServiceRadar.AdmissionLaneTest do
           Process.sleep(delay_ms)
           :ok
       end
+    end
+  end
+
+  defp capture_lane_state(lane \\ :test) do
+    parent = self()
+    capture_ref = make_ref()
+    handler_id = {__MODULE__, capture_ref}
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :admission_lane, :state],
+        fn _event, measurements, metadata, {pid, ref} ->
+          if metadata[:lane] == lane, do: send(pid, {:lane_state, ref, measurements})
+        end,
+        {parent, capture_ref}
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+    capture_ref
+  end
+
+  defp assert_occupied_then_empty(capture_ref) do
+    occupied = receive_occupied_state(capture_ref)
+
+    assert occupied.pending_count + occupied.in_flight_count > 0
+    assert occupied.pending_bytes + occupied.in_flight_bytes > 0
+
+    assert_receive {:lane_state, ^capture_ref,
+                    %{
+                      pending_count: 0,
+                      pending_bytes: 0,
+                      in_flight_count: 0,
+                      in_flight_bytes: 0
+                    }},
+                   500
+  end
+
+  defp receive_occupied_state(capture_ref) do
+    receive do
+      {:lane_state, ^capture_ref,
+       %{
+         pending_count: pending_count,
+         pending_bytes: pending_bytes,
+         in_flight_count: in_flight_count,
+         in_flight_bytes: in_flight_bytes
+       } = measurements} ->
+        if pending_count + in_flight_count > 0 and pending_bytes + in_flight_bytes > 0 do
+          measurements
+        else
+          receive_occupied_state(capture_ref)
+        end
+    after
+      500 -> flunk("expected positive lane item and byte occupancy")
     end
   end
 

@@ -365,7 +365,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/event_writer/processors/anomaly_episode_registry_db_test.exs": 5,
     "test/serviceradar/event_writer/processors/falco_events_integration_test.exs": 2,
     "test/serviceradar/event_writer/processors/trivy_reports_integration_test.exs": 4,
-    "test/serviceradar/flow_attribution_test.exs": 21,
+    "test/serviceradar/flow_attribution_test.exs": 22,
     "test/serviceradar/identity/assign_first_user_role_test.exs": 1,
     "test/serviceradar/identity/device_lookup_alias_test.exs": 6,
     "test/serviceradar/identity/identity_cache_test.exs": 3,
