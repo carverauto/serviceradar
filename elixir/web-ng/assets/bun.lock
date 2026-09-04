@@ -31,7 +31,7 @@
         "jmuxer": "^2.1.0",
         "mapbox-gl": "^3.18.1",
         "monaco-editor": "^0.52.2",
-        "phoenix": "^1.8.5",
+        "phoenix": "^1.8.9",
         "phoenix_html": "^4.3.0",
         "phoenix_live_view": "^1.1.27",
         "react": "19.2.8",
@@ -1054,7 +1054,7 @@
 
     "pbf": ["pbf@4.0.1", "", { "dependencies": { "resolve-protobuf-schema": "^2.1.0" }, "bin": { "pbf": "bin/pbf" } }, "sha512-SuLdBvS42z33m8ejRbInMapQe8n0D3vN/Xd5fmWM3tufNgRQFBpaW2YVJxQZV4iPNqb0vEFvssMEo5w9c6BTIA=="],
 
-    "phoenix": ["phoenix@1.8.5", "", {}, "sha512-Oj5nlRV/NKXkjBx8uMgCMmgMf1twd/B2qOcO30cHLH1PCGR8149o4T1lRIaqN4nq2KQJAeMqPiLdh1Asd0wQFg=="],
+    "phoenix": ["phoenix@1.8.9", "", {}, "sha512-/2qzAZB3P2s08fFAYaG65lqaNFmVXUSlXdY4/JDdDKIC81y2cFWkPwI8gycy4VLpv197JwZ5PpBf3VhoG32yGA=="],
 
     "phoenix_html": ["phoenix_html@4.3.0", "", {}, "sha512-6vnR2Y7KxEPX1DdN59AuO98TTFtsYBqfUiUOo3NY6vyVp3o94RTawdaKtELFOKfiUD7LCEclBcpCltJM2GWuKw=="],
 
