@@ -25,6 +25,7 @@ harness = false
 [dependencies]
 addon-sdk = { path = "../addon-sdk" }
 anyhow = { workspace = true }
+serviceradar-afpacket = { path = "../afpacket" }
 async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
 crossbeam-channel = { workspace = true }
@@ -32,7 +33,6 @@ env_logger = { workspace = true }
 etherparse = { workspace = true }
 log = { workspace = true }
 nix = { workspace = true, features = ["signal", "process", "user"] }
-pcap = { workspace = true, optional = true }
 phf = { workspace = true }
 prometheus = { workspace = true }
 prost = { workspace = true }
@@ -64,7 +64,6 @@ quick-xml = { workspace = true }
 
 [features]
 default = []
-remote-capture = ["dep:pcap"]
 
 [target.'cfg(target_os = "linux")'.dependencies]
 aya = { version = "0.13.1", features = ["tokio"] }

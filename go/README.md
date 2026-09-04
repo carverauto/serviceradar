@@ -44,7 +44,7 @@ published SDK. The root module does not require that SDK at all, so merging them
 and each plugin's own dependencies into the root `go.sum` for code that only ever compiles to
 `wasip1`.
 
-All nine require `github.com/carverauto/serviceradar-sdk-go v0.3.0`.
+All nine require `github.com/carverauto/serviceradar-sdk-go v0.3.1`.
 `v0.2.0` is the previous GitHub release and does not include later SDK
 contracts. Keep the plugins on one path and one version.
 
