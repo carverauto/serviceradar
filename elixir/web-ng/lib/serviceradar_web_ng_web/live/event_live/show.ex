@@ -317,6 +317,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
                 metric_panels={@anomaly_metric_panels}
                 metrics_loading={@anomaly_metrics_loading}
                 metrics_error={@anomaly_metrics_error}
+                timezone={@current_scope.user.timezone}
               />
               <.capacity_forecast_summary
                 :if={capacity_forecast_event?(@event)}
@@ -1573,6 +1574,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   attr(:metric_panels, :list, default: [])
   attr(:metrics_loading, :boolean, default: false)
   attr(:metrics_error, :any, default: nil)
+  attr(:timezone, :string, required: true)
 
   defp anomaly_detection_summary(assigns) do
     finding = anomaly_detection_payload(assigns.event)
@@ -1691,7 +1693,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
               module={panel.plugin}
               id={"event-anomaly-metric-#{idx}"}
               title={Map.get(panel, :title) || "Metric series"}
-              panel_assigns={anomaly_panel_assigns(panel, @chart_focus, @current_scope.user.timezone)}
+              panel_assigns={anomaly_panel_assigns(panel, @chart_focus, @timezone)}
             />
           <% end %>
         </div>
