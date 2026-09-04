@@ -854,3 +854,28 @@ fn sweep_groups_example_partition_and_enabled() {
         "expected name asc ordering, got: {sql}"
     );
 }
+
+#[test]
+fn sweep_profiles_example_name_and_enabled() {
+    let query = "in:sweep_profiles name:default enabled:true admin_only:false";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SweepProfiles));
+    let (sql, _) =
+        sweep_profiles::to_sql_and_params(&plan).expect("should build sweep_profiles SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"sweep_profiles\""),
+        "expected query against sweep_profiles, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"sweep_profiles\".\"name\" =")
+            && lower.contains("\"sweep_profiles\".\"enabled\" =")
+            && lower.contains("\"sweep_profiles\".\"admin_only\" ="),
+        "expected name + enabled + admin_only filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"sweep_profiles\".\"name\" asc"),
+        "expected default name asc ordering, got: {sql}"
+    );
+}

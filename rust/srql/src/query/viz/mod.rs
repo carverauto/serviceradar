@@ -175,6 +175,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::ThreatIntelMatches => network::threat_intel_matches(),
         Entity::SourceFactDisagreements => inventory::source_fact_disagreements(),
         Entity::SweepGroups => inventory::sweep_groups(),
+        Entity::SweepProfiles => inventory::sweep_profiles(),
         Entity::MergeAudit => inventory::merge_audit(),
         Entity::DeviceRevivalAudit => inventory::device_revival_audit(),
         Entity::DeviceIdentifiers => inventory::device_identifiers(),

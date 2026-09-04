@@ -427,3 +427,62 @@ impl SweepGroupRow {
         })
     }
 }
+
+/// Sweep scan profile: port list, timing, and banner-grab settings that a
+/// sweep group can reference (issue 4167).
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::sweep_profiles, check_for_backend(diesel::pg::Pg))]
+pub struct SweepProfileRow {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub ports: Vec<i64>,
+    pub sweep_modes: Vec<String>,
+    pub concurrency: i64,
+    pub timeout: String,
+    pub icmp_settings: DbJson,
+    pub tcp_settings: DbJson,
+    pub admin_only: bool,
+    pub enabled: bool,
+    pub inserted_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub banner_grab: DbJson,
+}
+
+impl SweepProfileRow {
+    pub fn into_json(self) -> serde_json::Value {
+        // Only `enabled`/`protocols` are surfaced from the embedded
+        // banner-grab map: the write path is gated on
+        // `networks.sweeps.banner_grab`, this read path is not, and the
+        // remaining tuning knobs (timeouts, concurrency, rate limits, queue
+        // sizes) carry no diagnostic value for issue 4167.
+        let banner_grab_enabled = self
+            .banner_grab
+            .get("enabled")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let banner_grab_protocols = self
+            .banner_grab
+            .get("protocols")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!([]));
+
+        serde_json::json!({
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "ports": self.ports,
+            "sweep_modes": self.sweep_modes,
+            "concurrency": self.concurrency,
+            "timeout": self.timeout,
+            "icmp_settings": serde_json::Value::from(self.icmp_settings),
+            "tcp_settings": serde_json::Value::from(self.tcp_settings),
+            "admin_only": self.admin_only,
+            "enabled": self.enabled,
+            "inserted_at": self.inserted_at,
+            "updated_at": self.updated_at,
+            "banner_grab_enabled": banner_grab_enabled,
+            "banner_grab_protocols": banner_grab_protocols,
+        })
+    }
+}

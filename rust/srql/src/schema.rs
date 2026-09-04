@@ -934,4 +934,28 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    /// Sweep scan profiles: port lists, timing, and banner-grab settings
+    /// applied to sweep groups (issue 4167).
+    sweep_profiles (id) {
+        id -> Uuid,
+        name -> Text,
+        description -> Nullable<Text>,
+        ports -> Array<Int8>,
+        sweep_modes -> Array<Text>,
+        concurrency -> Int8,
+        timeout -> Text,
+        icmp_settings -> Jsonb,
+        tcp_settings -> Jsonb,
+        admin_only -> Bool,
+        enabled -> Bool,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        banner_grab -> Jsonb,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(device_identifiers, ocsf_devices);

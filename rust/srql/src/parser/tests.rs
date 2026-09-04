@@ -439,6 +439,22 @@ fn parses_sweep_groups_aliases() {
 }
 
 #[test]
+fn parses_sweep_profiles_aliases() {
+    for alias in [
+        "sweep_profiles",
+        "sweep_profile",
+        "scanner_profiles",
+        "scanner_profile",
+    ] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepProfiles),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
 fn parses_security_signal_entity_aliases() {
     for raw in [
         "security_findings",

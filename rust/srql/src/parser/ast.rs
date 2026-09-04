@@ -80,6 +80,7 @@ pub enum Entity {
     EndpointVulnerabilityMatches,
     ThreatIntelMatches,
     SweepGroups,
+    SweepProfiles,
 }
 
 #[derive(Debug, Clone, Serialize)]

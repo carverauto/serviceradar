@@ -455,6 +455,34 @@ pub(super) fn sweep_groups() -> VizMeta {
     }
 }
 
+pub(super) fn sweep_profiles() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("name", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("ports", ColumnType::IntArray, None),
+            col("sweep_modes", ColumnType::TextArray, None),
+            col("concurrency", ColumnType::Int, None),
+            col("timeout", ColumnType::Text, None),
+            col("admin_only", ColumnType::Bool, None),
+            col("enabled", ColumnType::Bool, None),
+            col("banner_grab_enabled", ColumnType::Bool, None),
+            col("banner_grab_protocols", ColumnType::TextArray, None),
+            col(
+                "updated_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 fn virtualization_table_meta(columns: Vec<ColumnMeta>) -> VizMeta {
     VizMeta {
         columns,
