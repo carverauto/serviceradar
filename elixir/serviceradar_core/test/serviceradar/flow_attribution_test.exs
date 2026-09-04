@@ -910,10 +910,10 @@ defmodule ServiceRadar.FlowAttributionTest do
       time: now,
       proto: 17,
       protocol_name: "udp",
-      src_ip: "10.0.2.12",
-      src_port: 38_573,
-      dst_ip: "152.117.116.178",
-      dst_port: 161
+      src_ip: "203.0.113.17",
+      src_port: 61_001,
+      dst_ip: "198.51.100.123",
+      dst_port: 4_321
     })
 
     seed_attribution(%{
@@ -921,20 +921,60 @@ defmodule ServiceRadar.FlowAttributionTest do
       agent_id: agent_id,
       observed_at: DateTime.add(now, -2, :second),
       proto: 17,
-      local_ip: "10.0.2.12",
-      local_port: 20_509,
-      remote_ip: "152.117.116.178",
-      remote_port: 161,
-      pid: 72_101,
-      comm: "serviceradar-agent"
+      local_ip: "203.0.113.17",
+      local_port: 61_002,
+      remote_ip: "198.51.100.123",
+      remote_port: 4_321,
+      pid: 42_002,
+      comm: "udp-port-client"
     })
 
     assert {:ok, 1} = FlowAttribution.correlate()
 
     payload = attributed_payload(partition)
     assert payload["event_type"] == "attributed_flow"
-    assert payload["attribution"]["pid"] == 72_101
-    assert payload["attribution"]["comm"] == "serviceradar-agent"
+    assert payload["agent_id"] == agent_id
+    assert payload["attribution"]["pid"] == 42_002
+    assert payload["attribution"]["comm"] == "udp-port-client"
+  end
+
+  test "correlates coalesced UDP attribution with a zero local port", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    seed_flow(%{
+      partition: partition,
+      time: now,
+      proto: 17,
+      protocol_name: "udp",
+      src_ip: "192.0.2.44",
+      src_port: 49_152,
+      dst_ip: "198.51.100.53",
+      dst_port: 8_125
+    })
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -2, :second),
+      proto: 17,
+      local_ip: "192.0.2.44",
+      local_port: 0,
+      remote_ip: "198.51.100.53",
+      remote_port: 8_125,
+      pid: 42_001,
+      comm: "udp-zero-client"
+    })
+
+    assert {:ok, 1} = FlowAttribution.correlate()
+
+    payload = attributed_payload(partition)
+    assert payload["event_type"] == "attributed_flow"
+    assert payload["agent_id"] == agent_id
+    assert payload["attribution"]["pid"] == 42_001
+    assert payload["attribution"]["comm"] == "udp-zero-client"
   end
 
   test "keeps exact UDP attribution ahead of relaxed service-port candidates", %{

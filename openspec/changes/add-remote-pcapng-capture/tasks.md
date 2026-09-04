@@ -89,39 +89,51 @@ rather than a silent one here.
 
 ## S1. netprobe AF_PACKET capture engine
 
+**Checkbox state was reset by the 2026-09-03 history rewrite and has been
+re-derived from the code, not restored from memory.** What is ticked below was
+verified present on staging.
+
+**1.0 (pre-open) is DONE and now LIVE.** The descriptors are opened during the
+privileged phase and the ordering is enforced by the type system:
+`open_capture_handles` yields a `PreOpenedCaptures` token that
+`drop_privileges` consumes, so a startup path that drops before opening does
+not compile -- verified by writing that mistake and getting 2 compile errors.
+Both branches in `main.rs` go through it; previously neither did, so the path
+existed and never ran.
+
 The packet path. No IPC surface yet -- provable on its own.
 
-- [ ] 1.1 Open an `AF_PACKET`/`SOCK_RAW` socket bound to the target
+- [x] 1.1 Open an `AF_PACKET`/`SOCK_RAW` socket bound to the target
   ifindex with a TPACKET_V3 `PACKET_MMAP` ring, sized per session.
-- [ ] 1.2 Attach the session filter with `SO_ATTACH_FILTER` before the
+- [x] 1.2 Attach the session filter with `SO_ATTACH_FILTER` before the
   first frame can be queued, so no unfiltered packet is ever ringed.
-- [ ] 1.3 Write the tcpdump-subset to cBPF compiler for the UI/API
+- [x] 1.3 Write the tcpdump-subset to cBPF compiler for the UI/API
   string form: the grammar in `design.md` D2. Unsupported constructs
   return a structured error naming the construct. It MUST NOT widen a
   filter it did not fully understand.
-- [ ] 1.4 Accept a pre-compiled cBPF program (the RPCAP form) and attach
+- [x] 1.4 Accept a pre-compiled cBPF program (the RPCAP form) and attach
   it unchanged, bounding program length and refusing oversized programs
   before attach. The kernel validates the program on attach.
-- [ ] 1.5 Write the pcapng encoder: Section Header Block, one Interface
+- [x] 1.5 Write the pcapng encoder: Section Header Block, one Interface
   Description Block per captured interface with `if_tsresol = 9`, then
   Enhanced Packet Blocks carrying the ring's `tp_sec`/`tp_nsec`. (22.4)
-- [ ] 1.6 Record frame direction from `PACKET_OUTGOING` so a session can
+- [x] 1.6 Record frame direction from `PACKET_OUTGOING` so a session can
   request ingress, egress or both.
 - [ ] 1.7 Enforce `duration_s` and `byte_cap`; emit a terminal
   `PcapngBlock` with `final = true` and the termination reason on either
   cap or on graceful stop. (22.5)
-- [ ] 1.8 Poll `PACKET_STATISTICS` for `tp_drops`; expose it as a
+- [x] 1.8 Poll `PACKET_STATISTICS` for `tp_drops`; expose it as a
   netprobe metric and carry it in the terminal block. (`design.md` D7)
-- [ ] 1.9 Unit tests: the compiler accepts every documented form and
+- [x] 1.9 Unit tests: the compiler accepts every documented form and
   rejects `tcp[13] & 2 != 0`, `vlan` and a bare typo with a named error;
   encoder output parses under an independent pcapng reader; both caps
   fire.
-- [ ] 1.10 Integration test on loopback: generate real ICMP, capture with
+- [x] 1.10 Integration test on loopback: generate real ICMP, capture with
   `filter = "icmp"`, decode with an independent reader, assert the ICMP
   packets are present **and** that a non-matching flow on the same
   interface is absent. Both halves matter -- the second is what proves
   the filter does anything.
-- [ ] 1.11 Differential test: compile a set of filter strings with the
+- [x] 1.11 Differential test: compile a set of filter strings with the
   compiler from 1.3 and assert the resulting cBPF selects the same
   packets as libpcap's own compilation of the same string, over a fixture
   pcap. This is the only real check that the subset means what tcpdump

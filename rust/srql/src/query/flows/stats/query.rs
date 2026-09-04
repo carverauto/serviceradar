@@ -5,20 +5,7 @@ pub(in crate::query::flows::stats) async fn execute_stats(
     conn: &mut AsyncPgConnection,
     plan: &QueryPlan,
 ) -> Result<Vec<Value>> {
-    let spec = parse_stats_expr(
-        plan.stats
-            .as_ref()
-            .ok_or_else(|| {
-                ServiceError::InvalidRequest("stats expression required for aggregation".into())
-            })?
-            .as_raw(),
-    )?;
-
-    let grouped = build_grouped_stats_query(plan, &spec)?;
-    let mut query = diesel::sql_query(&grouped.sql).into_boxed();
-    for bind in &grouped.binds {
-        query = bind.apply(query);
-    }
+    let query = execution_query(plan)?;
 
     let rows: Vec<FlowStatsPayload> = query
         .load::<FlowStatsPayload>(conn)
@@ -29,6 +16,35 @@ pub(in crate::query::flows::stats) async fn execute_stats(
         .into_iter()
         .filter_map(|row| row.result.map(serde_json::Value::from))
         .collect())
+}
+
+/// The Diesel query `execute_stats` loads, built from the same rewrite the translate
+/// path uses.
+///
+/// `build_grouped_stats_query` emits `?` placeholders -- the time-range clause is
+/// literally `f.time >= ?::timestamptz`. Diesel does NOT translate `?` for Postgres:
+/// `SqlQuery::walk_ast` pushes the text verbatim and each bind then appends its own
+/// `$n`. `?` is also the jsonb-exists operator, so the failure is a syntax error at the
+/// NEXT token, naming neither the placeholder nor the column. This path used to build
+/// the SQL a second time and skip the rewrite, which no test calling
+/// `to_sql_and_params_stats` could see -- that path was never broken.
+pub(in crate::query) fn execution_query(
+    plan: &QueryPlan,
+) -> Result<BoxedSqlQuery<'static, Pg, SqlQuery>> {
+    let spec = parse_stats_expr(
+        plan.stats
+            .as_ref()
+            .ok_or_else(|| {
+                ServiceError::InvalidRequest("stats expression required for aggregation".into())
+            })?
+            .as_raw(),
+    )?;
+    let grouped = build_grouped_stats_query(plan, &spec)?;
+    let mut query = diesel::sql_query(rewrite_placeholders(&grouped.sql)).into_boxed();
+    for bind in &grouped.binds {
+        query = bind.apply(query);
+    }
+    Ok(query)
 }
 
 pub(in crate::query::flows::stats) fn to_sql_and_params_stats(

@@ -192,16 +192,21 @@
       a cross-partition identifier collision, a corroborated and a historical
       MAC on one device, and a blocked five-device component.
 - [x] 11.2 Add the five entities to `integration_tests/srql/tests/comprehensive_queries.rs`.
-- [ ] 11.3 Run the guarded database lifecycle per the `srql-fixtures-db-tests`
+- [x] 11.3 Run the guarded database lifecycle per the `srql-fixtures-db-tests`
       skill: sweep, prepare template, migrate, provision, test, teardown. Always
       pass `--nocache_test_results`; always run `teardown_db` after a red shard.
-      **NOT DONE.** `//integration_tests/srql:srql_comprehensive_test` needs the
-      CI fixture flow (`SERVICERADAR_ENV=ci`, the secret env, and a
-      `prepare_template` preflight that mutates the SHARED template database),
-      which should not be driven from a workstation. Instead the generated SQL
-      was executed by hand against a disposable database loaded with this
-      change's own fixtures -- that caught the merge-chain double-counting. The
-      Bazel lane still has to run in CI on the PR.
+      **Run in CI, not from a workstation.** The lifecycle needs the CI fixture
+      flow (`SERVICERADAR_ENV=ci`, the secret env, and a `prepare_template`
+      preflight that mutates the SHARED template database), so driving it from a
+      developer machine would have mutated a resource other branches depend on.
+      BazelCI ran it on the PR and all three lanes passed
+      (invocation `8c5050e2`): `srql_api_test`, `srql_comprehensive_test` and
+      `srql_device_grouped_stats_test`.
+
+      Locally, the generated SQL was instead executed by hand against a
+      disposable database loaded with this change's own fixtures. That was not a
+      substitute for the lane, but it is what caught the merge-chain
+      double-counting, which the fixtures alone would not have surfaced.
 - [x] 11.4 `cargo fmt` + `cargo clippy` on `rust/srql`;
       `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix` and
       `--project elixir/serviceradar_core`.

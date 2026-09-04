@@ -515,20 +515,15 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "remote-capture")]
     #[test]
     fn classifies_each_phase2_protocol_from_pcap_fixtures() {
-        use std::io::Write;
-
         let pipeline = DpiPipeline::phase2();
 
         for case in dpi_cases() {
-            let mut file = tempfile::NamedTempFile::new().unwrap();
-            file.write_all(&fixture_pcap(&[case.packet])).unwrap();
-
-            let mut capture = pcap::Capture::from_file(file.path()).unwrap();
-            let packet = capture.next_packet().unwrap();
-            let events = pipeline.analyze_packet("eth0", 456, packet.data);
+            let written = fixture_pcap(&[case.packet]);
+            let packets = read_fixture_pcap(&written);
+            assert_eq!(packets.len(), 1, "one packet per fixture");
+            let events = pipeline.analyze_packet("eth0", 456, &packets[0]);
 
             assert_eq!(
                 events.len(),
@@ -807,7 +802,6 @@ mod tests {
         packet
     }
 
-    #[cfg(feature = "remote-capture")]
     fn fixture_pcap(packets: &[Vec<u8>]) -> Vec<u8> {
         let mut pcap = Vec::new();
         pcap.extend_from_slice(&0xa1b2c3d4u32.to_le_bytes());
@@ -827,5 +821,33 @@ mod tests {
         }
 
         pcap
+    }
+
+    /// Reads back what `fixture_pcap` writes.
+    ///
+    /// Symmetric with the writer above rather than a libpcap call: the pcap
+    /// file format here is a 24-byte global header followed by a 16-byte header
+    /// per packet, so parsing it costs less than carrying a C dependency that
+    /// exists only for these fixtures.
+    fn read_fixture_pcap(bytes: &[u8]) -> Vec<Vec<u8>> {
+        assert!(bytes.len() >= 24, "pcap fixture is shorter than its header");
+        assert_eq!(
+            u32::from_le_bytes(bytes[0..4].try_into().unwrap()),
+            0xa1b2_c3d4,
+            "fixture is not a little-endian pcap"
+        );
+
+        let mut packets = Vec::new();
+        let mut offset = 24;
+        while offset + 16 <= bytes.len() {
+            let incl_len =
+                u32::from_le_bytes(bytes[offset + 8..offset + 12].try_into().unwrap()) as usize;
+            let start = offset + 16;
+            let end = start + incl_len;
+            assert!(end <= bytes.len(), "pcap record runs past the buffer");
+            packets.push(bytes[start..end].to_vec());
+            offset = end;
+        }
+        packets
     }
 }
