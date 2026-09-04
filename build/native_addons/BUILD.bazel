@@ -67,6 +67,22 @@ py_test(
 )
 
 py_test(
+    name = "netprobe_bundle_payload_test",
+    srcs = ["netprobe_bundle_payload_test.py"],
+    args = [
+        "$(rootpath :netprobe_addon_bundle.linux.amd64.tar.gz)",
+        "$(rootpath :netprobe_addon_bundle_linux_amd64_static)",
+        "$(rootpath //rust/netprobe/ebpf:netprobe_ebpf_object)",
+    ],
+    data = [
+        ":netprobe_addon_bundle.linux.amd64.tar.gz",
+        ":netprobe_addon_bundle_linux_amd64_static",
+        "//rust/netprobe/ebpf:netprobe_ebpf_object",
+    ],
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+py_test(
     name = "powerdns_bundle_manifest_files_test",
     srcs = ["powerdns_bundle_manifest_files_test.py"],
     args = [
@@ -198,6 +214,7 @@ test_suite(
         ":binary_size_test",
         ":dependency_isolation_test",
         ":inventory_consistency_test",
+        ":netprobe_bundle_payload_test",
         ":powerdns_bundle_manifest_files_test",
         ":validate_addon_manifests_test",
         "//scripts:native_addon_version_bumps_test",
