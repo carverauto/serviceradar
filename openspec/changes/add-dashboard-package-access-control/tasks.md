@@ -85,8 +85,9 @@
       do.
 - [ ] 5.2 Add the `dashboards.packages.default_visibility` deployment setting with shipped value
       `public`; read it when creating an instance.
-- [ ] 5.3 Verify on a restored copy of a real deployment's `dashboard_instances`, not a fresh test
-      database, that every previously reachable route is still reachable post-migration.
+- [ ] 5.3 Generate a wholly synthetic pre-upgrade `dashboard_instances` fixture, migrate it through
+      the guarded database lifecycle, and verify that every previously reachable synthetic route
+      remains reachable post-migration.
 - [ ] 5.4 CHANGELOG entry stating explicitly that this release changes no existing dashboard's
       audience, and that a future release will flip the shipped default.
 - [ ] 5.5 Confirm rollback: revert the release on a staging deployment and re-check that dashboards
