@@ -25,8 +25,10 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
     :ok
   end
 
-  setup context do
-    marker = "boundary-#{context.test}-#{System.unique_integer([:positive])}"
+  setup do
+    marker = "boundary-#{System.unique_integer([:positive])}"
+    on_exit(fn -> cleanup!(marker) end)
+
     system = SystemActor.system(:privilege_mutation_boundary_test)
 
     authority_profile =
@@ -36,8 +38,6 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
 
     {:ok, actor} =
       User.update_role_profile(actor, %{role_profile_id: authority_profile.id}, actor: system)
-
-    on_exit(fn -> cleanup!(marker) end)
 
     %{actor: actor, marker: marker, scope: %{user: actor}, system: system}
   end
