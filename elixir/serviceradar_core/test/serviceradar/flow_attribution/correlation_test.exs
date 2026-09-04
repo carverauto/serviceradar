@@ -35,6 +35,13 @@ defmodule ServiceRadar.FlowAttribution.CorrelationTest do
       assert sql =~ "a.remote_ip IN ('0.0.0.0', '::')"
     end
 
+    test "orders public endpoint candidates after every local strategy" do
+      sql = Correlation.correlation_sql()
+
+      assert sql =~ "3 + pe.exposure_rank AS match_rank"
+      refute sql =~ ~r/^\s*pe\.exposure_rank AS match_rank/m
+    end
+
     test "prefers container-scoped process owners when ranks tie" do
       sql = Correlation.correlation_sql()
 
