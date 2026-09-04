@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
 
   setup do
     root = Path.join(System.tmp_dir!(), "advisory-acq-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
     System.put_env("SERVICERADAR_ADVISORY_STAGING_DIR", root)
 
     on_exit(fn ->
@@ -99,6 +100,176 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
       assert_received {:download, "https://s3.example/presigned.zip", opts}
       refute Keyword.has_key?(opts, :headers)
     end
+  end
+
+  test "Ubuntu publication validators accept 0/1/5 second skew and reject missing, changed, or stale pairs" do
+    now = ~U[2026-09-02 18:10:00Z]
+
+    response = fn second, etag ->
+      %{
+        status: 200,
+        headers: %{
+          "etag" => [etag],
+          "last-modified" => ["Wed, 02 Sep 2026 18:05:0#{second} GMT"]
+        }
+      }
+    end
+
+    for skew <- [0, 1, 5] do
+      download = %{osv: response.(0, "osv"), vex: response.(skew, "vex")}
+      assert {:ok, _} = Acquisition.validate_ubuntu_publication(download, download, now)
+    end
+
+    too_wide = %{osv: response.(0, "osv"), vex: response.(6, "vex")}
+
+    assert {:error, :publication_skew} =
+             Acquisition.validate_ubuntu_publication(too_wide, too_wide, now)
+
+    changed = %{osv: response.(0, "changed"), vex: response.(1, "vex")}
+    original = %{osv: response.(0, "osv"), vex: response.(1, "vex")}
+
+    assert {:error, {:validator_changed, :osv}} =
+             Acquisition.validate_ubuntu_publication(original, changed, now)
+
+    missing = put_in(original, [:osv, :headers], %{})
+
+    assert {:error, :missing_etag} =
+             Acquisition.validate_ubuntu_publication(missing, missing, now)
+
+    missing_modified = put_in(original, [:vex, :headers], %{"etag" => ["vex"]})
+
+    assert {:error, :missing_last_modified} =
+             Acquisition.validate_ubuntu_publication(missing_modified, missing_modified, now)
+
+    changed_modified =
+      put_in(original, [:vex, :headers, "last-modified"], ["Wed, 02 Sep 2026 18:05:02 GMT"])
+
+    assert {:error, {:validator_changed, :vex}} =
+             Acquisition.validate_ubuntu_publication(original, changed_modified, now)
+
+    future = %{osv: response.(0, "osv"), vex: response.(1, "vex")}
+
+    assert {:error, :future_publication} =
+             Acquisition.validate_ubuntu_publication(
+               future,
+               future,
+               ~U[2026-09-02 17:59:59Z]
+             )
+  end
+
+  test "compact pair rejects loopback downloads and redirect responses", %{root: root} do
+    assert {:error, {:download_failed, :disallowed_host}} =
+             Acquisition.acquire_ubuntu_pair(
+               "ubuntu-osv-vex",
+               "https://127.0.0.1/osv.tar.xz",
+               "https://127.0.0.1/vex.tar.xz",
+               "pair-loopback"
+             )
+
+    refute File.exists?(Path.join([root, "ubuntu-osv-vex", "pair-loopback"]))
+
+    redirect = fn _url, _opts ->
+      {:ok, %{status: 302, resolved_url: "https://127.0.0.1/private"}}
+    end
+
+    assert {:error, {:download_failed, {:http_status, 302}}} =
+             Acquisition.acquire_ubuntu_pair(
+               "ubuntu-osv-vex",
+               "https://example.invalid/osv.tar.xz",
+               "https://example.invalid/vex.tar.xz",
+               "pair-redirect",
+               http_get: redirect
+             )
+
+    refute File.exists?(Path.join([root, "ubuntu-osv-vex", "pair-redirect"]))
+  end
+
+  test "acquires the compact pair atomically with revalidated provenance and combined cap", %{
+    root: root
+  } do
+    modified = "Wed, 02 Sep 2026 18:05:00 GMT"
+    test_pid = self()
+
+    http_get = fn url, opts ->
+      body = if String.contains?(url, "/osv/"), do: "osv-body", else: "vex-body"
+      Enum.into([body], opts[:into])
+
+      {:ok,
+       %{
+         status: 200,
+         resolved_url: url,
+         headers: %{"etag" => ["\"#{body}\""], "last-modified" => [modified]}
+       }}
+    end
+
+    http_head = fn url, opts ->
+      body = if String.contains?(url, "/osv/"), do: "osv-body", else: "vex-body"
+      send(test_pid, {:revalidated, url, opts[:headers]})
+      {:ok, %{status: 200, headers: %{"etag" => ["\"#{body}\""], "last-modified" => [modified]}}}
+    end
+
+    assert {:ok, acquired} =
+             Acquisition.acquire_ubuntu_pair(
+               "ubuntu-osv-vex",
+               "https://example.invalid/osv/feed.tar.xz",
+               "https://example.invalid/vex/feed.tar.xz",
+               "pair",
+               http_get: http_get,
+               http_head: http_head,
+               now: ~U[2026-09-02 18:05:10Z],
+               limits: %{compressed_bytes: 8},
+               combined_compressed_bytes: 16
+             )
+
+    assert acquired.artifacts.osv.etag == "\"osv-body\""
+    assert acquired.artifacts.vex.etag == "\"vex-body\""
+    assert byte_size(acquired.generation_provenance) == 64
+
+    assert acquired.generation_provenance ==
+             Acquisition.combined_generation_provenance(acquired.artifacts)
+
+    refute acquired.generation_provenance ==
+             Acquisition.combined_generation_provenance(
+               put_in(acquired.artifacts, [:osv, :final_url], "https://mirror.example/other")
+             )
+
+    refute acquired.generation_provenance ==
+             Acquisition.combined_generation_provenance(
+               update_in(acquired.artifacts, [:vex, :bytes], &(&1 + 1))
+             )
+
+    assert File.read!(acquired.osv_path) == "osv-body"
+    assert File.read!(acquired.vex_path) == "vex-body"
+    assert_received {:revalidated, _, [{"if-match", _}, {"if-unmodified-since", ^modified}]}
+
+    assert {:error, {:download_failed, {:archive_limit_exceeded, :compressed_bytes}}} =
+             Acquisition.acquire_ubuntu_pair(
+               "ubuntu-osv-vex",
+               "https://example.invalid/osv/feed.tar.xz",
+               "https://example.invalid/vex/feed.tar.xz",
+               "pair-file-too-large",
+               http_get: http_get,
+               http_head: http_head,
+               now: ~U[2026-09-02 18:05:10Z],
+               limits: %{compressed_bytes: 7}
+             )
+
+    refute File.exists?(Path.join([root, "ubuntu-osv-vex", "pair-file-too-large"]))
+    assert_received {:revalidated, _, [{"if-match", _}, {"if-unmodified-since", ^modified}]}
+
+    assert {:error, {:archive_limit_exceeded, :combined_compressed_bytes}} =
+             Acquisition.acquire_ubuntu_pair(
+               "ubuntu-osv-vex",
+               "https://example.invalid/osv/feed.tar.xz",
+               "https://example.invalid/vex/feed.tar.xz",
+               "pair-too-large",
+               http_get: http_get,
+               http_head: http_head,
+               now: ~U[2026-09-02 18:05:10Z],
+               combined_compressed_bytes: 8
+             )
+
+    refute File.exists?(Path.join([root, "ubuntu-osv-vex", "pair-too-large"]))
   end
 
   describe "download failures" do

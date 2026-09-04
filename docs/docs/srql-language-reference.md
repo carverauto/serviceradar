@@ -293,7 +293,7 @@ fields; using a field that the entity does not support returns an
 | `endpoint_packages` | `endpoint_package`, `packages`, `endpoint_inventory` | Current and historical endpoint software inventory (installed packages, CPE arrays) |
 | `vulnerability_advisories` | `advisories`, `cves`, `vulnerability_advisory` | NVD/KEV advisory catalog. Default `current:true`. |
 | `advisory_coordinates` | `advisory_cpes`, `cpe_coordinates` | Per-advisory CPE/PURL rows with version bounds. Not an alias of `cpes`. |
-| `endpoint_vulnerability_matches` | `vulnerability_matches`, `cve_matches`, `advisory_matches` | Device-scoped matcher output. Default `status:active`. |
+| `endpoint_vulnerability_assessments` | `endpoint_vulnerability_assessment`, `package_vulnerabilities`, `endpoint_vulnerability_matches`, `vulnerability_matches`, `cve_matches`, `advisory_matches` | Stable device/package/CVE assessments, including candidates and resolved history. |
 
 > The engine also exposes specialized entities — device graph (`device_graph`),
 > device updates (`device_updates`), Wi-Fi site mapping (`wifi_sites`,
@@ -327,8 +327,8 @@ subsection heading matches the `in:` name used to select the entity.
 | `first_seen` | `first_seen_time` | When the device was first added. Accepts the same window tokens as `time:` (`last_7d`, `last_30d`, `today`, `[start,end]`). This does **not** change `time:`, which still filters `last_seen_time`. |
 | `tags` | | Device tags (JSONB map). Bare `tags:<key>` tests whether the key exists; list form `tags:(a,b)` matches any of them. Sub-key form: `tags.<key>:<value>` |
 | `metadata.<key>` | | Match an arbitrary metadata key, e.g. `metadata.integration_type:armis` |
-| `cve` | `cve_id` | Device has an active vulnerability match for this CVE (EXISTS). Case-insensitive. |
-| `kev` | | Device has an active KEV match (`true`/`false`) |
+| `cve` | `cve_id` | Device has an active, confirmed, affected assessment for this CVE (EXISTS). Case-insensitive. |
+| `kev` | | Device has an active, confirmed, affected KEV assessment (`true`/`false`) |
 
 Sortable fields include `hostname`, `ip`, `first_seen` / `first_seen_time`,
 `last_seen` / `last_seen_time`, and `type_id`. There is no `cpe` filter on
@@ -772,8 +772,8 @@ Sortable fields: `timestamp`, `start_time_unix_nano`, `end_time_unix_nano`,
 | `package_manager` | `manager` | Package manager (`dpkg`, `rpm`, …) |
 | `purl_canonical` | `canonical_purl`, `purl` | Canonical PURL |
 | `cpe` | `cpes` | Installed CPE array overlap (not NVD version matching) |
-| `cve` | `cve_id` | Package has an active matcher hit for this CVE (EXISTS) |
-| `kev` | | Package has an active KEV match |
+| `cve` | `cve_id` | Package has an active, confirmed, affected assessment for this CVE on the same device (EXISTS) |
+| `kev` | | Package has an active, confirmed, affected KEV assessment on the same device |
 | `current` | | Current inventory row (`true`/`false`) |
 
 `rollup_stats:current_counts` and `rollup_stats:current_cpe_counts` read
@@ -798,6 +798,9 @@ maintained count tables, not ad hoc `GROUP BY`.
 `time:` filters `published_at`. Projection omits `raw` and
 `affected_coordinates`. `stats:count()` groups by `severity`, `kev`,
 `provider`, `feed_key`, `cve_id`. No `downsample` / `rollup_stats`.
+Positive CPE component filters must match the same coordinate row. Negated CPE
+component filters exclude an advisory when any of its coordinates matches that
+component.
 
 ### advisory_coordinates
 
@@ -815,22 +818,37 @@ maintained count tables, not ad hoc `GROUP BY`.
 value). Version-bound columns are returned; they are not evaluated against
 installed versions.
 
-### endpoint_vulnerability_matches
+### endpoint_vulnerability_assessments
 
 | Field | Aliases | Description |
 |-------|---------|-------------|
-| `device_uid` | `device_id` | Affected device |
-| `cve` | `cve_id` | Matched CVE |
-| `status` | | `active` (default) or `resolved` |
+| `device_uid` | `device_id` | Assessed device |
+| `cve` | `cve_id` | Assessed CVE |
+| `status` | | `active` or `resolved` lifecycle state |
+| `assessment` | | `confirmed` or `candidate` |
+| `disposition` | | `affected`, `fixed`, `not_affected`, `under_investigation`, or `unknown` |
+| `authority` / `freshness` | | Applicability authority and evidence freshness |
+| `authority_generation` / `authority_as_of` | | Authority audit generation and RFC 3339 as-of time; both support scalar comparisons |
+| `applicability_reason` | | Explanation for the current decision |
+| `package_name` / `installed_version` | | Assessed package and installed version |
+| `package_identity_key` / `source_scope` | | Stable logical package identity and observation scope |
+| `package_namespace` / `package_release` | `namespace`, `release`, `distro` | Provider namespace and release scope |
+| `package_purl` | `purl`, `purl_canonical` | Canonical package URL captured by the assessment |
+| `fixed_version` | | Provider fixed boundary when known |
 | `kev` | | KEV overlay |
 | `exploit_available` | | Exploit flag |
-| `cvss_score` | | CVSS from the match |
-| `cpe` | `coordinate_value` | Matched coordinate |
-| `severity` / `confidence` | | Matcher fields |
-| `epss_score` / `due_date` / `ransomware_use` | | Lifted from match metadata |
+| `cvss_score` / `severity` | | Aggregated advisory priority |
+| `cpe` | `coordinate_value` | Correlated raw match evidence, when present |
+| `advisory_ref` | | Advisory UUID resolved through correlated raw-match or normalized assertion evidence |
+| `epss_score` / `due_date` / `ransomware_use` | | Lifted from assessment metadata |
 
-`time:` filters `last_seen_at`. Default sort is KEV, exploit, CVSS, last
-seen.
+Row browsing returns confirmed, candidate, and resolved assessments unless
+explicitly filtered; it has no implicit active-only predicate. An unqualified
+assessment `stats:count()` counts those persisted audit/state rows and is not an
+exposure count. A row or count is actionable only when `status:active`,
+`assessment:confirmed`, and `disposition:affected` all hold. `time:` filters
+`last_seen_at`. Default sort puts actionable rows first, then KEV, exploit,
+CVSS, and last seen.
 
 ## Error handling
 

@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker do
 
     * keep at most one nist-nvd2 dir, and only while a load is executing
     * drop every nist-nvd2 dir when no load is executing
+    * apply the same executing-aware rule to the compact Ubuntu feed
     * age-reap tiny KEV leftovers
 
   It runs even when nist-nvd2 is disabled. The feed scheduler seeds it; the
@@ -70,17 +71,23 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker do
   Retryable/scheduled jobs do not keep a leftover — the next `do_run` starts a
   new run id after `prune_feed(keep: 0)`.
   """
-  @spec run_cleanup(keyword()) :: %{removed_dirs: non_neg_integer(), nist_keep: non_neg_integer()}
+  @spec run_cleanup(keyword()) :: %{
+          removed_dirs: non_neg_integer(),
+          nist_keep: non_neg_integer(),
+          ubuntu_keep: non_neg_integer()
+        }
   def run_cleanup(opts \\ []) do
     nist_keep = Keyword.get_lazy(opts, :nist_keep, &default_nist_keep/0)
+    ubuntu_keep = Keyword.get_lazy(opts, :ubuntu_keep, &default_ubuntu_keep/0)
 
     reap_opts =
       opts
       |> Keyword.take([:root, :now, :max_age_seconds])
       |> Keyword.put(:nist_keep, nist_keep)
+      |> Keyword.put(:ubuntu_keep, ubuntu_keep)
 
     {:ok, removed} = Staging.reap_orphans(reap_opts)
-    %{removed_dirs: removed, nist_keep: nist_keep}
+    %{removed_dirs: removed, nist_keep: nist_keep, ubuntu_keep: ubuntu_keep}
   end
 
   @doc false
@@ -95,6 +102,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker do
 
   defp default_nist_keep do
     if FeedWorker.in_flight?("nist-nvd2", states: ["executing"]), do: 1, else: 0
+  end
+
+  defp default_ubuntu_keep do
+    if FeedWorker.in_flight?("ubuntu-osv-vex", states: ["executing"]), do: 1, else: 0
   end
 
   defp schedule_next do

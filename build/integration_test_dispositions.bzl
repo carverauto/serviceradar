@@ -3,7 +3,6 @@
 # authoritative for selected-test counts. Static and executable contracts enforce both projections.
 
 ASYNC_INTEGRATION_SRCS = [
-    "test/integration/advisory_feed_loader_integration_test.exs",
     "test/integration/credential_broker_grant_lifecycle_integration_test.exs",
     "test/integration/secret_broker_audit_integration_test.exs",
     "test/serviceradar/agent_commands/status_handler_result_gate_db_test.exs",
@@ -55,7 +54,6 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/integrations/integration_source_sync_status_test.exs",
     "test/serviceradar/integrations/integration_update_run_test.exs",
     "test/serviceradar/integrations/sync_config_generator_test.exs",
-    "test/serviceradar/inventory/advisory_feeds/feed_definition_seeder_test.exs",
     "test/serviceradar/inventory/agent_link_repair_worker_test.exs",
     "test/serviceradar/inventory/availability_source_profile_materializer_test.exs",
     "test/serviceradar/inventory/bumblebee_ingestor_test.exs",
@@ -67,6 +65,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/inventory/device_soft_delete_test.exs",
     "test/serviceradar/inventory/endpoint_inventory_fleet_ordinal_test.exs",
     "test/serviceradar/inventory/endpoint_inventory_retention_test.exs",
+    "test/serviceradar/inventory/endpoint_vulnerability_assessment_identity_migration_db_test.exs",
     "test/serviceradar/inventory/hypervisor_enrichment_ingestor_db_test.exs",
     "test/serviceradar/inventory/identity/identity_revision_sites_test.exs",
     "test/serviceradar/inventory/identity/merge_identity_revision_test.exs",
@@ -140,6 +139,8 @@ ASYNC_INTEGRATION_SRCS = [
 ]
 
 SERIAL_INTEGRATION_MODULE_COUNTS = {
+    "test/integration/advisory_feed_loader_integration_test.exs": 1,
+    "test/integration/advisory_feed_loader_products_integration_test.exs": 1,
     "test/integration/credential_event_writer_resolution_integration_test.exs": 1,
     "test/integration/netflow_ingestion_integration_test.exs": 1,
     "test/integration/proxmox_api_smoke_integration_test.exs": 1,
@@ -198,12 +199,15 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/integrations/armis_dire_e2e_test.exs": 1,
     "test/serviceradar/integrations/composite_northbound_values_test.exs": 1,
     "test/serviceradar/inventory/advisory_feeds/acquisition_test.exs": 1,
+    "test/serviceradar/inventory/advisory_feeds/feed_definition_seeder_test.exs": 1,
     "test/serviceradar/inventory/advisory_feeds/feed_worker_scheduling_test.exs": 1,
     "test/serviceradar/inventory/bumblebee_catalog_refresh_worker_test.exs": 1,
     "test/serviceradar/inventory/device_identifier_cache_invalidation_test.exs": 1,
     "test/serviceradar/inventory/device_identifier_gc_worker_test.exs": 1,
     "test/serviceradar/inventory/endpoint_inventory_ingestor_queue_test.exs": 1,
     "test/serviceradar/inventory/endpoint_inventory_ingestor_test.exs": 1,
+    "test/serviceradar/inventory/endpoint_vulnerability_assessment_matcher_test.exs": 1,
+    "test/serviceradar/inventory/endpoint_vulnerability_consumers_db_test.exs": 1,
     "test/serviceradar/inventory/endpoint_vulnerability_matcher_test.exs": 1,
     "test/serviceradar/inventory/identity/fence_test.exs": 1,
     "test/serviceradar/inventory/identity/identity_revision_test.exs": 1,
@@ -315,6 +319,8 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
 }
 
 SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
+    "test/integration/advisory_feed_loader_integration_test.exs": 24,
+    "test/integration/advisory_feed_loader_products_integration_test.exs": 11,
     "test/integration/credential_event_writer_resolution_integration_test.exs": 4,
     "test/integration/netflow_ingestion_integration_test.exs": 2,
     "test/integration/proxmox_api_smoke_integration_test.exs": 1,
@@ -360,8 +366,8 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/edge/remote_access_ssh_certificates_test.exs": 5,
     "test/serviceradar/edge/workers/provision_agent_worker_test.exs": 12,
     "test/serviceradar/event_writer/device_correlation_cache_test.exs": 5,
-    "test/serviceradar/event_writer/processors/analytics_signals_process_batch_db_test.exs": 3,
-    "test/serviceradar/event_writer/processors/analytics_signals_test.exs": 54,
+    "test/serviceradar/event_writer/processors/analytics_signals_process_batch_db_test.exs": 6,
+    "test/serviceradar/event_writer/processors/analytics_signals_test.exs": 56,
     "test/serviceradar/event_writer/processors/anomaly_episode_registry_db_test.exs": 5,
     "test/serviceradar/event_writer/processors/falco_events_integration_test.exs": 2,
     "test/serviceradar/event_writer/processors/trivy_reports_integration_test.exs": 4,
@@ -373,13 +379,16 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/integrations/armis_dire_e2e_test.exs": 2,
     "test/serviceradar/integrations/composite_northbound_values_test.exs": 10,
     "test/serviceradar/inventory/advisory_feeds/acquisition_test.exs": 1,
+    "test/serviceradar/inventory/advisory_feeds/feed_definition_seeder_test.exs": 12,
     "test/serviceradar/inventory/advisory_feeds/feed_worker_scheduling_test.exs": 2,
     "test/serviceradar/inventory/bumblebee_catalog_refresh_worker_test.exs": 3,
     "test/serviceradar/inventory/device_identifier_cache_invalidation_test.exs": 2,
     "test/serviceradar/inventory/device_identifier_gc_worker_test.exs": 4,
     "test/serviceradar/inventory/endpoint_inventory_ingestor_queue_test.exs": 11,
     "test/serviceradar/inventory/endpoint_inventory_ingestor_test.exs": 27,
-    "test/serviceradar/inventory/endpoint_vulnerability_matcher_test.exs": 4,
+    "test/serviceradar/inventory/endpoint_vulnerability_assessment_matcher_test.exs": 22,
+    "test/serviceradar/inventory/endpoint_vulnerability_consumers_db_test.exs": 2,
+    "test/serviceradar/inventory/endpoint_vulnerability_matcher_test.exs": 13,
     "test/serviceradar/inventory/identity/fence_test.exs": 11,
     "test/serviceradar/inventory/identity/identity_revision_test.exs": 7,
     "test/serviceradar/inventory/identity/reconciliation_run_test.exs": 6,

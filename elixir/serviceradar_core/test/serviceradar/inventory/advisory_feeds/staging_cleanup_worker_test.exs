@@ -34,6 +34,23 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorkerTest do
     assert File.exists?(newer.run_dir)
   end
 
+  test "run_cleanup applies the same executing-aware bound to Ubuntu", %{root: root} do
+    {:ok, older} = Staging.prepare_run("ubuntu-osv-vex", "older", root)
+    {:ok, newer} = Staging.prepare_run("ubuntu-osv-vex", "newer", root)
+    File.touch!(older.run_dir, System.system_time(:second) - 60)
+
+    assert %{removed_dirs: removed, ubuntu_keep: 1} =
+             StagingCleanupWorker.run_cleanup(
+               root: root,
+               nist_keep: 0,
+               ubuntu_keep: 1
+             )
+
+    assert removed >= 1
+    refute File.exists?(older.run_dir)
+    assert File.exists?(newer.run_dir)
+  end
+
   test "reschedule_seconds is at least one minute" do
     assert StagingCleanupWorker.reschedule_seconds() >= 60
   end

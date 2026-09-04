@@ -2,6 +2,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuleMatcherTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Observability.RuleSeeder
+  alias ServiceRadar.Observability.StatefulAlertEngine.Record
   alias ServiceRadar.Observability.StatefulAlertEngine.RuleMatcher
 
   defp seeded_rule(name) do
@@ -57,6 +58,33 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuleMatcherTest do
     }
   end
 
+  defp vulnerability_assessment_row(overrides \\ %{}) do
+    attributes =
+      Map.merge(
+        %{
+          "signal_type" => "inventory",
+          "event_type" => "vulnerability_assessment",
+          "assessment_status" => "active",
+          "assessment" => "confirmed",
+          "disposition" => "affected",
+          "finding_status" => "open",
+          "cve_id" => "CVE-2099-4251",
+          "package" => %{"identity_key" => "host:starling-fetch"}
+        },
+        overrides
+      )
+
+    %{
+      id: "20d58f80-e788-4eed-876d-6dfb79fc9b41",
+      class_uid: 2002,
+      log_name: "signals.analytics.inventory.vulnerability_assessment",
+      severity_id: 4,
+      device: %{"uid" => "sr:demo-device"},
+      unmapped: attributes,
+      metadata: %{"signal_type" => "inventory", "event_type" => "vulnerability_assessment"}
+    }
+  end
+
   describe "seeded anomaly rule template" do
     test "matches a v2 anomaly_open finding" do
       rule = seeded_rule("causal_prediction_health_finding")
@@ -104,6 +132,60 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuleMatcherTest do
       assert RuleMatcher.rule_recovers_event?(capacity_finding_row("inactive"), rule)
       assert RuleMatcher.rule_recovers_event?(capacity_finding_row("skipped"), rule)
       refute RuleMatcher.rule_matches_event?(capacity_finding_row("inactive"), rule)
+    end
+  end
+
+  describe "seeded endpoint vulnerability rule template" do
+    test "matches only active confirmed affected assessment findings" do
+      rule = seeded_rule("endpoint_inventory_vulnerability")
+
+      assert RuleMatcher.rule_matches_event?(vulnerability_assessment_row(), rule)
+
+      for override <- [
+            %{"assessment" => "candidate"},
+            %{"disposition" => "fixed"},
+            %{"disposition" => "not_affected"},
+            %{"assessment_status" => "resolved"},
+            %{"finding_status" => "resolved"}
+          ] do
+        refute RuleMatcher.rule_matches_event?(vulnerability_assessment_row(override), rule)
+      end
+    end
+
+    test "recovers on the stable assessment finding's resolved transition" do
+      rule = seeded_rule("endpoint_inventory_vulnerability")
+
+      resolved =
+        vulnerability_assessment_row(%{
+          "assessment_status" => "resolved",
+          "disposition" => "fixed",
+          "finding_status" => "resolved"
+        })
+
+      assert RuleMatcher.rule_recovers_event?(resolved, rule)
+      refute RuleMatcher.rule_matches_event?(resolved, rule)
+    end
+
+    test "groups each device, package identity, and CVE independently" do
+      seeded =
+        Enum.find(
+          RuleSeeder.default_stateful_rules(),
+          &(&1[:name] == "endpoint_inventory_vulnerability")
+        )
+
+      first = vulnerability_assessment_row()
+      second = vulnerability_assessment_row(%{"cve_id" => "CVE-2099-4252"})
+
+      third =
+        vulnerability_assessment_row(%{
+          "package" => %{"identity_key" => "host:moonbeam-parser"}
+        })
+
+      assert {:ok, first_key, _} = Record.build_group(seeded.group_by, first)
+      assert {:ok, second_key, _} = Record.build_group(seeded.group_by, second)
+      assert {:ok, third_key, _} = Record.build_group(seeded.group_by, third)
+
+      assert MapSet.size(MapSet.new([first_key, second_key, third_key])) == 3
     end
   end
 end

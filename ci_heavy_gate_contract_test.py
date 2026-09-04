@@ -119,6 +119,7 @@ SERIAL_REASONS = {
     "materialized_view",
     "multi_connection",
     "oban_global",
+    "shared_global_rows",
     "truncate",
     "unboxed",
     "unmanaged_child",

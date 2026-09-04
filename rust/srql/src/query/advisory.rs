@@ -1,6 +1,6 @@
 //! Shared SQL helpers for advisory catalog, CPE coordinate, and match entities.
 
-use super::{BindParam, QueryPlan, bind_sql_param};
+use super::{bind_sql_param, BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -14,8 +14,6 @@ use diesel::sql_types::Jsonb;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
 use uuid::Uuid;
-
-pub(super) const ACTIVE_MATCH_STATUS: &str = "active";
 
 #[derive(Debug, QueryableByName)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
@@ -39,11 +37,12 @@ pub(super) async fn execute_json(
     conn: &mut AsyncPgConnection,
     built: BuiltSql,
 ) -> Result<Vec<Value>> {
-    // BoxedSqlQuery sends SQL to Postgres verbatim. `?` is the jsonb exists
-    // operator, so `a.cve_id = ? AND a.current = TRUE` is a syntax error at AND.
-    let sql = rewrite_placeholders(&built.sql);
-    let mut query = sql_query(sql).into_boxed::<Pg>();
-    for bind in built.binds {
+    // BoxedSqlQuery sends SQL to Postgres verbatim. Rewrite the internal `?`
+    // placeholders before execution; otherwise Postgres parses them as the
+    // jsonb exists operator.
+    let (sql, binds) = to_sql_and_params(built);
+    let mut query = sql_query(&sql).into_boxed::<Pg>();
+    for bind in binds {
         query = bind_sql_param(query, bind)?;
     }
     let rows: Vec<JsonPayload> = query
@@ -93,6 +92,11 @@ pub(super) fn parse_bool(raw: &str) -> Result<bool> {
 pub(super) fn parse_f64(raw: &str) -> Result<f64> {
     raw.parse::<f64>()
         .map_err(|_| ServiceError::InvalidRequest(format!("expected numeric filter value '{raw}'")))
+}
+
+pub(super) fn parse_i64(raw: &str) -> Result<i64> {
+    raw.parse::<i64>()
+        .map_err(|_| ServiceError::InvalidRequest(format!("expected integer filter value '{raw}'")))
 }
 
 pub(super) fn parse_uuid(raw: &str) -> Result<Uuid> {
@@ -176,21 +180,45 @@ pub(super) fn is_selective_coordinate_query(filters: &[Filter]) -> bool {
     let mut has_product = false;
     for filter in filters {
         match filter.field.as_str() {
-            "cve" | "cve_id" | "advisory_ref" => return true,
-            "value" | "cpe"
-                if matches!(
-                    filter.op,
-                    FilterOp::Eq | FilterOp::In | FilterOp::Like | FilterOp::NotLike
-                ) =>
+            "cve" | "cve_id"
+                if has_positive_exact_value(filter) || has_selective_like_pattern(filter) =>
             {
                 return true;
             }
-            "cpe_vendor" if matches!(filter.op, FilterOp::Eq | FilterOp::In) => has_vendor = true,
-            "cpe_product" if matches!(filter.op, FilterOp::Eq | FilterOp::In) => has_product = true,
+            "advisory_ref" if has_positive_exact_value(filter) => return true,
+            "value" | "cpe"
+                if has_positive_exact_value(filter) || has_selective_like_pattern(filter) =>
+            {
+                return true;
+            }
+            "cpe_vendor" if has_positive_exact_value(filter) => has_vendor = true,
+            "cpe_product" if has_positive_exact_value(filter) => has_product = true,
             _ => {}
         }
     }
     has_vendor && has_product
+}
+
+fn has_positive_exact_value(filter: &Filter) -> bool {
+    match (&filter.op, &filter.value) {
+        (FilterOp::Eq, FilterValue::Scalar(value)) => !value.trim().is_empty(),
+        (FilterOp::In, FilterValue::List(values)) => !values.is_empty(),
+        _ => false,
+    }
+}
+
+fn has_selective_like_pattern(filter: &Filter) -> bool {
+    if !matches!(filter.op, FilterOp::Like) {
+        return false;
+    }
+
+    let Ok(pattern) = filter.value.as_scalar() else {
+        return false;
+    };
+
+    pattern
+        .split(['%', '_'])
+        .any(|literal| literal.chars().count() >= 3)
 }
 
 pub(super) fn text_condition(
@@ -298,6 +326,65 @@ pub(super) fn numeric_condition(
     Ok(format!("{column} {operator} ?"))
 }
 
+pub(super) fn integer_condition(
+    column: &str,
+    filter: &Filter,
+    binds: &mut Vec<BindParam>,
+) -> Result<String> {
+    let operator = match filter.op {
+        FilterOp::Eq => "=",
+        FilterOp::NotEq => "<>",
+        FilterOp::Gt => ">",
+        FilterOp::Gte => ">=",
+        FilterOp::Lt => "<",
+        FilterOp::Lte => "<=",
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{column} requires a scalar comparison"
+            )));
+        }
+    };
+    let value = parse_i64(filter.value.as_scalar()?)?;
+    binds.push(BindParam::Int(value));
+    Ok(if matches!(filter.op, FilterOp::NotEq) {
+        format!("({column} IS NULL OR {column} {operator} ?)")
+    } else {
+        format!("{column} {operator} ?")
+    })
+}
+
+pub(super) fn timestamptz_condition(
+    column: &str,
+    filter: &Filter,
+    binds: &mut Vec<BindParam>,
+) -> Result<String> {
+    let operator = match filter.op {
+        FilterOp::Eq => "=",
+        FilterOp::NotEq => "<>",
+        FilterOp::Gt => ">",
+        FilterOp::Gte => ">=",
+        FilterOp::Lt => "<",
+        FilterOp::Lte => "<=",
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{column} requires a scalar comparison"
+            )));
+        }
+    };
+    let raw = filter.value.as_scalar()?;
+    let value = chrono::DateTime::parse_from_rfc3339(raw)
+        .map(|value| value.with_timezone(&chrono::Utc))
+        .map_err(|_| {
+            ServiceError::InvalidRequest(format!("expected RFC3339 timestamp filter value '{raw}'"))
+        })?;
+    binds.push(BindParam::timestamptz(value));
+    Ok(if matches!(filter.op, FilterOp::NotEq) {
+        format!("({column} IS NULL OR {column} {operator} ?)")
+    } else {
+        format!("{column} {operator} ?")
+    })
+}
+
 pub(super) fn uuid_condition(
     column: &str,
     filter: &Filter,
@@ -313,7 +400,7 @@ pub(super) fn uuid_condition(
     Ok(if matches!(filter.op, FilterOp::Eq) {
         format!("{column} = ?")
     } else {
-        format!("{column} <> ?")
+        format!("({column} IS NULL OR {column} <> ?)")
     })
 }
 
@@ -361,6 +448,18 @@ pub(super) fn stats_select(alias: &str, groups: &[(&str, &str)]) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!("SELECT jsonb_build_object({pairs}, '{alias}', COUNT(*)) AS payload")
+}
+
+pub(super) fn stats_order_sql(groups: &[(&str, &str)]) -> String {
+    if groups.is_empty() {
+        return " ORDER BY COUNT(*) DESC".into();
+    }
+    let group_order = groups
+        .iter()
+        .map(|(_, expr)| format!("{expr} ASC NULLS LAST"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(" ORDER BY COUNT(*) DESC, {group_order}")
 }
 
 pub(super) fn rewrite_placeholders(sql: &str) -> String {
@@ -414,6 +513,26 @@ mod tests {
             field: "cve".into(),
             op: FilterOp::Eq,
             value: FilterValue::Scalar("CVE-2024-1234".into()),
+        }]));
+        assert!(!is_selective_coordinate_query(&[Filter {
+            field: "cve".into(),
+            op: FilterOp::NotEq,
+            value: FilterValue::Scalar("CVE-2024-1234".into()),
+        }]));
+        assert!(!is_selective_coordinate_query(&[Filter {
+            field: "cpe".into(),
+            op: FilterOp::NotLike,
+            value: FilterValue::Scalar("%nginx%".into()),
+        }]));
+        assert!(!is_selective_coordinate_query(&[Filter {
+            field: "cpe".into(),
+            op: FilterOp::Like,
+            value: FilterValue::Scalar("%".into()),
+        }]));
+        assert!(is_selective_coordinate_query(&[Filter {
+            field: "cpe".into(),
+            op: FilterOp::Like,
+            value: FilterValue::Scalar("%nginx%".into()),
         }]));
         assert!(!is_selective_coordinate_query(&[Filter {
             field: "cpe_vendor".into(),

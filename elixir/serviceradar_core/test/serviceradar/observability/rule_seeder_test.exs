@@ -44,9 +44,29 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert {:ok, [rule]} = Ash.read(query, actor: actor)
     assert rule.enabled
     assert rule.signal == :event
-    assert rule.match["subject_prefix"] == "signals.analytics.inventory"
-    assert rule.match["attribute_equals"] == %{"signal_type" => "inventory"}
-    assert rule.group_by == ["device"]
+
+    assert rule.match["subject_prefix"] ==
+             "signals.analytics.inventory.vulnerability_assessment"
+
+    assert rule.match["attribute_equals"] == %{
+             "signal_type" => "inventory",
+             "event_type" => "vulnerability_assessment",
+             "assessment_status" => "active",
+             "assessment" => "confirmed",
+             "disposition" => "affected",
+             "finding_status" => "open"
+           }
+
+    assert rule.match["recovery"] == %{
+             "subject_prefix" => "signals.analytics.inventory.vulnerability_assessment",
+             "attribute_equals" => %{
+               "signal_type" => "inventory",
+               "event_type" => "vulnerability_assessment",
+               "finding_status" => "resolved"
+             }
+           }
+
+    assert rule.group_by == ["device", "package.identity_key", "cve_id"]
     assert rule.threshold == 1
     assert rule.event["log_name"] == "alert.security.endpoint_inventory.vulnerability"
     assert rule.alert["severity"] == "critical"

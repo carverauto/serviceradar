@@ -21,7 +21,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Kev do
   alias ServiceRadar.Inventory.AdvisoryFeeds.Cwes
 
   @doc """
-  Map one KEV entry to `%{advisory: map, coordinates: [map]}`.
+  Map one KEV entry to the loader record contract.
 
   `opts` must carry `:provider` and `:feed_key`. Returns `:skip` for entries with
   no usable identifier.
@@ -66,7 +66,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Kev do
         {:ok,
          %{
            advisory: advisory,
-           coordinates: vendor_product_coordinates(provider, feed_key, vendor, product)
+           coordinates: vendor_product_coordinates(provider, feed_key, vendor, product),
+           assertions: []
          }}
 
       _ ->

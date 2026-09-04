@@ -3,7 +3,12 @@ useDefault = true
 
 [allowlist]
 description = "Allow deterministic test UUIDs and Cargo's checksum-indexed upstream vendor snapshots"
-regexes = ['''018f3f56-[0-9a-f]{4}-7[0-9a-f]{3}-8[0-9a-f]{3}-123456789abc''']
+regexes = [
+  '''018f3f56-[0-9a-f]{4}-7[0-9a-f]{3}-8[0-9a-f]{3}-123456789abc''',
+  # Deterministic UUIDv8 lookup key produced from the synthetic Starforge
+  # fixture. This exact value is asserted by the parser contract test.
+  '''65882bc3-9ac8-8cd5-a979-958b54c21406''',
+]
 # Both Cargo vendor trees.
 #
 # crate_mirror holds .crate archives; crates/ held the extracted cargo-vendor
@@ -18,4 +23,8 @@ regexes = ['''018f3f56-[0-9a-f]{4}-7[0-9a-f]{3}-8[0-9a-f]{3}-123456789abc''']
 paths = [
   '''^third_party/crate_mirror/''',
   '''^third_party/crates/''',
+  # Golden parser output. Its lookup and assertion keys are deterministic
+  # UUID/SHA-256 identifiers derived from the adjacent synthetic CVE fixtures,
+  # not credentials.
+  '''^elixir/serviceradar_core/test/support/fixtures/advisory_feeds/ubuntu/projected_record_v2\.json$''',
 ]
