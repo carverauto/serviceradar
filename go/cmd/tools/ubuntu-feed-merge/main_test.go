@@ -841,6 +841,20 @@ func TestPrepareEnforcesArchiveMemberFileTotalAndDictionaryCaps(t *testing.T) {
 	}
 }
 
+func TestDefaultDecodedRunCapCoversMaximumAcceptedSpool(t *testing.T) {
+	lim := defaultLimits()
+	framingBytesPerRecord := int64(runHeaderBytes) + lim.pathBytes
+	if framingBytesPerRecord <= 0 || lim.totalBytes < 0 || lim.members < 0 ||
+		lim.members > (math.MaxInt64-lim.totalBytes)/framingBytesPerRecord {
+		t.Fatal("default decoded run bound overflows int64")
+	}
+
+	want := lim.totalBytes + lim.members*framingBytesPerRecord
+	if lim.decodedBytes != want {
+		t.Fatalf("default decoded run cap = %d bytes, want structural maximum %d", lim.decodedBytes, want)
+	}
+}
+
 func TestPrepareTokenPreflightRejectsOSVAffectedCapBeforeSpooling(t *testing.T) {
 	cve := "CVE-2099-1711"
 	dir := t.TempDir()

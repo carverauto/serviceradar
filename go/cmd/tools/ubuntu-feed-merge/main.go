@@ -40,6 +40,16 @@ const (
 	legacyTarRegularType       byte = 0
 )
 
+const (
+	defaultMemberCap     int64 = 250_000
+	defaultPathBytesCap  int64 = 1024
+	defaultTotalBytesCap int64 = 40 << 30
+	// A decoded run can contain every accepted payload byte plus one frame and
+	// maximum-length CVE key per member. This streaming cap does not reserve RAM.
+	defaultDecodedBytesCap = defaultTotalBytesCap +
+		defaultMemberCap*(runHeaderBytes+defaultPathBytesCap)
+)
+
 var (
 	osvPath = regexp.MustCompile(`^osv/cve/([0-9]{4})/UBUNTU-(CVE-([0-9]{4})-[0-9]{4,})\.json$`)
 	vexPath = regexp.MustCompile(`^vex/cve/([0-9]{4})/(CVE-([0-9]{4})-[0-9]{4,})\.json$`)
@@ -68,15 +78,15 @@ type limits struct {
 
 func defaultLimits() limits {
 	return limits{
-		members:       250_000,
-		pathBytes:     1024,
+		members:       defaultMemberCap,
+		pathBytes:     defaultPathBytesCap,
 		fileBytes:     64 << 20,
-		totalBytes:    40 << 30,
+		totalBytes:    defaultTotalBytesCap,
 		archiveBytes:  256 << 20,
 		workBytes:     1 << 30,
 		dictBytes:     64 << 20,
 		chunkBytes:    64 << 20,
-		decodedBytes:  1 << 30,
+		decodedBytes:  defaultDecodedBytesCap,
 		encodedBytes:  1 << 30,
 		decoderBytes:  16 << 20,
 		residentBytes: 256 << 20,
