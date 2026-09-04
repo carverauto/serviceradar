@@ -1,0 +1,12 @@
+[package]
+name = "serviceradar-afpacket"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "serviceradar_afpacket"
+path = "src/lib.rs"
+
+[dependencies]
+libc = { workspace = true }
+thiserror = { workspace = true }

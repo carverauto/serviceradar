@@ -6307,6 +6307,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "serviceradar-afpacket"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "serviceradar-anomaly-addon"
 version = "0.3.2"
 dependencies = [
