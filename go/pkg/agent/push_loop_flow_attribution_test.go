@@ -17,13 +17,19 @@
 package agent
 
 import (
+	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/agentgateway"
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -265,6 +271,123 @@ func TestFlowAttributionDeliveryQueueAcknowledgesOnlyDeliveredPrefix(t *testing.
 	}
 }
 
+func TestPushFlowAttributionRetriesExactNegativeAcknowledgedPrefixThenClearsOnce(t *testing.T) {
+	resetAgentFlowAttributionEventCounters()
+	t.Cleanup(resetAgentFlowAttributionEventCounters)
+
+	events := sampleFlowAttributionEvents(2)
+	pending := &flowAttributionPendingBatch{
+		events:     events,
+		batchStart: time.Unix(0, 1).UTC(),
+		batchEnd:   time.Unix(0, 2).UTC(),
+	}
+
+	var attempts [][]uint32
+	loop := &PushLoop{
+		server:                  &Server{config: &ServerConfig{AgentID: "agent-1", Partition: "default", HostIP: "192.0.2.10"}},
+		logger:                  logger.NewTestLogger(),
+		flowAttributionDelivery: flowAttributionDeliveryQueue{pending: pending},
+		flowAttributionStreamStatus: func(
+			_ context.Context,
+			chunks []*proto.GatewayStatusChunk,
+		) (*proto.GatewayStatusResponse, error) {
+			batch := decodeFlowAttributionBatchFromChunk(t, chunks[0])
+			pids := make([]uint32, 0, len(batch.Events))
+			for _, event := range batch.Events {
+				pids = append(pids, event.GetPid())
+			}
+			attempts = append(attempts, pids)
+			return &proto.GatewayStatusResponse{Received: len(attempts) > 1}, nil
+		},
+	}
+
+	if loop.pushFlowAttribution(t.Context()) {
+		t.Fatal("negative acknowledgement must retain the flow prefix")
+	}
+	if got := AgentFlowAttributionEventsForwardedTotal(); got != 0 {
+		t.Fatalf("forwarded total after negative acknowledgement = %d, want 0", got)
+	}
+	if !loop.pushFlowAttribution(t.Context()) {
+		t.Fatal("later positive acknowledgement must clear the retained flow prefix")
+	}
+	if got := AgentFlowAttributionEventsForwardedTotal(); got != 2 {
+		t.Fatalf("forwarded total after positive acknowledgement = %d, want 2", got)
+	}
+
+	want := []uint32{1000, 1001}
+	if len(attempts) != 2 || !slices.Equal(attempts[0], want) || !slices.Equal(attempts[1], want) {
+		t.Fatalf("flow attempts = %#v, want exact prefix twice", attempts)
+	}
+	if loop.flowAttributionDelivery.pending != nil {
+		t.Fatal("positive acknowledgement did not clear the flow prefix")
+	}
+}
+
+func TestPushFlowAttributionPoisonDropsInvalidWindowAndLaterEventsProgress(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantReason string
+	}{
+		{name: "local chunk excess", err: agentgateway.ErrStreamStatusChunkTooLarge, wantReason: "chunk_too_large"},
+		{name: "local stream excess", err: agentgateway.ErrStreamStatusBudgetExceeded, wantReason: "stream_budget_exceeded"},
+		{name: "remote invalid argument", err: status.Error(codes.InvalidArgument, "invalid flow payload"), wantReason: "invalid_argument"},
+		{name: "remote payload too large", err: status.Error(codes.ResourceExhausted, "payload_too_large"), wantReason: "payload_too_large"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetAgentRetainedPoisonDropCounters()
+			t.Cleanup(resetAgentRetainedPoisonDropCounters)
+
+			pending := &flowAttributionPendingBatch{
+				events:     sampleFlowAttributionEvents(2),
+				batchStart: time.Unix(0, 1).UTC(),
+				batchEnd:   time.Unix(0, 2).UTC(),
+			}
+			attempt := 0
+			loop := &PushLoop{
+				server:                  &Server{config: &ServerConfig{AgentID: "agent-1", Partition: "default", HostIP: "192.0.2.10"}},
+				logger:                  logger.NewTestLogger(),
+				flowAttributionDelivery: flowAttributionDeliveryQueue{pending: pending},
+				flowAttributionStreamStatus: func(
+					_ context.Context,
+					_ []*proto.GatewayStatusChunk,
+				) (*proto.GatewayStatusResponse, error) {
+					attempt++
+					if attempt == 1 {
+						return nil, tt.err
+					}
+					return &proto.GatewayStatusResponse{Received: true}, nil
+				},
+			}
+
+			if loop.pushFlowAttribution(t.Context()) {
+				t.Fatal("poison drop must not count as receipt")
+			}
+			items, bytes := AgentRetainedPoisonDropTotals("flow-attribution", tt.wantReason)
+			if items != 2 || bytes == 0 {
+				t.Fatalf("poison totals = (items=%d, bytes=%d), want (2, >0)", items, bytes)
+			}
+			if loop.flowAttributionDelivery.pending != nil {
+				t.Fatal("terminal poison window remained pending")
+			}
+
+			loop.flowAttributionDelivery.pending = &flowAttributionPendingBatch{
+				events:     sampleFlowAttributionEvents(1),
+				batchStart: time.Unix(0, 3).UTC(),
+				batchEnd:   time.Unix(0, 4).UTC(),
+			}
+			if !loop.pushFlowAttribution(t.Context()) {
+				t.Fatal("later valid flow work must progress")
+			}
+			if attempt != 2 {
+				t.Fatalf("stream attempts = %d, want 2 (poison window must not replay)", attempt)
+			}
+		})
+	}
+}
+
 func TestFlowAttributionDeliveryWindowPrefixRetryDoesNotRepeatDroppedBaseline(t *testing.T) {
 	largeArg := strings.Repeat("x", 4*1024*1024)
 	events := []*netprobepb.FlowAttributionEvent{
@@ -482,6 +605,72 @@ func TestFlowAttributionOversizedPoisonEventIsQuarantinedAndLaterEventsProgress(
 	})
 	if next == nil || next.events[0].GetPid() != 3003 {
 		t.Fatalf("subsequent batch did not progress after poison event: %+v", next)
+	}
+}
+
+func TestPushFlowAttributionLocallyOversizedEventRecordsBoundedPoisonTelemetry(t *testing.T) {
+	resetAgentFlowAttributionEventCounters()
+	resetAgentRetainedPoisonDropCounters()
+	t.Cleanup(resetAgentFlowAttributionEventCounters)
+	t.Cleanup(resetAgentRetainedPoisonDropCounters)
+
+	poison := &netprobepb.FlowAttributionEvent{
+		Pid:             4001,
+		Comm:            "poison",
+		RedactedCmdline: []string{strings.Repeat("x", 7*1024*1024)},
+	}
+	pending := &flowAttributionPendingBatch{
+		events:              []*netprobepb.FlowAttributionEvent{poison},
+		batchStart:          time.Unix(0, 1).UTC(),
+		batchEnd:            time.Unix(0, 2).UTC(),
+		dropped:             3,
+		dropBaselinePending: true,
+	}
+	expectedBytes := gproto.Size(&netprobepb.FlowAttributionEventBatch{
+		Events:             []*netprobepb.FlowAttributionEvent{poison},
+		BatchStartUnixNano: pending.batchStart.UnixNano(),
+		BatchEndUnixNano:   pending.batchEnd.UnixNano(),
+		DroppedSinceLast:   pending.dropped,
+	})
+
+	streamAttempts := 0
+	loop := &PushLoop{
+		server:                  &Server{config: &ServerConfig{AgentID: "agent-1", Partition: "default", HostIP: "192.0.2.10"}},
+		logger:                  logger.NewTestLogger(),
+		flowAttributionDelivery: flowAttributionDeliveryQueue{pending: pending},
+		flowAttributionStreamStatus: func(
+			_ context.Context,
+			_ []*proto.GatewayStatusChunk,
+		) (*proto.GatewayStatusResponse, error) {
+			streamAttempts++
+			return &proto.GatewayStatusResponse{Received: true}, nil
+		},
+	}
+
+	if loop.pushFlowAttribution(t.Context()) {
+		t.Fatal("locally rejected poison event must not count as receipt")
+	}
+	items, bytes := AgentRetainedPoisonDropTotals("flow-attribution", "payload_too_large")
+	if items != 1 || bytes != uint64(expectedBytes) {
+		t.Fatalf("local poison totals = (items=%d, bytes=%d), want (1, %d)", items, bytes, expectedBytes)
+	}
+	if streamAttempts != 0 {
+		t.Fatalf("oversized event reached gateway %d times, want 0", streamAttempts)
+	}
+	if loop.flowAttributionDelivery.pending != nil {
+		t.Fatal("locally invalid event remained pending")
+	}
+
+	loop.flowAttributionDelivery.pending = &flowAttributionPendingBatch{
+		events:     sampleFlowAttributionEvents(1),
+		batchStart: time.Unix(0, 3).UTC(),
+		batchEnd:   time.Unix(0, 4).UTC(),
+	}
+	if !loop.pushFlowAttribution(t.Context()) {
+		t.Fatal("later valid flow event must progress")
+	}
+	if streamAttempts != 1 {
+		t.Fatalf("valid gateway attempts = %d, want 1", streamAttempts)
 	}
 }
 

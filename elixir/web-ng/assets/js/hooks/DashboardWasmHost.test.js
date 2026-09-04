@@ -161,20 +161,20 @@ describe("DashboardWasmHost browser-module API", () => {
       api.srql.build({
         entity: "wifi_sites",
         searchField: "site_name",
-        search: "Denver International",
+        search: "Example International",
         include: {site_code: ["ZZC", "ZZA"]},
         exclude: {status: ["down"]},
         where: ["latitude:>=20"],
         limit: 500,
       }),
-    ).toEqual("in:wifi_sites site_name:%Denver\\ International% site_code:(ZZC,ZZA) !status:(down) latitude:>=20 limit:500")
+    ).toEqual("in:wifi_sites site_name:%Example\\ International% site_code:(ZZC,ZZA) !status:(down) latitude:>=20 limit:500")
   })
 
   test("enforces navigation capabilities before opening ServiceRadar routes", () => {
     const hook = hookContext()
     const denied = hook.browserModuleApi(baseHost())
 
-    expect(() => denied.openDevice("sr:sample den 1")).toThrow("dashboard capability is not approved: navigation.open")
+    expect(() => denied.openDevice("sr:sample zzc 1")).toThrow("dashboard capability is not approved: navigation.open")
 
     const allowed = hook.browserModuleApi(
       baseHost({
@@ -185,9 +185,9 @@ describe("DashboardWasmHost browser-module API", () => {
       }),
     )
 
-    allowed.openDevice("sr:sample den 1")
+    allowed.openDevice("sr:sample zzc 1")
 
-    expect(window.location.assign).toHaveBeenCalledWith("/devices/sr%3Asample%20den%201")
+    expect(window.location.assign).toHaveBeenCalledWith("/devices/sr%3Asample%20zzc%201")
   })
 
   test("exposes Arrow IPC frame bytes and rejects JSON frames as Arrow", () => {
@@ -227,7 +227,7 @@ describe("DashboardWasmHost browser-module API", () => {
       instance: {
         settings: {
           preferences: {density: "comfortable"},
-          saved_queries: [{id: "den", name: "ZZC", query: "in:wifi_sites site_code:(ZZC) limit:500"}],
+          saved_queries: [{id: "zzc", name: "ZZC", query: "in:wifi_sites site_code:(ZZC) limit:500"}],
         },
       },
       package: {
@@ -238,7 +238,7 @@ describe("DashboardWasmHost browser-module API", () => {
     const api = hook.browserModuleApi(host)
 
     expect(api.preferences.get("density")).toEqual("comfortable")
-    expect(api.savedQueries.list()).toEqual([{id: "den", name: "ZZC", query: "in:wifi_sites site_code:(ZZC) limit:500"}])
+    expect(api.savedQueries.list()).toEqual([{id: "zzc", name: "ZZC", query: "in:wifi_sites site_code:(ZZC) limit:500"}])
     expect(api.preferences.set("density", "compact")).toEqual({density: "compact"})
     expect(hook.pushEvent).toHaveBeenCalledWith("dashboard_preference_update", {key: "density", value: "compact"})
   })

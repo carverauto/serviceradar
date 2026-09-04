@@ -159,12 +159,13 @@ type PushLoop struct {
 	ephemeralHelpersMu        sync.Mutex
 	availableEphemeralHelpers map[string]string // ephemeral-helper addon id -> resolved staged binary path
 
-	workloadIdentityMu       sync.Mutex
-	lastWorkloadIdentityFile workloadIdentityFileSignature
-	flowAttributionDelivery  flowAttributionDeliveryQueue
-	pluginResultDeliveryMu   sync.Mutex
-	pendingPluginResults     []PluginResult
-	pluginResultStreamStatus pluginResultStatusStreamer
+	workloadIdentityMu          sync.Mutex
+	lastWorkloadIdentityFile    workloadIdentityFileSignature
+	flowAttributionDelivery     flowAttributionDeliveryQueue
+	pluginResultDeliveryMu      sync.Mutex
+	pendingPluginResults        []PluginResult
+	pluginResultStreamStatus    pluginResultStatusStreamer
+	flowAttributionStreamStatus pluginResultStatusStreamer
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, lastAttemptedConfigVersion, started
 	cancelMu sync.Mutex

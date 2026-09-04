@@ -64,6 +64,30 @@ grpcurl -cert /etc/serviceradar/certs/svid.pem \
 
 For detailed edge agent documentation, see [Edge Model](./edge-model.md).
 
+### Agent-gateway best-effort buffer loss
+
+The agent-gateway keeps a bounded, in-memory buffer for best-effort status
+updates while core is temporarily unavailable. The buffer is not durable: a
+graceful restart, crash, or node loss can discard entries that were still
+queued. Flow-attribution updates and agents that negotiate retained plugin
+result delivery remain owned by the agent until acknowledged and do not enter
+this buffer.
+
+To identify a possible loss interval, compare the last observed
+`serviceradar_agent_gateway_results_buffer_depth` and
+`serviceradar_agent_gateway_results_buffer_bytes` values with the restart time
+from `kube_pod_container_status_restarts_total` (or the equivalent process
+manager restart signal). A non-zero last depth before a restart means buffered
+best-effort entries may have been lost. The stopped process cannot emit an
+exact shutdown-loss count, so do not interpret a later zero depth as proof that
+the earlier entries were flushed.
+
+Overflow is separately observable through
+`serviceradar_agent_gateway_results_buffer_dropped_count` and
+`serviceradar_agent_gateway_results_buffer_dropped_bytes`, labeled by bounded
+reason, source, and service type. Those counters describe entries evicted while
+the process was running; they do not include unobservable restart loss.
+
 ## Core Services
 
 - **Check pod health**: `kubectl get pods -n <namespace>` (or the equivalent Docker Compose status). Pods stuck in `CrashLoopBackOff` usually point to missing secrets, PVC mounts, or bad environment variables.

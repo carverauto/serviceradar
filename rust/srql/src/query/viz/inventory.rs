@@ -125,6 +125,141 @@ pub(super) fn source_fact_disagreements() -> VizMeta {
     }
 }
 
+pub(super) fn merge_audit() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("from_device_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("to_device_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("reason", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("source", ColumnType::Text, None),
+            col("depth", ColumnType::Int, None),
+            col("direction", ColumnType::Text, None),
+            col(
+                "created_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("details", ColumnType::Jsonb, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn device_revival_audit() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("device_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("previous_deleted_by", ColumnType::Text, None),
+            col(
+                "previous_deleted_reason",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col("revived_by_application", ColumnType::Text, None),
+            col("previous_deleted_at", ColumnType::Timestamptz, None),
+            col(
+                "revived_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn device_identifiers() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("device_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col(
+                "identifier_type",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col("identifier_value", ColumnType::Text, None),
+            col("partition", ColumnType::Text, None),
+            col("confidence", ColumnType::Text, None),
+            col("matches_current_facts", ColumnType::Bool, None),
+            col("owner_deleted", ColumnType::Bool, None),
+            col("owner_hostname", ColumnType::Text, None),
+            col(
+                "last_seen",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn identity_reconciliation_runs() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("run_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("status", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("merges", ColumnType::Int, None),
+            col("errors", ColumnType::Int, None),
+            col("blocked_components", ColumnType::Int, None),
+            col("largest_blocked_component", ColumnType::Int, None),
+            col("max_merges_configured", ColumnType::Int, None),
+            col("merge_cap_reached", ColumnType::Bool, None),
+            col("duration_ms", ColumnType::Int, None),
+            col(
+                "started_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn identity_evidence_edges() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("device_a", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("device_b", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col(
+                "identifier_type",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col("identifier_value", ColumnType::Text, None),
+            col("depth", ColumnType::Int, None),
+            col("direct", ColumnType::Bool, None),
+            col("cross_partition", ColumnType::Bool, None),
+            col("partition_a", ColumnType::Text, None),
+            col("partition_b", ColumnType::Text, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 pub(super) fn devices() -> VizMeta {
     VizMeta {
         columns: vec![

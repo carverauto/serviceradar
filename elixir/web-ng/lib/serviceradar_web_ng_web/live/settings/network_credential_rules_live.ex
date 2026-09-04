@@ -948,7 +948,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     integration_profile = Map.get(assigns.integration_profiles, assigns.provider_value)
     auth_descriptor = credential_method_descriptor(integration_profile, assigns.auth_method_value)
     rule_controls = profile_rule_controls(integration_profile)
-    tls_policies = descriptor_values(auth_descriptor, "tls_policies")
+    tls_policies = effective_tls_policies(auth_descriptor)
     ssh_host_key_policies = descriptor_values(auth_descriptor, "ssh_host_key_policies")
 
     assigns =
@@ -971,9 +971,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       |> assign(:show_ssh_policy?, ssh_host_key_policies != [])
       |> assign(:show_auto_discovery?, Map.get(rule_controls, "auto_discovery_enabled", false))
       |> assign(:show_controller_host?, Map.get(rule_controls, "controller_host", false))
+      |> assign(:controller_host_label, controller_host_label(integration_profile))
       |> assign(:show_allowed_ports?, Map.get(rule_controls, "allowed_ports", false))
       |> assign(:show_target_query?, Map.get(rule_controls, "target_query", false))
-      |> assign(:show_tls_policy?, Map.get(rule_controls, "transport", false) and tls_policies != [])
+      |> assign(
+        :show_tls_policy?,
+        Map.get(rule_controls, "transport", false) and ssh_host_key_policies == []
+      )
       |> assign(:provider_tls_policies, tls_policies)
       |> assign(:provider_ssh_host_key_policies, ssh_host_key_policies)
       |> assign(
@@ -1167,14 +1171,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             <div :if={@show_controller_host?} class="space-y-2 md:col-span-2">
               <.input
                 field={@form[:controller_host]}
-                label="UniFi OS / Protect controller"
-                placeholder="192.168.1.1 or unifi.lan"
+                label={@controller_host_label}
+                placeholder="controller.example.com or 10.0.0.1"
               />
               <p class="text-xs text-sr-muted">
-                This is the UniFi OS / Dream Machine address that serves Protect, not a camera
-                IP. Hostname, IP, or <span class="font-mono">https://192.168.1.1</span> all work;
-                ServiceRadar strips the URL down to the host. Leave blank only when the target
-                query already resolves that controller device.
+                The management host this integration authenticates against, not one of the
+                devices behind it. Hostname, IP, or <span class="font-mono">https://10.0.0.1</span>
+                all work; ServiceRadar strips the URL down to the host. Leave blank only when
+                the target query already resolves that host.
               </p>
             </div>
             <.input
@@ -1758,7 +1762,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
              "scope type"
            ),
          :ok <- validate_provider_scope(provider, scope_type, integration_profiles),
-         {:ok, tls_policy} <- enum_param(params, "tls_policy", @tls_policies, "TLS policy"),
+         {:ok, tls_policy} <- tls_policy_param(params),
          {:ok, ssh_policy} <-
            ssh_host_key_policy_param(
              params,
@@ -2162,13 +2166,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp ssh_host_key_policy_param(_params, _descriptor), do: {:ok, :known_hosts}
 
+  # Mirrors ssh_host_key_policy_param/2: an absent param falls back to the
+  # resource default rather than failing the save, so a provider whose form
+  # does not render the control can still be saved. Only a param that is
+  # present and unrecognized is an error.
+  defp tls_policy_param(params) do
+    case params |> Map.get("tls_policy", "") |> to_string() |> String.trim() do
+      "" -> {:ok, :verify}
+      _ -> enum_param(params, "tls_policy", @tls_policies, "TLS policy")
+    end
+  end
+
   defp validate_descriptor_transport(profile, auth_method, tls_policy, ssh_policy) do
     method = credential_method_descriptor(profile, auth_method)
-    tls_policies = descriptor_values(method, "tls_policies", Enum.map(@tls_policies, &to_string/1))
+    tls_policies = effective_tls_policies(method)
     ssh_policies = descriptor_values(method, "ssh_host_key_policies")
 
     cond do
-      tls_policies != [] and to_string(tls_policy) not in tls_policies ->
+      to_string(tls_policy) not in tls_policies ->
         {:error, "Selected authentication method does not allow this TLS policy"}
 
       ssh_policies != [] and to_string(ssh_policy) not in ssh_policies ->
@@ -2535,8 +2550,33 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp descriptor_values(%{} = descriptor, key, default), do: Map.get(descriptor, key, default)
   defp descriptor_values(_descriptor, _key, default), do: default
 
+  # IntegrationDescriptor always materializes "tls_policies", normalizing an
+  # absent manifest key to []. Core reads that as "any policy permitted"
+  # (CredentialIntegration.allowed?/2), so the form must too: an empty list
+  # narrows nothing and every policy stays on offer.
+  #
+  # An empty list therefore no longer distinguishes an SSH transport, which has
+  # no TLS policy to choose. show_tls_policy? tests ssh_host_key_policies for
+  # that instead.
+  defp effective_tls_policies(descriptor) do
+    case descriptor_values(descriptor, "tls_policies") do
+      [] -> Enum.map(@tls_policies, &to_string/1)
+      policies -> policies
+    end
+  end
+
   defp profile_rule_controls(%{} = profile), do: profile["rule_controls"] || %{}
   defp profile_rule_controls(_profile), do: %{}
+
+  # "controller_host" is a generic rule control any profile may enable, and
+  # IntegrationDescriptor has no slot for per-control copy (@allowed_rule_control_keys
+  # is a closed allowlist whose values must be booleans). The descriptor label is the
+  # only provider-specific text available, so it names the host and everything else
+  # stays provider-neutral; per-provider guidance belongs in the profile banner and
+  # the integration's docs page.
+  defp controller_host_label(%{"label" => label}) when is_binary(label) and label != "", do: "#{label} controller host"
+
+  defp controller_host_label(_profile), do: "Controller host"
 
   defp scheduled_integration_profile?(profile) when is_map(profile),
     do: get_in(profile, ["provisioning", "mode"]) == "producer_schedule"

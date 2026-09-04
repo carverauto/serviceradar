@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
+  alias ServiceRadar.Inventory.Identity.ReconciliationRun
   alias ServiceRadar.Inventory.Identity.Resolver
 
   require Ash.Query
@@ -23,20 +24,84 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   @doc """
   Reconcile duplicate devices by shared strong identifiers.
 
-  Returns stats for observability and logging.
+  Returns stats for observability and logging, and persists one
+  `ReconciliationRun` record per run -- including when the run raises. Before
+  that record existed the stats map was logged and dropped, so "did this run
+  stop at its cap" and "did this run fail at all" were unanswerable afterwards
+  (GitHub #4229).
   """
   @spec reconcile_duplicates(keyword()) :: {:ok, map()} | {:error, term()}
   def reconcile_duplicates(opts \\ []) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:identity_reconciliation))
     # Keyword.get/3 does not apply the default when the key is present as nil.
     # The AshOban job always passes `:max_merges` from schedule.args, which is
-    # nil unless an operator set it — and `halted? or ...` then raises
+    # nil unless an operator set it -- and `halted? or ...` then raises
     # BadBooleanError after the first merge component (prod 2026-08-26).
     max_merges = normalize_max_merges(Keyword.get(opts, :max_merges))
-    started_at = System.monotonic_time(:millisecond)
+
+    context = %{
+      run_id: Ash.UUID.generate(),
+      started_at: DateTime.utc_now(),
+      started_monotonic: System.monotonic_time(:millisecond),
+      max_merges: max_merges,
+      trigger: normalize_trigger(Keyword.get(opts, :trigger)),
+      job_schedule_id: Keyword.get(opts, :job_schedule_id)
+    }
 
     Logger.info("Device identity reconciliation started")
 
+    case run_stages(context, actor) do
+      {:ok, acc} ->
+        stats = build_run_stats(acc, context)
+        Logger.info("Device identity reconciliation completed: #{inspect(stats)}")
+        record_run(context, :completed, stats, acc, nil)
+        {:ok, stats}
+
+      {:error, acc, error} ->
+        stats = build_run_stats(acc, context)
+        Logger.warning("Device identity reconciliation failed: #{inspect(error)}")
+        record_run(context, :failed, stats, acc, error)
+        {:error, error}
+    end
+  end
+
+  # Stages are threaded rather than written as one straight-line body so that a
+  # raise partway through still carries the counters established before it. A
+  # function-level `rescue` cannot see variables bound inside the body; it CAN
+  # see the ones bound in the head, which is why the accumulator is a parameter.
+  defp run_stages(context, actor) do
+    {:ok, initial_accumulator()}
+    |> run_stage(&collect_duplicate_candidates/1)
+    |> run_stage(&classify_and_report/1)
+    |> run_stage(&merge_stage(&1, actor, context.max_merges))
+  end
+
+  defp run_stage({:error, _acc, _error} = failure, _fun), do: failure
+
+  defp run_stage({:ok, acc}, fun) do
+    {:ok, fun.(acc)}
+  rescue
+    error -> {:error, acc, error}
+  end
+
+  @doc false
+  def initial_accumulator do
+    %{
+      duplicate_identifier_count: 0,
+      duplicate_components: 0,
+      mergeable_components: 0,
+      blocked_components: 0,
+      blocked_devices: 0,
+      largest_blocked_component: 0,
+      merges: 0,
+      errors: 0,
+      blocked_component_devices: [],
+      identifier_duplicates: [],
+      components: []
+    }
+  end
+
+  defp collect_duplicate_candidates(acc) do
     # Bounded: the database aggregates duplicate identifier groups (values
     # mapped to more than one device); the full identifier table is never
     # loaded into memory. Bare-IP overlap is NOT merge evidence (policy:
@@ -52,34 +117,126 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
         column_mac_groups() ++
         interface_mac_chassis_groups()
 
-    %{mergeable: components, blocked: blocked_components} =
-      classify_duplicate_components(identifier_duplicates)
-
-    report_blocked_components(blocked_components)
-
-    {merge_count, error_count} = merge_components(components, actor, max_merges)
-
-    duration_ms = System.monotonic_time(:millisecond) - started_at
-
-    stats = %{
-      duplicate_identifier_count: length(identifier_duplicates),
-      duplicate_components: length(components) + length(blocked_components),
-      mergeable_components: length(components),
-      blocked_components: length(blocked_components),
-      blocked_devices: Enum.sum(Enum.map(blocked_components, &length(&1.device_ids))),
-      merges: merge_count,
-      errors: error_count,
-      duration_ms: duration_ms
+    %{
+      acc
+      | identifier_duplicates: identifier_duplicates,
+        duplicate_identifier_count: length(identifier_duplicates)
     }
-
-    Logger.info("Device identity reconciliation completed: #{inspect(stats)}")
-
-    {:ok, stats}
-  rescue
-    error ->
-      Logger.warning("Device identity reconciliation failed: #{inspect(error)}")
-      {:error, error}
   end
+
+  defp classify_and_report(acc) do
+    %{mergeable: components, blocked: blocked_components} =
+      classify_duplicate_components(acc.identifier_duplicates)
+
+    largest_blocked = report_blocked_components(blocked_components)
+
+    %{
+      acc
+      | components: components,
+        duplicate_components: length(components) + length(blocked_components),
+        mergeable_components: length(components),
+        blocked_components: length(blocked_components),
+        blocked_devices: Enum.sum(Enum.map(blocked_components, &length(&1.device_ids))),
+        largest_blocked_component: largest_blocked,
+        blocked_component_devices:
+          blocked_component_membership(blocked_components, blocked_component_capture_limit())
+    }
+  end
+
+  defp merge_stage(acc, actor, max_merges) do
+    {merge_count, error_count} = merge_components(acc.components, actor, max_merges)
+    %{acc | merges: merge_count, errors: error_count}
+  end
+
+  @doc false
+  def build_run_stats(acc, context) do
+    %{
+      duplicate_identifier_count: acc.duplicate_identifier_count,
+      duplicate_components: acc.duplicate_components,
+      mergeable_components: acc.mergeable_components,
+      blocked_components: acc.blocked_components,
+      blocked_devices: acc.blocked_devices,
+      largest_blocked_component: acc.largest_blocked_component,
+      merges: acc.merges,
+      errors: acc.errors,
+      max_merges_configured: context.max_merges,
+      merge_cap_reached: merge_cap_reached?(context.max_merges, acc.merges),
+      duration_ms: System.monotonic_time(:millisecond) - context.started_monotonic
+    }
+  end
+
+  # A failed run-record write must never fail, roll back, or abort the sweep.
+  # Same reasoning the device revival audit trigger already carries: an audit
+  # that can reject the operation it observes gives somebody a motive to switch
+  # it off, and the bypass becomes the default. A missing diagnostic beats a
+  # blocked reconciliation.
+  defp record_run(context, status, stats, acc, error) do
+    actor = SystemActor.system(:identity_reconciliation)
+
+    attrs =
+      stats
+      |> Map.delete(:duration_ms)
+      |> Map.merge(%{
+        run_id: context.run_id,
+        started_at: context.started_at,
+        completed_at: DateTime.utc_now(),
+        duration_ms: stats.duration_ms,
+        status: status,
+        error_summary: error_summary(error),
+        blocked_component_devices: acc.blocked_component_devices,
+        trigger: context.trigger,
+        job_schedule_id: context.job_schedule_id
+      })
+
+    ReconciliationRun.record(attrs, actor: actor)
+    prune_run_records(actor)
+    :ok
+  rescue
+    write_error ->
+      Logger.warning(
+        "Failed to record identity reconciliation run #{context.run_id}: #{inspect(write_error)}"
+      )
+
+      :ok
+  catch
+    kind, reason ->
+      Logger.warning(
+        "Failed to record identity reconciliation run #{context.run_id}: #{inspect({kind, reason})}"
+      )
+
+      :ok
+  end
+
+  defp prune_run_records(actor) do
+    cutoff = DateTime.add(DateTime.utc_now(), -run_retention_days() * 86_400, :second)
+
+    ReconciliationRun
+    |> Ash.Query.for_read(:older_than, %{cutoff: cutoff}, actor: actor)
+    |> Ash.bulk_destroy(:destroy, %{},
+      actor: actor,
+      strategy: [:atomic, :stream],
+      return_errors?: false,
+      stop_on_error?: false
+    )
+
+    :ok
+  end
+
+  defp error_summary(nil), do: nil
+
+  defp error_summary(error) when is_exception(error) do
+    error |> Exception.message() |> truncate_summary()
+  end
+
+  defp error_summary(error), do: error |> inspect() |> truncate_summary()
+
+  defp truncate_summary(text) when byte_size(text) <= 2_000, do: text
+  defp truncate_summary(text), do: binary_part(text, 0, 2_000) <> "..."
+
+  @doc false
+  def normalize_trigger(:manual), do: :manual
+  def normalize_trigger("manual"), do: :manual
+  def normalize_trigger(_), do: :scheduled
 
   # The scheduled job runs every few minutes; cap the database work performed
   # by one run. This is an operational bound, not an identity-safety control:
@@ -89,6 +246,22 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     :serviceradar
     |> Application.get_env(__MODULE__, [])
     |> Keyword.get(:max_merges_per_run, 200)
+  end
+
+  # Retention for the run records. A few hundred rows a day at the current
+  # cadence; unbounded growth in a diagnostics table is how a diagnostic becomes
+  # an incident.
+  defp run_retention_days do
+    :serviceradar
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:run_retention_days, 30)
+  end
+
+  # How many blocked components a single run record captures membership for.
+  defp blocked_component_capture_limit do
+    :serviceradar
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:blocked_component_capture_limit, 100)
   end
 
   @doc false
@@ -586,9 +759,13 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
     end
   end
 
-  defp report_blocked_components([]), do: :ok
+  @doc false
+  # Returns the size of the largest blocked component. It used to return `:ok`,
+  # which meant the number was computed for one log line and then discarded --
+  # nothing downstream could persist it.
+  def report_blocked_components([]), do: 0
 
-  defp report_blocked_components(components) do
+  def report_blocked_components(components) do
     blocked_devices = Enum.sum(Enum.map(components, &length(&1.device_ids)))
     largest_component = components |> Enum.map(&length(&1.device_ids)) |> Enum.max()
 
@@ -603,7 +780,25 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       %{reason: :ambiguous_transitive_component, largest_component: largest_component}
     )
 
-    :ok
+    largest_component
+  end
+
+  @doc false
+  # Membership only. The evidence that joins these devices is derived at query
+  # time from `device_identifiers` so it stays consistent with the identifiers it
+  # describes; snapshotting it here would write N rows per component per run and
+  # then drift from the very table it claims to explain.
+  def blocked_component_membership(components, capture_limit)
+      when is_list(components) and is_integer(capture_limit) and capture_limit > 0 do
+    captured = Enum.take(components, capture_limit)
+    entries = Enum.map(captured, &%{"device_ids" => &1.device_ids})
+    omitted = length(components) - length(captured)
+
+    if omitted > 0 do
+      entries ++ [%{"truncated" => true, "omitted_components" => omitted}]
+    else
+      entries
+    end
   end
 
   defp choose_canonical_device_id(device_ids, actor) do

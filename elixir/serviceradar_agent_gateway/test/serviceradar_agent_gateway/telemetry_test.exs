@@ -14,7 +14,9 @@ defmodule ServiceRadarAgentGateway.TelemetryTest do
     assert [:serviceradar, :agent_gateway, :results, :forward, :count] in metric_names
     assert [:serviceradar, :agent_gateway, :results, :forward, :duration] in metric_names
     assert [:serviceradar, :agent_gateway, :results, :buffer, :dropped, :count] in metric_names
+    assert [:serviceradar, :agent_gateway, :results, :buffer, :dropped, :bytes] in metric_names
     assert [:serviceradar, :agent_gateway, :results, :buffer, :depth] in metric_names
+    assert [:serviceradar, :agent_gateway, :results, :buffer, :bytes] in metric_names
     assert [:serviceradar, :agent_gateway, :control_stream, :established, :count] in metric_names
     assert [:serviceradar, :agent_gateway, :control_stream, :closed, :count] in metric_names
     assert [:serviceradar, :agent_gateway, :control_stream, :active, :count] in metric_names

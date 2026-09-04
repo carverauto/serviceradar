@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNG.Mcp.Runner do
   alias ServiceRadarWebNG.Api.Access
   alias ServiceRadarWebNG.Mcp.Audit
   alias ServiceRadarWebNG.Mcp.Docs
+  alias ServiceRadarWebNG.Mcp.IdentityDiagnostics
 
   @spec execute_srql(Ash.ActionInput.t(), map()) :: {:ok, map()} | {:error, term()}
   def execute_srql(input, context) do
@@ -96,6 +97,45 @@ defmodule ServiceRadarWebNG.Mcp.Runner do
         {:error, {:invalid, reason}} -> {:error, reason}
       end
     end)
+  end
+
+  @spec trace_device_identity(Ash.ActionInput.t(), map()) :: {:ok, map()} | {:error, term()}
+  def trace_device_identity(input, context) do
+    args = input.arguments
+    seed = args.seed
+
+    run_tool(context, :trace_device_identity, args, [], fn ->
+      case IdentityDiagnostics.trace(scope!(context), seed, limit: args[:limit]) do
+        {:ok, payload} -> {:ok, payload, trace_row_count(payload)}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
+  end
+
+  @spec explain_identity_reconciliation(Ash.ActionInput.t(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def explain_identity_reconciliation(input, context) do
+    args = input.arguments
+
+    opts = [
+      run_id: args[:run_id],
+      time: args[:time],
+      include_evidence: args[:include_evidence] == true,
+      limit: args[:limit]
+    ]
+
+    run_tool(context, :explain_identity_reconciliation, args, [], fn ->
+      case IdentityDiagnostics.explain(scope!(context), opts) do
+        {:ok, payload} -> {:ok, payload, payload["run_count"] || 0}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
+  end
+
+  defp trace_row_count(payload) do
+    ["merge_chain", "revivals", "identifiers", "evidence"]
+    |> Enum.map(fn key -> payload |> Map.get(key, []) |> length() end)
+    |> Enum.sum()
   end
 
   defp run_tool(context, tool, args, extra, fun) when is_function(fun, 0) do

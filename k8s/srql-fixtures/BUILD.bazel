@@ -5,4 +5,6 @@ package(default_visibility = ["//visibility:public"])
 exports_files([
     "scratch-reaper.sql",
     "scratch-reaper.yaml",
+    "httproute-ca.yaml",
+    "namespace.yaml",
 ])

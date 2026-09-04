@@ -179,7 +179,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "include_inactive",
         "include_deleted",
         "first_seen",
-        "first_seen_time"
+        "first_seen_time",
+        "cve",
+        "cve_id",
+        "kev"
       ],
       boolean_fields: [
         "is_available",
@@ -193,7 +196,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         # `discovery_sources:(awx)` and semantically "manageable by AWX".
         "awx_managed",
         "include_inactive",
-        "include_deleted"
+        "include_deleted",
+        "kev"
       ],
       # Fields backed by array columns - builder will always use list syntax for these
       array_fields: ["discovery_sources", "tags"],
@@ -233,6 +237,134 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "tags.<key>",
         "metadata.<key>"
       ],
+      downsample: false
+    },
+    # Identity reconciliation diagnostics. All five ride `devices.view` and all
+    # five are read-only; they route to /devices because they explain what is
+    # (and is no longer) in device inventory rather than owning a page.
+    %{
+      id: "merge_audit",
+      label: "Device Merges",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "created_at",
+      default_sort_dir: "desc",
+      default_filter_field: "device_id",
+      filter_fields: [
+        "device_id",
+        "from_device_id",
+        "to_device_id",
+        "reason",
+        "source",
+        "confidence_score",
+        # Resolves the whole canonical chain from one uid, both directions.
+        "chain",
+        "depth",
+        "include_unmerge"
+      ],
+      boolean_fields: ["include_unmerge"],
+      downsample: false
+    },
+    %{
+      id: "device_revival_audit",
+      label: "Device Revivals",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "revived_at",
+      default_sort_dir: "desc",
+      default_filter_field: "device_uid",
+      filter_fields: [
+        "device_uid",
+        "previous_deleted_by",
+        "previous_deleted_reason",
+        "revived_by_application"
+      ],
+      downsample: false
+    },
+    %{
+      id: "device_identifiers",
+      label: "Device Identifiers",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "last_seen",
+      default_sort_dir: "desc",
+      default_filter_field: "device_id",
+      filter_fields: [
+        "device_id",
+        "identifier_type",
+        "value",
+        "partition",
+        "confidence",
+        "source",
+        "verified",
+        "owner_deleted",
+        "matches_current_facts"
+      ],
+      boolean_fields: ["verified", "owner_deleted", "matches_current_facts"],
+      known_values: %{
+        "identifier_type" => [
+          "agent_id",
+          "armis_device_id",
+          "integration_id",
+          "netbox_device_id",
+          "hardware_serial",
+          "mac",
+          "ip",
+          "passive_fingerprint"
+        ],
+        "confidence" => ["strong", "medium", "weak"]
+      },
+      downsample: false
+    },
+    %{
+      id: "identity_reconciliation_runs",
+      label: "Identity Reconciliation Runs",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "started_at",
+      default_sort_dir: "desc",
+      default_filter_field: "status",
+      filter_fields: [
+        "run_id",
+        "status",
+        "trigger",
+        "merge_cap_reached",
+        "merges",
+        "errors",
+        "blocked_components",
+        "largest_blocked_component",
+        "duration_ms"
+      ],
+      boolean_fields: ["merge_cap_reached"],
+      known_values: %{
+        "status" => ["completed", "failed"],
+        "trigger" => ["scheduled", "manual"]
+      },
+      downsample: false
+    },
+    %{
+      id: "identity_evidence_edges",
+      label: "Identity Evidence",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "depth",
+      default_sort_dir: "asc",
+      # A seed is mandatory: an unseeded walk is a self-join across the whole
+      # identifier table and is refused rather than served slowly.
+      default_filter_field: "device",
+      filter_fields: ["device", "identifier_type", "depth"],
+      known_values: %{
+        "identifier_type" => [
+          "agent_id",
+          "armis_device_id",
+          "integration_id",
+          "netbox_device_id",
+          "hardware_serial",
+          "mac",
+          "ip",
+          "passive_fingerprint"
+        ]
+      },
       downsample: false
     },
     %{
@@ -981,6 +1113,37 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "threat_intel_matches",
+      label: "Threat Intel Matches",
+      route: "/security/threat-intel",
+      default_time: "",
+      default_sort_field: "evaluated_at",
+      default_sort_dir: "desc",
+      default_filter_field: "source",
+      filter_fields: [
+        "observed_ip",
+        "ip",
+        "source",
+        "label",
+        "indicator",
+        "indicator_id",
+        "indicator_type",
+        "severity",
+        "confidence",
+        "match_kind",
+        "stale",
+        "status"
+      ],
+      numeric_fields: ["severity", "confidence"],
+      address_fields: ["observed_ip", "ip", "indicator"],
+      examples: [
+        "in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100",
+        "in:threat_intel_matches observed_ip:198.51.100.10",
+        "in:flows threat_matched:true time:last_24h sort:time:desc limit:100"
+      ],
+      downsample: false
+    },
+    %{
       id: "flows",
       label: "Flows",
       route: "/observability/netflows",
@@ -1033,7 +1196,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "dst_tag",
         "near",
         "src_near",
-        "dst_near"
+        "dst_near",
+        "threat_matched",
+        "threat_source",
+        "threat_indicator",
+        "threat_observed_ip",
+        "threat_severity"
       ],
       # Chart / `bucket:` path only — must stay a projection of
       # rust/srql/.../downsample/filters.rs `flows_filter_clause` arms.
@@ -1155,7 +1323,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "sampler_address",
         "tag",
         "src_tag",
-        "dst_tag"
+        "dst_tag",
+        "threat_matched",
+        "threat_source",
+        "threat_indicator",
+        "threat_observed_ip",
+        "threat_severity"
       ],
       numeric_fields: [
         "pid",
@@ -1331,10 +1504,124 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "source",
         "current",
         "cpe",
-        "cpes"
+        "cpes",
+        "cve",
+        "cve_id",
+        "kev"
       ],
-      boolean_fields: ["current"],
+      boolean_fields: ["current", "kev"],
       array_fields: ["cpes"],
+      downsample: false
+    },
+    %{
+      id: "vulnerability_advisories",
+      label: "Vulnerability Advisories",
+      route: "/dashboards/endpoint-inventory",
+      default_time: "",
+      default_sort_field: "published_at",
+      default_sort_dir: "desc",
+      default_filter_field: "cve_id",
+      filter_fields: [
+        "cve",
+        "cve_id",
+        "advisory_id",
+        "provider",
+        "feed_key",
+        "severity",
+        "title",
+        "kev",
+        "exploit_available",
+        "current",
+        "cvss_score",
+        "cpe",
+        "cpe_vendor",
+        "cpe_product",
+        "cpe_part"
+      ],
+      boolean_fields: ["kev", "exploit_available", "current"],
+      numeric_fields: ["cvss_score"],
+      stats_fields: [
+        "severity",
+        "kev",
+        "exploit_available",
+        "provider",
+        "feed_key",
+        "cve_id"
+      ],
+      downsample: false
+    },
+    %{
+      id: "advisory_coordinates",
+      label: "Advisory Coordinates",
+      route: "/dashboards/endpoint-inventory",
+      default_time: "",
+      default_sort_field: "cpe_vendor",
+      default_sort_dir: "asc",
+      default_filter_field: "cve_id",
+      filter_fields: [
+        "cve",
+        "cve_id",
+        "coordinate_type",
+        "value",
+        "cpe",
+        "cpe_part",
+        "cpe_vendor",
+        "cpe_product",
+        "cpe_version",
+        "advisory_ref",
+        "provider",
+        "feed_key",
+        "kev",
+        "current"
+      ],
+      boolean_fields: ["kev", "current"],
+      numeric_fields: ["cvss_score"],
+      downsample: false
+    },
+    %{
+      id: "endpoint_vulnerability_matches",
+      label: "Vulnerability Matches",
+      route: "/dashboards/endpoint-inventory",
+      default_time: "",
+      default_sort_field: "cvss_score",
+      default_sort_dir: "desc",
+      default_filter_field: "cve_id",
+      filter_fields: [
+        "device_uid",
+        "device_id",
+        "agent_id",
+        "cve",
+        "cve_id",
+        "advisory_id",
+        "provider",
+        "feed_key",
+        "coordinate_type",
+        "coordinate_value",
+        "cpe",
+        "status",
+        "severity",
+        "confidence",
+        "kev",
+        "exploit_available",
+        "cvss_score",
+        "package_id",
+        "endpoint_package_ref",
+        "epss_score",
+        "due_date",
+        "ransomware_use"
+      ],
+      boolean_fields: ["kev", "exploit_available"],
+      numeric_fields: ["cvss_score", "epss_score"],
+      stats_fields: [
+        "severity",
+        "kev",
+        "exploit_available",
+        "provider",
+        "cve_id",
+        "device_uid",
+        "status",
+        "confidence"
+      ],
       downsample: false
     },
     %{

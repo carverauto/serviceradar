@@ -1,17 +1,20 @@
 defmodule ServiceRadar.Inventory.SyncIngestorMdnsEnrichmentTest do
   @moduledoc """
-  netprobe mDNS must enrich devices, never mint them.
+  SyncIngestor must not mint a device from an update that cannot create one.
 
-  The predicate this rests on is unit-tested in LookupsEnrichmentTest. This
-  file asserts the WIRING: that SyncIngestor actually consults it before the
-  writes, which is the part a passing predicate cannot prove. The gate sits in
-  one line of `resolve_updates/2`; delete that line and every test above still
-  passes while announcements start creating devices.
+  The predicate this rests on is unit-tested in SourcePolicyCensusTest and
+  LookupsEnrichmentTest. This file asserts the WIRING: that SyncIngestor
+  actually consults `SourcePolicy.sufficient_to_create?/1` before the writes,
+  which is the part a passing predicate cannot prove. The gate sits in
+  `drop_unmatched_enrichment_updates/3`; delete that line and every unit test
+  still passes while announcements and ARP probes start creating devices.
   """
 
   use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.TestSupport
@@ -132,6 +135,38 @@ defmodule ServiceRadar.Inventory.SyncIngestorMdnsEnrichmentTest do
 
       assert [_] = mac_identifiers(known, actor)
       assert [] == mac_identifiers(unknown, actor)
+    end
+  end
+
+  describe "an addressless census ARP probe" do
+    test "creates no device", %{actor: actor} do
+      mac = unique_mac()
+
+      assert :ok = SyncIngestor.ingest_updates([census_update(mac, "")], actor: actor)
+
+      assert [] == mac_identifiers(mac, actor),
+             "an RFC 5227 ARP probe minted a device for an address nobody holds"
+    end
+
+    test "does not vacate the IP of a device the census already found", %{actor: actor} do
+      mac = unique_mac()
+      ip = "10.62.#{:rand.uniform(200)}.#{:rand.uniform(200)}"
+
+      assert :ok = SyncIngestor.ingest_updates([census_update(mac, ip)], actor: actor)
+      assert [seeded] = mac_identifiers(mac, actor)
+
+      assert :ok = SyncIngestor.ingest_updates([census_update(mac, "")], actor: actor)
+      assert [after_probe] = mac_identifiers(mac, actor)
+
+      assert after_probe.device_id == seeded.device_id
+
+      {:ok, [device]} =
+        Device
+        |> Ash.Query.filter(ip == ^ip)
+        |> Ash.read(actor: actor)
+        |> Page.unwrap()
+
+      assert device.uid == seeded.device_id
     end
   end
 end

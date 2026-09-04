@@ -44,6 +44,7 @@ defmodule ServiceRadar.Identity.AuthSettings do
     :oidc_client_id,
     :oidc_discovery_url,
     :oidc_scopes,
+    :oidc_pkce_mode,
     :saml_idp_metadata_url,
     :saml_idp_metadata_xml,
     :saml_sp_entity_id,
@@ -257,6 +258,21 @@ defmodule ServiceRadar.Identity.AuthSettings do
       default "openid email profile"
       public? true
       description "OIDC scopes to request. Include offline_access for MCP refresh."
+    end
+
+    attribute :oidc_pkce_mode, :atom do
+      allow_nil? false
+      default :auto
+      public? true
+      constraints one_of: [:auto, :required, :disabled]
+
+      description """
+      Upstream OIDC PKCE (RFC 7636 S256) for the confidential-client login.
+      auto: send S256 when advertised or when discovery omits methods.
+      required: always send S256; refuse login if methods omit S256.
+      disabled: never send PKCE (escape hatch for a provider that rejects code_verifier).
+      Never falls back to plain.
+      """
     end
 
     # SAML Configuration

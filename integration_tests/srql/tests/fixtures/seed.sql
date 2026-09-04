@@ -1,8 +1,12 @@
 -- Canonical SRQL device fixture rows (OCSF v1.7.0 aligned).
--- endpoint_inventory_packages references endpoint_packages, so they must be
--- truncated in the same statement; ocsf_devices is referenced by
--- device_agent_availability and the virtualization_* tables, so CASCADE.
-TRUNCATE endpoint_inventory_packages, endpoint_packages;
+-- Matches and inventory packages both reference endpoint_packages, and
+-- matches/coordinates reference vulnerability_advisories. Postgres refuses
+-- TRUNCATE of a referenced table unless every referencer is in the same
+-- statement — emptying matches first is not enough.
+-- ocsf_devices is referenced by device_agent_availability and the
+-- virtualization_* tables, so CASCADE.
+TRUNCATE endpoint_vulnerability_matches, advisory_coordinates, vulnerability_advisories,
+    endpoint_inventory_packages, endpoint_packages;
 TRUNCATE endpoint_inventory_scans;
 TRUNCATE endpoint_inventory_current_package_counts;
 TRUNCATE endpoint_inventory_current_cpe_counts;
@@ -398,6 +402,187 @@ SELECT '33333333-3333-4333-8333-333333333333'::uuid,
     '{"scan":"historical"}'::jsonb,
     base.now_ts - INTERVAL '2 days',
     base.now_ts - INTERVAL '2 days'
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO vulnerability_advisories (
+    id,
+    provider,
+    feed_key,
+    source_object_id,
+    advisory_id,
+    cve_id,
+    title,
+    description,
+    severity,
+    cvss_score,
+    cvss_vector,
+    published_at,
+    modified_at,
+    kev,
+    exploit_available,
+    affected_coordinates,
+    "references",
+    metadata,
+    raw,
+    generation,
+    current
+)
+SELECT
+    'bbbbbbbb-1111-4111-8111-111111111111'::uuid,
+    'vulncheck',
+    'nist-nvd2',
+    'CVE-2026-0001',
+    'CVE-2026-0001',
+    'CVE-2026-0001',
+    'nginx HTTP/2 memory corruption',
+    'A memory corruption issue in nginx 1.24.',
+    'critical',
+    9.8,
+    'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H',
+    base.now_ts - INTERVAL '10 days',
+    base.now_ts - INTERVAL '2 days',
+    TRUE,
+    TRUE,
+    ARRAY[]::jsonb[],
+    ARRAY['https://nvd.nist.gov/vuln/detail/CVE-2026-0001'],
+    '{"due_date":"2026-02-01","epss_score":0.84,"ransomware_use":"unknown"}'::jsonb,
+    '{"nvd":"omitted-from-srql"}'::jsonb,
+    1,
+    TRUE
+FROM base
+UNION ALL
+SELECT
+    'bbbbbbbb-2222-4222-8222-222222222222'::uuid,
+    'vulncheck',
+    'nist-nvd2',
+    'CVE-2026-0001-stale',
+    'CVE-2026-0001',
+    'CVE-2026-0001',
+    'stale generation',
+    'Should be hidden by current:true default.',
+    'critical',
+    9.8,
+    NULL,
+    base.now_ts - INTERVAL '40 days',
+    base.now_ts - INTERVAL '40 days',
+    FALSE,
+    FALSE,
+    ARRAY[]::jsonb[],
+    ARRAY[]::text[],
+    '{}'::jsonb,
+    '{"stale":true}'::jsonb,
+    0,
+    FALSE
+FROM base;
+
+INSERT INTO advisory_coordinates (
+    id,
+    advisory_ref,
+    provider,
+    feed_key,
+    generation,
+    coordinate_type,
+    value,
+    cpe_part,
+    cpe_vendor,
+    cpe_product,
+    cpe_version,
+    version_start,
+    version_start_inclusive,
+    version_end,
+    version_end_inclusive
+)
+VALUES
+    (
+        'cccccccc-1111-4111-8111-111111111111'::uuid,
+        'bbbbbbbb-1111-4111-8111-111111111111'::uuid,
+        'vulncheck',
+        'nist-nvd2',
+        1,
+        'cpe',
+        'cpe:2.3:a:nginx:nginx:*:*:*:*:*:*:*:*',
+        'a',
+        'nginx',
+        'nginx',
+        '*',
+        '1.24.0',
+        TRUE,
+        '1.25.0',
+        FALSE
+    ),
+    (
+        'cccccccc-2222-4222-8222-222222222222'::uuid,
+        'bbbbbbbb-1111-4111-8111-111111111111'::uuid,
+        'vulncheck',
+        'nist-nvd2',
+        1,
+        'cpe',
+        'cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*',
+        'a',
+        'nginx',
+        'nginx',
+        '1.24.0',
+        NULL,
+        NULL,
+        NULL,
+        NULL
+    );
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO endpoint_vulnerability_matches (
+    id,
+    device_uid,
+    agent_id,
+    inventory_package_ref,
+    endpoint_package_ref,
+    advisory_ref,
+    provider,
+    feed_key,
+    advisory_id,
+    cve_id,
+    coordinate_type,
+    coordinate_value,
+    version_evidence,
+    confidence,
+    status,
+    severity,
+    cvss_score,
+    kev,
+    exploit_available,
+    evidence,
+    first_seen_at,
+    last_seen_at,
+    metadata
+)
+SELECT
+    'dddddddd-1111-4111-8111-111111111111'::uuid,
+    'device-alpha',
+    'agent-1',
+    '11111111-1111-4111-8111-111111111111'::uuid,
+    'aaaaaaaa-1111-4111-8111-111111111111'::uuid,
+    'bbbbbbbb-1111-4111-8111-111111111111'::uuid,
+    'vulncheck',
+    'nist-nvd2',
+    'CVE-2026-0001',
+    'CVE-2026-0001',
+    'cpe',
+    'cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*',
+    '{"installed":"1.24.0-2ubuntu7"}'::jsonb,
+    'high',
+    'active',
+    'critical',
+    9.8,
+    TRUE,
+    TRUE,
+    '{"matcher":"cpe"}'::jsonb,
+    base.now_ts - INTERVAL '1 day',
+    base.now_ts - INTERVAL '20 minutes',
+    '{"due_date":"2026-02-01","epss_score":0.84,"ransomware_use":"unknown"}'::jsonb
 FROM base;
 
 WITH base AS (
@@ -1948,3 +2133,166 @@ EXCEPTION
         RETURN NULL;
 END;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- Identity reconciliation diagnostics (GitHub #4229)
+-- ---------------------------------------------------------------------------
+--
+-- The shapes an identity investigation has to distinguish, seeded so the SRQL
+-- entities are tested against data that actually exercises them rather than a
+-- single happy row:
+--
+--   * a three-hop merge chain  identity-src -> identity-mid -> identity-survivor
+--   * an oscillating pair      identity-osc-a <-> identity-osc-b, both directions,
+--                              repeatedly. A recursive walk that does not guard
+--                              on visited ids never terminates on this.
+--   * an unmerge row           which the default projection must hide
+--   * a tombstoned device with a revival that preserved the prior tombstone
+--   * one corroborated MAC (current column), one corroborated only via an
+--     interface, one purely historical
+--   * a cross-partition identifier collision
+--   * a transitive component A-B-C where A and C share nothing directly
+--   * a completed run that hit its cap, and a failed run
+--
+-- EVERY device below is tombstoned (`deleted_at` set), and that is load-bearing
+-- rather than incidental. `ocsf_devices` is shared, and existing tests assert
+-- exact totals over it: `in:devices` and the grouped-stats paths all push
+-- `deleted_at IS NULL`, so nine live rows here shifted the untagged "Unknown"
+-- bucket to 8, broke a `time:last_7d` count, and survived two negated tag
+-- filters. Tombstoning keeps these fixtures invisible to every default device
+-- query while leaving them fully visible to the identity entities, none of
+-- which filters on `deleted_at`.
+--
+-- The live-owner side of `matches_current_facts` and `owner_deleted` is covered
+-- by an identifier row on the pre-existing `device-alpha` instead of by adding
+-- another device.
+
+INSERT INTO public.ocsf_devices (uid, type_id, type, name, hostname, ip, mac,
+        first_seen_time, last_seen_time, created_time, modified_time,
+        partition, deleted_at, deleted_by, deleted_reason, agent_id)
+SELECT * FROM (VALUES
+    ('identity-survivor', 12, 'Router', 'Identity Survivor', 'identity-survivor',
+     '10.30.0.1', 'AA:BB:CC:00:00:01', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
+     'default', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', 'agent-identity-1'),
+    ('identity-src', 12, 'Router', 'Identity Source', 'identity-src',
+     '10.30.0.2', 'AA:BB:CC:00:00:02', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
+     'default', NOW() - INTERVAL '2 days', 'operator', 'merged into identity-survivor', NULL),
+    ('identity-mid', 12, 'Router', 'Identity Middle', 'identity-mid',
+     '10.30.0.3', 'AA:BB:CC:00:00:03', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
+     'default', NOW() - INTERVAL '1 day', 'system', 'duplicate', NULL),
+    ('identity-revived', 12, 'Router', 'Identity Revived', 'identity-revived',
+     '169.254.0.1', 'AA:BB:CC:00:00:04', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
+     'default', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', NULL),
+    ('identity-comp-a', 12, 'Router', 'Component A', 'identity-comp-a',
+     '10.31.0.1', 'AA:BB:CC:00:00:0A', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
+     'default', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', NULL),
+    ('identity-comp-b', 12, 'Router', 'Component B', 'identity-comp-b',
+     '10.31.0.2', 'AA:BB:CC:00:00:0B', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
+     'default', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', NULL),
+    ('identity-comp-c', 12, 'Router', 'Component C', 'identity-comp-c',
+     '10.31.0.3', 'AA:BB:CC:00:00:0C', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
+     'edge-west', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', NULL),
+    ('identity-osc-a', 12, 'Router', 'Oscillating A', 'identity-osc-a',
+     '10.32.0.1', 'AA:BB:CC:00:00:1A', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
+     'default', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', NULL),
+    ('identity-osc-b', 12, 'Router', 'Oscillating B', 'identity-osc-b',
+     '10.32.0.2', 'AA:BB:CC:00:00:1B', NOW() - INTERVAL '30 days', NOW(), NOW(), NOW(),
+     'default', NOW() - INTERVAL '1 hour', 'identity-fixture', 'identity fixture: tombstoned so it stays out of shared device totals', NULL)
+) AS v;
+
+-- A three-hop chain plus an unmerge row the default projection must hide.
+INSERT INTO public.merge_audit
+    (event_id, from_device_id, to_device_id, reason, confidence_score, source, details, created_at)
+VALUES
+    ('11111111-1111-4111-8111-111111111111', 'identity-src', 'identity-mid',
+     'duplicate_mac', 0.95, 'scheduled_reconciliation',
+     '{"source":"scheduled_reconciliation","component_size":2,"secret_token":"must-not-appear"}'::jsonb,
+     NOW() - INTERVAL '3 days'),
+    ('22222222-2222-4222-8222-222222222222', 'identity-mid', 'identity-survivor',
+     'identifier_backfill', 0.99, 'scheduled_reconciliation',
+     '{"source":"scheduled_reconciliation","component_size":2}'::jsonb,
+     NOW() - INTERVAL '2 days'),
+    ('33333333-3333-4333-8333-333333333333', 'identity-comp-a', 'identity-comp-b',
+     'unmerge', NULL, 'operator', '{}'::jsonb, NOW() - INTERVAL '1 day'),
+    -- The oscillating pair: same two devices, both directions, four rows.
+    ('44444444-4444-4444-8444-444444444441', 'identity-osc-a', 'identity-osc-b',
+     'ip_alias_conflict', 0.5, 'sync', '{}'::jsonb, NOW() - INTERVAL '6 hours'),
+    ('44444444-4444-4444-8444-444444444442', 'identity-osc-b', 'identity-osc-a',
+     'ip_alias_conflict', 0.5, 'sync', '{}'::jsonb, NOW() - INTERVAL '5 hours'),
+    ('44444444-4444-4444-8444-444444444443', 'identity-osc-a', 'identity-osc-b',
+     'ip_alias_conflict', 0.5, 'sync', '{}'::jsonb, NOW() - INTERVAL '4 hours'),
+    ('44444444-4444-4444-8444-444444444444', 'identity-osc-b', 'identity-osc-a',
+     'ip_alias_conflict', 0.5, 'sync', '{}'::jsonb, NOW() - INTERVAL '3 hours');
+
+INSERT INTO public.device_revival_audit
+    (device_uid, previous_deleted_at, previous_deleted_by, previous_deleted_reason,
+     revived_at, revived_by_application)
+VALUES
+    ('identity-revived', NOW() - INTERVAL '5 days', 'operator',
+     'phantom apipa address', NOW() - INTERVAL '4 days', 'serviceradar-sync'),
+    ('identity-revived', NOW() - INTERVAL '3 days', 'operator',
+     'phantom apipa address', NOW() - INTERVAL '2 days', 'serviceradar-core');
+
+-- identity-survivor reports 00:00:01 as its current mac column and 00:00:99 on
+-- an interface. Both are corroborated; the third is history.
+INSERT INTO public.device_interface_macs (device_id, mac, partition, first_seen, last_seen)
+VALUES ('identity-survivor', 'AABBCC000099', 'default', NOW() - INTERVAL '10 days', NOW());
+
+INSERT INTO public.device_identifiers
+    (device_id, identifier_type, identifier_value, partition, confidence, source,
+     first_seen, last_seen, verified, metadata)
+VALUES
+    ('identity-survivor', 'mac', 'AABBCC000001', 'default', 'strong', 'mapper',
+     NOW() - INTERVAL '20 days', NOW(), TRUE,
+     '{"source":"mapper","secret_token":"must-not-appear"}'::jsonb),
+    ('identity-survivor', 'mac', 'AABBCC000099', 'default', 'strong', 'mapper',
+     NOW() - INTERVAL '10 days', NOW(), TRUE, '{"source":"mapper"}'::jsonb),
+    ('identity-survivor', 'mac', 'AABBCCDEAD01', 'default', 'strong', 'armis',
+     NOW() - INTERVAL '90 days', NOW() - INTERVAL '60 days', FALSE, '{}'::jsonb),
+    ('identity-survivor', 'agent_id', 'agent-identity-1', 'default', 'strong', 'agent',
+     NOW() - INTERVAL '20 days', NOW(), TRUE, '{}'::jsonb),
+    -- An external system's key. No column on ocsf_devices can equal it, so
+    -- matches_current_facts is null rather than false: "not applicable", not
+    -- "stale".
+    ('identity-survivor', 'armis_device_id', '99887766', 'default', 'strong', 'armis',
+     NOW() - INTERVAL '20 days', NOW(), TRUE, '{}'::jsonb),
+    -- A-B share a MAC; B-C share a different MAC; A and C share nothing.
+    ('identity-comp-a', 'mac', 'AABBCC00AB01', 'default', 'strong', 'mapper',
+     NOW() - INTERVAL '20 days', NOW(), TRUE, '{}'::jsonb),
+    ('identity-comp-b', 'mac', 'AABBCC00AB01', 'default', 'strong', 'mapper',
+     NOW() - INTERVAL '20 days', NOW(), TRUE, '{}'::jsonb),
+    ('identity-comp-b', 'mac', 'AABBCC00BC01', 'default', 'strong', 'mapper',
+     NOW() - INTERVAL '20 days', NOW(), TRUE, '{}'::jsonb),
+    -- identity-comp-c is in partition edge-west: the edge B-C is cross-partition.
+    ('identity-comp-c', 'mac', 'AABBCC00BC01', 'default', 'strong', 'mapper',
+     NOW() - INTERVAL '20 days', NOW(), TRUE, '{}'::jsonb),
+    -- Owned by a device that IS tombstoned: the row must still be returned, with
+    -- owner_deleted true and the owner's deleted_reason carried through.
+    ('identity-src', 'mac', 'AABBCC00DEAD', 'default', 'strong', 'armis',
+     NOW() - INTERVAL '20 days', NOW(), TRUE, '{}'::jsonb),
+    -- The live-owner case, hung off the PRE-EXISTING device-alpha rather than a
+    -- new device: every identity fixture device is tombstoned to stay out of the
+    -- shared device totals, so without this row `owner_deleted = false` and a
+    -- corroborated identifier on a live owner would go untested.
+    ('device-alpha', 'mac', 'AABBCCDDEE01', 'default', 'strong', 'mapper',
+     NOW() - INTERVAL '20 days', NOW(), TRUE, '{}'::jsonb);
+
+INSERT INTO public.identity_reconciliation_runs
+    (run_id, started_at, completed_at, duration_ms, status, error_summary,
+     duplicate_identifier_count, duplicate_components, mergeable_components,
+     blocked_components, blocked_devices, largest_blocked_component,
+     merges, errors, max_merges_configured, merge_cap_reached,
+     blocked_component_devices, trigger, job_schedule_id)
+VALUES
+    ('55555555-5555-4555-8555-555555555555', NOW() - INTERVAL '2 hours',
+     NOW() - INTERVAL '2 hours' + INTERVAL '31 seconds', 31000, 'completed', NULL,
+     412, 96, 92, 4, 17, 5, 200, 1, 200, TRUE,
+     '[{"device_ids":["identity-comp-a","identity-comp-b","identity-comp-c"]}]'::jsonb,
+     'scheduled', 7),
+    ('66666666-6666-4666-8666-666666666666', NOW() - INTERVAL '1 hour',
+     NOW() - INTERVAL '1 hour' + INTERVAL '4 seconds', 4000, 'completed', NULL,
+     12, 3, 3, 0, 0, 0, 3, 0, 200, FALSE, '[]'::jsonb, 'scheduled', 7),
+    ('77777777-7777-4777-8777-777777777777', NOW() - INTERVAL '30 minutes',
+     NOW() - INTERVAL '30 minutes' + INTERVAL '2 seconds', 2000, 'failed',
+     '** (Postgrex.Error) ERROR 40001 (serialization_failure)',
+     0, 0, 0, 0, 0, 0, 0, 0, 200, FALSE, '[]'::jsonb, 'scheduled', 7);

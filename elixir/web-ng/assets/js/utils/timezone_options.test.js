@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 
-import {filterTimezoneOptions} from "./timezone_options"
+import {filterTimezoneOptions, matchingTimezoneOptions} from "./timezone_options"
 
 const noSupportedValuesOfIntl = {
   DateTimeFormat: class {
@@ -87,5 +87,22 @@ describe("filterTimezoneOptions", () => {
   it("retains a saved legacy timezone even when it is absent from the server catalog and browser rejects it", () => {
     expect(filterTimezoneOptions(["America/Chicago"], "Legacy/Removed", {intl: noSupportedValuesOfIntl}))
       .toEqual(["Etc/UTC", "America/Chicago", "Legacy/Removed"])
+  })
+})
+
+describe("matchingTimezoneOptions", () => {
+  const catalog = ["Etc/UTC", "Africa/Abidjan", "America/Chicago", "America/New_York", "Europe/London"]
+
+  it("shows the full catalog when the field still holds the saved timezone", () => {
+    expect(matchingTimezoneOptions(catalog, "Etc/UTC", "Etc/UTC")).toEqual(catalog)
+  })
+
+  it("shows the full catalog when the query is empty", () => {
+    expect(matchingTimezoneOptions(catalog, "", "Etc/UTC")).toEqual(catalog)
+  })
+
+  it("filters by city or region substring once the user types a different query", () => {
+    expect(matchingTimezoneOptions(catalog, "chicago", "Etc/UTC")).toEqual(["America/Chicago"])
+    expect(matchingTimezoneOptions(catalog, "New York", "Etc/UTC")).toEqual(["America/New_York"])
   })
 })

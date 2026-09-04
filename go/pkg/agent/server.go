@@ -502,6 +502,36 @@ func (s *Server) WritePrometheusMetrics(w io.Writer) error {
 		}
 	}
 
+	if _, err := fmt.Fprintln(w, "# TYPE agent_retained_poison_dropped_items_total counter"); err != nil {
+		return fmt.Errorf("write agent retained poison item metric type: %w", err)
+	}
+	if _, err := fmt.Fprintln(w, "# TYPE agent_retained_poison_dropped_bytes_total counter"); err != nil {
+		return fmt.Errorf("write agent retained poison byte metric type: %w", err)
+	}
+	for _, source := range retainedPoisonSourceNames {
+		for _, reason := range retainedPoisonReasonNames {
+			items, bytes := AgentRetainedPoisonDropTotals(source, reason)
+			if _, err := fmt.Fprintf(
+				w,
+				"agent_retained_poison_dropped_items_total{source=%q,reason=%q} %d\n",
+				source,
+				reason,
+				items,
+			); err != nil {
+				return fmt.Errorf("write agent retained poison item metric: %w", err)
+			}
+			if _, err := fmt.Fprintf(
+				w,
+				"agent_retained_poison_dropped_bytes_total{source=%q,reason=%q} %d\n",
+				source,
+				reason,
+				bytes,
+			); err != nil {
+				return fmt.Errorf("write agent retained poison byte metric: %w", err)
+			}
+		}
+	}
+
 	return nil
 }
 

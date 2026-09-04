@@ -47,6 +47,7 @@ defmodule ServiceRadar.Jobs.SelfSchedulingWorkerUniquenessTest do
     ServiceRadar.Inventory.DeviceCleanupWorker,
     ServiceRadar.Inventory.DeviceRiskAssessmentWorker,
     ServiceRadar.Inventory.EndpointVulnerabilityMatchWorker,
+    ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker,
     ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker,
     ServiceRadar.Inventory.InterfaceThresholdWorker,
     ServiceRadar.Observability.IpinfoMmdbDownloadWorker,
@@ -54,6 +55,7 @@ defmodule ServiceRadar.Jobs.SelfSchedulingWorkerUniquenessTest do
     ServiceRadar.Plugins.AddonProfileReconcileWorker,
     ServiceRadar.Plugins.PluginPolicyAssignmentRecoveryDispatchWorker,
     ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker,
+    ServiceRadar.SweepJobs.SweepCoverageRollupWorker,
     ServiceRadar.SweepJobs.SweepDataCleanupWorker,
     ServiceRadar.SweepJobs.SweepMonitorWorker,
     # Never covered by the old source-grep test, which carried a hardcoded 23-module list.

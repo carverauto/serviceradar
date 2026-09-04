@@ -27,6 +27,7 @@ defmodule ServiceRadar.DB.MigrateTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Repo
+  alias ServiceRadar.Repo.SchemaBootstrap
 
   @moduletag :migrate_db
   # Bazel already bounds this target's wall clock (size = "enormous"). A second, shorter
@@ -40,6 +41,33 @@ defmodule ServiceRadar.DB.MigrateTest do
     # again -- the same thing `mix ecto.migrate` does, without needing Mix.
     result =
       Ecto.Migrator.with_repo(Repo, fn repo ->
+        # Baseline an empty template rather than replaying every migration, which is what
+        # service startup has always done. Doing it here too is what keeps the 318 migrations
+        # the baseline already contains off this target's critical path -- and off the path of
+        # `20260126120000`, whose ledger relocation is issue #4151.
+        #
+        # `Ecto.Migrator.run/3` below is unchanged and still applies whatever is pending, so a
+        # template that already has history behaves exactly as before.
+        migrations_path = Application.app_dir(:serviceradar_core, "priv/repo/migrations")
+
+        case SchemaBootstrap.classify(repo) do
+          :empty ->
+            IO.puts("empty template; applying schema baseline")
+            SchemaBootstrap.apply_baseline!(repo, migrations_path)
+
+          :migrated ->
+            IO.puts("existing migration history; applying pending migrations only")
+
+          {:ambiguous, details} ->
+            # Fail closed. Baselining over a real schema would overwrite it.
+            flunk("""
+            ambiguous template database state; refusing to bootstrap.
+
+            Platform objects exist without coherent migration history.
+            Details: #{inspect(details)}
+            """)
+        end
+
         Ecto.Migrator.run(repo, :up, all: true)
       end)
 

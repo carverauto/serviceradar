@@ -1,3 +1,36 @@
+defmodule Serviceradar.Agent.Netprobe.V1.CaptureDirection do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.agent.netprobe.v1.CaptureDirection",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :CAPTURE_DIRECTION_UNSPECIFIED, 0
+  field :CAPTURE_DIRECTION_BOTH, 1
+  field :CAPTURE_DIRECTION_INGRESS, 2
+  field :CAPTURE_DIRECTION_EGRESS, 3
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.CaptureTerminationReason do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "serviceradar.agent.netprobe.v1.CaptureTerminationReason",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :CAPTURE_TERMINATION_REASON_UNSPECIFIED, 0
+  field :CAPTURE_TERMINATION_REASON_DURATION_CAP, 1
+  field :CAPTURE_TERMINATION_REASON_BYTE_CAP, 2
+  field :CAPTURE_TERMINATION_REASON_CLIENT_CANCEL, 3
+  field :CAPTURE_TERMINATION_REASON_AGENT_DISCONNECT, 4
+  field :CAPTURE_TERMINATION_REASON_FILTER_ERROR, 5
+  field :CAPTURE_TERMINATION_REASON_INTERFACE_DOWN, 6
+end
+
 defmodule Serviceradar.Agent.Netprobe.V1.DeviceCensusKind do
   @moduledoc false
 
@@ -725,6 +758,20 @@ defmodule Serviceradar.Agent.Netprobe.V1.ExternalFlowAck do
   field :invalid, 4, type: :uint64
 end
 
+defmodule Serviceradar.Agent.Netprobe.V1.BpfInstruction do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.BpfInstruction",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :code, 1, type: :uint32
+  field :jt, 2, type: :uint32
+  field :jf, 3, type: :uint32
+  field :k, 4, type: :int64
+end
+
 defmodule Serviceradar.Agent.Netprobe.V1.StartRemoteCapture do
   @moduledoc false
 
@@ -732,6 +779,35 @@ defmodule Serviceradar.Agent.Netprobe.V1.StartRemoteCapture do
     full_name: "serviceradar.agent.netprobe.v1.StartRemoteCapture",
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
+
+  oneof(:filter, 0)
+
+  field :session_id, 1, type: :string, json_name: "sessionId"
+  field :interfaces, 2, repeated: true, type: :string
+  field :filter_expression, 3, type: :string, json_name: "filterExpression", oneof: 0
+
+  field :filter_bpf, 4,
+    type: Serviceradar.Agent.Netprobe.V1.BpfProgram,
+    json_name: "filterBpf",
+    oneof: 0
+
+  field :snaplen, 5, type: :uint32
+  field :duration_s, 6, type: :uint32, json_name: "durationS"
+  field :byte_cap, 7, type: :uint64, json_name: "byteCap"
+  field :direction, 8, type: Serviceradar.Agent.Netprobe.V1.CaptureDirection, enum: true
+  field :promiscuous, 9, type: :bool
+  field :actor, 10, type: :string
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.BpfProgram do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.BpfProgram",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :instructions, 1, repeated: true, type: Serviceradar.Agent.Netprobe.V1.BpfInstruction
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.PcapngBlock do
@@ -741,6 +817,19 @@ defmodule Serviceradar.Agent.Netprobe.V1.PcapngBlock do
     full_name: "serviceradar.agent.netprobe.v1.PcapngBlock",
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
+
+  field :session_id, 1, type: :string, json_name: "sessionId"
+  field :bytes, 2, type: :bytes
+  field :final, 3, type: :bool
+
+  field :termination_reason, 4,
+    type: Serviceradar.Agent.Netprobe.V1.CaptureTerminationReason,
+    json_name: "terminationReason",
+    enum: true
+
+  field :packets_captured, 5, type: :uint64, json_name: "packetsCaptured"
+  field :packets_dropped, 6, type: :uint64, json_name: "packetsDropped"
+  field :bytes_streamed, 7, type: :uint64, json_name: "bytesStreamed"
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.BannerObservation do

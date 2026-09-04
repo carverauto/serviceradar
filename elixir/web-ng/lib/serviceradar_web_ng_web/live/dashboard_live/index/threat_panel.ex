@@ -32,9 +32,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
       <div class="sr-ops-threat-intel" data-testid="threat-intel-summary">
         <div class="sr-ops-threat-toolbar">
           <.link
-            href={ThreatIntelLinks.settings_path()}
+            href={ThreatIntelLinks.investigation_path()}
             class="sr-ops-threat-sync sr-ops-threat-sync-link"
-            aria-label="Open Threat Intel feed settings"
+            aria-label="Open Threat Intel investigation"
           >
             <span class={[
               "sr-ops-threat-status",
@@ -74,7 +74,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
               value={format_compact_count(@threat_intel_summary.matched_ips)}
             />
             <Common.small_stat
-              label="IOC Hits"
+              label="Indicator matches"
               value={format_compact_count(@threat_intel_summary.indicator_matches)}
             />
             <Common.small_stat

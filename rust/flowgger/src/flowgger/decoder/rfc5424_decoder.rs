@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn parses_multiple_structured_elements_without_a_message() {
-        let msg = r#"<135>1 2026-07-15T14:24:54.169-05:00 host ClearPass 1207790 4-1-0 [timeQuality tzKnown="1"][origin swVersion="1.0.0.000000" software="PolicyManager" ip="192.0.2.34" enterpriseId="1.3.6.1.4.1.14823"][clearPass@14823 eventId="3036"]"#;
+        let msg = r#"<135>1 2020-01-01T00:00:00.000-00:00 host ClearPass 1000001 4-1-0 [timeQuality tzKnown="1"][origin swVersion="1.0.0.000000" software="PolicyManager" ip="192.0.2.34" enterpriseId="1.3.6.1.4.1.14823"][clearPass@14823 eventId="3036"]"#;
         let res = RFC5424Decoder.decode(msg).unwrap();
         assert_eq!(res.sd.as_ref().unwrap().len(), 3);
         assert_eq!(res.msg, None);

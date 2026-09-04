@@ -7,7 +7,7 @@ each of the three environments the suite runs in**.
 
 This document exists because the CA is delivered as PEM *content* in an environment variable
 after being fetched from a live source (the cert-manager Secret or
-`http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt`). Anything that swaps the delivery
+`https://srql-fixture-ca.carverauto.dev/ca.crt`). Anything that swaps the delivery
 mechanism has to satisfy every row of the tables below, or it will break one environment
 while leaving the other two green — which is exactly how earlier failures reached `staging`.
 
@@ -17,7 +17,7 @@ while leaving the other two green — which is exactly how earlier failures reac
 |---|---|---|---|
 | fixture | Docker Postgres or shared `srql-fixtures` NodePort | shared `srql-fixtures` CNPG | shared `srql-fixtures` CNPG |
 | setup | `.agents/skills/srql-fixtures-db-tests` + credential target | `scripts/ci/configure-srql-fixture.sh` | `//:buildbuddy_setup_fixture_env` |
-| CA delivered as | none for Docker; **PEM content** for NodePort | **file path AND PEM content** from in-cluster HTTP | **PEM content only** |
+| CA delivered as | none for Docker; **PEM content** for NodePort | **file path AND PEM content** from LAN HTTPS | **PEM content only** |
 | where tests execute | your machine | `arc-runner-set` pod | the self-hosted workflow runner |
 
 The content form keeps the credential contract independent of a runner-local path and remains
@@ -45,8 +45,8 @@ on their fixture-reachable runners while eligible compilation remains remote and
   `sslmode` with the same configured value.
 - **CA** — never a stored secret. kubectl reads `srql-fixture-server-ca` when RBAC exists,
   otherwise GET `SRQL_FIXTURE_CA_URL` (default
-  `http://srql-fixture-ca-incluster.srql-fixtures.svc.cluster.local/ca.crt`).
-  There is no public CA URL.
+  `https://srql-fixture-ca.carverauto.dev/ca.crt`).
+  That URL is LAN HTTPS (Let's Encrypt on lan-shared-gateway), not a public VIP.
 
 The run log says which credential source was used without printing userinfo:
 `Fixture credentials from <source>`.
@@ -136,11 +136,12 @@ wrapper script:
 
 Every target must receive `--//build:enable_integration_tests`. Database tests clear the manual
 test filter, use `--strategy=TestRunner=local`, and disable test-result caching. Prepare clears
-the manual build filter and writes `needs_migration` for the caller to inspect. Keep the base
-fixture DSNs in `SRQL_TEST_*`, use one numeric run ID/attempt for the whole sequence, and pair
-`provision_db_sN` with `integration_tests_sN` for a focused run. Always invoke `teardown_db`
-after provisioning, including after a red shard. `provision_db` refuses to clone a template that
-is behind the migrations on disk, so do not reorder the sequence.
+the manual build filter and reports migration status on stdout; the caller matches
+`migration(s) pending`, while extra-applied migrations fail the prepare step outright. Keep the
+base fixture DSNs in `SRQL_TEST_*`, use one numeric run ID/attempt for the whole sequence, and
+pair `provision_db_sN` with `integration_tests_sN` for a focused run. Always invoke
+`teardown_db` after provisioning, including after a red shard. `provision_db` refuses to clone a
+template that is behind the migrations on disk, so do not reorder the sequence.
 
 Against a local docker Postgres with TLS off:
 

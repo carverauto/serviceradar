@@ -172,6 +172,53 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            query: "in:cves cve:CVE-2026-0001",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["cve_id"], "CVE-2026-0001");
+                assert_eq!(result["kev"], true);
+                assert_eq!(result["cvss_score"], 9.8);
+                assert!(result.get("raw").is_none());
+                assert!(result.get("affected_coordinates").is_none());
+            })),
+        },
+        TestCase {
+            query: "in:advisory_coordinates cve:CVE-2026-0001 coordinate_type:cpe",
+            expected_count: 2,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["cve_id"], "CVE-2026-0001");
+                assert_eq!(body["results"][0]["cpe_vendor"], "nginx");
+                assert_eq!(body["results"][0]["cpe_product"], "nginx");
+            })),
+        },
+        TestCase {
+            query: "in:cve_matches cve:CVE-2026-0001",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["device_uid"], "device-alpha");
+                assert_eq!(result["package_name"], "nginx");
+                assert_eq!(result["kev"], true);
+                assert_eq!(result["epss_score"], 0.84);
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_packages cve:CVE-2026-0001 current:true",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["name"], "nginx");
+                assert_eq!(body["results"][0]["device_uid"], "device-alpha");
+            })),
+        },
+        TestCase {
+            query: "in:devices kev:true",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["uid"], "device-alpha");
+            })),
+        },
+        TestCase {
             query: r#"in:packages cpe:"cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*" current:true"#,
             expected_count: 1,
             validator: Some(Box::new(|body| {
@@ -351,6 +398,219 @@ async fn comprehensive_queries_match_fixtures() {
             query: "in:devices os.name:%OS% is_available:true",
             expected_count: 3, // alpha, gamma, delta (beta is not available)
             validator: None,
+        },
+        // -- identity reconciliation diagnostics (GitHub #4229) ------------
+        TestCase {
+            query: "in:merge_audit device_id:identity-src",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["to_device_id"], "identity-mid");
+                assert_eq!(body["results"][0]["reason"], "duplicate_mac");
+                // The allowlist keeps declared keys and drops everything else.
+                assert_eq!(
+                    body["results"][0]["details"]["source"],
+                    "scheduled_reconciliation"
+                );
+                assert!(
+                    body["results"][0]["details"]["secret_token"].is_null(),
+                    "details allowlist leaked an undeclared key: {}",
+                    body["results"][0]["details"]
+                );
+            })),
+        },
+        TestCase {
+            // The unmerge row between comp-a and comp-b is hidden by default.
+            query: "in:merge_audit device_id:identity-comp-a",
+            expected_count: 0,
+            validator: None,
+        },
+        TestCase {
+            query: "in:merge_audit device_id:identity-comp-a include_unmerge:true",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["reason"], "unmerge");
+            })),
+        },
+        TestCase {
+            // Three hops forward: src -> mid -> survivor is two edges.
+            query: "in:merge_audit chain:identity-src",
+            expected_count: 2,
+            validator: Some(Box::new(|body| {
+                let rows = body["results"].as_array().unwrap();
+                assert!(rows.iter().all(|row| row["direction"] == "merged_into"));
+                let deepest = rows.iter().max_by_key(|row| row["depth"].as_i64()).unwrap();
+                assert_eq!(deepest["to_device_id"], "identity-survivor");
+                assert_eq!(deepest["depth"], 2);
+                assert_eq!(rows[0]["truncated"], false);
+            })),
+        },
+        TestCase {
+            // Backward from the survivor: what came into it.
+            query: "in:merge_audit chain:identity-survivor",
+            expected_count: 2,
+            validator: Some(Box::new(|body| {
+                let rows = body["results"].as_array().unwrap();
+                assert!(rows.iter().all(|row| row["direction"] == "merged_from"));
+            })),
+        },
+        TestCase {
+            // Four merge rows between the same two devices, in both directions.
+            // A walk without a visited-set guard does not terminate on this, and
+            // one keyed on (event_id, direction) returns each row twice.
+            query: "in:merge_audit chain:identity-osc-a",
+            expected_count: 4,
+            validator: Some(Box::new(|body| {
+                let rows = body["results"].as_array().unwrap();
+                assert!(
+                    rows.iter().all(|row| row["depth"].as_i64().unwrap() <= 2),
+                    "oscillating pair should not accumulate depth: {}",
+                    body["results"]
+                );
+                let ids: std::collections::HashSet<_> =
+                    rows.iter().map(|row| row["event_id"].clone()).collect();
+                assert_eq!(
+                    ids.len(),
+                    rows.len(),
+                    "each audit row must appear once, not once per direction"
+                );
+            })),
+        },
+        TestCase {
+            query: "in:device_revival_audit device_uid:identity-revived",
+            expected_count: 2,
+            validator: Some(Box::new(|body| {
+                // The tombstone the revival destroyed is what makes this useful.
+                assert_eq!(
+                    body["results"][0]["previous_deleted_reason"],
+                    "phantom apipa address"
+                );
+                assert_eq!(body["results"][0]["previous_deleted_by"], "operator");
+                assert_eq!(
+                    body["results"][0]["revived_by_application"],
+                    "serviceradar-core"
+                );
+            })),
+        },
+        TestCase {
+            query: "in:device_identifiers device_id:identity-survivor identifier_type:mac",
+            expected_count: 3,
+            validator: Some(Box::new(|body| {
+                let rows = body["results"].as_array().unwrap();
+                let corroborated = rows
+                    .iter()
+                    .filter(|row| row["matches_current_facts"] == true)
+                    .count();
+                // The current `mac` column AND the interface MAC both count;
+                // the third value is only history.
+                assert_eq!(corroborated, 2, "rows: {}", body["results"]);
+                assert!(
+                    rows.iter().any(|row| row["identifier_value"] == "AABBCCDEAD01"
+                        && row["matches_current_facts"] == false),
+                    "a historical MAC must still be returned, marked false"
+                );
+                assert!(
+                    rows.iter().all(|row| row["metadata"]["secret_token"].is_null()),
+                    "metadata allowlist leaked an undeclared key"
+                );
+            })),
+        },
+        TestCase {
+            query: "in:device_identifiers device_id:identity-survivor identifier_type:armis_device_id",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                // Null, not false. Reporting an external system's key as false
+                // would assert it is stale, which is a different and wrong claim.
+                assert!(
+                    body["results"][0]["matches_current_facts"].is_null(),
+                    "an armis_device_id has no comparable current fact: {}",
+                    body["results"][0]
+                );
+            })),
+        },
+        TestCase {
+            query: "in:device_identifiers value:AABBCC00DEAD",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                // The owner is tombstoned; the identifier row still surfaces,
+                // carrying the owner's tombstone.
+                assert_eq!(body["results"][0]["device_id"], "identity-src");
+                assert_eq!(body["results"][0]["owner_deleted"], true);
+                assert_eq!(
+                    body["results"][0]["owner_deleted_reason"],
+                    "merged into identity-survivor"
+                );
+            })),
+        },
+        TestCase {
+            // A live owner, and a MAC written with colons on the device but
+            // without them on the identifier: the projection normalises both
+            // sides, so this is the case that proves it does. Hung off the
+            // pre-existing device-alpha because every identity fixture device is
+            // tombstoned to stay out of the shared device totals.
+            query: "in:device_identifiers device_id:device-alpha identifier_type:mac",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["matches_current_facts"], true);
+                assert_eq!(body["results"][0]["owner_deleted"], false);
+                assert_eq!(body["results"][0]["owner_hostname"], "alpha-edge");
+            })),
+        },
+        TestCase {
+            // A -- B -- C: A-B is direct evidence, B-C is transitive from A,
+            // and there is no A-C edge because they share no identifier.
+            query: "in:identity_evidence_edges device:identity-comp-a",
+            expected_count: 2,
+            validator: Some(Box::new(|body| {
+                let rows = body["results"].as_array().unwrap();
+
+                let direct: Vec<_> = rows.iter().filter(|row| row["direct"] == true).collect();
+                assert_eq!(direct.len(), 1, "rows: {}", body["results"]);
+                assert_eq!(direct[0]["device_b"], "identity-comp-b");
+                assert_eq!(direct[0]["depth"], 1);
+
+                let transitive: Vec<_> =
+                    rows.iter().filter(|row| row["direct"] == false).collect();
+                assert_eq!(transitive.len(), 1);
+                assert_eq!(transitive[0]["device_a"], "identity-comp-b");
+                assert_eq!(transitive[0]["device_b"], "identity-comp-c");
+
+                assert!(
+                    !rows.iter().any(|row| {
+                        row["device_a"] == "identity-comp-a"
+                            && row["device_b"] == "identity-comp-c"
+                    }),
+                    "A and C share no identifier and must not be joined by an edge"
+                );
+
+                // comp-c lives in partition edge-west; the B-C edge crosses.
+                assert_eq!(transitive[0]["cross_partition"], true);
+                assert_eq!(direct[0]["cross_partition"], false);
+            })),
+        },
+        TestCase {
+            query: "in:identity_reconciliation_runs merge_cap_reached:true",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["merges"], 200);
+                assert_eq!(body["results"][0]["max_merges_configured"], 200);
+                assert_eq!(body["results"][0]["largest_blocked_component"], 5);
+                assert_eq!(body["results"][0]["blocked_components"], 4);
+                let blocked = &body["results"][0]["blocked_component_devices"];
+                assert_eq!(blocked[0]["device_ids"][0], "identity-comp-a");
+            })),
+        },
+        TestCase {
+            query: "in:dire_runs status:failed",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                // A run that raised leaves a record rather than nothing at all.
+                assert!(
+                    body["results"][0]["error_summary"]
+                        .as_str()
+                        .unwrap()
+                        .contains("serialization_failure")
+                );
+            })),
         },
     ];
 

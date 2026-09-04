@@ -10,19 +10,31 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
 
   use ExUnit.Case, async: false
 
+  alias ServiceRadarWebNG.Pkce
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OIDCClient
+
+  @moduletag :db_free
 
   @issuer "https://idp.example.com"
   @client_id "client-id"
   @jwks_uri "https://idp.example.com/jwks"
+  @app :serviceradar_web_ng
 
   setup do
     maybe_start_config_cache()
     clear_auth_cache()
+    previous_poster = Application.get_env(@app, :oidc_token_poster)
+    previous_loader = Application.get_env(@app, :auth_settings_loader)
+
+    Application.put_env(@app, :auth_settings_loader, fn ->
+      {:error, :not_configured}
+    end)
 
     on_exit(fn ->
       clear_auth_cache()
+      restore_env(:oidc_token_poster, previous_poster)
+      restore_env(:auth_settings_loader, previous_loader)
     end)
 
     :ok
@@ -137,6 +149,59 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
 
       assert {:error, :discovery_failed} = OIDCClient.authorize_url()
     end
+
+    test "includes S256 challenge when discovery advertises S256" do
+      put_oidc_provider(@jwks_uri, %{"code_challenge_methods_supported" => ["plain", "S256"]})
+
+      assert {:ok, url, session} = OIDCClient.authorize_url()
+      params = query_params(url)
+
+      assert params["code_challenge_method"] == "S256"
+      assert params["code_challenge"] == Pkce.challenge_s256(session.code_verifier)
+      refute Map.has_key?(params, "code_verifier")
+      assert session.pkce? == true
+      assert is_binary(session.code_verifier)
+    end
+
+    test "includes S256 challenge when discovery omits challenge methods" do
+      put_oidc_provider(@jwks_uri)
+
+      assert {:ok, url, session} = OIDCClient.authorize_url()
+      params = query_params(url)
+
+      assert params["code_challenge_method"] == "S256"
+      assert params["code_challenge"] == Pkce.challenge_s256(session.code_verifier)
+      assert session.pkce? == true
+    end
+
+    test "omits PKCE when discovery lists methods without S256" do
+      put_oidc_provider(@jwks_uri, %{"code_challenge_methods_supported" => ["plain"]})
+
+      assert {:ok, url, session} = OIDCClient.authorize_url()
+      params = query_params(url)
+
+      refute Map.has_key?(params, "code_challenge")
+      refute Map.has_key?(params, "code_challenge_method")
+      assert session.pkce? == false
+      assert session.code_verifier == nil
+    end
+
+    test "required mode errors when S256 is not advertised" do
+      put_oidc_provider(@jwks_uri, %{"code_challenge_methods_supported" => ["plain"]}, :required)
+
+      assert {:error, :pkce_s256_unsupported} = OIDCClient.authorize_url()
+    end
+
+    test "disabled mode omits PKCE even when S256 is advertised" do
+      put_oidc_provider(@jwks_uri, %{"code_challenge_methods_supported" => ["S256"]}, :disabled)
+
+      assert {:ok, url, session} = OIDCClient.authorize_url()
+      params = query_params(url)
+
+      refute Map.has_key?(params, "code_challenge")
+      assert session.pkce? == false
+      assert session.code_verifier == nil
+    end
   end
 
   describe "exchange_code/2" do
@@ -163,6 +228,31 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
       )
 
       assert {:error, :token_exchange_failed} = OIDCClient.exchange_code("auth-code")
+    end
+
+    test "includes code_verifier and client_secret on the PKCE path" do
+      put_oidc_provider(@jwks_uri)
+      capture_token_posts()
+
+      assert {:ok, _tokens} = OIDCClient.exchange_code("auth-code", code_verifier: "verifier-1")
+      assert_receive {:token_post, url, opts}
+      assert url == "https://example.com/token"
+      form = form_body(opts)
+      assert form[:code_verifier] == "verifier-1"
+      assert form[:client_secret] == "client-secret"
+      assert form[:code] == "auth-code"
+      assert form[:grant_type] == "authorization_code"
+    end
+
+    test "omits code_verifier when PKCE was not used" do
+      put_oidc_provider(@jwks_uri)
+      capture_token_posts()
+
+      assert {:ok, _tokens} = OIDCClient.exchange_code("auth-code")
+      assert_receive {:token_post, _url, opts}
+      form = form_body(opts)
+      refute Map.has_key?(form, :code_verifier)
+      assert form[:client_secret] == "client-secret"
     end
   end
 
@@ -335,7 +425,7 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
     )
   end
 
-  defp put_oidc_provider(jwks_uri) do
+  defp put_oidc_provider(jwks_uri, metadata_overrides \\ %{}, pkce_mode \\ :auto) do
     put_oidc_settings(%{
       is_enabled: true,
       mode: :active_sso,
@@ -343,24 +433,52 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClientTest do
       oidc_client_id: @client_id,
       oidc_client_secret_encrypted: "client-secret",
       oidc_discovery_url: @issuer,
-      oidc_scopes: "openid email profile"
+      oidc_scopes: "openid email profile",
+      oidc_pkce_mode: pkce_mode
     })
 
-    ConfigCache.put_cached(
-      "oidc_metadata:#{@issuer}",
-      %{
-        "issuer" => @issuer,
-        "authorization_endpoint" => "#{@issuer}/authorize",
-        "token_endpoint" => "#{@issuer}/token",
-        "jwks_uri" => jwks_uri
-      },
-      ttl: to_timeout(minute: 5)
-    )
+    metadata =
+      Map.merge(
+        %{
+          "issuer" => @issuer,
+          "authorization_endpoint" => "https://example.com/authorize",
+          "token_endpoint" => "https://example.com/token",
+          "jwks_uri" => jwks_uri
+        },
+        metadata_overrides
+      )
+
+    ConfigCache.put_cached("oidc_metadata:#{@issuer}", metadata, ttl: to_timeout(minute: 5))
 
     :ok
   end
 
+  defp query_params(url) do
+    url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+  end
+
+  defp capture_token_posts do
+    parent = self()
+
+    Application.put_env(@app, :oidc_token_poster, fn url, opts ->
+      send(parent, {:token_post, url, opts})
+      {:ok, %{status: 200, body: %{"access_token" => "tok", "id_token" => "id"}}}
+    end)
+  end
+
+  defp form_body(opts), do: Keyword.fetch!(opts, :form)
+
+  defp restore_env(key, nil), do: Application.delete_env(@app, key)
+  defp restore_env(key, value), do: Application.put_env(@app, key, value)
+
   defp maybe_start_config_cache do
+    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+
+    case Process.whereis(ServiceRadar.PubSub) do
+      nil -> start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+      _pid -> :ok
+    end
+
     case Process.whereis(ConfigCache) do
       nil -> start_supervised!({ConfigCache, ttl_ms: 60_000})
       _pid -> :ok

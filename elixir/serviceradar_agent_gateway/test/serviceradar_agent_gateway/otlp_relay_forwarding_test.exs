@@ -7,6 +7,10 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
   @plugin_result_retained_delivery_capability_v1 "plugin-result-retained:v1"
 
   setup do
+    if !Process.whereis(ServiceRadarAgentGateway.DeliveryTaskSupervisor) do
+      start_supervised!({Task.Supervisor, name: ServiceRadarAgentGateway.DeliveryTaskSupervisor})
+    end
+
     existing = Process.whereis(ServiceRadar.StatusHandler)
 
     previous_publisher =
@@ -38,7 +42,7 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
     end
   end
 
-  test "flow attribution persistence failures are buffered without failing the stream" do
+  test "flow attribution persistence failures return a negative acknowledgement" do
     parent = self()
 
     handler_pid =
@@ -52,15 +56,21 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
 
     Process.register(handler_pid, ServiceRadar.StatusHandler)
 
-    assert AgentGatewayServer.process_chunk_services([flow_attribution_service()], metadata()) == []
+    assert %Monitoring.GatewayStatusResponse{received: false, directives: []} =
+             AgentGatewayServer.process_status_stream([
+               {[flow_attribution_service()], metadata()}
+             ])
 
     assert_receive {:flow_attribution_forwarded, status}
     assert status.partition == "cert-partition"
     assert status.agent_id == "agent-1"
   end
 
-  test "plugin-result forwarding failures are buffered without failing the stream" do
-    assert AgentGatewayServer.process_chunk_services([plugin_result_service()], retained_plugin_result_metadata()) == []
+  test "retained plugin-result forwarding failures return a negative acknowledgement" do
+    assert %Monitoring.GatewayStatusResponse{received: false, directives: []} =
+             AgentGatewayServer.process_status_stream([
+               {[plugin_result_service()], retained_plugin_result_metadata()}
+             ])
   end
 
   test "legacy plugin-result forwarding keeps buffered acknowledgement semantics" do
@@ -85,10 +95,10 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
 
     Process.register(handler_pid, ServiceRadar.StatusHandler)
 
-    assert AgentGatewayServer.process_chunk_services(
-             [plugin_result_service()],
-             retained_plugin_result_metadata()
-           ) == []
+    assert %Monitoring.GatewayStatusResponse{received: true, directives: []} =
+             AgentGatewayServer.process_status_stream([
+               {[plugin_result_service()], retained_plugin_result_metadata()}
+             ])
 
     assert_receive {:plugin_result_forwarded, status}
     assert status.partition == "cert-partition"

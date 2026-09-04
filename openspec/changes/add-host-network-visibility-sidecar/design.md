@@ -78,13 +78,14 @@ case), security review (eBPF capability surface).
 **Goals**
 
 - One sidecar binary covering passive fingerprinting + DPI + per-process
-  flow attribution + NetFlow ↔ application attribution.
+  flow attribution, with core-side NetFlow-to-application correlation.
 - Profile-driven scoping via SRQL `target_query` consistent with
   Sysmon / SNMP profiles.
 - Bind locally-observed flows to PID / command line / unit / UID /
   container-id with low overhead via eBPF.
-- Annotate external NetFlow records with local process attribution
-  whenever a 5-tuple matches an observed local socket.
+- Emit local socket/process observations agent-up so core can correlate them
+  with independently ingested NetFlow/IPFIX when the protocol-specific tuple
+  and time window match.
 - Enrich both discovered *and* integration-imported devices with
   fingerprint and DPI evidence.
 - Establish a reusable `agent-sidecar-runtime` capability for future
@@ -435,8 +436,9 @@ case), security review (eBPF capability surface).
     flow with PID, comm, redacted-cmdline, uid, container-id.
   - `ProcessSnapshots(stream ProcessSnapshot)` — periodic listener
     map.
-  - `IngestExternalFlows(stream ExternalFlowRecord)` — external
-    NetFlow records the agent has forwarded for attribution.
+  - The legacy `IngestExternalFlows(stream ExternalFlowRecord)` arm is not a
+    production attribution dependency and may be retired after persisted config
+    compatibility and protobuf field reservation are handled.
   - Reserved field numbers for a future `PacketExportEvents` stream.
 - Wire format: length-prefixed protobuf frames over UDS, 4-byte
   big-endian length prefix, max frame size 4 MiB. No full gRPC
@@ -477,9 +479,9 @@ case), security review (eBPF capability surface).
   about visibility, mirrors the sysmon pattern, and keeps the
   compiler emitting one binding per device.
 
-### D8. Storage: extend OCSF maps; new attributed_flow event type
+### D8. Storage: bounded attribution state and in-place OCSF stamping
 
-- **Decision.** No new top-level tables. Extend existing maps:
+- **Decision.** Device visibility evidence continues to extend existing maps:
   - `device.os.passive_fingerprint` — `{family, version, confidence,
     source: "serviceradar-license-clean", observed_at}`.
   - `device.metadata.passive_fingerprint` — protocol-specific
@@ -490,17 +492,21 @@ case), security review (eBPF capability surface).
   - `device.metadata.local_processes` — periodic snapshot of
     listening sockets and their owning processes; bounded
     cardinality with LRU eviction.
-- Attributed flow records ride the **existing** flow pipeline. We
-  add a new `attributed_flow` event type emitted on
-  `flow.attributed.<partition>` (or whatever the existing
-  flow-collector subject convention is — to be confirmed during
-  implementation review of `flow-collector`'s spec).
-- **Alternatives.** (a) New `process_attribution` table — rejected as
-  premature; the existing flow pipeline already gives us time-series
-  + retention.
-- **Rationale.** Keeps the schema impact minimal and lets the existing
-  enrichment matcher and flow UI consume new signals without new
-  storage.
+- Flow attribution uses the dedicated bounded current-state table
+  `platform.flow_process_attribution_current`, keyed by the authenticated
+  partition and agent context plus tuple/process identity. It is not an
+  append-only flow history.
+- `ServiceRadar.FlowAttribution.Correlation` joins current attribution state
+  with independently ingested `platform.ocsf_network_activity` rows and
+  updates the matching OCSF row in place, setting the `event_type` field to
+  `"attributed_flow"` and adding attribution context. No `flow.attributed.*`
+  subject or second attributed-flow table is part of this path.
+- **Alternatives.** (a) An append-only process-attribution event table —
+  rejected because unmatched observations need bounded current-state
+  retention while the existing OCSF flow row is the durable matched artifact.
+- **Rationale.** Bounds unmatched producer state, preserves independently
+  ingested flow history, and gives the correlator and UI one canonical matched
+  OCSF artifact.
 
 ### D9. Imported-device coverage via existing IP-alias resolution
 
@@ -757,25 +763,28 @@ case), security review (eBPF capability surface).
   resource state changes, and the permission being separately-
   grantable.
 
-### D13. NetFlow ↔ application attribution data flow
+### D13. NetFlow to application attribution data flow
 
-- **Decision.** `flow-collector` publishes a *per-host slice* of
-  ingested NetFlow records on a new subject
-  (`flow.host-slice.<agent-id>` or equivalent) for every agent that
-  has advertised the `host-network-visibility` capability. The agent
-  subscribes to its own slice, forwards the records to `netprobe`
-  via `IngestExternalFlows`, and republishes the annotated stream as
-  `attributed_flow` records on the existing flow pipeline.
-- For agents not running `netprobe`, `flow-collector` simply does not
-  publish a per-host slice for that agent; the existing flow pipeline
-  is unchanged.
-- **Alternatives.** (a) Forward *all* NetFlow to *every* agent —
-  rejected, scales poorly. (b) Let `netprobe` itself ingest NetFlow
-  directly from switches — rejected, that duplicates `flow-collector`
-  and pulls UDP-listener concerns into the sidecar.
-- **Rationale.** Per-host slicing keeps the data scope tight, leans
-  on `flow-collector` for ingestion correctness, and keeps `netprobe`
-  focused on host-level observation.
+- **Decision.** `serviceradar-netprobe` emits local socket/process
+  observations to the agent without receiving NetFlow. The agent encodes them
+  in `FlowAttributionEventBatch`, retains the ordered pending prefix, and sends
+  it through `StreamStatus`. Agent-gateway authenticates the sender and forwards
+  the status to core; core uses that authenticated agent/partition context when
+  upserting `platform.flow_process_attribution_current`. The CNPG correlator
+  joins this state to normal NetFlow/IPFIX rows written independently by
+  EventWriter and stamps the existing OCSF row in place as
+  `event_type = "attributed_flow"`.
+- Agents not running `netprobe` continue using the existing unattributed flow
+  pipeline. A netprobe observation with no sampled-flow overlap remains useful
+  forensic current state but cannot produce an attributed flow.
+- **Alternatives.** (a) Forward per-host NetFlow slices to agents — rejected
+  after the demo canary because it requires dynamic per-agent routing and still
+  cannot create exporter traffic that was never sampled. (b) Let `netprobe`
+  ingest NetFlow directly from switches — rejected because it duplicates
+  `flow-collector` and pulls listener concerns into the sidecar.
+- **Rationale.** Agent-up observations keep netprobe focused on host-local
+  evidence, preserve independent raw flow ingestion, and make missing topology
+  overlap observable at the component that owns the join.
 
 ### D14. OS fingerprinting technique: license-clean stack (p0f-in-eBPF + JA4 base + HASSH)
 
@@ -1323,7 +1332,7 @@ case), security review (eBPF capability surface).
 | Capability creep on the agent process. | All eBPF and pcap capabilities scoped to the sidecar binary via file capabilities or per-process `securityContext`. |
 | Overlap with `add-unifi-wifi-discovery-parity` enrichment rules. | Both feed the existing rule matcher; precedence handled by `Classification Provenance`. |
 | Operator confusion between per-device fingerprint signals (remote endpoints observed on wire) and host attribution (local processes on agent host). | UI distinguishes "Network Visibility" (about the device being viewed) from "Process Listeners" (about the agent host) on Device Detail. |
-| Multi-tenant leakage. | Profiles are partition-scoped Ash resources; events carry `partition_id` from agent mTLS identity; flow-collector per-host slicing is partition-bounded. |
+| Multi-tenant leakage. | Profiles are partition-scoped Ash resources; agent-gateway authenticates the sender, core derives agent/partition authority from that status context rather than payload claims, and both current-state persistence and OCSF correlation are partition-scoped. |
 | Remote-capture sessions expose full packet payloads (in contrast to the redaction posture for passive observation). | New `agent_capture:remote` RBAC permission off by default; per-session time + byte caps enforced at three layers; every state transition audit-logged; partition-scoped; tenant-configurable cap ceilings; concurrent-session cap of 1 per agent in Phase 5. |
 | Long-lived remote capture sessions exhaust agent or gateway egress bandwidth. | Per-session byte cap (default 50 MiB, max 1 GiB); duration cap (default 60 s, max 600 s in Phase 5); per-agent concurrent-session cap of 1; gateway-side rate limit consistent with existing command-bus quotas; agent surfaces an "active capture session" indicator so operators can see noise sources at a glance. |
 | Engineer's `srctl capture` process dies mid-stream and leaves a dangling session. | `core-elx` detects the streaming endpoint close, sends a `StopRemoteCapture` to the agent over the command bus, and the agent forwards a `cancel` to `netprobe`. Sessions also self-terminate on duration/byte cap regardless of client liveness. |
@@ -1359,9 +1368,10 @@ the only phase scoped for the *first* release of this work):
    `ProcessSnapshot`; persist `metadata.local_processes`; UI
    Process Listeners tab; degraded-mode advertising for older
    kernels.
-4. **Phase 4 — NetFlow ↔ application attribution.**
-   `flow-collector` per-host slice publish; agent forwarding into
-   `netprobe`; `attributed_flow` republish; Attributed Flows view.
+4. **Phase 4 — NetFlow to application attribution.**
+   Agent-up local observation persistence; protocol-aware core-side CNPG
+   correlation; `attributed_flow` stamping; Attributed Flows view. The retired
+   demo host-slice canary is not production architecture.
 5. **Phase 5 — Remote pcapng capture sessions.** `CaptureSessions`
    IPC RPC and agent-side bridge (per D13a–D13e); `core-elx`
    session lifecycle + audit + RBAC; `srctl capture` CLI helper;
@@ -1409,32 +1419,28 @@ Rollback per phase:
    device scope. For v1 keep the per-device knob in the profile but
    note that turning it on for *any* device incurs the global eBPF
    load cost.
-5. **NetFlow slice subject naming.** Today's `flow-collector` subjects
-   were not enumerated during proposal authoring. Confirm the exact
-   subject scheme during implementation review of the `flow-collector`
-   spec.
-6. **macOS / Windows agent.** Initial scope ships netprobe only on
+5. **macOS / Windows agent.** Initial scope ships netprobe only on
    Linux. Non-Linux agents advertise `host-network-visibility` as
    unavailable. Confirm acceptable.
-7. **Long-term packet export (Wireshark `extcap` integration).**
+6. **Long-term packet export (Wireshark `extcap` integration).**
    `srctl capture` pipes pcapng to stdout in Phase 5, which already
    works with `wireshark -k -i -`. A native Wireshark `extcap`
    plugin so engineers can pick a ServiceRadar agent from the
    Wireshark capture-source picker is a follow-up.
-8. **Tenant cap ceilings.** What are the right default tenant-level
+7. **Tenant cap ceilings.** What are the right default tenant-level
    maxima for `duration_s`, `byte_cap`, and concurrent sessions?
    Phase 5 defaults (60 s / 50 MiB / 1) are intentionally
    conservative. Confirm with security review before raising.
-9. **Capture data staging.** Should `core-elx` *optionally* stage
+8. **Capture data staging.** Should `core-elx` *optionally* stage
    completed captures into object storage for asynchronous
    retrieval (`srctl capture history`)? Defaults: no staging,
    captures flow through `core-elx` only as live bytes. Revisit
    when operators ask.
-10. **Audit detail level.** Do we record the BPF filter verbatim in
+9. **Audit detail level.** Do we record the BPF filter verbatim in
     the audit log, or hash + summarise? Verbatim is operator-
     friendly but a BPF filter can encode IP allowlists. Lean
     verbatim with a redaction hook; confirm with security review.
-11. **Skipping `core-elx` on the user-facing leg.** ServiceRadar
+10. **Skipping `core-elx` on the user-facing leg.** ServiceRadar
     has a precedent for `web-ng` dispatching straight to
     `agent-gateway` when a request does not need core-side
     processing. Remote capture *does* need core-side processing

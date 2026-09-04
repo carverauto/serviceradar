@@ -24,6 +24,59 @@ in:devices stats:count() as total by tags.gate limit:100
 
 `time:` on devices still means last-seen. Newly added devices use `first_seen:`.
 
+## Identity reconciliation diagnostics
+
+Explaining an inventory change: which devices are tombstoned, what merged into
+what, whether an identifier is still real, and what a scheduled reconciliation
+run actually did.
+
+Prefer the task tools `trace_device_identity` and `explain_identity_reconciliation`
+over composing these by hand; the recipes below are for the cases they do not
+cover.
+
+```
+in:devices deleted:true sort:last_seen:desc limit:50
+in:devices deleted:true hostname:%farm% limit:25
+in:merge_audit device_id:sr:<uuid> sort:created_at:desc limit:25
+in:merge_audit chain:sr:<uuid> limit:50
+in:merge_audit reason:duplicate_mac time:last_7d limit:50
+in:device_revival_audit device_uid:sr:<uuid> limit:25
+in:revivals time:last_24h sort:revived_at:desc limit:50
+in:device_identifiers device_id:sr:<uuid> limit:100
+in:device_identifiers identifier_type:mac value:001122334455 limit:25
+in:device_identifiers device_id:sr:<uuid> matches_current_facts:false limit:50
+in:identity_evidence_edges device:sr:<uuid> limit:100
+in:identity_reconciliation_runs time:last_24h limit:25
+in:identity_reconciliation_runs merge_cap_reached:true time:last_7d limit:25
+in:dire_runs status:failed time:last_7d limit:25
+```
+
+`in:devices deleted:true` returns tombstoned devices with `deleted_at`,
+`deleted_by`, and `deleted_reason`. Plain `in:devices` hides them.
+
+`chain:` walks the merge graph in BOTH directions from one uid: `direction` is
+`merged_into` (where this device went) or `merged_from` (what came into it), and
+`depth` is hops from the seed. If `truncated` is true the chain hit its depth cap
+and there is more; raise it with `depth:64`.
+
+`matches_current_facts` on `in:device_identifiers` is the difference between an
+identifier the owning device still reports and one that is only history. A merge
+justified by a MAC whose `matches_current_facts` is false was justified by an old
+fact.
+
+`in:identity_evidence_edges` requires a `device:` seed and will refuse an
+unseeded query -- it is a self-join across millions of identifier rows. `direct`
+means the edge touches the seed; `direct:false` at `depth` 2 or more is
+transitive connectivity, which is why the scheduled sweep refuses to merge
+components larger than a pair. `cross_partition` flags an edge whose two devices
+disagree on partition.
+
+On a run that reports `merge_cap_reached:true`, the sweep stopped at its
+configured `max_merges_configured` and more mergeable duplicates may remain for
+the next run. `blocked_component_devices` lists the device uids of each component
+it declined to merge; seed `in:identity_evidence_edges device:` with one of them
+to see why.
+
 ## Events and logs
 
 ```
@@ -53,6 +106,19 @@ in:flows tag:site:austin time:last_1h
 in:flows time:last_1h stats:sum(bytes_total) as bytes by app sort:bytes:desc
 in:flows time:last_6h bucket:5m agg:sum value_field:bytes_total
 ```
+
+## Threat intel
+
+```
+in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100
+in:threat_intel_matches observed_ip:198.51.100.10
+in:flows threat_matched:true time:last_24h sort:time:desc limit:100
+in:flows threat_indicator:"198.51.100.0/24" time:last_24h sort:time:desc limit:100
+in:attributed_flows threat_source:alienvault_otx time:last_24h sort:time:desc limit:100
+```
+
+Current matches are cache memberships, not flow counts. Threat-aware `in:flows`
+defaults to `time:last_24h` when `time:` is omitted.
 
 `ip:` / `port:` / `cidr:` / `tag:` match **either** endpoint. Directional forms
 are `src_*` / `dst_*`. `port:22` is “SSH either direction”.
@@ -110,6 +176,28 @@ in:alerts status:open sort:triggered_at:desc
 in:otel_metrics is_slow:true time:last_1h sort:timestamp:desc
 in:traces status_code:2 time:last_1h sort:timestamp:desc
 ```
+
+## Advisories, CPEs, and vulnerability matches
+
+Catalog and matcher tables, not OCSF occurrence rows.
+
+```
+in:cves cve:CVE-2024-1234
+in:advisories kev:true cvss_score:>=9.0 sort:cvss_score:desc
+in:advisory_coordinates cve:CVE-2024-1234 coordinate_type:cpe
+in:advisory_cpes cpe_vendor:nginx cpe_product:nginx
+in:cve_matches kev:true sort:cvss_score:desc
+in:cve_matches cve:CVE-2024-1234
+in:devices kev:true
+in:endpoint_packages cve:CVE-2024-1234 current:true
+```
+
+`in:cves` is the NVD/KEV catalog. `in:cve_matches` is which of *our* devices
+the matcher marked affected. `in:security_findings cve:` is the OCSF event
+stream (occurrences), not the catalog. Installed software CPEs stay on
+`in:endpoint_packages cpe:` / `rollup_stats:current_cpe_counts`. Do not use
+`in:cpes`. Version-range evaluation is not done in SRQL; query matches for
+exposure, coordinates for catalog evidence.
 
 ## Placeholders
 
