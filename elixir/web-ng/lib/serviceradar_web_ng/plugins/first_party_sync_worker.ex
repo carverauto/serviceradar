@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
+  alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Repositories
 
@@ -85,14 +86,30 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
         # was only one source so there was nothing to isolate.
         results = Enum.map(repositories, &sync_repository(&1, args, actor))
 
-        if Enum.any?(results, &match?({:error, _}, &1)) do
-          # Reported as an error so Oban retries, but only after every
-          # repository has had its turn.
-          {:error, :partial_plugin_sync_failure}
-        else
-          :ok
-        end
+        aggregate_results(results)
     end
+  end
+
+  @doc """
+  Folds per-repository sync outcomes into the Oban job result.
+
+  Any failure that is not a missing GitHub release catalog (expired token,
+  HTTP 5xx, invalid settings -- including atom reasons such as
+  `:invalid_attributes`) fails the job as `:partial_plugin_sync_failure` so
+  Oban retries, but only after every repository has had its turn. A missing
+  catalog alone is not transient -- the same unpublished tag 404s on every
+  attempt -- so the per-repository `last_sync_error` already records why and
+  the job succeeds, leaving the retry to the hourly successor.
+  """
+  @spec aggregate_results([:ok | {:error, term()}]) :: :ok | {:error, :partial_plugin_sync_failure}
+  def aggregate_results(results) when is_list(results) do
+    retryable? =
+      Enum.any?(results, fn
+        {:error, reason} -> not FirstPartyReleaseClient.missing_release?(reason)
+        _ -> false
+      end)
+
+    if retryable?, do: {:error, :partial_plugin_sync_failure}, else: :ok
   end
 
   defp sync_repository(repository, args, actor) do

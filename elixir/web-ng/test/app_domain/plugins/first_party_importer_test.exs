@@ -55,6 +55,11 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     def get(url, _opts) do
       cond do
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
+          Process.put(
+            :first_party_recent_release_requests,
+            Process.get(:first_party_recent_release_requests, 0) + 1
+          )
+
           releases =
             if Process.get(:first_party_releases_without_index) do
               [%{"tag_name" => "v1.2.3", "assets" => []}]
@@ -196,6 +201,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     Process.put(:first_party_signature, nil)
     Process.put(:cosign_verified_artifact, nil)
     Process.put(:first_party_releases_without_index, false)
+    Process.put(:first_party_recent_release_requests, 0)
     Process.put(:first_party_registry_auth_challenge, false)
     Process.put(:registry_token_auth_header, nil)
 
@@ -229,6 +235,34 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     assert plugin.version == "1.2.3"
     assert plugin.release_tag == "v1.2.3"
     assert plugin.import_ready?
+  end
+
+  test "auto-sync discovery falls back to recent releases when the deployed tag is unpublished" do
+    Process.put(:first_party_recent_release_requests, 0)
+
+    assert {:ok, [plugin]} =
+             FirstPartyImporter.list_plugins_for_sync(%{"repo_url" => @repo_url},
+               release_tag: "v1.4.51",
+               limit: 10
+             )
+
+    assert plugin.plugin_id == "hello-wasm"
+    assert plugin.release_tag == "v1.2.3"
+    assert Process.get(:first_party_recent_release_requests) >= 1
+  end
+
+  test "auto-sync discovery stays on the deployed tag when that release exists" do
+    Process.put(:first_party_recent_release_requests, 0)
+    Process.put(:first_party_releases_without_index, true)
+
+    assert {:ok, [plugin]} =
+             FirstPartyImporter.list_plugins_for_sync(%{"repo_url" => @repo_url},
+               release_tag: "v1.2.3",
+               limit: 10
+             )
+
+    assert plugin.release_tag == "v1.2.3"
+    assert Process.get(:first_party_recent_release_requests) == 0
   end
 
   # A third-party repository publishes release assets and has NO oci_ref. The

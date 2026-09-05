@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
+  alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
   alias ServiceRadarWebNG.Plugins.NativeAddonSync
 
@@ -125,16 +126,22 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
           reason: bounded_failure_reason(reason)
         )
 
-        {:error, reason}
+        if FirstPartyReleaseClient.missing_release?(reason) do
+          # A missing GitHub Release is not transient: retrying the same
+          # unpublished tag three times in a few seconds only emits Oban
+          # failures. Stamp the warning and let the hourly successor try again.
+          :ok
+        else
+          {:error, reason}
+        end
     end
   end
 
-  defp discover_addons(discovery_attrs, _limit, release_tag) when is_binary(release_tag) do
-    NativeAddonImporter.list_release_addons(discovery_attrs, release_tag)
-  end
-
-  defp discover_addons(discovery_attrs, limit, nil) do
-    NativeAddonImporter.list_recent_addons(discovery_attrs, limit)
+  defp discover_addons(discovery_attrs, limit, release_tag) do
+    NativeAddonImporter.list_addons_for_sync(discovery_attrs,
+      limit: limit,
+      release_tag: release_tag
+    )
   end
 
   defp schedule_next do

@@ -109,6 +109,28 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
 
   def list_release_plugins(_attrs, _release_tag), do: {:error, "Plugin import settings are invalid"}
 
+  @doc """
+  Discovers Wasm plugins for unattended sync.
+
+  Anchors to `release_tag` when GitHub has that release; otherwise falls back
+  to the recent-release feed so an unpublished deployed VERSION does not fail
+  the Oban job.
+  """
+  @spec list_plugins_for_sync(map(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def list_plugins_for_sync(attrs, opts \\ [])
+
+  def list_plugins_for_sync(attrs, opts) when is_map(attrs) and is_list(opts) do
+    limit = Keyword.get(opts, :limit, @default_recent_release_limit)
+
+    FirstPartyReleaseClient.resolve_catalog(
+      Keyword.get(opts, :release_tag),
+      fn tag -> list_release_plugins(attrs, tag) end,
+      fn -> list_recent_plugins(attrs, limit) end
+    )
+  end
+
+  def list_plugins_for_sync(_attrs, _opts), do: {:error, "Plugin import settings are invalid"}
+
   @spec import(map()) :: {:ok, map()} | {:error, term()}
   def import(attrs) when is_map(attrs) do
     with {:ok, repo} <- import_repo(attrs),

@@ -333,13 +333,11 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     end
   end
 
-  defp discover_first_party_plugins(discovery_attrs, _limit, release_tag)
-       when is_binary(release_tag) and release_tag != "" do
-    FirstPartyImporter.list_release_plugins(discovery_attrs, release_tag)
-  end
-
-  defp discover_first_party_plugins(discovery_attrs, limit, _release_tag) do
-    FirstPartyImporter.list_recent_plugins(discovery_attrs, limit)
+  defp discover_first_party_plugins(discovery_attrs, limit, release_tag) do
+    FirstPartyImporter.list_plugins_for_sync(discovery_attrs,
+      limit: limit,
+      release_tag: release_tag
+    )
   end
 
   # (plugin_id, version, release_tag) keys of already-imported packages, read

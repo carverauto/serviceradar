@@ -23,6 +23,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   alias ServiceRadarWebNG.Plugins.CosignVerifier
   alias ServiceRadarWebNG.Plugins.Storage
 
+  require Logger
+
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   @github_host "github.com"
@@ -95,6 +97,55 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
       end
     end
   end
+
+  @doc """
+  True when GitHub answered that the requested release catalog does not exist.
+
+  Used by automatic sync to distinguish "this tag was never published" or
+  "this private repository is invisible without a token" from retryable
+  credential/transport failures. GitHub reports both cases as HTTP 404.
+  """
+  @spec missing_release?(term()) :: boolean()
+  def missing_release?(reason) when is_binary(reason) do
+    (String.contains?(reason, "Release tag ") and String.contains?(reason, " was not found")) or
+      String.contains?(reason, "Repository or releases not found")
+  end
+
+  def missing_release?(_reason), do: false
+
+  @doc """
+  Discovers catalog entries for unattended sync.
+
+  Prefers the exact deployed release tag when GitHub has that release.
+  When that tag 404s -- unpublished VERSION, a sha-style demo rollout, or a
+  private repository the process cannot see -- falls back to the recent-release
+  feed instead of failing the Oban job.
+  """
+  @spec resolve_catalog(String.t() | nil, (String.t() -> {:ok, term()} | {:error, term()}), (-> {:ok, term()} | {:error, term()})) ::
+          {:ok, term()} | {:error, term()}
+  def resolve_catalog(release_tag, exact_fun, recent_fun)
+      when is_binary(release_tag) and release_tag != "" and is_function(exact_fun, 1) and
+             is_function(recent_fun, 0) do
+    case exact_fun.(release_tag) do
+      {:ok, items} ->
+        {:ok, items}
+
+      {:error, reason} ->
+        if missing_release?(reason) do
+          Logger.warning(
+            "Deployed GitHub release #{release_tag} is not available; falling back to recent releases",
+            reason: inspect(reason, limit: 20, printable_limit: 500)
+          )
+
+          recent_fun.()
+        else
+          {:error, reason}
+        end
+    end
+  end
+
+  def resolve_catalog(_release_tag, _exact_fun, recent_fun) when is_function(recent_fun, 0),
+    do: recent_fun.()
 
   def fetch_recent_releases(repo, limit) do
     url = "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases?per_page=#{normalize_limit(limit)}"

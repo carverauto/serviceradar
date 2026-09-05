@@ -112,6 +112,28 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
 
   def list_release_addons(_attrs, _release_tag), do: {:error, :invalid_attributes}
 
+  @doc """
+  Discovers native add-ons for unattended sync.
+
+  Anchors to `release_tag` when GitHub has that release; otherwise falls back
+  to the recent-release feed so an unpublished deployed VERSION does not fail
+  the Oban job.
+  """
+  @spec list_addons_for_sync(map(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def list_addons_for_sync(attrs, opts \\ [])
+
+  def list_addons_for_sync(attrs, opts) when is_map(attrs) and is_list(opts) do
+    limit = Keyword.get(opts, :limit, @default_recent_release_limit)
+
+    Client.resolve_catalog(
+      Keyword.get(opts, :release_tag),
+      fn tag -> list_release_addons(attrs, tag) end,
+      fn -> list_recent_addons(attrs, limit) end
+    )
+  end
+
+  def list_addons_for_sync(_attrs, _opts), do: {:error, :invalid_attributes}
+
   @spec import(map()) :: {:ok, AddonPackage.t()} | {:error, term()}
   def import(attrs) when is_map(attrs) do
     with {:ok, package, _disposition} <- import_with_disposition(attrs) do
