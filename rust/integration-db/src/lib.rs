@@ -59,6 +59,18 @@ const MAX_IDENTIFIER_BYTES: usize = 63;
 /// Where //build:run_id_file lands in runfiles. A declared input of every lifecycle target.
 const RUN_ID_RUNFILE: &str = "build/run_id_file.txt";
 
+/// Where //build:template_authority_file lands in runfiles. A declared input of every target
+/// that WRITES the shared template.
+///
+/// Same contract as the run id, for the same reason: the trunk lifecycle is several separate
+/// Bazel invocations sharing no process, and its Rust and Elixir halves must reach the same
+/// answer about whether they may touch `sr_core_template`. Ambient environment would let one
+/// step's answer differ from another's; a declared input cannot.
+const TEMPLATE_AUTHORITY_RUNFILE: &str = "build/template_authority_file.txt";
+
+/// The only content that grants shared-template write access. See //build/template_authority.bzl.
+const TEMPLATE_AUTHORITY_MARKER: &str = "trunk";
+
 /// Collisions only matter between runs that are live at the same time, and the sweep drops
 /// the rest, so eight hex characters over a handful of concurrent runs is ample. A full
 /// dash-stripped UUID still fits: 13-byte prefix + 32 + a shard suffix stays under 63.
@@ -238,6 +250,65 @@ pub fn shard_database_name(shard: &str) -> Result<String> {
     }
 
     Ok(name)
+}
+
+/// Refuses to continue unless this checkout may write the shared template database.
+///
+/// The caller declares it with `--//build:template_authority=true`, which means "this checkout
+/// is trunk". `sr_core_template` is cloned by every run and only ever ratchets forward, so
+/// whoever advances it decides the schema every other branch gets -- and a branch that never
+/// lands leaves migrations in it that exist nowhere else, which is what wedged every open pull
+/// request on 2026-09-04.
+///
+/// //buildbuddy.yaml already names these targets only from the push-to-`staging` action, and
+/// that placement is the fix. This is what makes it hold: placement is a convention a later
+/// edit undoes silently, and one a workstation never obeyed at all -- the lifecycle is
+/// documented as runnable by hand against the same shared CNPG fixture CI uses.
+///
+/// It REFUSES rather than quietly redirecting to the per-run base. A caller that reached for a
+/// target named after the template meant the template, and silently doing something else is
+/// how a run comes to report success for work it did not do.
+pub fn require_template_authority(target: &str) -> Result<()> {
+    if is_template_authority() {
+        return Ok(());
+    }
+
+    bail!(
+        "{target} writes the SHARED template {}, which only a trunk checkout may do; pass \
+         --//build:template_authority=true if this checkout IS trunk. A branch applies its own \
+         migrations to its own run base instead: //rust/integration-db:provision_base, then \
+         //elixir/serviceradar_core:migrate_run.",
+        template::TEMPLATE_DATABASE
+    )
+}
+
+/// Whether this checkout may write the shared template database.
+///
+/// Read from a declared build input rather than the environment, for the same reason the run id
+/// is: several invocations must agree, and ambient state lets them differ.
+///
+/// Fails CLOSED. Anything other than the exact marker -- an absent file, an empty one, a mangled
+/// one -- reads as "not the authority". That direction costs a loud refusal the caller can act
+/// on; the other poisons a fixture every open pull request clones.
+fn is_template_authority() -> bool {
+    // Infallible on purpose: every way of not finding the marker -- an undeclared input, an
+    // unreadable file, wrong content -- is the SAME answer, "not the authority". Returning a
+    // Result here would invite a caller to distinguish cases that must not be distinguished,
+    // and a `?` on the lookup would turn a conservative default into a hard failure.
+    let Ok(path) = config::runfile(TEMPLATE_AUTHORITY_RUNFILE) else {
+        return false;
+    };
+
+    let Ok(staged) = fs::read_to_string(&path) else {
+        return false;
+    };
+
+    is_authority_marker(&staged)
+}
+
+/// The pure half of [`is_template_authority`], so the fail-closed rule is unit-testable.
+fn is_authority_marker(staged: &str) -> bool {
+    staged.trim() == TEMPLATE_AUTHORITY_MARKER
 }
 
 /// The URL the Elixir suite connects with: the fixture URL, repointed at [`database_name`].
@@ -825,6 +896,48 @@ mod tests {
         assert!(is_protected_database("sr_core_template"));
         assert!(!is_protected_database("codex_mfreeman_1"));
         assert!(!is_protected_database("sr_core_test_a1b2c3d4"));
+    }
+
+    #[test]
+    fn template_write_authority_fails_closed() {
+        // The safe direction is "not the authority": the write is refused and the shared
+        // template is left exactly as it was found. The unsafe direction ratchets a database
+        // every open pull request clones, which is the failure this mechanism exists to
+        // prevent -- so only the exact marker grants it, and everything else is a refusal.
+        assert!(is_authority_marker("trunk"));
+        assert!(is_authority_marker("trunk\n"));
+        assert!(is_authority_marker("  trunk  "));
+
+        // The empty file an unset flag writes, and every plausible near-miss.
+        assert!(!is_authority_marker(""));
+        assert!(!is_authority_marker("\n"));
+        assert!(!is_authority_marker("true"));
+        assert!(!is_authority_marker("1"));
+        assert!(!is_authority_marker("TRUNK"));
+        assert!(!is_authority_marker("staging"));
+        assert!(!is_authority_marker("trunk trunk"));
+    }
+
+    #[test]
+    fn the_authority_marker_is_where_the_write_targets_look_for_it() {
+        // The dangerous failure of a fail-closed gate is that it fails closed on the ONE caller
+        // it is supposed to admit: a wrong runfile path or a renamed target would make
+        // `is_template_authority` return false even on trunk, and the trunk lifecycle would
+        // refuse itself -- with an error indistinguishable from a branch being correctly
+        // stopped, since both are "not the authority".
+        //
+        // So resolve it here, from a target that declares the same input the write targets do.
+        // The VALUE is not asserted: it follows from --//build:template_authority, which this
+        // test must not care about. What is asserted is that the file is found, is readable, and
+        // holds one of exactly two things.
+        let path = config::runfile(TEMPLATE_AUTHORITY_RUNFILE)
+            .expect("//build:template_authority_file is declared in this target's data");
+        let staged = fs::read_to_string(&path).expect("the staged marker must be readable");
+
+        assert!(
+            staged.trim().is_empty() || is_authority_marker(&staged),
+            "//build/template_authority.bzl writes the marker or nothing, got {staged:?}"
+        );
     }
 
     #[test]

@@ -679,6 +679,11 @@ ex_unit_test(
         # declared input too -- the ex_unit_tests macro adds this automatically, a
         # hand-written ex_unit_test does not.
         "//build:elixir_test_config_loader.exs",
+        # Whether this checkout may write the SHARED template. test/db/template_env.exs refuses
+        # to migrate without it, reading the same declared input //rust/integration-db reads --
+        # which is what keeps the Rust and Elixir halves of the trunk lifecycle from disagreeing
+        # about who is allowed to touch sr_core_template.
+        "//build:template_authority_file",
         "test/db/db_task_helper.exs",
         "test/db/fixture_config.exs",
         "test/db/template_env.exs",

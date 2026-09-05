@@ -122,9 +122,16 @@ py_test(
         "MODULE.bazel",
         "buildbuddy.yaml",
         "openspec/changes/parallelize-core-integration-tests/benchmark.md",
+        # //build:BUILD.bazel declares the shared-template write flag and
+        # template_authority.bzl the marker it writes; test/db/template_env.exs is the Elixir
+        # consumer that must agree with both. Declared rather than read from the workspace:
+        # this test runs remotely, where an undeclared file is simply absent -- which is how
+        # a green local run and a red remote one come apart.
+        "//build:BUILD.bazel",
         "//build:integration_shards.bzl",
         "//build:integration_test_dispositions.bzl",
         "//build:integration_tests.bzl",
+        "//build:template_authority.bzl",
         "//build/ci:BUILD.bazel",
         "//build/ci:large_ingestion_gate",
         "//build/ci:large_ingestion_gate_contract.v1",
@@ -139,6 +146,7 @@ py_test(
         "//elixir/serviceradar_core:priv/repo/baseline/platform_schema.sql",
         "//elixir/serviceradar_core:test/db/integration_env.exs",
         "//elixir/serviceradar_core:test/db/integration_env_config.exs",
+        "//elixir/serviceradar_core:test/db/template_env.exs",
         "//elixir/serviceradar_core:test/integration/advisory_feed_loader_integration_test.exs",
         "//elixir/serviceradar_core:test/integration/netflow_ingestion_integration_test.exs",
         "//elixir/serviceradar_core:test/integration/proxmox_api_smoke_integration_test.exs",

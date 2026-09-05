@@ -23,6 +23,15 @@ FIXTURE_DATA = [
     "//config/environments:ci_binpb",
 ]
 
+# The extra input a target needs before it may WRITE the shared template `sr_core_template`.
+#
+# Only the two targets that do declare it, so the rest cannot -- `require_template_authority`
+# fails closed on a missing runfile, which makes "did not declare the input" and "was not given
+# authority" the same answer. It sits beside the run id because it decides the same kind of
+# thing: WHICH database a step may touch, from the build graph rather than from ambient
+# environment, where two steps of one lifecycle could disagree.
+TEMPLATE_WRITE_DATA = ["//build:template_authority_file"]
+
 package(default_visibility = ["//visibility:public"])
 
 filegroup(
@@ -57,6 +66,10 @@ rust_library(
 rust_test(
     name = "serviceradar_integration_db_test",
     crate = ":serviceradar_integration_db",
+    # The one declared input this cached test needs: it checks that the authority marker is
+    # readable from the path the write targets look it up by, which is the failure a fail-closed
+    # gate cannot otherwise distinguish from working correctly.
+    data = TEMPLATE_WRITE_DATA,
     deps = all_crate_deps(
         cargo_only = True,
         normal = True,
@@ -228,10 +241,11 @@ rust_test(
 
 # Creates the template if absent and reports whether it needs migrating.
 #
-# TRUNK ONLY. Its caller is the action that triggers on a push to staging; the pull-request
-# lifecycle calls :provision_base instead. Advancing the shared template is a write to state
-# every branch reads, and only trunk's migrations belong in it -- see src/template.rs for the
-# incident that split these two apart.
+# TRUNK ONLY, and refuses without --//build:template_authority=true rather than trusting that it
+# is named from the right action. Its caller is the action that triggers on a push to staging;
+# the pull-request lifecycle calls :provision_base instead. Advancing the shared template is a
+# write to state every branch reads, and only trunk's migrations belong in it -- see
+# src/template.rs for the incident that split these two apart.
 #
 # A binary rather than a test because it reports a human-readable migration status on stdout.
 # `bazel run` builds eligible actions remotely and launches the binary on the caller, which
@@ -239,7 +253,7 @@ rust_test(
 rust_binary(
     name = "prepare_template",
     srcs = ["src/bin/prepare_template.rs"],
-    data = FIXTURE_DATA + ["//elixir/serviceradar_core:migrations"],
+    data = FIXTURE_DATA + TEMPLATE_WRITE_DATA + ["//elixir/serviceradar_core:migrations"],
     tags = ["manual"],
     target_compatible_with = requires_shared_fixture(),
     deps = all_crate_deps(
@@ -277,12 +291,13 @@ rust_binary(
 # Drops the shared template so the next trunk run rebuilds it.
 #
 # The recovery for a template that has diverged from trunk. Invoked automatically by the trunk
-# lifecycle when :prepare_template reports the template AHEAD, and by hand otherwise. Never from
-# a pull request: a branch must not be able to destroy state every other branch reads.
+# lifecycle when :prepare_template reports the template AHEAD, and by hand from a trunk checkout
+# otherwise. Never from a pull request: a branch must not be able to destroy state every other
+# branch reads, which --//build:template_authority makes a refusal rather than a rule.
 rust_binary(
     name = "reset_template",
     srcs = ["src/bin/reset_template.rs"],
-    data = FIXTURE_DATA,
+    data = FIXTURE_DATA + TEMPLATE_WRITE_DATA,
     tags = ["manual"],
     target_compatible_with = requires_shared_fixture(),
     deps = all_crate_deps(

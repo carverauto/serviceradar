@@ -20,7 +20,8 @@
 //! reported AHEAD, which is the only context where "ahead of this checkout" and "ahead of the
 //! schema of record" are the same statement. It is deliberately NOT run from a pull request:
 //! a branch must not be able to destroy state every other branch reads, which is the class of
-//! bug that made this target necessary.
+//! bug that made this target necessary -- so it refuses without
+//! `--//build:template_authority=true` rather than trusting where it is named.
 //!
 //! # Why it does not force
 //!
@@ -39,6 +40,11 @@ fn main() -> Result<()> {
 }
 
 async fn run() -> Result<()> {
+    // The most destructive target in this crate: it DROPS state every other run reads. Trunk is
+    // the only checkout for which "ahead of this checkout" and "ahead of the schema of record"
+    // are the same statement, so trunk is the only checkout that may decide the cache is wrong.
+    db::require_template_authority("//rust/integration-db:reset_template")?;
+
     if db::template::reset_template().await? {
         println!(
             "dropped template {}; the next run rebuilds it",

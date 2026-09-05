@@ -10,6 +10,11 @@
 //! `//rust/integration-db:provision_base` instead, which seeds a per-run database and leaves
 //! the template alone. See `src/template.rs` for what made that split necessary.
 //!
+//! "Only" is enforced, not merely arranged: this refuses to run without
+//! `--//build:template_authority=true`. Being named from one action is a convention a later
+//! edit undoes silently, and one a workstation never obeyed at all -- see
+//! `db::require_template_authority`.
+//!
 //! Two jobs in one step, because both answer the same question and both are cheap:
 //!
 //!   1. create `sr_core_template` if absent, with extensions, AGE graphs and grants;
@@ -43,6 +48,11 @@ fn main() -> Result<()> {
 }
 
 async fn run() -> Result<()> {
+    // Trunk, or nothing. Creating and reporting on the shared template is the trunk lifecycle's
+    // entry point, and the flag is what makes "only trunk runs this" a property of the target
+    // rather than of where it happens to be named in `buildbuddy.yaml`.
+    db::require_template_authority("//rust/integration-db:prepare_template")?;
+
     // Owner of the template; the suite connects as this role against every clone of it. See
     // `db::database_owner` for why it is derived from the DSN rather than named here.
     let owner = db::database_owner()?;
