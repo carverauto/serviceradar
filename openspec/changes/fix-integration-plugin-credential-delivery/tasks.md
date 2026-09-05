@@ -20,7 +20,7 @@
 - [x] 3.2 Validate both at the changeset: PEM parses and is unexpired; fingerprint matches `^sha256:[0-9a-f]{64}$`; the two are mutually exclusive.
 - [x] 3.3 Surface both fields in the credential rule form, shown when the provider declares transport controls.
 - [x] 3.4 Carry trust material through the parameter template into plugin config and honour it in the agent HTTP client as the sole trust anchor.
-- [ ] 3.5 Keep `verify` mandatory for Proxmox `inventory_enrichment`; add a test proving a rule with a valid bundle passes and one without still fails closed.
+- [x] 3.5 Keep `verify` mandatory for Proxmox `inventory_enrichment`; add a test proving a rule with a valid bundle passes and one without still fails closed.
 
 ## 4. NetBox credential surface (PR: fix/netbox-proxmox-credential-delivery)
 - [x] 4.1 Add an `integrations.credential_profiles` entry for `netbox` with `api_token` auth and an `inventory_sync` purpose.
