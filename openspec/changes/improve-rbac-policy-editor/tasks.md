@@ -92,12 +92,17 @@
 
 ## 6. Verification and documentation
 
-Items 1.1-5.5 record implemented and reviewed code with focused DB-free unit/contract coverage or
-guarded-target compile evidence. They do not claim runtime proof of database persistence,
-transaction, migration, or concurrency behavior; that guarded evidence remains pending in 6.1.
+Items 1.1-5.5 record implemented and reviewed code with focused DB-free unit/contract coverage and
+guarded runtime evidence.
 
-- [ ] 6.1 Apply migrations with `mix serviceradar.db.migrate` and run policy/concurrency coverage
+- [x] 6.1 Apply migrations with `mix serviceradar.db.migrate` and run policy/concurrency coverage
       through the guarded Bazel database-test lifecycle using only synthetic fixtures.
+      Evidence: the landing-state BazelCI lifecycle at `0c0d04fd85` provisioned its generated
+      database, applied migrations through `20260905130000` (invocation
+      `6ee2a12e-8a25-4481-b966-c9bc612ddf16`), passed the guarded core/policy/concurrency wave
+      (`4e36671e-6543-4afc-81e5-6abc58697a6e`), passed the guarded web/LiveView wave
+      (`729766e5-3a25-4596-8f63-637fb094b6c9`), and tore the database down
+      (`c9192a29-8642-43ad-b7af-5928360e67b3`).
 - [x] 6.2 Run focused Bazel tests during each red/green loop, then the canonical full remote unit
       suite with `make test`.
       Evidence: `make test` at `4038b43f64` passed all 214 targets (24 executed, 190 cached),
@@ -106,7 +111,7 @@ transaction, migration, or concurrency behavior; that guarded evidence remains p
       and confirm their actual output is clean.
       Evidence: both `./scripts/elixir_quality.sh --lint-only` invocations passed at the final
       worktree state (`--project elixir/web-ng --phoenix`: 1,306 files; `--project
-      elixir/serviceradar_core`: 2,374 files), with no Credo issues and clean format checks.
+      elixir/serviceradar_core`: 2,380 files), with no Credo issues and clean format checks.
 - [x] 6.4 Validate `improve-rbac-policy-editor`, `add-dashboard-creator`, and
       `add-dashboard-package-access-control` with `openspec validate --strict`.
 - [x] 6.5 Update operator-facing documentation and CHANGELOG only where the implemented UI or
