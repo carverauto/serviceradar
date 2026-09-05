@@ -81,8 +81,8 @@ Mint one id and pass it to EVERY invocation of the sequence:
     RUN_ID=$(uuidgen | tr -d - | tr 'A-Z' 'a-z' | cut -c1-8)
 
     bazel ... --//build:run_id=$RUN_ID //rust/integration-db:sweep_stale_dbs
-    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:prepare_template
-    bazel ... --//build:run_id=$RUN_ID //elixir/serviceradar_core:migrate
+    bazel ... --//build:run_id=$RUN_ID //rust/integration-db:provision_base
+    bazel ... --//build:run_id=$RUN_ID //elixir/serviceradar_core:migrate_run
     bazel ... --//build:run_id=$RUN_ID //rust/integration-db:provision_db
     bazel ... --//build:run_id=$RUN_ID //elixir/serviceradar_core:integration_tests
     bazel ... --//build:run_id=$RUN_ID //rust/integration-db:teardown_db";
@@ -948,8 +948,8 @@ mod tests {
         // The failure surfaces in one of six invocations but the fix belongs to all of them.
         for target in [
             "sweep_stale_dbs",
-            "prepare_template",
-            "migrate",
+            "provision_base",
+            "migrate_run",
             "provision_db",
             "integration_tests",
             "teardown_db",

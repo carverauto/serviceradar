@@ -8,6 +8,13 @@
 # database. This one points the MIGRATOR at the template that per-run database is cloned
 # from, so the 368 migrations are applied once and every later run gets them as a file copy.
 #
+# LOADED BY //elixir/serviceradar_core:migrate_template ONLY, and that target is invoked from
+# the trunk lifecycle alone. The template is shared by every run on the fixture and only
+# ratchets forward, so advancing it from a branch checkout writes that branch's unmerged
+# migrations into state every other branch reads -- which is how one branch's seven migrations
+# came to refuse a clone to every branch that lacked them. A branch applies its own migrations
+# to its own run base through :migrate_run and test/db/integration_env.exs instead.
+#
 # Keep the name in step with `TEMPLATE_DATABASE` in rust/integration-db/src/template.rs. The
 # two must agree exactly or the migrator advances a database nothing clones.
 template_database = "sr_core_template"
