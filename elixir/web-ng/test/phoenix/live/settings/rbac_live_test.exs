@@ -282,9 +282,6 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
 
     _html = render_async(live_view, @async_timeout)
     select_dashboard_group(live_view, fixture.group.name)
-    # Group selection can be followed by the accepted profile generation's
-    # after-render refresh. Settle that second pair of audience tasks as well.
-    _html = render_async(live_view, @async_timeout)
     html = render_async(live_view, @async_timeout)
     page = LazyHTML.from_fragment(html)
 
@@ -1010,7 +1007,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
 
   defp dashboard_row_count(page, source) do
     page
-    |> LazyHTML.filter("[data-dashboard-source='#{source}'] [data-dashboard-row]")
+    |> LazyHTML.query("[data-dashboard-source='#{source}'] [data-dashboard-row]")
     |> LazyHTML.to_tree()
     |> length()
   end
