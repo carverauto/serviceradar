@@ -418,6 +418,43 @@ before a hot producer exhausts shared capacity.
   another live generation is still retained, the lane SHALL fall back to it
   rather than close, because a registrar registers once and none would re-open it
 
+#### Scenario: A lane publishes several records concurrently
+
+- **GIVEN** a gateway publisher lane with capacity for several outstanding frames
+- **WHEN** more records are offered than one request can carry
+- **THEN** publication SHALL be pipelined rather than serialized one request at a
+  time, and the number of requests outstanding SHALL be bounded by the lane's
+  frame credits, byte credits, and per-frame PubAck deadline
+- **AND** admission, publication, and settlement for one record SHALL happen in
+  the SAME process, so that the attempt's owner is the process that issues its
+  request; handing a reservation to another process to publish SHALL NOT be
+  treated as satisfying this, because the owner could then neither issue nor
+  report that request
+- **AND** the bound SHALL hold on BYTE credits as well as frame credits
+- **AND** work offered beyond the bound SHALL be refused or held, and SHALL NOT
+  be published on capacity the lane does not hold
+- **AND** concurrency SHALL NOT relax the restart or fencing obligations above:
+  a generation dying with several requests in flight SHALL keep every one of
+  their charges, and a retry offered by a different process while an attempt is
+  in flight SHALL be refused
+
+#### Scenario: PubAcks for a lane arrive out of order
+
+- **GIVEN** records published concurrently on one lane, earning their outcomes in
+  an order that need not match their sequence order
+- **WHEN** outcomes are recorded as they arrive
+- **THEN** the gateway SHALL expose only the CONTIGUOUS resolved prefix, and
+  SHALL NOT report a sequence behind a gap as resolved
+- **AND** a `REJECTED_RETRYABLE` outcome SHALL cap the prefix exactly as a
+  missing outcome does, because it is transient rather than a verdict
+- **AND** only a validated resolving PubAck or a PROVEN permanent rejection SHALL
+  resolve a sequence; a transport failure, a local derivation failure, or the
+  death of the process performing the publish SHALL NOT, since none of them is
+  evidence about whether the record reached the broker
+- **AND** per-lane prefix state SHALL be data rather than a process, and its
+  retention SHALL be bounded, so that tracking lanes does not create a process
+  per network scope, agent, or logical partition
+
 #### Scenario: A retry is offered while the previous attempt may still publish
 - **GIVEN** a publication whose reservation has been handed to a caller
 - **WHEN** that attempt's PubAck deadline passes, or no PubAck has been observed

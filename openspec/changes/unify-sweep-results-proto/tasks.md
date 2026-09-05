@@ -861,8 +861,17 @@
   returned PubAck. Refusal disposition was also corrected: only PROVEN poison is
   terminal, and an expected-stream refusal (`err_code` 10060) withholds source progress
   rather than routing to the DLQ.
-  STILL OPEN, and REQUIRED before this task may be checked: (c) the separate
-  pools and pipelining below. The property this task relies on is that the
+  STILL OPEN, and REQUIRED before this task may be checked: (c)'s pipelining is
+  now IMPLEMENTED -- `ServiceRadar.Edge.PublishPipeline` publishes asynchronously
+  under the hard frame/byte/PubAck-deadline window, records out-of-order PubAcks
+  through `ResolvedPrefix`, and exposes only the contiguous resolved prefix, with
+  both closure criteria re-proven under concurrency. What is NOT yet true is that
+  anything OFFERS to it: the gateway's per-lane session is task 3.1's mTLS
+  bidirectional record RPC, and `JetStreamPublisher.publish_record/2` still has no
+  production caller either, so the whole chain is exercised by tests rather than
+  running. This task stays UNCHECKED on that basis; whether a pre-production
+  implementation discharges (c) is a judgement for the change owner, not something
+  to settle by ticking the box. The separate pools below are landed. The property this task relies on is that the
   transcript commits both `record_sha256` and the semantic digest, so a slot reused
   with different bytes gets a distinct Msg-Id. Limit NATS
   headers to transport concerns; do not duplicate the semantic envelope as
@@ -878,12 +887,16 @@
   validation and prefix advancement). This task MAY NOT be checked until BOTH
   hold, each covered by a scenario under `ingestion-routing`'s "Backpressure and
   fairness are bounded at every hop":
-  (i) RESTART OVERLAP -- CLOSED for the restart invariant itself. The invariant is
-  proven against the SERIAL publisher that exists today; 3.3 stays unchecked
-  because the asynchronous pipeline it must also hold under is not built yet, and
-  an invariant only exercised serially is not an invariant under concurrency. A lane
-  restart MUST NOT reopen capacity that an in-flight request still occupies, so
-  old and replacement requests together cannot exceed the grant.
+  (i) RESTART OVERLAP -- CLOSED, and now under CONCURRENCY as well. An earlier
+  version of this note said the invariant was proven only against the serial
+  publisher, which was the honest state at the time: with one caller able to hold
+  exactly one outstanding request, "old and replacement requests together cannot
+  exceed the grant" was a claim about a single request. `PublishPipeline` now
+  drives several workers through one window, and the criterion is exercised with
+  FOUR requests on the wire when the generation dies -- every charge survives, and
+  the replacement transport is refused for want of capacity rather than handed a
+  fresh grant. A lane restart MUST NOT reopen capacity that an in-flight request
+  still occupies.
   How it is discharged: the lane is split into a STABLE accountant and a
   REPLACEABLE transport under `LaneSupervisor`'s `:rest_for_one`, accountant
   FIRST. Transport death therefore cannot reach the ledger -- a replacement
@@ -909,7 +922,12 @@
   How it is discharged: `PublishWindow` records the OWNER pid at `admit/5`; the
   START is the `:pending` -> `:active` transition in `activate/2`, before which no
   request can have been issued; TERMINATION is the owner itself calling
-  `attempt_failed/3` or `settle/4`, both of which match on `^owner`.
+  `attempt_failed/3` or `settle/4`, both of which match on `^owner`. Under
+  concurrency this is carried rather than re-argued: `PublishPipeline` hands out
+  WORK and never reservations, so each worker owns its own attempt end to end, and
+  a retry offered by a genuinely separate process while an attempt is in flight is
+  refused -- which is the case this criterion was written for and which a serial
+  publisher could not produce.
   `PublisherPool` takes the owner from the call's `from`, so a caller has no
   parameter in which to name a different process. `expired/2` stays reports-only
   and a sweep holding `{key, token}` cannot act on it -- the deadline is now

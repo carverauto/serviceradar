@@ -96,9 +96,12 @@ defmodule ServiceRadar.Edge.PublishWindow do
   retention is real. Bounding it needs evidence that the specific REQUEST terminated, which is
   task 3.5's correlation work and not a supervision change.
 
-  CONCURRENCY is the other part. The restart invariant above is proven against the SERIAL
-  publisher that exists today, and an invariant exercised only serially is not an invariant under
-  concurrency. Task 3.3's asynchronous pipeline is what must also hold it.
+  CONCURRENCY is no longer part of it. The restart invariant was previously proven only against a
+  serial publisher, which is not a proof under concurrency -- one caller could have exactly one
+  request outstanding, so "old and replacement requests together cannot exceed the grant" was a
+  claim about a single request. `ServiceRadar.Edge.PublishPipeline` now drives several workers
+  through one window, and both criteria are exercised with four requests on the wire when the
+  generation dies and with a retry offered by a genuinely separate process.
 
   ## WHOSE OBLIGATION THIS IS
 
