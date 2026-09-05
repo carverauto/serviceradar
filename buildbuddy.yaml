@@ -175,15 +175,40 @@ actions:
           GENERATION_DATABASE=""
           START_NS=0
 
-          validate_prepare_json() {
-            jq -e '
-              type == "object" and
-              (keys == ["builder_token", "database", "digest", "status"]) and
-              (.status == "ready" or .status == "needs_migration") and
-              (.digest | type == "string" and test("^[0-9a-f]{64}$")) and
-              (.database == ("sr_tpl_" + .digest[0:48])) and
-              (.builder_token | type == "number" and floor == . and . > 0)
-            ' >/dev/null
+          validate_cleanup_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,list) or any(not isinstance(item,str) or re.fullmatch(r"sr_tpl_[0-9a-f]{48}",item) is None for item in value):
+              raise SystemExit("invalid generation cleanup response")'
+          }
+
+          parse_prepare_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          digest=value.get("digest") if isinstance(value,dict) else None
+          valid=(isinstance(value,dict) and set(value)=={"builder_token","database","digest","status"}
+              and value["status"] in {"ready","needs_migration"}
+              and isinstance(digest,str) and re.fullmatch(r"[0-9a-f]{64}",digest) is not None
+              and value["database"]=="sr_tpl_"+digest[:48]
+              and type(value["builder_token"]) is int and value["builder_token"]>0)
+          if not valid:
+              raise SystemExit("invalid generation preparation response")
+          print(value["status"],value["digest"],value["database"],sep="\t")'
+          }
+
+          validate_ready_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,dict) or value.get("status")!="ready" or value.get("digest")!=sys.argv[1] or value.get("database")!=sys.argv[2]:
+              raise SystemExit("generation did not become ready with its pinned identity")' "$1" "$2"
+          }
+
+          validate_lifecycle_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          expected={"digest":sys.argv[2],"lease_id":sys.argv[3],"status":sys.argv[1]}
+          if not isinstance(value,dict) or set(value)!={"digest","lease_id","status"} or value!=expected:
+              raise SystemExit("invalid generation lifecycle response")' "$1" "$2" "$3"
           }
 
           wait_for_marker() {
@@ -250,11 +275,7 @@ actions:
               RELEASE_STATUS=$?
               echo "$RELEASE_JSON"
               if [ "$RELEASE_STATUS" -eq 0 ]; then
-                jq -e --arg digest "$GENERATION_DIGEST" --arg lease "$RUN_DATABASE" '
-                  type == "object" and
-                  (keys == ["digest", "lease_id", "status"]) and
-                  .status == "released" and .digest == $digest and .lease_id == $lease
-                ' >/dev/null <<<"$RELEASE_JSON" || RELEASE_STATUS=1
+                validate_lifecycle_json released "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$RELEASE_JSON" || RELEASE_STATUS=1
               fi
             fi
             END_NS="$(date +%s%N)"
@@ -294,15 +315,12 @@ actions:
           bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
           CLEANUP_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:cleanup_generations)"
           echo "$CLEANUP_JSON"
-          jq -e 'type == "array" and all(.[]; type == "string" and test("^sr_tpl_[0-9a-f]{48}$"))' >/dev/null <<<"$CLEANUP_JSON"
+          validate_cleanup_json <<<"$CLEANUP_JSON"
 
           GENERATION_LEASED=1
           PREPARE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
           echo "$PREPARE_JSON"
-          validate_prepare_json <<<"$PREPARE_JSON"
-          GENERATION_STATUS="$(jq -er '.status' <<<"$PREPARE_JSON")"
-          GENERATION_DIGEST="$(jq -er '.digest' <<<"$PREPARE_JSON")"
-          GENERATION_DATABASE="$(jq -er '.database' <<<"$PREPARE_JSON")"
+          IFS=$'\t' read -r GENERATION_STATUS GENERATION_DIGEST GENERATION_DATABASE < <(parse_prepare_json <<<"$PREPARE_JSON")
           GENERATION_MIGRATOR_STARTED=0
           if [ "$GENERATION_STATUS" = "needs_migration" ]; then
             GENERATION_MIGRATOR_STARTED=1
@@ -311,10 +329,8 @@ actions:
 
           READY_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
           echo "$READY_JSON"
-          validate_prepare_json <<<"$READY_JSON"
-          jq -e --arg digest "$GENERATION_DIGEST" --arg database "$GENERATION_DATABASE" '
-            .status == "ready" and .digest == $digest and .database == $database
-          ' >/dev/null <<<"$READY_JSON"
+          parse_prepare_json <<<"$READY_JSON" >/dev/null
+          validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$READY_JSON"
           echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
 
           START_NS="$(date +%s%N)"
@@ -324,11 +340,7 @@ actions:
 
           PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation)"
           echo "$PROVISION_JSON"
-          jq -e --arg digest "$GENERATION_DIGEST" --arg lease "$RUN_DATABASE" '
-            type == "object" and
-            (keys == ["digest", "lease_id", "status"]) and
-            .status == "cloned" and .digest == $digest and .lease_id == $lease
-          ' >/dev/null <<<"$PROVISION_JSON"
+          validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$PROVISION_JSON"
           # test_tag_filters controls execution, not every top-level target Bazel builds from
           # //.... Keep build selection identical so packages and images stay out of this wave.
           bazel test $FLAGS --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
@@ -452,15 +464,40 @@ actions:
           GENERATION_DATABASE=""
           START_NS=0
 
-          validate_prepare_json() {
-            jq -e '
-              type == "object" and
-              (keys == ["builder_token", "database", "digest", "status"]) and
-              (.status == "ready" or .status == "needs_migration") and
-              (.digest | type == "string" and test("^[0-9a-f]{64}$")) and
-              (.database == ("sr_tpl_" + .digest[0:48])) and
-              (.builder_token | type == "number" and floor == . and . > 0)
-            ' >/dev/null
+          validate_cleanup_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,list) or any(not isinstance(item,str) or re.fullmatch(r"sr_tpl_[0-9a-f]{48}",item) is None for item in value):
+              raise SystemExit("invalid generation cleanup response")'
+          }
+
+          parse_prepare_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          digest=value.get("digest") if isinstance(value,dict) else None
+          valid=(isinstance(value,dict) and set(value)=={"builder_token","database","digest","status"}
+              and value["status"] in {"ready","needs_migration"}
+              and isinstance(digest,str) and re.fullmatch(r"[0-9a-f]{64}",digest) is not None
+              and value["database"]=="sr_tpl_"+digest[:48]
+              and type(value["builder_token"]) is int and value["builder_token"]>0)
+          if not valid:
+              raise SystemExit("invalid generation preparation response")
+          print(value["status"],value["digest"],value["database"],sep="\t")'
+          }
+
+          validate_ready_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,dict) or value.get("status")!="ready" or value.get("digest")!=sys.argv[1] or value.get("database")!=sys.argv[2]:
+              raise SystemExit("generation did not become ready with its pinned identity")' "$1" "$2"
+          }
+
+          validate_lifecycle_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          expected={"digest":sys.argv[2],"lease_id":sys.argv[3],"status":sys.argv[1]}
+          if not isinstance(value,dict) or set(value)!={"digest","lease_id","status"} or value!=expected:
+              raise SystemExit("invalid generation lifecycle response")' "$1" "$2" "$3"
           }
 
           wait_for_marker() {
@@ -527,11 +564,7 @@ actions:
               RELEASE_STATUS=$?
               echo "$RELEASE_JSON"
               if [ "$RELEASE_STATUS" -eq 0 ]; then
-                jq -e --arg digest "$GENERATION_DIGEST" --arg lease "$RUN_DATABASE" '
-                  type == "object" and
-                  (keys == ["digest", "lease_id", "status"]) and
-                  .status == "released" and .digest == $digest and .lease_id == $lease
-                ' >/dev/null <<<"$RELEASE_JSON" || RELEASE_STATUS=1
+                validate_lifecycle_json released "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$RELEASE_JSON" || RELEASE_STATUS=1
               fi
             fi
             END_NS="$(date +%s%N)"
@@ -571,15 +604,12 @@ actions:
           bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
           CLEANUP_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:cleanup_generations)"
           echo "$CLEANUP_JSON"
-          jq -e 'type == "array" and all(.[]; type == "string" and test("^sr_tpl_[0-9a-f]{48}$"))' >/dev/null <<<"$CLEANUP_JSON"
+          validate_cleanup_json <<<"$CLEANUP_JSON"
 
           GENERATION_LEASED=1
           PREPARE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
           echo "$PREPARE_JSON"
-          validate_prepare_json <<<"$PREPARE_JSON"
-          GENERATION_STATUS="$(jq -er '.status' <<<"$PREPARE_JSON")"
-          GENERATION_DIGEST="$(jq -er '.digest' <<<"$PREPARE_JSON")"
-          GENERATION_DATABASE="$(jq -er '.database' <<<"$PREPARE_JSON")"
+          IFS=$'\t' read -r GENERATION_STATUS GENERATION_DIGEST GENERATION_DATABASE < <(parse_prepare_json <<<"$PREPARE_JSON")
           GENERATION_MIGRATOR_STARTED=0
           if [ "$GENERATION_STATUS" = "needs_migration" ]; then
             GENERATION_MIGRATOR_STARTED=1
@@ -588,10 +618,8 @@ actions:
 
           READY_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
           echo "$READY_JSON"
-          validate_prepare_json <<<"$READY_JSON"
-          jq -e --arg digest "$GENERATION_DIGEST" --arg database "$GENERATION_DATABASE" '
-            .status == "ready" and .digest == $digest and .database == $database
-          ' >/dev/null <<<"$READY_JSON"
+          parse_prepare_json <<<"$READY_JSON" >/dev/null
+          validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$READY_JSON"
           echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
 
           START_NS="$(date +%s%N)"
@@ -601,11 +629,7 @@ actions:
 
           PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation_large_ingestion)"
           echo "$PROVISION_JSON"
-          jq -e --arg digest "$GENERATION_DIGEST" --arg lease "$RUN_DATABASE" '
-            type == "object" and
-            (keys == ["digest", "lease_id", "status"]) and
-            .status == "cloned" and .digest == $digest and .lease_id == $lease
-          ' >/dev/null <<<"$PROVISION_JSON"
+          validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$PROVISION_JSON"
           bazel test $FLAGS //elixir/serviceradar_core:large_ingestion_release_gate
 
   # This is deliberately a branch-only measurement action, not a pull-request gate. Its
@@ -700,15 +724,40 @@ actions:
           GENERATION_DATABASE=""
           START_NS=0
 
-          validate_prepare_json() {
-            jq -e '
-              type == "object" and
-              (keys == ["builder_token", "database", "digest", "status"]) and
-              (.status == "ready" or .status == "needs_migration") and
-              (.digest | type == "string" and test("^[0-9a-f]{64}$")) and
-              (.database == ("sr_tpl_" + .digest[0:48])) and
-              (.builder_token | type == "number" and floor == . and . > 0)
-            ' >/dev/null
+          validate_cleanup_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,list) or any(not isinstance(item,str) or re.fullmatch(r"sr_tpl_[0-9a-f]{48}",item) is None for item in value):
+              raise SystemExit("invalid generation cleanup response")'
+          }
+
+          parse_prepare_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          digest=value.get("digest") if isinstance(value,dict) else None
+          valid=(isinstance(value,dict) and set(value)=={"builder_token","database","digest","status"}
+              and value["status"] in {"ready","needs_migration"}
+              and isinstance(digest,str) and re.fullmatch(r"[0-9a-f]{64}",digest) is not None
+              and value["database"]=="sr_tpl_"+digest[:48]
+              and type(value["builder_token"]) is int and value["builder_token"]>0)
+          if not valid:
+              raise SystemExit("invalid generation preparation response")
+          print(value["status"],value["digest"],value["database"],sep="\t")'
+          }
+
+          validate_ready_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,dict) or value.get("status")!="ready" or value.get("digest")!=sys.argv[1] or value.get("database")!=sys.argv[2]:
+              raise SystemExit("generation did not become ready with its pinned identity")' "$1" "$2"
+          }
+
+          validate_lifecycle_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          expected={"digest":sys.argv[2],"lease_id":sys.argv[3],"status":sys.argv[1]}
+          if not isinstance(value,dict) or set(value)!={"digest","lease_id","status"} or value!=expected:
+              raise SystemExit("invalid generation lifecycle response")' "$1" "$2" "$3"
           }
 
           wait_for_marker() {
@@ -740,11 +789,7 @@ actions:
               RELEASE_STATUS=$?
               echo "$RELEASE_JSON"
               if [ "$RELEASE_STATUS" -eq 0 ]; then
-                jq -e --arg digest "$GENERATION_DIGEST" --arg lease "$RUN_DATABASE" '
-                  type == "object" and
-                  (keys == ["digest", "lease_id", "status"]) and
-                  .status == "released" and .digest == $digest and .lease_id == $lease
-                ' >/dev/null <<<"$RELEASE_JSON" || RELEASE_STATUS=1
+                validate_lifecycle_json released "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$RELEASE_JSON" || RELEASE_STATUS=1
               fi
             fi
             END_NS="$(date +%s%N)"
@@ -784,15 +829,12 @@ actions:
           bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
           CLEANUP_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:cleanup_generations)"
           echo "$CLEANUP_JSON"
-          jq -e 'type == "array" and all(.[]; type == "string" and test("^sr_tpl_[0-9a-f]{48}$"))' >/dev/null <<<"$CLEANUP_JSON"
+          validate_cleanup_json <<<"$CLEANUP_JSON"
 
           GENERATION_LEASED=1
           PREPARE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
           echo "$PREPARE_JSON"
-          validate_prepare_json <<<"$PREPARE_JSON"
-          GENERATION_STATUS="$(jq -er '.status' <<<"$PREPARE_JSON")"
-          GENERATION_DIGEST="$(jq -er '.digest' <<<"$PREPARE_JSON")"
-          GENERATION_DATABASE="$(jq -er '.database' <<<"$PREPARE_JSON")"
+          IFS=$'\t' read -r GENERATION_STATUS GENERATION_DIGEST GENERATION_DATABASE < <(parse_prepare_json <<<"$PREPARE_JSON")
           GENERATION_MIGRATOR_STARTED=0
           if [ "$GENERATION_STATUS" = "needs_migration" ]; then
             GENERATION_MIGRATOR_STARTED=1
@@ -801,10 +843,8 @@ actions:
 
           READY_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
           echo "$READY_JSON"
-          validate_prepare_json <<<"$READY_JSON"
-          jq -e --arg digest "$GENERATION_DIGEST" --arg database "$GENERATION_DATABASE" '
-            .status == "ready" and .digest == $digest and .database == $database
-          ' >/dev/null <<<"$READY_JSON"
+          parse_prepare_json <<<"$READY_JSON" >/dev/null
+          validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$READY_JSON"
           echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
 
           START_NS="$(date +%s%N)"
@@ -814,11 +854,7 @@ actions:
 
           PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation)"
           echo "$PROVISION_JSON"
-          jq -e --arg digest "$GENERATION_DIGEST" --arg lease "$RUN_DATABASE" '
-            type == "object" and
-            (keys == ["digest", "lease_id", "status"]) and
-            .status == "cloned" and .digest == $digest and .lease_id == $lease
-          ' >/dev/null <<<"$PROVISION_JSON"
+          validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$PROVISION_JSON"
           # test_tag_filters controls execution, not every top-level target Bazel builds from
           # //.... Keep build selection identical so packages and images stay out of the clock.
           bazel test $FLAGS --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...

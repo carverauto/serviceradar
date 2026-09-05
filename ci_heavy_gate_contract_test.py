@@ -1089,6 +1089,29 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             with self.subTest(action=action_name):
                 self.assert_cache_flags(action_name)
 
+    def test_generation_json_uses_the_declared_runner_python_not_jq(self):
+        """The minimal workflow image guarantees Python 3 but does not install jq."""
+        for action_name in (
+            "BazelCI",
+            "LargeIngestionGate",
+            "IntegrationBenchmark",
+        ):
+            with self.subTest(action=action_name):
+                shell = named_action(action_name)
+                self.assertNotIn("jq", shell)
+                for helper in (
+                    "validate_cleanup_json()",
+                    "parse_prepare_json()",
+                    "validate_ready_json()",
+                    "validate_lifecycle_json()",
+                ):
+                    self.assertEqual(1, shell.count(helper), helper)
+                self.assertGreaterEqual(shell.count("python3 -c"), 4)
+                self.assertIn(
+                    "IFS=$'\\t' read -r GENERATION_STATUS GENERATION_DIGEST GENERATION_DATABASE",
+                    shell,
+                )
+
     def test_test_output_mode_cannot_drift_in_either_direction(self):
         """Every site is pinned, and flipping any single one is rejected.
 
@@ -1269,7 +1292,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         for required in (
             'RUN_DATABASE="sr_core_test_$RUN_ID"',
             'chmod 600 "$SERVICERADAR_FIXTURE_ENV_FILE"',
-            "validate_prepare_json",
+            "parse_prepare_json",
             self.generation_cleanup,
             self.generation_prepare,
             self.measured_migrate_command,
