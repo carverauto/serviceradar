@@ -816,6 +816,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp log_attributes_panel(assigns) do
     attrs = parse_attributes(Map.get(assigns.log, "attributes")) || %{}
     resource = parse_attributes(Map.get(assigns.log, "resource_attributes")) || %{}
+
     source_device_uid =
       case Map.get(assigns.log, "source_device_uid") do
         uid when is_binary(uid) and uid != "" -> uid
@@ -826,7 +827,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
     attr_pairs =
       attrs
-      |> Map.drop(["serviceradar.ingest"])
+      |> Map.delete("serviceradar.ingest")
       |> flatten_attribute_values()
       |> Enum.reject(fn {key, _} -> MapSet.member?(promoted, key) end)
 
@@ -1501,12 +1502,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp scalar_attr(_attrs, _keys), do: nil
 
   defp log_agent_identity(log, attrs) when is_map(log) and is_map(attrs) do
-    [
-      Map.get(log, "ingest_agent_id"),
-      scalar_attr(attrs, ["agent_id", "agent.id"]),
-      Map.get(log, "service_instance")
-    ]
-    |> Enum.find(fn value -> is_binary(value) and String.trim(value) != "" end)
+    Enum.find(
+      [
+        Map.get(log, "ingest_agent_id"),
+        scalar_attr(attrs, ["agent_id", "agent.id"]),
+        Map.get(log, "service_instance")
+      ],
+      fn value -> is_binary(value) and String.trim(value) != "" end
+    )
   end
 
   defp log_agent_identity(_log, _attrs), do: nil
