@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
+  alias ServiceRadarWebNG.Plugins.FirstPartySyncWorker
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
 
@@ -70,7 +71,14 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
           {:ok, %Req.Response{status: 200, body: releases}}
 
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
-          {:ok, %Req.Response{status: 200, body: FirstPartyImporterTest.release()}}
+          release =
+            if Process.get(:first_party_release_without_index_asset) do
+              Map.put(FirstPartyImporterTest.release(), "assets", [])
+            else
+              FirstPartyImporterTest.release()
+            end
+
+          {:ok, %Req.Response{status: 200, body: release}}
 
         String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
           {:ok,
@@ -201,6 +209,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     Process.put(:first_party_signature, nil)
     Process.put(:cosign_verified_artifact, nil)
     Process.put(:first_party_releases_without_index, false)
+    Process.put(:first_party_release_without_index_asset, false)
     Process.put(:first_party_recent_release_requests, 0)
     Process.put(:first_party_registry_auth_challenge, false)
     Process.put(:registry_token_auth_header, nil)
@@ -263,6 +272,22 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
 
     assert plugin.release_tag == "v1.2.3"
     assert Process.get(:first_party_recent_release_requests) == 0
+  end
+
+  test "a deployed release that publishes no plugin index asset does not fail the sync job" do
+    Process.put(:first_party_release_without_index_asset, true)
+    Process.put(:first_party_recent_release_requests, 0)
+
+    assert {:error, reason} =
+             FirstPartyImporter.list_plugins_for_sync(%{"repo_url" => @repo_url},
+               release_tag: "v1.2.3",
+               limit: 10
+             )
+
+    # The release exists, so discovery must NOT switch to another release's
+    # catalog -- but the job must not burn its Oban attempts on it either.
+    assert Process.get(:first_party_recent_release_requests) == 0
+    assert :ok = FirstPartySyncWorker.aggregate_results([{:error, reason}])
   end
 
   # A third-party repository publishes release assets and has NO oci_ref. The

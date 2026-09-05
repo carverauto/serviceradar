@@ -4,8 +4,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorkerTest do
 
   The rule is easy to break by accident and fails silently when broken: a
   retryable failure (expired token, HTTP 5xx, invalid settings) that folds to
-  `:ok` never retries, while a missing GitHub release catalog that folds to an
-  error fails the same unpublished tag on all three Oban attempts.
+  `:ok` never retries, while a failure describing the published release itself
+  that folds to an error re-reports the same thing on all three Oban attempts.
   """
 
   use ExUnit.Case, async: false

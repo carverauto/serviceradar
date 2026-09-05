@@ -126,10 +126,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
           reason: bounded_failure_reason(reason)
         )
 
-        if FirstPartyReleaseClient.missing_release?(reason) do
-          # A missing GitHub Release is not transient: retrying the same
-          # unpublished tag three times in a few seconds only emits Oban
-          # failures. Stamp the warning and let the hourly successor try again.
+        if FirstPartyReleaseClient.permanent_failure?(reason) do
+          # A release GitHub cannot serve -- or serves without an add-on index
+          # asset -- is not transient: retrying it three times in a few seconds
+          # only emits Oban failures. Stamp the warning and let the hourly
+          # successor try again.
           :ok
         else
           {:error, reason}

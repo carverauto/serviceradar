@@ -93,19 +93,20 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   @doc """
   Folds per-repository sync outcomes into the Oban job result.
 
-  Any failure that is not a missing GitHub release catalog (expired token,
-  HTTP 5xx, invalid settings -- including atom reasons such as
-  `:invalid_attributes`) fails the job as `:partial_plugin_sync_failure` so
-  Oban retries, but only after every repository has had its turn. A missing
-  catalog alone is not transient -- the same unpublished tag 404s on every
-  attempt -- so the per-repository `last_sync_error` already records why and
-  the job succeeds, leaving the retry to the hourly successor.
+  Any failure a retry could still resolve (expired token, HTTP 5xx, invalid
+  settings -- including atom reasons such as `:invalid_attributes`) fails the
+  job as `:partial_plugin_sync_failure` so Oban retries, but only after every
+  repository has had its turn. A failure that describes the published release
+  itself -- an unpublished tag, or a release carrying no plugin index asset --
+  reports identically on all three attempts, so the per-repository
+  `last_sync_error` records why and the job succeeds, leaving the next attempt
+  to the hourly successor.
   """
   @spec aggregate_results([:ok | {:error, term()}]) :: :ok | {:error, :partial_plugin_sync_failure}
   def aggregate_results(results) when is_list(results) do
     retryable? =
       Enum.any?(results, fn
-        {:error, reason} -> not FirstPartyReleaseClient.missing_release?(reason)
+        {:error, reason} -> not FirstPartyReleaseClient.permanent_failure?(reason)
         _ -> false
       end)
 

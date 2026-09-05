@@ -114,6 +114,25 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   def missing_release?(_reason), do: false
 
   @doc """
+  True when a discovery failure is a property of the published release rather
+  than of the attempt, so every retry reports the same thing.
+
+  Kept separate from `missing_release?/1`, which decides only whether discovery
+  falls back to the recent-release feed: a release GitHub does serve but that
+  publishes no catalog index asset must still surface as that repository's sync
+  error instead of quietly importing a different release. Neither outcome
+  changes when Oban tries again seconds later, so an unattended sync records the
+  reason and leaves the next attempt to its scheduled successor.
+  """
+  @spec permanent_failure?(term()) :: boolean()
+  def permanent_failure?(reason) when is_binary(reason) do
+    missing_release?(reason) or
+      (String.contains?(reason, "Release asset ") and String.contains?(reason, " was not found"))
+  end
+
+  def permanent_failure?(_reason), do: false
+
+  @doc """
   Discovers catalog entries for unattended sync.
 
   Prefers the exact deployed release tag when GitHub has that release.
