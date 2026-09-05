@@ -7,6 +7,8 @@ defmodule ServiceRadar.Identity.RoleProfilePolicy do
   audit effects only after it commits.
   """
 
+  import Ecto.Query, only: [from: 2]
+
   alias ServiceRadar.Identity.PrivilegeMutationEffects
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
@@ -136,19 +138,23 @@ defmodule ServiceRadar.Identity.RoleProfilePolicy do
   end
 
   defp affected_assignments(profile_id, actor) do
-    with {:ok, direct_users} <- direct_assignees(profile_id, actor),
+    with {:ok, direct_users} <- direct_assignees(profile_id),
          {:ok, groups} <- referencing_groups(profile_id, actor),
          {:ok, group_user_ids} <- group_member_ids(groups) do
       {:ok, direct_users, groups, Enum.map(direct_users, & &1.id) ++ group_user_ids}
     end
   end
 
-  defp direct_assignees(profile_id, actor) do
-    User
-    |> Ash.Query.for_read(:for_role_profile_boundary, %{role_profile_id: profile_id},
-      actor: actor
-    )
-    |> Ash.read(actor: actor)
+  defp direct_assignees(profile_id) do
+    # The boundary has already reconstructed and authorized the human actor.
+    # Load and lock every FK reference directly so record-level read filters
+    # cannot omit a user that must be coordinated before profile deletion.
+    users =
+      from(user in {"ng_users", User}, where: user.role_profile_id == ^profile_id)
+      |> Ecto.Query.lock("FOR UPDATE")
+      |> Repo.all(prefix: "platform")
+
+    {:ok, users}
   end
 
   defp referencing_groups(profile_id, actor) do
