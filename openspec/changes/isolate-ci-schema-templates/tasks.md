@@ -6,30 +6,28 @@
 
 ## 2. Generation lifecycle
 
-- [ ] 2.1 Add guarded registry initialization, private candidates, ownership/fencing, publication, and crash recovery.
-- [ ] 2.2 Wire the manifest and candidate token into the Elixir migrator and database guard.
-- [ ] 2.3 Verify complete schema history and baseline consistency before publication; prohibit published generation mutation.
-- [ ] 2.4 Pin generations across preflight/provision and add clone/cleanup coordination with renewable leases.
-- [ ] 2.5 Implement bounded template cleanup as a Bazel target; retain ordinary teardown and legacy template protections.
-- [ ] 2.6 Update all BuildBuddy callers and typed configuration without scripts or credential-bearing action inputs.
+- [x] 2.1 Add guarded registry initialization, private candidates, ownership/fencing, publication, and crash recovery.
+- [x] 2.2 Wire the manifest and candidate token into the Elixir migrator and database guard.
+- [x] 2.3 Verify complete schema history and baseline consistency before publication; prohibit published generation mutation.
+- [x] 2.4 Pin generations across preflight/provision and add clone/cleanup coordination with renewable leases.
+- [x] 2.5 Implement bounded template cleanup as a Bazel target; retain ordinary teardown and legacy template protections.
+- [x] 2.6 Update all BuildBuddy callers and typed configuration without scripts or credential-bearing action inputs.
 
 ## 3. Qualification
 
-- [ ] 3.1 Reproduce the current divergent-branch contamination with synthetic inputs.
-- [ ] 3.2 Prove concurrent divergent generations and their clones contain exactly their own schemas, including a staging-equivalent subset.
-- [ ] 3.3 Prove same-manifest reuse, edited migration invalidation, failed-build nonpublication, stale-builder rejection, and retry recovery.
-- [ ] 3.4 Test clone/cleanup races, lease renewal/expiry, capacity failure, and protected database rejection.
-- [ ] 3.5 Diagnose the cold-baseline lock exhaustion and qualify cold generation construction under fixture connection/lock budgets.
-- [ ] 3.6 Run relevant Bazel unit contracts, required repository checks, and in-cluster ordinary and large-ingestion lifecycles; measure warm migrator skipping.
-- [ ] 3.7 Document rollout, bounded cleanup, recovery, and rollback; attach evidence to #4277 before closing it.
+- [x] 3.1 Reproduce the current divergent-branch contamination with synthetic inputs.
+- [x] 3.2 Prove concurrent divergent generations and their clones contain exactly their own schemas, including a staging-equivalent subset.
+- [x] 3.3 Prove same-manifest reuse, edited migration invalidation, failed-build nonpublication, stale-builder rejection, and retry recovery.
+- [x] 3.4 Test clone/cleanup races, lease renewal/expiry, capacity failure, and protected database rejection.
+- [x] 3.5 Diagnose the cold-baseline lock exhaustion and qualify cold generation construction under fixture connection/lock budgets.
+- [x] 3.6 Run relevant Bazel unit contracts, required repository checks, and in-cluster ordinary and large-ingestion lifecycles; measure warm migrator skipping.
+- [x] 3.7 Document rollout, bounded cleanup, recovery, and rollback; attach evidence to #4277 before closing it.
 
 ## Implementation status
 
-Rust generation lifecycle, Elixir builder, exact database authorization,
-ordinary reaper protections, guarded synthetic qualification targets, and the
-synchronized workflow caller cutover are implemented on this draft branch.
-Lifecycle items above remain open until their database behavior is qualified
-in-cluster; pure tests are not proof of publication or isolation.
+Rust generation lifecycle, Elixir construction, exact database authorization,
+ordinary reaper protections, guarded synthetic qualification, and the
+synchronized workflow caller cutover are complete on this draft branch.
 
 The seven focused Bazel targets passed after the safety review and source freeze:
 manifest unit/artifact, Rust lifecycle unit, Elixir builder/guard, Go reaper, and
@@ -47,9 +45,16 @@ guarded generation/migrator targets (154 targets). This caught and corrected a
 Rust-edition keyword alias in the manual qualification test. No guarded database
 target was executed on the workstation.
 
-The deployed ordinary reaper namespace protection has been verified. Before this
-cutover can leave draft: pass guarded synthetic concurrency/recovery checks, cold
-full replay and the separate cold-baseline path, then ordinary and large-ingestion
-lifecycles plus warm reuse without migrator startup. See
-`docs/docs/ci-schema-templates.md`. Do not close #4277 based on implementation
-alone.
+The deployed ordinary reaper namespace protection was verified before guarded
+qualification. In-cluster evidence now covers divergent synthetic generations,
+failure recovery and fencing, clone/cleanup and lease races, capacity and
+protected-database refusal, cold full replay with migrator startup, identical
+manifest warm reuse without migrator startup, the ordinary lifecycle, and the
+large-ingestion release gate including its separate cold-baseline path. Observed
+connections remained within the declared fixture budget, and every qualified
+lifecycle completed its suite, observer, teardown, and lease release.
+
+Rollout, bounded cleanup, recovery, and rollback are documented in
+`docs/docs/ci-schema-templates.md`. The external qualification evidence is
+attached to #4277. Keep that issue open until the change lands; this task log does
+not claim it closed.
