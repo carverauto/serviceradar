@@ -114,6 +114,13 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   # DIFFERENT things. Credits bound what the broker has outstanding; :max_inflight bounds
   # processes and the memory they retain; :max_queue bounds work accepted but not started.
   # Collapsing them would let one grant shape decide all three.
+  #
+  # The EFFECTIVE concurrency is the smaller of :max_inflight and what the lane's credits allow,
+  # and at these defaults that is :max_inflight -- `PublisherSupervisor` grants 64 frames. That is
+  # deliberate rather than an oversight: each worker retains a record body, minimal headers and
+  # NATS request state for as long as its request is outstanding, so 64 of them is a memory claim
+  # nothing has yet bounded. Task 3.4 owns the measured retained-memory bound; until it lands the
+  # process count is capped low, and a deployment that has measured its own can raise it.
   @default_max_inflight 8
   @default_max_queue 256
   @default_max_lanes 1024
