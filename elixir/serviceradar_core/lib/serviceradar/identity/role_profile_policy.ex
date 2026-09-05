@@ -106,9 +106,9 @@ defmodule ServiceRadar.Identity.RoleProfilePolicy do
 
   defp delete_in_transaction(actor, profile_id, opts) do
     with {:ok, profile} <- lock_custom_profile(profile_id, actor),
-         {:ok, affected_ids} <- affected_user_ids(profile.id, actor),
-         :ok <- clear_direct_assignments(profile.id, actor),
-         :ok <- clear_group_assignments(profile.id, actor),
+         {:ok, direct_users, groups, affected_ids} <- affected_assignments(profile.id, actor),
+         :ok <- clear_assignments(direct_users, actor),
+         :ok <- clear_assignments(groups, actor),
          :ok <- after_references_cleared(opts),
          :ok <- destroy_profile(profile, actor) do
       {:ok, profile, affected_ids, audit_options(:delete, profile, actor)}
@@ -130,10 +130,16 @@ defmodule ServiceRadar.Identity.RoleProfilePolicy do
   end
 
   defp affected_user_ids(profile_id, actor) do
+    with {:ok, _direct_users, _groups, affected_ids} <- affected_assignments(profile_id, actor) do
+      {:ok, affected_ids}
+    end
+  end
+
+  defp affected_assignments(profile_id, actor) do
     with {:ok, direct_users} <- direct_assignees(profile_id, actor),
          {:ok, groups} <- referencing_groups(profile_id, actor),
          {:ok, group_user_ids} <- group_member_ids(groups) do
-      {:ok, Enum.map(direct_users, & &1.id) ++ group_user_ids}
+      {:ok, direct_users, groups, Enum.map(direct_users, & &1.id) ++ group_user_ids}
     end
   end
 
@@ -182,36 +188,20 @@ defmodule ServiceRadar.Identity.RoleProfilePolicy do
     |> Ash.update(actor: actor)
   end
 
-  defp clear_direct_assignments(profile_id, actor) do
-    User
-    |> Ash.Query.for_read(:for_role_profile_boundary, %{role_profile_id: profile_id},
-      actor: actor
-    )
-    |> Ash.bulk_update(:clear_role_profile_for_boundary, %{},
-      actor: actor,
-      context: @boundary_context,
-      return_errors?: true,
-      return_records?: false
-    )
-    |> bulk_result()
+  defp clear_assignments(records, actor) do
+    Enum.reduce_while(records, :ok, fn record, :ok ->
+      record
+      |> Ash.Changeset.for_update(:clear_role_profile_for_boundary, %{},
+        actor: actor,
+        context: @boundary_context
+      )
+      |> Ash.update(actor: actor)
+      |> case do
+        {:ok, _updated} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, {:clear_assignment_failed, reason}}}
+      end
+    end)
   end
-
-  defp clear_group_assignments(profile_id, actor) do
-    UserGroup
-    |> Ash.Query.for_read(:for_role_profile_boundary, %{role_profile_id: profile_id},
-      actor: actor
-    )
-    |> Ash.bulk_update(:clear_role_profile_for_boundary, %{},
-      actor: actor,
-      context: @boundary_context,
-      return_errors?: true,
-      return_records?: false
-    )
-    |> bulk_result()
-  end
-
-  defp bulk_result(%Ash.BulkResult{status: :success}), do: :ok
-  defp bulk_result(%Ash.BulkResult{errors: errors}), do: {:error, {:bulk_clear_failed, errors}}
 
   defp after_references_cleared(opts) do
     case Keyword.get(opts, :after_references_cleared) do
