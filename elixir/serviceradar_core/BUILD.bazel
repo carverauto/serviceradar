@@ -756,6 +756,10 @@ ex_unit_test(
         "-r",
         "test/db/db_task_helper.exs",
     ],
+    env = {
+        "MIX_ENV": "test",
+        "SERVICERADAR_MIGRATION_ONLY": "true",
+    },
     tags = [
         "external",
         "manual",

@@ -573,6 +573,15 @@ class SchemaTemplateQualificationContractTest(unittest.TestCase):
         self.assertIn("--noremote_upload_local_results", action)
         self.assertIn("//rust/integration-db:generation_lifecycle_test", action)
 
+    def test_generation_migrator_declares_the_guarded_replay_environment(self):
+        target = named_starlark_rule(
+            CORE_BUILD.read_text(encoding="utf-8"),
+            "ex_unit_test",
+            "migrate_generation",
+        )
+        self.assertIn('"MIX_ENV": "test"', target)
+        self.assertIn('"SERVICERADAR_MIGRATION_ONLY": "true"', target)
+
 
 class IntegrationBenchmarkContractTest(unittest.TestCase):
     def setUp(self):
