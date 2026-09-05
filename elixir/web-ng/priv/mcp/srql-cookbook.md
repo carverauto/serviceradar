@@ -97,7 +97,10 @@ in:sweep_executions sweep_group_id:<uuid> sort:started_at:desc
 - `in:sweep_groups partition:default enabled:true` -- which sweep groups are
   enabled in a given partition, and what they are configured to scan.
 - `in:sweep_profiles name:%rids%` -- find a scan profile (ports, timing,
-  banner-grab settings) by name.
+  banner-grab settings) by name. Profiles flagged `admin_only` are excluded
+  from this entity for every role, and `admin_only` is not an accepted filter
+  field -- a profile absent here may still exist and be in use, so treat it as
+  "restricted", not "no such profile".
 - `in:sweep_results device_id:<device-uid> time:last_24h sort:inserted_at:desc`
   -- what did the last 24h of sweeps find for one device (open ports,
   reachability, per-host errors)?
