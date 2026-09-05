@@ -13,6 +13,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @redacted "[REDACTED]"
+  @sensitive_log_keys ~w(
+    authorization api_key apikey bearer cookie credential credentials jwt password
+    private_key secret secret_key seed signing_key token nkey_seed nkey
+  )
   # Side stream only — must not drive the main Observability logs list limit.
   @stream_page_size 10
   # Matches LogLive.Index / SRQL bar defaults when running a query from detail.
@@ -272,6 +276,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
             <div class="min-h-0 min-w-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5">
               <.log_message_hero log={@log} body_mode={@body_mode} />
+              <.log_attributes_panel log={@log} />
               <.signal_display_panel
                 :if={is_list(@signal_display)}
                 id="log-signal-display"
@@ -562,13 +567,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   attr :timezone, :string, required: true
 
   defp log_meta_strip(assigns) do
+    attrs = parse_attributes(Map.get(assigns.log, "attributes")) || %{}
     service = Map.get(assigns.log, "service_name")
     source_ip = Map.get(assigns.log, "source_ip")
     timestamp = timestamp_meta(assigns.log)
+    target = scalar_attr(attrs, ["target_name", "target"])
+    agent = log_agent_identity(assigns.log, attrs)
+    error = scalar_attr(attrs, ["error", "err"])
 
     facts =
       Enum.reject(
         [
+          %{label: "Target", value: target, mono?: true, href: nil},
+          %{label: "Agent", value: agent, mono?: true, href: nil},
           %{
             label: "Service",
             value: service,
@@ -581,6 +592,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
             mono?: true,
             href: logs_filter_href("source_ip", source_ip)
           },
+          %{label: "Error", value: error, mono?: true, href: nil},
           %{label: "Facility", value: log_facility(assigns.log), mono?: false, href: nil},
           %{label: "Format", value: log_format(assigns.log), mono?: true, href: nil},
           %{label: "Scope", value: Map.get(assigns.log, "scope_name"), mono?: true, href: nil}
@@ -794,6 +806,104 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
           :if={@body_mode != "json" or is_nil(@pretty_json)}
           class="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-sr-ink selection:bg-sr-brand/25"
         >{@body}</pre>
+      </div>
+    </div>
+    """
+  end
+
+  attr :log, :map, required: true
+
+  defp log_attributes_panel(assigns) do
+    attrs = parse_attributes(Map.get(assigns.log, "attributes")) || %{}
+    resource = parse_attributes(Map.get(assigns.log, "resource_attributes")) || %{}
+
+    source_device_uid =
+      case Map.get(assigns.log, "source_device_uid") do
+        uid when is_binary(uid) and uid != "" -> uid
+        _ -> ""
+      end
+
+    promoted = MapSet.new(["target_name", "target", "error", "err", "agent_id"])
+
+    attr_pairs =
+      attrs
+      |> Map.delete("serviceradar.ingest")
+      |> flatten_attribute_values()
+      |> Enum.reject(fn {key, _} -> MapSet.member?(promoted, key) end)
+
+    ingest_pairs =
+      attrs
+      |> Map.get("serviceradar.ingest")
+      |> flatten_attribute_values()
+
+    resource_pairs = flatten_attribute_values(resource)
+
+    assigns =
+      assigns
+      |> assign(:attr_pairs, attr_pairs)
+      |> assign(:ingest_pairs, ingest_pairs)
+      |> assign(:resource_pairs, resource_pairs)
+      |> assign(:source_device_uid, source_device_uid)
+      |> assign(
+        :empty?,
+        attr_pairs == [] and ingest_pairs == [] and resource_pairs == []
+      )
+
+    ~H"""
+    <div :if={not @empty?} class="space-y-4">
+      <.log_kv_section
+        :if={@attr_pairs != []}
+        title="Attributes"
+        pairs={@attr_pairs}
+        source_device_uid={@source_device_uid}
+      />
+      <.log_kv_section
+        :if={@resource_pairs != []}
+        title="Resource Attributes"
+        pairs={@resource_pairs}
+        source_device_uid={@source_device_uid}
+      />
+      <.log_kv_section
+        :if={@ingest_pairs != []}
+        title="Ingest"
+        pairs={@ingest_pairs}
+      />
+    </div>
+    """
+  end
+
+  attr :title, :string, required: true
+  attr :pairs, :list, required: true
+  attr :source_device_uid, :string, default: ""
+
+  defp log_kv_section(assigns) do
+    ~H"""
+    <div class="space-y-2">
+      <span class="font-sans text-xs font-medium uppercase tracking-wide text-sr-muted">
+        {@title}
+      </span>
+      <div class="overflow-hidden rounded-sr-surface border border-sr-line bg-sr-surface shadow-sr-surface">
+        <div class="grid grid-cols-1 divide-y divide-sr-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-3">
+          <div
+            :for={{key, value} <- @pairs}
+            class="flex min-w-0 flex-col gap-1 px-4 py-3 even:bg-sr-subtle/20 sm:even:bg-transparent sm:[&:nth-child(2n)]:bg-sr-subtle/15 lg:[&:nth-child(2n)]:bg-transparent lg:[&:nth-child(3n+2)]:bg-sr-subtle/15"
+          >
+            <span class="font-mono text-xs uppercase tracking-wide text-sr-muted">{key}</span>
+            <.link
+              :if={key == "source" and is_binary(@source_device_uid) and @source_device_uid != ""}
+              navigate={~p"/devices/#{@source_device_uid}"}
+              class="break-all font-mono text-sm text-sr-brand hover:underline"
+            >
+              {format_attribute_value(key, value)}
+            </.link>
+            <span
+              :if={key != "source" or @source_device_uid in [nil, ""]}
+              class="break-all font-mono text-sm text-sr-ink"
+            >
+              {format_attribute_value(key, value)}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
     """
@@ -1378,11 +1488,31 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     case Map.get(attrs, key) do
       %{"value" => v} -> v
       v when is_binary(v) -> v
+      v when is_number(v) or is_boolean(v) -> to_string(v)
       _ -> nil
     end
   end
 
   defp leaf_attr(_, _), do: nil
+
+  defp scalar_attr(attrs, keys) when is_map(attrs) and is_list(keys) do
+    Enum.find_value(keys, &leaf_attr(attrs, &1))
+  end
+
+  defp scalar_attr(_attrs, _keys), do: nil
+
+  defp log_agent_identity(log, attrs) when is_map(log) and is_map(attrs) do
+    Enum.find(
+      [
+        Map.get(log, "ingest_agent_id"),
+        scalar_attr(attrs, ["agent_id", "agent.id"]),
+        Map.get(log, "service_instance")
+      ],
+      fn value -> is_binary(value) and String.trim(value) != "" end
+    )
+  end
+
+  defp log_agent_identity(_log, _attrs), do: nil
 
   # RBAC check - only operators and admins can create rules
   defp can_create_rules?(%{user: _} = scope), do: ServiceRadarWebNG.RBAC.can?(scope, "observability.rules.create")
@@ -1655,6 +1785,75 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
   defp redact_assignment_secret(value, key) do
     Regex.replace(~r/(#{Regex.escape(key)}\s*[=:]\s*)[^\s,}\]]+/i, value, "\\1#{@redacted}")
+  end
+
+  defp flatten_attribute_values(values) when is_map(values) do
+    values
+    |> Enum.flat_map(fn
+      {k, v} when is_map(v) ->
+        Enum.map(v, fn {nested_k, nested_v} -> {"#{k}.#{nested_k}", nested_v} end)
+
+      {k, v} ->
+        [{k, v}]
+    end)
+    |> Enum.reject(fn {_k, v} -> blank_value?(v) end)
+    |> Enum.sort_by(fn {k, _} -> k end)
+  end
+
+  defp flatten_attribute_values(_), do: []
+
+  defp format_attribute_value(key, value) when is_binary(key) do
+    if sensitive_log_key?(key), do: @redacted, else: format_attribute_value(value)
+  end
+
+  defp format_attribute_value(_key, value), do: format_attribute_value(value)
+
+  defp format_attribute_value(value) when is_binary(value), do: redact_secret_text(value)
+  defp format_attribute_value(value) when is_number(value), do: to_string(value)
+  defp format_attribute_value(value) when is_boolean(value), do: to_string(value)
+
+  defp format_attribute_value(value) when is_map(value) do
+    value |> normalize_metadata_value() |> redact_secret_value() |> Jason.encode!()
+  end
+
+  defp format_attribute_value(value) when is_list(value) do
+    value
+    |> normalize_metadata_value()
+    |> redact_secret_value()
+    |> case do
+      normalized when is_binary(normalized) -> redact_secret_text(normalized)
+      normalized -> Jason.encode!(normalized)
+    end
+  end
+
+  defp format_attribute_value(nil), do: "—"
+  defp format_attribute_value(value), do: inspect(value)
+
+  defp redact_secret_value(nil), do: nil
+
+  defp redact_secret_value(value) when is_map(value) do
+    Map.new(value, fn {key, nested} ->
+      if sensitive_log_key?(key) do
+        {key, @redacted}
+      else
+        {key, redact_secret_value(nested)}
+      end
+    end)
+  end
+
+  defp redact_secret_value(value) when is_list(value), do: Enum.map(value, &redact_secret_value/1)
+  defp redact_secret_value(value) when is_binary(value), do: redact_secret_text(value)
+  defp redact_secret_value(value), do: value
+
+  defp sensitive_log_key?(key) do
+    key
+    |> to_string()
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9_]+/, "_")
+    |> then(fn normalized ->
+      normalized in @sensitive_log_keys or
+        Enum.any?(@sensitive_log_keys, fn key -> String.ends_with?(normalized, "_#{key}") end)
+    end)
   end
 
   defp blank_value?(nil), do: true
