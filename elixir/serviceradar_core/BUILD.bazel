@@ -11,6 +11,7 @@ load(
     "partition_by_lane",
 )
 load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
+load("@serviceradar//build/schema_template:replay_env.bzl", "SCHEMA_TEMPLATE_REPLAY_ENV")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -756,10 +757,7 @@ ex_unit_test(
         "-r",
         "test/db/db_task_helper.exs",
     ],
-    env = {
-        "MIX_ENV": "test",
-        "SERVICERADAR_MIGRATION_ONLY": "true",
-    },
+    env = SCHEMA_TEMPLATE_REPLAY_ENV,
     tags = [
         "external",
         "manual",

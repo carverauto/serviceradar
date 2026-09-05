@@ -574,13 +574,22 @@ class SchemaTemplateQualificationContractTest(unittest.TestCase):
         self.assertIn("//rust/integration-db:generation_lifecycle_test", action)
 
     def test_generation_migrator_declares_the_guarded_replay_environment(self):
+        replay_env_path = ROOT / "build/schema_template/replay_env.bzl"
+        replay_env = replay_env_path.read_text(encoding="utf-8")
         target = named_starlark_rule(
             CORE_BUILD.read_text(encoding="utf-8"),
             "ex_unit_test",
             "migrate_generation",
         )
-        self.assertIn('"MIX_ENV": "test"', target)
-        self.assertIn('"SERVICERADAR_MIGRATION_ONLY": "true"', target)
+        manifest = named_starlark_rule(
+            (ROOT / "build/schema_template/BUILD.bazel").read_text(encoding="utf-8"),
+            "schema_template_manifest",
+            "manifest",
+        )
+        self.assertIn("env = SCHEMA_TEMPLATE_REPLAY_ENV", target)
+        self.assertIn('"MIX_ENV": "test"', replay_env)
+        self.assertIn('"SERVICERADAR_MIGRATION_ONLY": "true"', replay_env)
+        self.assertIn('"replay_env.bzl"', manifest)
 
 
 class IntegrationBenchmarkContractTest(unittest.TestCase):

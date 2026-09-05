@@ -5,7 +5,10 @@ load(":manifest.bzl", "schema_template_manifest")
 
 package(default_visibility = ["//visibility:public"])
 
-exports_files(["policy.json"])
+exports_files([
+    "policy.json",
+    "replay_env.bzl",
+])
 
 py_library(
     name = "manifest_lib",
@@ -30,6 +33,7 @@ schema_template_manifest(
         "manifest.bzl",
         "manifest.py",
         "policy.json",
+        "replay_env.bzl",
         "//:Cargo.lock",
         "//:Cargo.toml",
         "//build:elixir_test_config_loader.exs",

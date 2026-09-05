@@ -132,6 +132,8 @@ py_test(
         "//build:integration_test_dispositions.bzl",
         "//build:integration_tests.bzl",
         "//build:template_authority.bzl",
+        "//build/schema_template:BUILD.bazel",
+        "//build/schema_template:replay_env.bzl",
         "//build/ci:BUILD.bazel",
         "//build/ci:large_ingestion_gate",
         "//build/ci:large_ingestion_gate_contract.v1",
