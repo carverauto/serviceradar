@@ -328,10 +328,24 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            // Inventory spans both devices even though only alpha has a confirmed assessment.
             query: r#"in:packages cpe:"cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*" current:true"#,
-            expected_count: 1,
+            expected_count: 2,
             validator: Some(Box::new(|body| {
-                assert_eq!(body["results"][0]["purl"], "pkg:deb/nginx@1.24.0-2ubuntu7")
+                let mut packages: Vec<_> = body["results"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|row| (row["device_uid"].as_str().unwrap(), row["purl"].as_str().unwrap()))
+                    .collect();
+                packages.sort_unstable();
+                assert_eq!(
+                    packages,
+                    vec![
+                        ("device-alpha", "pkg:deb/nginx@1.24.0-2ubuntu7"),
+                        ("device-gamma", "pkg:deb/nginx@1.24.0-2ubuntu7"),
+                    ]
+                );
             })),
         },
         // Device Query Tests
