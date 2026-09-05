@@ -107,6 +107,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       sweep_executions sweep_execution sweep_group_executions
       sweep_results sweep_result sweep_host_results
       sweep_coverage sweep_coverage_daily
+      device_sweep_overlap sweep_overlap
     )
   }
 

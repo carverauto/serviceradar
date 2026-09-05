@@ -567,6 +567,17 @@ fn parses_sweep_coverage_aliases() {
 }
 
 #[test]
+fn parses_device_sweep_overlap_aliases() {
+    for alias in ["device_sweep_overlap", "sweep_overlap"] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::DeviceSweepOverlap),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
 fn parses_security_signal_entity_aliases() {
     for raw in [
         "security_findings",

@@ -220,7 +220,8 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     {"sweep_profiles", ~w(sweep_profiles sweep_profile scanner_profiles scanner_profile)},
     {"sweep_executions", ~w(sweep_executions sweep_execution sweep_group_executions)},
     {"sweep_results", ~w(sweep_results sweep_result sweep_host_results)},
-    {"sweep_coverage", ~w(sweep_coverage sweep_coverage_daily)}
+    {"sweep_coverage", ~w(sweep_coverage sweep_coverage_daily)},
+    {"device_sweep_overlap", ~w(device_sweep_overlap sweep_overlap)}
   ]
 
   test "every sweep diagnostic alias is gated by networks.sweeps.view, never passthrough" do

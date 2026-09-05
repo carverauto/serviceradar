@@ -68,6 +68,74 @@ defmodule ServiceRadarWebNGWeb.SRQL.BuilderTest do
     assert query =~ "sort:category:asc"
   end
 
+  test "catalog exposes the sweep diagnostics entities" do
+    entity_ids = Enum.map(Catalog.entities(), & &1.id)
+
+    for id <- ~w(sweep_groups sweep_profiles sweep_executions sweep_results sweep_coverage
+                 device_sweep_overlap) do
+      assert id in entity_ids, id
+    end
+
+    overlap = Catalog.entity("device_sweep_overlap")
+    assert overlap.label == "Sweep Declared vs Observed"
+    assert overlap.default_filter_field == "device_uid"
+    assert "relationship" in overlap.filter_fields
+    assert "declared_not_observed" in overlap.known_values["relationship"]
+    assert overlap.downsample == false
+  end
+
+  # Every alias below is one the SRQL parser accepts and `EntityAccess` gates.
+  # An alias the catalog does not know does not fail loudly: `entity/1` returns a
+  # synthesized entry whose `default_sort_field` is "timestamp" and whose filter
+  # allowlist is empty, so the builder emits `sort:timestamp:desc` against an
+  # entity with no `timestamp` column.
+  test "every sweep alias resolves to its canonical catalog entry" do
+    aliases = %{
+      "sweep_group" => "sweep_groups",
+      "sweeps" => "sweep_groups",
+      "sweep_profile" => "sweep_profiles",
+      "scanner_profiles" => "sweep_profiles",
+      "scanner_profile" => "sweep_profiles",
+      "sweep_execution" => "sweep_executions",
+      "sweep_group_executions" => "sweep_executions",
+      "sweep_result" => "sweep_results",
+      "sweep_host_results" => "sweep_results",
+      "sweep_coverage_daily" => "sweep_coverage",
+      "sweep_overlap" => "device_sweep_overlap"
+    }
+
+    for {alias_name, canonical} <- aliases do
+      entry = Catalog.entity(alias_name)
+      assert entry.id == canonical, "#{alias_name} resolved to #{entry.id}"
+      refute entry.default_sort_field == "timestamp", alias_name
+      refute entry.filter_fields == [], alias_name
+    end
+  end
+
+  # The overlap view's whole point is the `declared_not_observed` row, and those
+  # rows carry a NULL `last_seen_at` by construction. The Rust query therefore
+  # defaults to a compound sort that lifts them to the front; an explicit `sort:`
+  # from the caller replaces that default entirely. If the catalog advertised a
+  # `default_sort_field`, the visual builder would emit exactly such a token on
+  # every query it builds and bury every alert behind every ordinary row.
+  test "the sweep overlap builder emits no sort token so the alert-first default survives" do
+    overlap = Catalog.entity("device_sweep_overlap")
+    assert overlap.default_sort_field == ""
+
+    for alias_name <- ~w(device_sweep_overlap sweep_overlap) do
+      assert %{id: "device_sweep_overlap"} = Catalog.entity(alias_name)
+
+      query = Builder.build(Builder.default_state("device_sweep_overlap", 25))
+      assert query =~ "in:device_sweep_overlap"
+      refute query =~ "sort:"
+
+      assert {:ok, parsed} = Builder.parse("in:#{alias_name} limit:25")
+      assert parsed["entity"] == "device_sweep_overlap", alias_name
+      assert parsed["sort_field"] == "", alias_name
+      refute Builder.build(parsed) =~ "sort:", alias_name
+    end
+  end
+
   test "device catalog remains provider-neutral for external inventory plugins" do
     devices = Catalog.entity("devices")
 
