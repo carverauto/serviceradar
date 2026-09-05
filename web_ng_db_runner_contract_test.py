@@ -87,7 +87,7 @@ class WebNgDbRunnerContractTest(unittest.TestCase):
             '"SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS": "600000"', rule
         )
         self.assertIn('"SERVICERADAR_TEST_DB_SHARD": "serial_0"', rule)
-        self.assertIn('"TEST_CNPG_POOL_SIZE": "2"', rule)
+        self.assertIn('"TEST_CNPG_POOL_SIZE": "8"', rule)
         self.assertIn('"integration_test"', rule)
         self.assertIn('"manual"', rule)
         self.assertIn('target_compatible_with = requires_shared_fixture()', rule)
