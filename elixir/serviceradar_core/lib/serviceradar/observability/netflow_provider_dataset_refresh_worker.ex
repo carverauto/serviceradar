@@ -206,7 +206,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   end
 
   defp cidr_sort_key(%Postgrex.INET{address: address, netmask: netmask}) do
-    {tuple_size(address), address, netmask || 0}
+    {tuple_size(address), address, netmask}
   end
 
   defp promote_snapshot(source_url, payload, rows, etag) do
