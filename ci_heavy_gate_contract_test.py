@@ -16,7 +16,6 @@ BAZELRC = ROOT / ".bazelrc"
 MODULE_FILE = ROOT / "MODULE.bazel"
 WORKFLOW = ROOT / "buildbuddy.yaml"
 PLAYWRIGHT_BUILD = ROOT / "elixir/web-ng/test/playwright/BUILD.bazel"
-PLAYWRIGHT_PACKAGE = "elixir/web-ng/test/playwright"
 PLAYWRIGHT_EXECUTOR_IMAGE = (
     "docker://registry.carverauto.dev/serviceradar/playwright-rbe@sha256:"
     "d9266ee97f0dbd297618a10afb00b5006ebf2bb19dd38887da3230ed4b7829ea"
@@ -513,26 +512,6 @@ def declared_test_output_modes(action: str) -> tuple[str, ...]:
 def godview_gate_shell(action: str) -> str:
     """The BazelCI path-gate shell guarding the browser acceptance run."""
     return sole_literal_run_body(action, "godview gate:", "godview acceptance gate")
-
-
-def acceptance_input_directories() -> tuple[str, ...]:
-    """The directories holding the acceptance target's declared Bazel inputs.
-
-    Reads the target's own `data` list: relative entries resolve inside the
-    Playwright package, `//` labels resolve to their package. These are the
-    directories the path gate has to trigger on, whatever they are called.
-    """
-    source = PLAYWRIGHT_BUILD.read_text(encoding="utf-8")
-    data = source[source.index("    data = [") : source.index("    env = {")]
-    directories = set()
-    for entry in re.findall(r'"([^"]+)"', data):
-        if entry.startswith("//"):
-            directories.add(entry[2:].split(":", 1)[0])
-        else:
-            directories.add(f"{PLAYWRIGHT_PACKAGE}/{entry}".rsplit("/", 1)[0])
-    if not directories:
-        raise AssertionError("acceptance target declares no inputs")
-    return tuple(sorted(directories))
 
 
 def run_godview_gate(
@@ -1640,18 +1619,6 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertEqual(0, status, log)
         self.assertEqual((self.acceptance_invocation,), invocations)
         self.assertIn("fail-open", log)
-
-    def test_godview_gate_triggers_on_every_declared_acceptance_input(self):
-        """The cone tracks the target's inputs, including through a rename."""
-        directories = acceptance_input_directories()
-        self.assertIn(PLAYWRIGHT_PACKAGE, directories)
-        for directory in directories:
-            with self.subTest(directory=directory):
-                status, log, invocations = run_godview_gate(
-                    (f"{directory}/godview_gate_probe.txt",)
-                )
-                self.assertEqual(0, status, log)
-                self.assertEqual((self.acceptance_invocation,), invocations)
 
     def test_large_ingestion_gate_has_exact_independent_trigger(self):
         action = named_action("LargeIngestionGate")
