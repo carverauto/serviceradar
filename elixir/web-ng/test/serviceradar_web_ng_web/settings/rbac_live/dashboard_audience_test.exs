@@ -356,8 +356,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.DashboardAudienceTest do
           group_id: "77777777-7777-4777-8777-777777777777",
           epoch: 3,
           target_id: raw_target_id,
-          fingerprint:
-            {:shared, ~U[2026-09-04 10:00:00Z], raw_grant_id, :view, ~U[2026-09-04 10:00:00Z]}
+          fingerprint: {:shared, ~U[2026-09-04 10:00:00Z], raw_grant_id, :view, ~U[2026-09-04 10:00:00Z]}
         }
       )
 

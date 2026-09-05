@@ -210,9 +210,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
       group_profile_tokens(live_view, fixture.group.name, fixture.target_profile.name)
 
     live_view
-    |> element(
-      "button[phx-click='clear_group_profile'][phx-value-group-token='#{fresh_group_token}']"
-    )
+    |> element("button[phx-click='clear_group_profile'][phx-value-group-token='#{fresh_group_token}']")
     |> render_click(%{"group-id" => "browser-forged-group"})
 
     _html = render_async(live_view, 5_000)
@@ -379,9 +377,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
     assert {:ok, _group} = GroupPolicy.delete(%{user: fixture.user}, fixture.group.id)
 
     live_view
-    |> element(
-      "button[phx-click='clear_group_profile'][phx-value-group-token='#{fresh_group_token}']"
-    )
+    |> element("button[phx-click='clear_group_profile'][phx-value-group-token='#{fresh_group_token}']")
     |> render_click()
 
     _html = render_async(live_view, 5_000)
@@ -515,9 +511,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
     assert live_view |> element("#flash-error") |> render() =~
              "Dashboard audience could not be updated. Reloaded the latest values."
 
-    assert is_nil(
-             group_grant_access(:authored, fixture.private_authored.id, fixture.other_group.id)
-           )
+    assert is_nil(group_grant_access(:authored, fixture.private_authored.id, fixture.other_group.id))
 
     render_click(live_view, "ensure_authored_dashboard_group_view", %{
       "group-token" => other_group_token,
@@ -599,9 +593,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
     profile = custom_profile!(system, marker, ["settings.rbac.manage"])
 
     user
-    |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id},
-      actor: system
-    )
+    |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system)
     |> Ash.update!()
 
     {:ok, live_view, _html} =
@@ -709,9 +701,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
 
     live_view |> element("button[phx-click='save_profile']") |> render_click()
 
-    assert "devices.view" in Ash.get!(RoleProfile, fixture.target_profile.id,
-             actor: fixture.system
-           ).permissions
+    assert "devices.view" in Ash.get!(RoleProfile, fixture.target_profile.id, actor: fixture.system).permissions
   end
 
   @tag :web_ng_shared_fixture_db
@@ -750,9 +740,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
     assert has_element?(live_view, "button[phx-click='save_profile']")
     live_view |> element("button[phx-click='save_profile']") |> render_click()
 
-    assert "devices.view" in Ash.get!(RoleProfile, fixture.target_profile.id,
-             actor: fixture.system
-           ).permissions
+    assert "devices.view" in Ash.get!(RoleProfile, fixture.target_profile.id, actor: fixture.system).permissions
 
     live_view |> element("button[phx-click='open_delete_profile']") |> render_click()
 
@@ -822,9 +810,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
 
     user =
       user
-      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: authority_profile.id},
-        actor: system
-      )
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: authority_profile.id}, actor: system)
       |> Ash.update!()
 
     group =
@@ -995,9 +981,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
       |> LazyHTML.attribute("phx-value-group-token")
 
     live_view
-    |> element(
-      "button[phx-click='select_dashboard_audience_group'][phx-value-group-token='#{group_token}']"
-    )
+    |> element("button[phx-click='select_dashboard_audience_group'][phx-value-group-token='#{group_token}']")
     |> render_click()
 
     group_token
@@ -1073,12 +1057,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
 
     Repo.delete_all(from(u in "ng_users", prefix: "platform", where: u.email == ^email))
 
-    Repo.delete_all(
-      from(g in "user_groups", prefix: "platform", where: like(g.name, ^"#{marker}%"))
-    )
+    Repo.delete_all(from(g in "user_groups", prefix: "platform", where: like(g.name, ^"#{marker}%")))
 
-    Repo.delete_all(
-      from(p in "role_profiles", prefix: "platform", where: like(p.name, ^"#{marker}%"))
-    )
+    Repo.delete_all(from(p in "role_profiles", prefix: "platform", where: like(p.name, ^"#{marker}%")))
   end
 end

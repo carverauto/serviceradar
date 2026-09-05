@@ -1,3 +1,4 @@
+# credo:disable-for-this-file Credo.Check.Refactor.LongQuoteBlocks
 defmodule ServiceRadarWebNG.Dashboards.Authored.Sharing do
   @moduledoc false
 

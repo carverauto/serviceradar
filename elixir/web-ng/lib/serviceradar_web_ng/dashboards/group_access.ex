@@ -33,8 +33,7 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
   def page(scope, {:policy_editor, source}, group_id, selector)
       when source in [:authored, :package] and is_binary(group_id) and
              (selector == :first or
-                (is_tuple(selector) and tuple_size(selector) == 2 and
-                   elem(selector, 0) in [:after, :before] and
+                (is_tuple(selector) and tuple_size(selector) == 2 and elem(selector, 0) in [:after, :before] and
                    is_binary(elem(selector, 1)))) do
     with {:ok, actor} <- current_actor(scope, {:policy_editor, source}, []),
          {:ok, page} <- read_page(actor, source, group_id, selector) do
@@ -66,8 +65,7 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
         ) :: {:ok, map()} | {:error, term()}
   def set_group_access(scope, entrypoint_source, target_id, group_id, access, opts \\ [])
 
-  def set_group_access(scope, entrypoint_source, target_id, group_id, access, opts)
-      when access in [:view, :edit] do
+  def set_group_access(scope, entrypoint_source, target_id, group_id, access, opts) when access in [:view, :edit] do
     run_mutation(scope, entrypoint_source, target_id, group_id, {:set, access}, opts)
   end
 
@@ -88,16 +86,8 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
     |> Ash.read(actor: actor, page: page_options(selector))
   end
 
-  defp run_mutation(
-         scope,
-         {entrypoint, source} = entrypoint_source,
-         target_id,
-         group_id,
-         operation,
-         opts
-       )
-       when entrypoint in [:policy_editor, :local] and source in [:authored, :package] and
-              is_binary(target_id) and
+  defp run_mutation(scope, {entrypoint, source} = entrypoint_source, target_id, group_id, operation, opts)
+       when entrypoint in [:policy_editor, :local] and source in [:authored, :package] and is_binary(target_id) and
               is_binary(group_id) and is_list(opts) do
     if Repo.in_transaction?() do
       {:error, :outer_transaction_not_supported}
@@ -121,17 +111,12 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
 
       {:error, _reason} = error ->
         error
-
-      _ ->
-        {:error, :current_authority_denied}
     end
   end
 
-  defp required_permissions({:policy_editor, :authored}),
-    do: ["settings.rbac.manage", "analytics.dashboards.share"]
+  defp required_permissions({:policy_editor, :authored}), do: ["settings.rbac.manage", "analytics.dashboards.share"]
 
-  defp required_permissions({:policy_editor, :package}),
-    do: ["settings.rbac.manage", "dashboards.packages.share"]
+  defp required_permissions({:policy_editor, :package}), do: ["settings.rbac.manage", "dashboards.packages.share"]
 
   defp required_permissions({:local, _source}), do: []
 
@@ -160,15 +145,7 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
     end
   end
 
-  defp mutate_visible_target(
-         _actor,
-         entrypoint,
-         _source,
-         %{visibility: :public} = target,
-         _group_id,
-         operation,
-         _opts
-       )
+  defp mutate_visible_target(_actor, entrypoint, _source, %{visibility: :public} = target, _group_id, operation, _opts)
        when entrypoint == :policy_editor or operation == {:set, :view} do
     result = %{
       target: target,
@@ -222,19 +199,12 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
     if fingerprint(target) == expected, do: :ok, else: {:error, :stale}
   end
 
-  defp maybe_share_package(_actor, _entrypoint, :authored, target, _operation),
-    do: {:ok, target, false}
+  defp maybe_share_package(_actor, _entrypoint, :authored, target, _operation), do: {:ok, target, false}
 
   defp maybe_share_package(_actor, _entrypoint, :package, target, operation)
        when operation in [:revoke_view, :revoke_access], do: {:ok, target, false}
 
-  defp maybe_share_package(
-         _actor,
-         _entrypoint,
-         :package,
-         %{visibility: visibility} = target,
-         _operation
-       )
+  defp maybe_share_package(_actor, _entrypoint, :package, %{visibility: visibility} = target, _operation)
        when visibility != :private, do: {:ok, target, false}
 
   defp maybe_share_package(actor, entrypoint, :package, target, _operation) do
@@ -348,8 +318,7 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
 
   defp set_group_access_action(_entrypoint, _source), do: :set_group_access
 
-  defp revoke_action(:policy_editor, :authored, :revoke_view),
-    do: :policy_editor_revoke_group_view
+  defp revoke_action(:policy_editor, :authored, :revoke_view), do: :policy_editor_revoke_group_view
 
   defp revoke_action(_entrypoint, _source, :revoke_view), do: :revoke_group_view
   defp revoke_action(_entrypoint, _source, :revoke_access), do: :revoke_group_access
@@ -431,33 +400,22 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
 
   defp page_options(:first), do: [limit: @page_size]
 
-  defp page_options({:after, cursor}) when is_binary(cursor),
-    do: [limit: @page_size, after: cursor]
+  defp page_options({:after, cursor}) when is_binary(cursor), do: [limit: @page_size, after: cursor]
 
-  defp page_options({:before, cursor}) when is_binary(cursor),
-    do: [limit: @page_size, before: cursor]
+  defp page_options({:before, cursor}) when is_binary(cursor), do: [limit: @page_size, before: cursor]
 
-  defp normalize_page_cursors({:ok, %Keyset{results: []} = page}, _selector),
-    do: {:ok, %{page | before: nil, after: nil}}
+  defp normalize_page_cursors({:ok, %Keyset{results: []} = page}, _selector), do: {:ok, %{page | before: nil, after: nil}}
 
   defp normalize_page_cursors({:ok, %Keyset{results: results, more?: more?} = page}, :first) do
     {:ok, %{page | before: nil, after: cursor_if(more?, List.last(results))}}
   end
 
-  defp normalize_page_cursors(
-         {:ok, %Keyset{results: results, more?: more?} = page},
-         {:after, _cursor}
-       ) do
-    {:ok,
-     %{page | before: keyset(List.first(results)), after: cursor_if(more?, List.last(results))}}
+  defp normalize_page_cursors({:ok, %Keyset{results: results, more?: more?} = page}, {:after, _cursor}) do
+    {:ok, %{page | before: keyset(List.first(results)), after: cursor_if(more?, List.last(results))}}
   end
 
-  defp normalize_page_cursors(
-         {:ok, %Keyset{results: results, more?: more?} = page},
-         {:before, _cursor}
-       ) do
-    {:ok,
-     %{page | before: cursor_if(more?, List.first(results)), after: keyset(List.last(results))}}
+  defp normalize_page_cursors({:ok, %Keyset{results: results, more?: more?} = page}, {:before, _cursor}) do
+    {:ok, %{page | before: cursor_if(more?, List.first(results)), after: keyset(List.last(results))}}
   end
 
   defp normalize_page_cursors(other, _selector), do: other

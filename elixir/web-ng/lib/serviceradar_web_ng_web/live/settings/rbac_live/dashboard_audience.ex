@@ -40,8 +40,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.DashboardAudience do
   end
 
   @spec sync_group_token(map(), String.t(), String.t()) :: {:ok, map()} | {:error, :stale}
-  def sync_group_token(%{group_id: group_id} = state, group_token, group_id)
-      when is_binary(group_token) do
+  def sync_group_token(%{group_id: group_id} = state, group_token, group_id) when is_binary(group_token) do
     {:ok, %{state | group_token: group_token}}
   end
 
@@ -50,8 +49,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.DashboardAudience do
   @spec start_request(map(), :authored | :package, :first | :next | :previous, String.t()) ::
           {:ok, map(), :first | {:after, String.t()} | {:before, String.t()}, non_neg_integer()}
           | {:error, :stale, map()}
-  def start_request(state, source, direction, request_ref)
-      when source in @sources and is_binary(request_ref) do
+  def start_request(state, source, direction, request_ref) when source in @sources and is_binary(request_ref) do
     source_state = Map.fetch!(state, source)
 
     case selector(source_state, direction) do

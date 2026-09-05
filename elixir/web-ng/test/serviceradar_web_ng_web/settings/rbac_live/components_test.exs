@@ -124,9 +124,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.ComponentsTest do
     html = render_component(&Components.group_profile_controls/1, result: result)
     page = document(html)
 
-    assert present?(
-             LazyHTML.query(page, "#rbac-group-profile-error[data-state='error'][role='alert']")
-           )
+    assert present?(LazyHTML.query(page, "#rbac-group-profile-error[data-state='error'][role='alert']"))
 
     assert LazyHTML.text(LazyHTML.query(page, "#rbac-group-profile-error")) =~
              "Unable to load user groups. Try again."

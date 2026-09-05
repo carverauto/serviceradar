@@ -8,6 +8,15 @@ defmodule ServiceRadarWebNG.Mcp do
 
   use Ash.Domain, extensions: [AshAi]
 
+  use Boundary,
+    top_level?: true,
+    deps: [
+      ServiceRadarWebNG,
+      ServiceRadarWebNG.Accounts,
+      ServiceRadarWebNG.Auth
+    ],
+    exports: :all
+
   alias ServiceRadarWebNG.Mcp.Tools
 
   @v1_tools [:execute_srql, :lookup_srql_docs, :get_srql_catalog, :list_devices, :get_device]

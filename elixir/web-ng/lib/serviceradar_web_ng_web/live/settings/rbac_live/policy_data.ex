@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.PolicyData do
 
   require Ash.Query
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @load_permissions ["settings.rbac.manage", "identity.user_groups.view"]
   @query_config :rbac_policy_data_query
 
@@ -19,6 +21,9 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.PolicyData do
              profile_tokens: %{String.t() => String.t()}
            }}
           | {:error, term()}
+  # This local query/2 dispatches to parameterized Ash reads. Sobelow mistakes
+  # the authorization scope argument for raw SQL because of the function name.
+  @sobelow_skip ["SQL.Query"]
   def load_group_profiles(scope) do
     with {:ok, current_scope} <- WebRBAC.authorize_current(scope, @load_permissions),
          {:ok, groups} <- query(:groups, current_scope),

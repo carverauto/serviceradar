@@ -171,11 +171,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
-  def handle_event(
-        "toggle_permission",
-        %{"profile-id" => profile_id, "permission" => permission},
-        socket
-      ) do
+  def handle_event("toggle_permission", %{"profile-id" => profile_id, "permission" => permission}, socket) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
     if profile == nil or profile_locked?(profile) do
@@ -190,11 +186,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
-  def handle_event(
-        "toggle_resource",
-        %{"profile-id" => profile_id, "resource" => resource},
-        socket
-      ) do
+  def handle_event("toggle_resource", %{"profile-id" => profile_id, "resource" => resource}, socket) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
     if profile == nil or profile_locked?(profile) do
@@ -262,11 +254,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     {:noreply, socket}
   end
 
-  def handle_event(
-        "set_profile_permissions",
-        %{"profile-id" => profile_id, "mode" => mode},
-        socket
-      ) do
+  def handle_event("set_profile_permissions", %{"profile-id" => profile_id, "mode" => mode}, socket) do
     profile = find_profile(socket.assigns.profiles, profile_id)
 
     if profile == nil or profile_locked?(profile) do
@@ -1369,8 +1357,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     |> load_group_profiles()
   end
 
-  defp start_dashboard_audience_request(socket, source, direction)
-       when source in [:authored, :package] do
+  defp start_dashboard_audience_request(socket, source, direction) when source in [:authored, :package] do
     audience = socket.assigns.dashboard_audience
     request_ref = Integer.to_string(System.unique_integer([:positive, :monotonic]))
 
@@ -1492,11 +1479,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     end
   end
 
-  defp dashboard_group(%AsyncResult{ok?: false}, _generation, %{
-         group_token: token,
-         group_id: group_id,
-         group_name: name
-       })
+  defp dashboard_group(%AsyncResult{ok?: false}, _generation, %{group_token: token, group_id: group_id, group_name: name})
        when is_binary(token) and is_binary(group_id) and is_binary(name) do
     %{token: token, name: name}
   end

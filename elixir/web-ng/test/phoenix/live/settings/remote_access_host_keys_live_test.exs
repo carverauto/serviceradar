@@ -202,9 +202,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
 
     updated =
       user
-      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id},
-        actor: system_actor()
-      )
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
       |> Ash.update!()
 
     RBAC.clear_process_cache()

@@ -691,9 +691,7 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessDbTest do
   defp grant!(:authored, target_id, group_id, system) do
     DashboardAccessGrant
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(
-      subject_type == :group and subject_group_id == ^group_id and dashboard_id == ^target_id
-    )
+    |> Ash.Query.filter(subject_type == :group and subject_group_id == ^group_id and dashboard_id == ^target_id)
     |> Ash.read_one!(actor: system)
   end
 
@@ -716,8 +714,7 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessDbTest do
     target = Enum.find(page.results, &(&1.id == target_id))
     grant = List.first(target.access_grants)
 
-    {target.visibility, target.updated_at, grant && grant.id, grant && grant.access,
-     grant && grant.updated_at}
+    {target.visibility, target.updated_at, grant && grant.id, grant && grant.access, grant && grant.updated_at}
   end
 
   defp audit_to(test_pid) do
@@ -750,9 +747,7 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessDbTest do
     user_pattern = "%-#{marker}-%@example.test"
     profile_pattern = "#{marker}-%-profile"
 
-    Repo.delete_all(
-      from(d in "authored_dashboards", prefix: "platform", where: like(d.title, ^title_pattern))
-    )
+    Repo.delete_all(from(d in "authored_dashboards", prefix: "platform", where: like(d.title, ^title_pattern)))
 
     Repo.delete_all(
       from(p in "dashboard_packages",
@@ -761,16 +756,10 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessDbTest do
       )
     )
 
-    Repo.delete_all(
-      from(g in "user_groups", prefix: "platform", where: like(g.name, ^group_pattern))
-    )
+    Repo.delete_all(from(g in "user_groups", prefix: "platform", where: like(g.name, ^group_pattern)))
 
-    Repo.delete_all(
-      from(u in "ng_users", prefix: "platform", where: like(u.email, ^user_pattern))
-    )
+    Repo.delete_all(from(u in "ng_users", prefix: "platform", where: like(u.email, ^user_pattern)))
 
-    Repo.delete_all(
-      from(p in "role_profiles", prefix: "platform", where: like(p.name, ^profile_pattern))
-    )
+    Repo.delete_all(from(p in "role_profiles", prefix: "platform", where: like(p.name, ^profile_pattern)))
   end
 end

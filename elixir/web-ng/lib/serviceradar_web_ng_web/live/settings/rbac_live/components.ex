@@ -8,7 +8,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.Components do
 
   def group_profile_controls(assigns) do
     ~H"""
-    <section class="rounded-xl border border-sr-line bg-sr-surface" aria-labelledby="group-profile-title">
+    <section
+      class="rounded-xl border border-sr-line bg-sr-surface"
+      aria-labelledby="group-profile-title"
+    >
       <div class="flex flex-wrap items-start justify-between gap-3 border-b border-sr-line px-5 py-4">
         <div>
           <h2 id="group-profile-title" class="text-sm font-semibold">User group role profiles</h2>
@@ -33,8 +36,15 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.Components do
 
   def group_profile_loading(assigns) do
     ~H"""
-    <div id="rbac-group-profile-loading" data-state="loading" class="flex items-center gap-3 px-5 py-6 text-sm text-sr-muted">
-      <span class="size-4 animate-spin rounded-full border-2 border-sr-line border-t-sr-brand" aria-hidden="true"></span>
+    <div
+      id="rbac-group-profile-loading"
+      data-state="loading"
+      class="flex items-center gap-3 px-5 py-6 text-sm text-sr-muted"
+    >
+      <span
+        class="size-4 animate-spin rounded-full border-2 border-sr-line border-t-sr-brand"
+        aria-hidden="true"
+      ></span>
       <span>Loading user groups...</span>
     </div>
     """
@@ -52,7 +62,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.Components do
 
   def group_profile_error(assigns) do
     ~H"""
-    <div id="rbac-group-profile-error" data-state="error" role="alert" class="flex flex-wrap items-center justify-between gap-3 px-5 py-5">
+    <div
+      id="rbac-group-profile-error"
+      data-state="error"
+      role="alert"
+      class="flex flex-wrap items-center justify-between gap-3 px-5 py-5"
+    >
       <p class="text-sm text-error">Unable to load user groups. Try again.</p>
       <.ui_button type="button" phx-click="retry_group_profiles" size="sm" variant="neutral">
         <.icon name="hero-arrow-path" class="size-4" /> Retry
@@ -90,7 +105,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.Components do
               name="group-token"
               value={token_for(@data.group_tokens, group.id)}
             />
-            <label class="sr-only" for={"rbac-group-profile-select-#{token_for(@data.group_tokens, group.id)}"}>
+            <label
+              class="sr-only"
+              for={"rbac-group-profile-select-#{token_for(@data.group_tokens, group.id)}"}
+            >
               Role profile for {group.name}
             </label>
             <select

@@ -342,9 +342,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningIdpBoundaryDbTest do
 
       # Exercise both initial states in the disposable fixture database. Keep any
       # previous singleton only in memory and register restoration before writes.
-      Repo.delete_all(
-        from(s in "authorization_settings", prefix: "platform", where: s.key == "default")
-      )
+      Repo.delete_all(from(s in "authorization_settings", prefix: "platform", where: s.key == "default"))
 
       if initially_present do
         {:ok, _settings} =
@@ -450,9 +448,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningIdpBoundaryDbTest do
   end
 
   defp restore_settings!(snapshot, _marker) do
-    Repo.delete_all(
-      from(s in "authorization_settings", prefix: "platform", where: s.key == "default")
-    )
+    Repo.delete_all(from(s in "authorization_settings", prefix: "platform", where: s.key == "default"))
 
     Repo.insert_all("authorization_settings", [snapshot], prefix: "platform")
     assert settings_snapshot() == snapshot
@@ -463,15 +459,11 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningIdpBoundaryDbTest do
   end
 
   defp cleanup!(marker, email) do
-    Repo.delete_all(
-      from(g in "user_groups", prefix: "platform", where: like(g.name, ^"#{marker}-%"))
-    )
+    Repo.delete_all(from(g in "user_groups", prefix: "platform", where: like(g.name, ^"#{marker}-%")))
 
     Repo.delete_all(from(u in "ng_users", prefix: "platform", where: u.email == ^email))
 
-    refute Repo.exists?(
-             from(g in "user_groups", prefix: "platform", where: like(g.name, ^"#{marker}-%"))
-           )
+    refute Repo.exists?(from(g in "user_groups", prefix: "platform", where: like(g.name, ^"#{marker}-%")))
 
     refute Repo.exists?(from(u in "ng_users", prefix: "platform", where: u.email == ^email))
   end

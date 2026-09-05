@@ -31,6 +31,7 @@ defmodule ServiceRadarWebNGWeb do
       ServiceRadarWebNG.Edge,
       ServiceRadarWebNG.Graph,
       ServiceRadarWebNG.Jobs,
+      ServiceRadarWebNG.Mcp,
       ServiceRadarWebNG.Plugins,
       ServiceRadarWebNG.RBAC,
       ServiceRadarWebNG.Topology

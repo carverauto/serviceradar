@@ -102,8 +102,11 @@ transaction, migration, or concurrency behavior; that guarded evidence remains p
       suite with `make test`.
       Evidence: `make test` at `4038b43f64` passed all 214 targets (24 executed, 190 cached),
       exit 0; invocation `fb3ee81b-2f92-4fa3-973e-44cdcc1a2f76`.
-- [ ] 6.3 Run repository-required Elixir formatting/quality checks for both affected applications
+- [x] 6.3 Run repository-required Elixir formatting/quality checks for both affected applications
       and confirm their actual output is clean.
+      Evidence: both `./scripts/elixir_quality.sh --lint-only` invocations passed at the final
+      worktree state (`--project elixir/web-ng --phoenix`: 1,306 files; `--project
+      elixir/serviceradar_core`: 2,374 files), with no Credo issues and clean format checks.
 - [x] 6.4 Validate `improve-rbac-policy-editor`, `add-dashboard-creator`, and
       `add-dashboard-package-access-control` with `openspec validate --strict`.
 - [x] 6.5 Update operator-facing documentation and CHANGELOG only where the implemented UI or

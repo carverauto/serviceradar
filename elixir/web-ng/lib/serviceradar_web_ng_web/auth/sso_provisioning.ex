@@ -25,17 +25,11 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
     end
   end
 
-  def record_successful_authentication(_user, _provider, _actor),
-    do: {:error, :unsupported_sso_provider}
+  def record_successful_authentication(_user, _provider, _actor), do: {:error, :unsupported_sso_provider}
 
   @spec find_or_create_user(map(), map(), provider(), term()) ::
           {:ok, User.t()} | {:error, term()}
-  def find_or_create_user(
-        %{email: email, name: name, external_id: external_id},
-        claims,
-        provider,
-        actor
-      )
+  def find_or_create_user(%{email: email, name: name, external_id: external_id}, claims, provider, actor)
       when provider in [:oidc, :saml] and is_map(claims) do
     resolution = RoleMapping.resolve(claims, actor: actor)
     resolved_role = resolution.role
@@ -154,9 +148,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
         {:error, reason} ->
           # A mapping pointing at a deleted profile must not fail the login; the
           # user keeps whatever access they already had.
-          Logger.warning(
-            "Could not apply role profile #{profile_id} to user #{user.id}: #{inspect(reason)}"
-          )
+          Logger.warning("Could not apply role profile #{profile_id} to user #{user.id}: #{inspect(reason)}")
 
           {:ok, user}
       end
@@ -183,9 +175,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
         :ok
 
       {:error, reason} ->
-        Logger.warning(
-          "Could not reconcile IdP group memberships for user #{user.id}: #{inspect(reason)}"
-        )
+        Logger.warning("Could not reconcile IdP group memberships for user #{user.id}: #{inspect(reason)}")
     end
 
     {:ok, user}
@@ -204,9 +194,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
 
     case User.update_role_profile(user, params, actor: actor) do
       {:ok, updated} ->
-        Logger.info(
-          "Revoked IdP-granted role profile from user #{user.id}: no mapping matched at sign-in"
-        )
+        Logger.info("Revoked IdP-granted role profile from user #{user.id}: no mapping matched at sign-in")
 
         {:ok, updated}
 

@@ -98,9 +98,7 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
       profile = custom_profile!(system, marker, ["settings.rbac.manage"])
 
       user
-      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id},
-        actor: system
-      )
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system)
       |> Ash.update!()
 
       conn = conn |> log_in_user(user) |> get(~p"/api/admin/role-profiles")
@@ -166,8 +164,6 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
   defp cleanup_unboxed!(marker, email) do
     Repo.delete_all(from(u in "ng_users", prefix: "platform", where: u.email == ^email))
 
-    Repo.delete_all(
-      from(p in "role_profiles", prefix: "platform", where: like(p.name, ^"#{marker}%"))
-    )
+    Repo.delete_all(from(p in "role_profiles", prefix: "platform", where: like(p.name, ^"#{marker}%")))
   end
 end

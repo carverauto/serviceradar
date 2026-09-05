@@ -346,7 +346,6 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCurrentAuthority do
     else
       false -> {:error, :approval_changed}
       {:error, _reason} = error -> error
-      _ -> {:error, :approval_changed}
     end
   end
 

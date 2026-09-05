@@ -216,9 +216,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     # LiveView suite uses an in-memory plugin storage backend, so make the
     # cross-service mirror explicit and deterministic instead of attempting a
     # direct gRPC connection when datasvc is intentionally absent.
-    Application.put_env(:serviceradar_web_ng, :plugin_artifact_upload, fn _metadata,
-                                                                          _payload,
-                                                                          _opts ->
+    Application.put_env(:serviceradar_web_ng, :plugin_artifact_upload, fn _metadata, _payload, _opts ->
       {:ok, :test_mirror}
     end)
 
@@ -278,9 +276,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert html =~ "Live First-party Plugin"
 
     lv
-    |> element(
-      "button[phx-click='import_first_party_plugin'][phx-value-plugin-id='live-first-party-plugin']"
-    )
+    |> element("button[phx-click='import_first_party_plugin'][phx-value-plugin-id='live-first-party-plugin']")
     |> render_click()
 
     assert [package] = Packages.list(%{"plugin_id" => "live-first-party-plugin"}, actor: actor)
@@ -538,9 +534,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     |> render_click()
 
     lv
-    |> element(
-      "button[phx-click='import_first_party_plugin'][phx-value-plugin-id='live-first-party-plugin']"
-    )
+    |> element("button[phx-click='import_first_party_plugin'][phx-value-plugin-id='live-first-party-plugin']")
     |> render_click()
 
     assert [package] = Packages.list(%{"plugin_id" => "live-first-party-plugin"}, actor: actor)
@@ -1254,8 +1248,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     %{
       "tag_name" => "v2.0.0",
       "name" => "Example inventory plugin v2.0.0",
-      "html_url" =>
-        "https://github.com/carverauto/serviceradar-plugin-example-inventory/releases/tag/v2.0.0",
+      "html_url" => "https://github.com/carverauto/serviceradar-plugin-example-inventory/releases/tag/v2.0.0",
       "assets" => [
         %{
           "name" => "serviceradar-wasm-plugin-index.json",
@@ -1279,8 +1272,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
           "upload_signature_url" =>
             "https://github.com/carverauto/serviceradar/releases/download/v2.0.0/live-first-party-plugin.upload-signature.json",
           "bundle_digest" => Storage.sha256(bundle()),
-          "oci_ref" =>
-            "registry.carverauto.dev/serviceradar/wasm-plugin-live-first-party-plugin:v2.0.0"
+          "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-live-first-party-plugin:v2.0.0"
         }
       ]
     }
@@ -1299,8 +1291,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
           "upload_signature_url" =>
             "https://github.com/carverauto/serviceradar/releases/download/v1.0.0/old-first-party-plugin.upload-signature.json",
           "bundle_digest" => Storage.sha256(bundle()),
-          "oci_ref" =>
-            "registry.carverauto.dev/serviceradar/wasm-plugin-old-first-party-plugin:v1.0.0"
+          "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-old-first-party-plugin:v1.0.0"
         }
       ]
     }
@@ -1322,8 +1313,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     %{
       "tag_name" => tag,
       "name" => "#{plugin_id} #{version}",
-      "html_url" =>
-        "https://github.com/carverauto/serviceradar-plugin-per-plugin-tags/releases/tag/#{tag}",
+      "html_url" => "https://github.com/carverauto/serviceradar-plugin-per-plugin-tags/releases/tag/#{tag}",
       "assets" => [
         %{
           "name" => "serviceradar-wasm-plugin-index.json",
@@ -1368,8 +1358,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
           "upload_signature_url" =>
             "https://github.com/carverauto/serviceradar-plugin-example-inventory/releases/download/v2.0.0/live-first-party-plugin.upload-signature.json",
           "bundle_digest" => Storage.sha256(bundle()),
-          "oci_ref" =>
-            "registry.carverauto.dev/serviceradar/wasm-plugin-live-first-party-plugin:v2.0.0"
+          "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-live-first-party-plugin:v2.0.0"
         }
       ]
     }
@@ -1391,8 +1380,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
             "upload_signature_url" =>
               "https://github.com/carverauto/serviceradar/releases/download/v2.0.0/catalog-plugin-#{suffix}.upload-signature.json",
             "bundle_digest" => Storage.sha256("catalog plugin #{suffix}"),
-            "oci_ref" =>
-              "registry.carverauto.dev/serviceradar/wasm-plugin-catalog-#{suffix}:v2.0.#{index}"
+            "oci_ref" => "registry.carverauto.dev/serviceradar/wasm-plugin-catalog-#{suffix}:v2.0.#{index}"
           }
         end)
     }
@@ -1542,8 +1530,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert_control_partition(agent_uid, partition_id, 40)
   end
 
-  defp assert_control_partition(_agent_uid, _partition_id, 0),
-    do: flunk("control-session partition did not converge")
+  defp assert_control_partition(_agent_uid, _partition_id, 0), do: flunk("control-session partition did not converge")
 
   defp assert_control_partition(agent_uid, partition_id, attempts) do
     case AgentCommandBus.resolve_control_session_evidence(partition_id, agent_uid, nil) do
@@ -1561,8 +1548,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert_control_session_absent(agent_uid, 40)
   end
 
-  defp assert_control_session_absent(_agent_uid, 0),
-    do: flunk("control-session removal did not converge")
+  defp assert_control_session_absent(_agent_uid, 0), do: flunk("control-session removal did not converge")
 
   defp assert_control_session_absent(agent_uid, attempts) do
     case AgentCommandBus.resolve_control_session_evidence(agent_uid) do
@@ -1687,9 +1673,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
     updated =
       user
-      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id},
-        actor: system_actor()
-      )
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: system_actor())
       |> Ash.update!()
 
     RBAC.clear_process_cache()
@@ -1748,8 +1732,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
                  source_type: :first_party,
                  source_repo_url: source_repo_url,
                  source_release_tag: release_tag,
-                 source_oci_ref:
-                   "registry.carverauto.dev/serviceradar/wasm-plugin-#{plugin_id}:#{release_tag}",
+                 source_oci_ref: "registry.carverauto.dev/serviceradar/wasm-plugin-#{plugin_id}:#{release_tag}",
                  source_oci_digest: "sha256:#{plugin_id}-#{version}",
                  source_bundle_digest: "sha256:bundle-#{plugin_id}-#{version}",
                  content_hash: "sha256:#{plugin_id}-#{version}"

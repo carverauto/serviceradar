@@ -365,10 +365,7 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
 
   @spec revoke_instance_access_grant(term(), DashboardInstanceAccessGrant.t()) ::
           :ok | {:error, term()}
-  def revoke_instance_access_grant(
-        scope,
-        %DashboardInstanceAccessGrant{subject_type: :group} = grant
-      ) do
+  def revoke_instance_access_grant(scope, %DashboardInstanceAccessGrant{subject_type: :group} = grant) do
     case GroupAccess.revoke_group_access(
            scope,
            {:local, :package},
@@ -803,8 +800,6 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
 
     if owner_id, do: Map.put_new(attrs, :owner_id, owner_id), else: attrs
   end
-
-  defp maybe_put_owner_from_opts(attrs, _ash_opts), do: attrs
 
   defp owner_id_from(%{user: user}), do: owner_id_from(user)
   defp owner_id_from(%{id: _id, role: :system}), do: nil
