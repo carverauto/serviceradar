@@ -404,6 +404,19 @@ before a hot producer exhausts shared capacity.
   reproduces the over-admission it exists to prevent
 - **AND** retained generation metadata SHALL remain bounded by the granted frame
   count, with at most one accepting and one draining generation
+- **AND** that bound SHALL be ENFORCED at registration rather than assumed:
+  registering a transport generation beyond it SHALL be refused, and the refusal
+  SHALL reach the registrar's supervisor rather than the publishing path, so the
+  generation is retried under a restart intensity instead of being admitted
+- **AND** a generation whose registrar is already dead SHALL be refused
+  registration, because accepting it would make a dead generation the accepting
+  one and its pending termination notice would then close a lane that has live
+  send capability
+- **AND** the accepting generation SHALL be DERIVED from the retained set rather
+  than tracked separately, so it can never name a generation that is not retained
+  nor be absent while a live one remains; when the accepting generation ends and
+  another live generation is still retained, the lane SHALL fall back to it
+  rather than close, because a registrar registers once and none would re-open it
 
 #### Scenario: A retry is offered while the previous attempt may still publish
 - **GIVEN** a publication whose reservation has been handed to a caller
