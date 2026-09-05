@@ -113,10 +113,31 @@ async fn publish(manifest: &generation::Manifest, branch: &str) -> Result<i64> {
         ledger == manifest.migration_versions,
         "synthetic ledger differs before publication"
     );
-    drop(candidate);
-    candidate_driver
-        .await
-        .context("closing synthetic candidate session")?;
+    // Reproduce the failure deterministically: publication must quiesce a real
+    // scheduler, not pass merely because the launcher has not started one yet.
+    let started: bool = candidate
+        .query_one(
+            "SELECT _timescaledb_functions.start_background_workers()",
+            &[],
+        )
+        .await?
+        .get(0);
+    ensure!(started, "synthetic scheduler start was not acknowledged");
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    loop {
+        let active: bool = admin.query_one(
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND backend_type='TimescaleDB Background Worker Scheduler')",
+            &[&manifest.database],
+        ).await?.get(0);
+        if active {
+            break;
+        }
+        ensure!(
+            tokio::time::Instant::now() < deadline,
+            "qualification never observed a scheduler"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
     // The database identifier is validated by the production manifest reader.
     manifest.validate()?;
     admin
@@ -125,6 +146,13 @@ async fn publish(manifest: &generation::Manifest, branch: &str) -> Result<i64> {
             manifest.database
         ))
         .await?;
+    generation::quiesce_candidate_workers(&candidate, manifest).await?;
+    drop(candidate);
+    candidate_driver
+        .await
+        .context("closing synthetic candidate session")?;
+    let (_, policy) = generation::declared_inputs()?;
+    generation::wait_for_no_connections(&admin, &manifest.database, &policy).await?;
     let changed = admin.execute("UPDATE sr_template_registry.generations SET state='ready',last_used_at=clock_timestamp() WHERE digest=$1 AND builder_token=$2 AND state='building'", &[&manifest.digest,&token]).await?;
     ensure!(changed == 1, "publication lost its builder fence");
     // A stale builder must not be able to publish again.
@@ -137,6 +165,18 @@ async fn publish(manifest: &generation::Manifest, branch: &str) -> Result<i64> {
 
 async fn verify_clone(database: &str, branch: &str) -> Result<()> {
     let (client, driver) = db::connect_admin(Some(database)).await?;
+    let ordinary: bool = client.query_one(
+        "SELECT datallowconn AND NOT datistemplate FROM pg_database WHERE datname=current_database()", &[]
+    ).await?.get(0);
+    ensure!(ordinary, "clone inherited sealed/template flags");
+    let restoring: String = client
+        .query_one("SHOW timescaledb.restoring", &[])
+        .await?
+        .get(0);
+    ensure!(
+        restoring == "off",
+        "clone has Timescale restore mode enabled"
+    );
     let columns: Vec<String> = client.query("SELECT column_name::text FROM information_schema.columns WHERE table_schema='public' AND table_name='generation_probe' ORDER BY ordinal_position", &[]).await?.iter().map(|r|r.get(0)).collect();
     ensure!(
         columns == vec![format!("branch_{branch}")],
@@ -186,6 +226,13 @@ async fn qualify() -> Result<()> {
     let clone_b = db::shard_database_name("gen_b")?;
     let (admin, driver) = db::connect_admin(Some("postgres")).await?;
     admin.batch_execute("SET statement_timeout='30s'").await?;
+
+    ensure!(
+        generation::quiesce_candidate_workers(&admin, &a)
+            .await
+            .is_err(),
+        "worker shutdown accepted the coordination database"
+    );
 
     let cold = generation::prepare(&a, &policy, &lease, &owner).await?;
     ensure!(

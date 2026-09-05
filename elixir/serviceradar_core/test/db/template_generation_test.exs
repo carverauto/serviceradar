@@ -35,6 +35,16 @@ defmodule ServiceRadar.DB.TemplateGenerationTest do
     assert_raise ArgumentError, fn -> TemplateGeneration.validate_manifest!(expected) end
   end
 
+  test "worker quiescence requires an affirmative acknowledgement" do
+    assert :ok = TemplateGeneration.validate_worker_quiescence!([[true]])
+
+    for rows <- [[[false]], [], [[nil]], [["true"]], [[true], [true]]] do
+      assert_raise RuntimeError, ~r/shutdown was not acknowledged/, fn ->
+        TemplateGeneration.validate_worker_quiescence!(rows)
+      end
+    end
+  end
+
   test "publication requires an affirmative zero-backend result" do
     assert :ok = TemplateGeneration.validate_no_candidate_backends!([[0]])
 

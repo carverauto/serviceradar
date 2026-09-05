@@ -641,9 +641,15 @@ pub async fn prepare(
     // install_extensions aborts its own driver on cancellation; recovery separately
     // refuses any still-live backend, including a statement finishing server-side.
     tokio::select! {
-        result = install_extensions(&manifest.database, owner) => result?,
+        result = async {
+            install_extensions(&manifest.database, owner).await?;
+            let (client, driver) = connect_admin(Some(&manifest.database)).await?;
+            let candidate = Session { client, driver };
+            quiesce_candidate_workers(&candidate.client, manifest).await
+        } => result?,
         _ = &mut session.driver => bail!("generation ownership session lost during initialization"),
     }
+    wait_for_no_connections(client, &manifest.database, policy).await?;
     // Pin the gap between Rust preparation and the Elixir builder acquiring its
     // session lock. Leases forbid cleanup, not recovery: a failed run must be
     // retryable before its old lease expires, and builders reread the fenced token.
@@ -654,6 +660,47 @@ pub async fn prepare(
         database: manifest.database.clone(),
         builder_token: token,
     })
+}
+
+/// Caller must own the generation lock and an unpublished candidate. This API
+/// stops only this database's Timescale workers, never arbitrary client sessions.
+pub async fn quiesce_candidate_workers(client: &Client, manifest: &Manifest) -> Result<()> {
+    manifest.validate()?;
+    let database: String = client
+        .query_one("SELECT current_database()", &[])
+        .await?
+        .get(0);
+    ensure!(
+        database == manifest.database,
+        "worker shutdown connected to wrong candidate"
+    );
+    client.batch_execute("SET statement_timeout='30s'").await?;
+    let stopped: bool = client
+        .query_one(
+            "SELECT _timescaledb_functions.stop_background_workers()",
+            &[],
+        )
+        .await?
+        .get(0);
+    ensure!(stopped, "TimescaleDB worker shutdown was not acknowledged");
+    Ok(())
+}
+
+pub async fn wait_for_no_connections(
+    client: &Client,
+    database: &str,
+    policy: &Policy,
+) -> Result<()> {
+    let deadline =
+        tokio::time::Instant::now() + Duration::from_secs(policy.lock_timeout_seconds as u64);
+    while has_connections(client, database).await? {
+        ensure!(
+            tokio::time::Instant::now() < deadline,
+            "candidate backend drain timed out"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    Ok(())
 }
 
 pub async fn clone_generation(

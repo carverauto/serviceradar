@@ -55,7 +55,7 @@ defmodule ServiceRadar.DB.TemplateGeneration do
       case Postgrex.start_link(Keyword.put(opts, :connection_listeners, [watcher])) do
         {:ok, admin} ->
           try do
-            generate!(admin, manifest, policy, timeout)
+            generate!(admin, manifest, policy, timeout, opts)
           after
             stop_disconnect_guard(watcher)
             if Process.alive?(admin), do: GenServer.stop(admin, :normal, 5_000)
@@ -291,7 +291,7 @@ defmodule ServiceRadar.DB.TemplateGeneration do
     _ -> raise ArgumentError, "invalid template administrator connection configuration"
   end
 
-  defp generate!(admin, manifest, policy, timeout) do
+  defp generate!(admin, manifest, policy, timeout, opts) do
     query!(admin, "SELECT set_config('lock_timeout', $1, false)", ["#{timeout}ms"])
 
     query!(
@@ -347,7 +347,7 @@ defmodule ServiceRadar.DB.TemplateGeneration do
             :ready
 
           "building" ->
-            build!(admin, manifest, stored, token, extensions, policy, timeout)
+            build!(admin, manifest, stored, token, extensions, policy, timeout, opts)
 
           _ ->
             raise "invalid template registry state"
@@ -358,7 +358,7 @@ defmodule ServiceRadar.DB.TemplateGeneration do
     end
   end
 
-  defp build!(admin, manifest, stored, previous_token, extensions, policy, timeout) do
+  defp build!(admin, manifest, stored, previous_token, extensions, policy, timeout, opts) do
     # A cancelled initializer can leave its server-side statement/backend alive
     # after losing the administrative session lock. Do not overlap that work.
     unless query!(
@@ -435,11 +435,31 @@ defmodule ServiceRadar.DB.TemplateGeneration do
     unless match?({:ok, :verified, _}, result) and is_nil(Process.whereis(Repo)),
       do: raise("template migration failed or Repo did not stop")
 
-    query!(
-      admin,
-      "ALTER DATABASE #{quote_ident(manifest["database"])} ALLOW_CONNECTIONS false",
-      []
-    )
+    # The Timescale control function requires admin rights. Keep migration replay
+    # on the application role; open this separate session only after Repo stops.
+    # Connect before sealing the database, then stop its workers after sealing so
+    # no new client can restart them. The ownership watcher still fences us.
+    {:ok, candidate} = Postgrex.start_link(Keyword.put(opts, :database, manifest["database"]))
+
+    try do
+      unless query!(candidate, "SELECT current_database()", []).rows == [[manifest["database"]]],
+        do: raise("worker shutdown connected to wrong candidate")
+
+      query!(
+        admin,
+        "ALTER DATABASE #{quote_ident(manifest["database"])} ALLOW_CONNECTIONS false",
+        []
+      )
+
+      query!(candidate, "SELECT set_config('statement_timeout', $1, false)", ["#{timeout}ms"])
+
+      candidate
+      |> query!("SELECT _timescaledb_functions.stop_background_workers()", [], timeout)
+      |> Map.fetch!(:rows)
+      |> validate_worker_quiescence!()
+    after
+      if Process.alive?(candidate), do: GenServer.stop(candidate, :normal, 5_000)
+    end
 
     drain_candidate_backends!(
       admin,
@@ -492,6 +512,12 @@ defmodule ServiceRadar.DB.TemplateGeneration do
     unless result.num_rows == 1, do: raise("template publication rejected by ownership fence")
     :ready
   end
+
+  @doc false
+  def validate_worker_quiescence!([[true]]), do: :ok
+
+  def validate_worker_quiescence!(_),
+    do: raise("TimescaleDB worker shutdown was not acknowledged; generation remains unpublished")
 
   @doc false
   def validate_no_candidate_backends!([[0]]), do: :ok

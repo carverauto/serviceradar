@@ -30,6 +30,8 @@ After migration, verify expected migration versions in both directions, manifest
 
 Registry publication is atomic; database creation is not transactional. An interrupted candidate therefore remains unpublished and cannot be cloned. Recovery takes its ownership lock, verifies the builder has ended, and discards or rebuilds only that candidate.
 
+Keyed preparation quiesces Timescale workers after extension installation. At publication, use a separate administrative candidate connection after the application-role Repo stops, disable new connections, call the database-local `_timescaledb_functions.stop_background_workers()`, require its positive acknowledgement, close the control connection, and verify zero backends under a bounded deadline. Keep the generation ownership session throughout. Do not use cluster settings, restore mode, `IS_TEMPLATE` permission broadening, or arbitrary backend termination. The synthetic publisher must explicitly observe a running scheduler before testing this transition; ordinary clone flags and restore mode must remain unchanged.
+
 ### Pinning and cleanup
 
 Each run acquires a renewable generation lease during preflight. Clone operations hold the same generation coordination lock used by cleanup, recheck readiness, and renew the lease before creating their disposable run database. Cleanup cannot select a generation in that critical section. Once clones exist, their lifecycle is independent of the source template.

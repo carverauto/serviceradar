@@ -94,6 +94,17 @@ workflow and fixture credentials have been materialized through its existing set
    success and require `ready` with the same digest before cloning. The preparation
    token is informational; callers must not inject it or assume it stays unchanged.
 
+   Keyed preparation stops database-local Timescale workers after installing the
+   extensions. Publication opens a separate administrative candidate connection
+   after the application-role Repo stops, seals new connections, and calls
+   `_timescaledb_functions.stop_background_workers()` before closing that session.
+   An affirmative acknowledgement and a bounded zero-backend check are both
+   required. This does not set restore mode, broaden template cloning privileges,
+   disable workers cluster-wide, or terminate arbitrary clients. A missing control
+   function, denied privilege, negative acknowledgement, or drain timeout fails
+   closed. A server/launcher restart during construction can still require recovery;
+   never bypass an active-connection refusal.
+
 3. Clone the ordinary integration lanes:
 
    ```text
