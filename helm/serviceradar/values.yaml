@@ -454,11 +454,14 @@ core:
       interface:
         drift_mode: deseasonalized_only
       disk:
-        drift_mode: off
+        # Quoted: YAML 1.1 parses a bare `off` as boolean false, which the
+        # seeder stores verbatim and the projector then fails add-on schema
+        # validation with (see issue #4323).
+        drift_mode: "off"
       icmp:
-        drift_mode: off
+        drift_mode: "off"
       other:
-        drift_mode: off
+        drift_mode: "off"
       red: {}
   # First-boot defaults for CNPG-backed capacity forecast settings. These seed
   # the singleton config row when missing and do not overwrite operator edits.

@@ -47,6 +47,7 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
     reopen_cooldown_secs
   ))
   @telemetry [:serviceradar, :anomaly_detection, :edge_config_projection]
+  @drift_modes ~w(off deseasonalized_only always)
 
   @impl Oban.Worker
   def perform(%Oban.Job{} = job) do
@@ -349,7 +350,10 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
       key = to_string(key)
 
       if MapSet.member?(@edge_metric_class_keys, key) and not is_nil(value) do
-        [{key, normalize_value(value)}]
+        case normalize_metric_class_value(key, value) do
+          {:ok, normalized} -> [{key, normalized}]
+          :drop -> []
+        end
       else
         []
       end
@@ -358,6 +362,25 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
   end
 
   defp normalize_metric_class_values(_values), do: %{}
+
+  # `drift_mode` is a string enum in the add-on schema, but settings rows
+  # seeded from unquoted Helm chart defaults carry YAML 1.1 booleans
+  # (`drift_mode: off` parses as `false`). Coerce the legacy `false` back to
+  # `"off"` and drop anything else outside the enum so a stale settings row
+  # can never fail profile validation (and kill this maintenance job) again.
+  defp normalize_metric_class_value("drift_mode", false), do: {:ok, "off"}
+
+  defp normalize_metric_class_value("drift_mode", value) when is_atom(value) do
+    normalize_metric_class_value("drift_mode", Atom.to_string(value))
+  end
+
+  defp normalize_metric_class_value("drift_mode", value) when is_binary(value) do
+    if value in @drift_modes, do: {:ok, value}, else: :drop
+  end
+
+  defp normalize_metric_class_value("drift_mode", _value), do: :drop
+
+  defp normalize_metric_class_value(_key, value), do: {:ok, normalize_value(value)}
 
   defp normalize_value(value) when is_boolean(value), do: value
   defp normalize_value(value) when is_atom(value), do: Atom.to_string(value)
