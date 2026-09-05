@@ -138,13 +138,13 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
          {:ok, %Req.Response{status: 200, body: body, headers: headers}} <-
            http_get.(source_url, OutboundFeedPolicy.req_opts(timeout_ms)),
          {:ok, list} <- parse_provider_payload(body),
-         rows when is_list(rows) <- encode_provider_rows(list) do
+         rows when is_list(rows) <- normalize_provider_rows(list) do
       payload = if is_binary(body), do: body, else: Jason.encode!(body)
       {:ok, payload, rows, header(headers, "etag")}
     else
       {:ok, %Req.Response{status: 200, body: body, headers: headers}} ->
         with {:ok, list} <- parse_provider_payload(body),
-             rows when is_list(rows) <- encode_provider_rows(list) do
+             rows when is_list(rows) <- normalize_provider_rows(list) do
           payload = if is_binary(body), do: body, else: Jason.encode!(body)
           {:ok, payload, rows, header(headers, "etag")}
         end
@@ -165,25 +165,6 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
   defp parse_provider_payload(body) when is_binary(body), do: Jason.decode(body)
   defp parse_provider_payload(body) when is_list(body), do: {:ok, body}
   defp parse_provider_payload(_), do: {:error, :invalid_payload}
-
-  # One CIDR per row, sorted into PK order `(cidr, provider, snapshot_id)`.
-  # A snapshot_id-leading PK cannot reuse deleted pages across rotations.
-  @doc false
-  @spec encode_provider_rows(list()) :: [map()]
-  def encode_provider_rows(rows) when is_list(rows) do
-    rows
-    |> normalize_provider_rows()
-    |> sort_provider_rows()
-  end
-
-  @doc false
-  @spec persisted_row_byte_size(map()) :: non_neg_integer()
-  def persisted_row_byte_size(%{cidr: cidr, provider: provider} = row)
-      when is_binary(provider) do
-    :erlang.external_size(
-      {cidr, provider, Map.get(row, :service), Map.get(row, :region), Map.get(row, :ip_version)}
-    )
-  end
 
   defp normalize_provider_rows(rows) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
@@ -216,7 +197,11 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
     |> Map.values()
   end
 
-  defp sort_provider_rows(rows) do
+  # Rows are written in PK order `(cidr, provider, snapshot_id)` so each snapshot
+  # inserts into packed leaf pages instead of appending a fresh key range.
+  @doc false
+  @spec sort_provider_rows([map()]) :: [map()]
+  def sort_provider_rows(rows) when is_list(rows) do
     Enum.sort_by(rows, fn row -> {cidr_sort_key(row.cidr), row.provider} end)
   end
 

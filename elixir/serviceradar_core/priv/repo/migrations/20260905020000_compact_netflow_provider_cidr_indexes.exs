@@ -11,6 +11,10 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   Leading with `cidr` keeps the same CIDR from consecutive snapshots adjacent
   so vacuumed holes are reusable. SP-GiST `inet_ops` replaces GiST for the
   `<<=` fallback (the in-memory provider trie is the primary lookup).
+
+  `netflow_provider_cidrs_snapshot_provider_idx` keeps `(snapshot_id, provider)`
+  because snapshot pruning deletes by `snapshot_id`, so it is rebuilt in place to
+  reclaim the pages rotation already leaked rather than reordered or dropped.
   """
 
   use Ecto.Migration
@@ -23,6 +27,7 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   @new_uidx "netflow_provider_cidrs_cidr_provider_snapshot_uidx"
   @old_uidx "netflow_provider_cidrs_snapshot_cidr_provider_uidx"
   @cidr_idx "netflow_provider_cidrs_cidr_idx"
+  @snapshot_idx "netflow_provider_cidrs_snapshot_provider_idx"
   @pkey "netflow_provider_cidrs_pkey"
 
   def up do
@@ -49,6 +54,13 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
     execute("""
     CREATE INDEX CONCURRENTLY IF NOT EXISTS #{@cidr_idx}
       ON #{@schema}.#{@table} USING spgist (cidr inet_ops)
+    """)
+
+    execute("DROP INDEX CONCURRENTLY IF EXISTS #{@schema}.#{@snapshot_idx}")
+
+    execute("""
+    CREATE INDEX CONCURRENTLY IF NOT EXISTS #{@snapshot_idx}
+      ON #{@schema}.#{@table} (snapshot_id, provider)
     """)
   end
 
