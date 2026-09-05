@@ -18,6 +18,7 @@ const MATCH = {
   field: "alert.metadata.incident_rule_name",
   equals: RULE_NAME,
 }
+const PROBE_NODE = "node-worker-1.example.com"
 
 interface JsonApiResource {
   id: string
@@ -45,6 +46,11 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
   if (!channel) {
     throw new Error(
       `channel ${channelName} not found. Create the Discord channel in ServiceRadar first; this command will not invent a webhook.`,
+    )
+  }
+  if (channel.attributes?.enabled === false) {
+    throw new Error(
+      `channel ${channelName} is disabled, so nothing would be delivered. Enable it in ServiceRadar and re-run.`,
     )
   }
 
@@ -93,8 +99,14 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
     escalation_policy_id: policy.id,
   }
   if (route) {
-    route = await client.patch(`notification-routes/${route.id}`, "notification_route", route.id, routeAttrs)
+    const routeId = route.id
+    const wasEnabled = route.attributes?.enabled === true
+    route = await client.patch(`notification-routes/${routeId}`, "notification_route", routeId, routeAttrs)
     console.log(`Updated route ${ROUTE_NAME}`)
+    if (!wasEnabled) {
+      await client.patch(`notification-routes/${routeId}/enable`, "notification_route", routeId, {})
+      console.log(`Enabled route ${ROUTE_NAME}`)
+    }
   } else {
     route = await client.create("notification-routes", "notification_route", {
       ...routeAttrs,
@@ -103,13 +115,26 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
     console.log(`Created route ${ROUTE_NAME}`)
   }
 
+  const probeCluster = String(options.cluster || "demo")
+
   if (options.fireTest) {
-    const probe = await client.create("alerts/k8s-node-not-ready-test", "alert", {
-      cluster_id: String(options.cluster || "demo"),
-      node: "node-worker-1.example.com",
+    await client.create("alerts/k8s-node-not-ready-test", "alert", {
+      cluster_id: probeCluster,
+      node: PROBE_NODE,
       role: "worker",
     })
-    console.log(`Fired node.not_ready probe for ${probe.attributes?.node || "node-worker-1.example.com"}`)
+    console.log(
+      `Fired node.not_ready probe for ${PROBE_NODE}. Confirm the Discord page, then clear it with --clear-test.`,
+    )
+  }
+
+  if (options.clearTest) {
+    await client.create("alerts/k8s-node-ready-test", "alert", {
+      cluster_id: probeCluster,
+      node: PROBE_NODE,
+      role: "worker",
+    })
+    console.log(`Cleared node.not_ready probe for ${PROBE_NODE}`)
   }
 
   console.log(`✓ ${ROUTE_NAME} routes to ${channelName} on ${instance}`)

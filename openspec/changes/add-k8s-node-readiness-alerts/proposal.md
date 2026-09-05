@@ -45,11 +45,30 @@ channel silent.
   with a test send that traverses that same route. Operators configure this
   through the JSON:API (`/api/v2/notification-*`) via
   `serviceradar-cli notifications ensure-k8s-alerts` or
-  `js/cli/ensure_k8s_node_alerts.py`, not by hand in the UI. The JSON:API
-  can create a NotificationChannel only when the operator already has a
-  Discord incoming-webhook URL; there is no endpoint that mints a Discord
-  webhook. The CLI/Python helpers fail closed if the named channel is
-  absent.
+  `js/cli/ensure_k8s_node_alerts.py`, not by hand in the UI. The CLI/Python
+  helpers fail closed if the named channel is absent or disabled.
+
+## Recorded gaps (not closed by this change)
+
+- **No endpoint mints a Discord webhook.** The JSON:API can create a
+  NotificationChannel only when the operator already holds a Discord
+  incoming-webhook URL. `secret_refs` is withheld from the JSON:API
+  representation, so a channel's stored webhook material is never readable
+  back over `/api/v2`.
+- **`StatefulAlertRule` has no JSON:API surface.** Unlike the notification
+  resources, `ServiceRadar.Observability.StatefulAlertRule` carries no
+  `AshJsonApi.Resource` extension, so there is no `/api/v2` endpoint to
+  create, edit, enable or disable a node-alert rule. The
+  `k8s_node_not_ready` rule exists only because `RuleSeeder` seeds it, and
+  the `observability-rule-management` scenario "Operator disable survives
+  reseed" therefore has no API path - only the settings UI and the seeder.
+  Exposing StatefulAlertRule on `/api/v2` is follow-up work.
+- **`srctl` has no authentication flow at all.** It has no `login` command
+  and no RFC 8628 device-code support (`go/pkg/cli` covers enrollment, TLS
+  and NATS bootstrap only), so it cannot obtain the bearer token these
+  endpoints require. That is why notification configuration ships on the JS
+  CLI, which already has device-code auth. Bringing `srctl` to parity is
+  recorded here as a gap rather than blocking node alerting.
 
 ## Impact
 

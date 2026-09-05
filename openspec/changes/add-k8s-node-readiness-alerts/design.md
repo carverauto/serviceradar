@@ -76,6 +76,16 @@ endpoint inventory).
   `incident_rule_name=k8s_node_not_ready` so it traverses the same route as a
   real NotReady. A channel-only test-send that bypasses Router is not enough.
 
+- **Decision: the probe fires and clears in two separate calls.**
+  `POST /alerts/k8s-node-not-ready-test` publishes only `node.not_ready`;
+  `POST /alerts/k8s-node-ready-test` publishes the matching `node.ready`.
+  Publishing both from one call cannot page: the two events are evaluated
+  concurrently by the stateful evaluation queue, and when the recovery lands
+  first the incident never opens, while when it lands second it resolves the
+  alert before the queued routing job runs - the Dispatcher then skips a
+  resolved alert and sends nothing. Splitting them leaves the operator to
+  clear only after the Discord page has arrived.
+
 ## Risks / Trade-offs
 
 - **Stream subject add** → Mitigation: publisher `ensureStream` already

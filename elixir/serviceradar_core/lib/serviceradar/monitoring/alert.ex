@@ -65,6 +65,7 @@ defmodule ServiceRadar.Monitoring.Alert do
   @alert_operator_actions [
     :trigger,
     :publish_k8s_node_not_ready,
+    :publish_k8s_node_ready,
     :record_notification,
     :update_metadata
   ]
@@ -101,6 +102,7 @@ defmodule ServiceRadar.Monitoring.Alert do
       index :pending, route: "/pending"
       post :trigger
       route :post, "/k8s-node-not-ready-test", :publish_k8s_node_not_ready
+      route :post, "/k8s-node-ready-test", :publish_k8s_node_ready
       patch :acknowledge, route: "/:id/acknowledge"
       patch :resolve, route: "/:id/resolve"
     end
@@ -292,46 +294,19 @@ defmodule ServiceRadar.Monitoring.Alert do
       argument :role, :string, allow_nil?: true, public?: true
 
       run fn input, _context ->
-        role =
-          case input.arguments.role do
-            "control-plane" -> "control-plane"
-            _ -> "worker"
-          end
+        publish_k8s_node_readiness(input, "node.not_ready")
+      end
+    end
 
-        node = input.arguments.node
-        cluster_id = input.arguments.cluster_id
-        event_type = "node.not_ready"
+    action :publish_k8s_node_ready, :map do
+      description "Emit a node.ready internal log that clears an open k8s_node_not_ready incident"
 
-        not_ready = %{
-          "event_type" => event_type,
-          "severity" => "critical",
-          "message" => "Kubernetes #{role} node #{node} is NotReady",
-          "attributes" => %{
-            "event_type" => event_type,
-            "cluster_id" => cluster_id,
-            "node" => node,
-            "node.role" => role,
-            "hostname" => node
-          }
-        }
+      argument :cluster_id, :string, allow_nil?: false, public?: true
+      argument :node, :string, allow_nil?: false, public?: true
+      argument :role, :string, allow_nil?: true, public?: true
 
-        ready = %{
-          "event_type" => "node.ready",
-          "severity" => "info",
-          "message" => "Kubernetes #{role} node #{node} is Ready",
-          "attributes" => %{
-            "event_type" => "node.ready",
-            "cluster_id" => cluster_id,
-            "node" => node,
-            "node.role" => role,
-            "hostname" => node
-          }
-        }
-
-        with :ok <- InternalLogPublisher.publish("k8s", not_ready),
-             :ok <- InternalLogPublisher.publish("k8s", ready) do
-          {:ok, %{published: true, cluster_id: cluster_id, node: node, role: role, cleared: true}}
-        end
+      run fn input, _context ->
+        publish_k8s_node_readiness(input, "node.ready")
       end
     end
 
@@ -481,6 +456,56 @@ defmodule ServiceRadar.Monitoring.Alert do
     Ash.Changeset.get_argument_or_attribute(changeset, field) ||
       Map.get(changeset.params || %{}, field) ||
       Map.get(changeset.params || %{}, Atom.to_string(field))
+  end
+
+  defp publish_k8s_node_readiness(input, event_type) do
+    role =
+      case input.arguments.role do
+        "control-plane" -> "control-plane"
+        _ -> "worker"
+      end
+
+    node = input.arguments.node
+    cluster_id = input.arguments.cluster_id
+
+    payload = %{
+      "event_type" => event_type,
+      "severity" => k8s_node_readiness_severity(event_type),
+      "message" => k8s_node_readiness_message(event_type, role, node),
+      "attributes" => %{
+        "event_type" => event_type,
+        "cluster_id" => cluster_id,
+        "node" => node,
+        "node.role" => role,
+        "hostname" => node
+      }
+    }
+
+    case InternalLogPublisher.publish("k8s", payload) do
+      :ok ->
+        {:ok,
+         %{
+           published: true,
+           event_type: event_type,
+           cluster_id: cluster_id,
+           node: node,
+           role: role
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp k8s_node_readiness_severity("node.not_ready"), do: "critical"
+  defp k8s_node_readiness_severity("node.ready"), do: "info"
+
+  defp k8s_node_readiness_message("node.not_ready", role, node) do
+    "Kubernetes #{role} node #{node} is NotReady"
+  end
+
+  defp k8s_node_readiness_message("node.ready", role, node) do
+    "Kubernetes #{role} node #{node} is Ready"
   end
 
   policies do

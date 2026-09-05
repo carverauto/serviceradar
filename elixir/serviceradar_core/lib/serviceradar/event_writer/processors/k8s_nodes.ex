@@ -99,7 +99,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
   defp parse_snapshot(%{data: data}) do
     with {:ok, payload} <- decode_json(data),
          {:ok, cluster_id} <- required_string(payload, "cluster_id"),
-         {:ok, snapshot_at} <- parse_time(payload["generated_at"] || payload["snapshot_at"]),
+         {:ok, snapshot_at} <- parse_time(payload["generated_at"]),
          nodes when is_list(nodes) <- Map.get(payload, "nodes", []) do
       %{
         cluster_id: cluster_id,
@@ -244,8 +244,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
     Repo.query!(sql, [snapshot_at, cluster_id, present_keys])
   end
 
-  defp normalize_node(node, default_cluster, snapshot_at) when is_map(node) do
-    cluster_id = string_or(node["cluster_id"], default_cluster)
+  defp normalize_node(node, cluster_id, snapshot_at) when is_map(node) do
     name = blank_to_nil(node["name"])
 
     if is_nil(name) do
@@ -291,17 +290,12 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
   defp previous_ready(previous, name) do
     case Map.get(previous, name) do
       %{ready: ready} -> ready
-      ready when is_boolean(ready) -> ready
       _ -> nil
     end
   end
 
   defp previous_node(name, %{role: role, cluster_id: cluster_id}) do
     %{name: name, role: role, cluster_id: cluster_id, ready: true, ready_reason: "NodeDeleted"}
-  end
-
-  defp previous_node(name, _ready) do
-    %{name: name, role: "worker", cluster_id: "", ready: true, ready_reason: "NodeDeleted"}
   end
 
   defp lookup_device_uid(hostname) when is_binary(hostname) and hostname != "" do

@@ -85,7 +85,7 @@ func TestSnapshotFromFakeClients_EndToEnd(t *testing.T) {
 	port10443 := int32(10443)
 	name22 := "tcp-22"
 	name443 := "https"
-	node := "k8s-cp3-worker3"
+	node := "node-worker-3.example.com"
 	es := &discoveryv1.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "envoy-forgejo-abc",

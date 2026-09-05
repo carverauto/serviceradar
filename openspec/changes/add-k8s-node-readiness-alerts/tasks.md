@@ -76,6 +76,16 @@
 - [x] 5a.3 Add `js/cli/ensure_k8s_node_alerts.py` using the same endpoints.
       Token from `--token` or `SERVICERADAR_TOKEN` only; never print or commit
       it.
+- [x] 5a.4 Withhold NotificationChannel `secret_refs` from JSON:API
+      (`hide_fields`). A `notifications.channels.view` holder must not be able
+      to read a channel's encrypted webhook material back out.
+- [x] 5a.5 Both helpers fail closed on a disabled channel and enable an
+      existing `k8s-node-not-ready` route after updating it, because the route
+      `update` action does not accept `enabled`.
+- [x] 5a.6 Split the probe into `--fire-test` (publishes `node.not_ready`
+      only) and `--clear-test` (publishes `node.ready`), backed by separate
+      `/api/v2/alerts/k8s-node-{not-ready,ready}-test` actions, so the page
+      lands before anything clears it.
 
 ## 6. Demo
 

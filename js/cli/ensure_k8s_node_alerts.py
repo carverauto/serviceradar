@@ -22,6 +22,7 @@ RULE_NAME = "k8s_node_not_ready"
 ROUTE_NAME = "k8s-node-not-ready"
 POLICY_NAME = "k8s-node-not-ready"
 MATCH = {"field": "alert.metadata.incident_rule_name", "equals": RULE_NAME}
+PROBE_NODE = "node-worker-1.example.com"
 
 
 def main() -> int:
@@ -29,7 +30,13 @@ def main() -> int:
     parser.add_argument("--instance", required=True, help="ServiceRadar base URL")
     parser.add_argument("--token", default="", help="Bearer token (or SERVICERADAR_TOKEN)")
     parser.add_argument("--channel", default="demo-discord")
+    parser.add_argument("--cluster", default="demo")
     parser.add_argument("--fire-test", action="store_true")
+    parser.add_argument(
+        "--clear-test",
+        action="store_true",
+        help="Publish node.ready for the probe node after confirming the Discord page",
+    )
     args = parser.parse_args()
 
     token = args.token or os.environ.get("SERVICERADAR_TOKEN", "")
@@ -44,6 +51,9 @@ def main() -> int:
     channel = next((row for row in channels if row["attributes"].get("name") == args.channel), None)
     if channel is None:
         print(f"error: channel {args.channel} not found", file=sys.stderr)
+        return 1
+    if channel["attributes"].get("enabled") is False:
+        print(f"error: channel {args.channel} is disabled; nothing would be delivered", file=sys.stderr)
         return 1
 
     policies = client.list("notification-escalation-policies")
@@ -101,22 +111,22 @@ def main() -> int:
     if existing:
         client.patch(f"notification-routes/{existing['id']}", "notification_route", existing["id"], route_attrs)
         print(f"Updated route {ROUTE_NAME}")
+        if existing["attributes"].get("enabled") is not True:
+            client.patch(f"notification-routes/{existing['id']}/enable", "notification_route", existing["id"], {})
+            print(f"Enabled route {ROUTE_NAME}")
     else:
         client.create("notification-routes", "notification_route", {**route_attrs, "enabled": True})
         print(f"Created route {ROUTE_NAME}")
 
+    probe_attrs = {"cluster_id": args.cluster, "node": PROBE_NODE, "role": "worker"}
+
     if args.fire_test:
-        probe = client.create(
-            "alerts/k8s-node-not-ready-test",
-            "alert",
-            {
-                "cluster_id": "demo",
-                "node": "node-worker-1.example.com",
-                "role": "worker",
-            },
-        )
-        node = (probe.get("attributes") or {}).get("node") or "node-worker-1.example.com"
-        print(f"Fired node.not_ready probe for {node}")
+        client.create("alerts/k8s-node-not-ready-test", "alert", probe_attrs)
+        print(f"Fired node.not_ready probe for {PROBE_NODE}; confirm Discord, then re-run with --clear-test")
+
+    if args.clear_test:
+        client.create("alerts/k8s-node-ready-test", "alert", probe_attrs)
+        print(f"Cleared node.not_ready probe for {PROBE_NODE}")
 
     print(f"OK {ROUTE_NAME} -> {args.channel} on {instance}")
     return 0

@@ -90,7 +90,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 		return err
 	}
 
-	watcher, err := StartCoreInformersWithNodes(ctx, client, r.cfg.Namespaces, r.cfg.Resync, r.controller.Notify, r.cfg.EnableNodes)
+	watcher, err := StartCoreInformers(ctx, client, r.cfg.Namespaces, r.cfg.Resync, r.controller.Notify, r.cfg.EnableNodes)
 	if err != nil {
 		return err
 	}

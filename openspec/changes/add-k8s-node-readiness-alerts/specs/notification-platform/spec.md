@@ -43,3 +43,54 @@ object matches every alert and that `equals: ""` matches only a blank value.
 - **WHEN** an operator saves a route with match expression `{}`
 - **THEN** the route SHALL be accepted
 - **AND** it SHALL match every alert subject
+
+### Requirement: Channel secret material is never served over JSON:API
+A NotificationChannel's `secret_refs` SHALL NOT appear in any JSON:API
+representation of that channel. The attribute holds encrypted provider
+material such as a Discord webhook URL, and read access to a channel is
+granted by `notifications.channels.view`, which is broader than the
+`notifications.channels.manage` permission that governs writing it.
+
+#### Scenario: Listing channels withholds secret material
+- **GIVEN** a caller holding only `notifications.channels.view`
+- **WHEN** the caller reads `/api/v2/notification-channels` or
+  `/api/v2/notification-channels/:id`
+- **THEN** the response SHALL NOT include a `secret_refs` attribute
+
+### Requirement: The ensure helper fails when nothing could be delivered
+The ensure helpers SHALL NOT report success while the resolved channel or the
+node route is disabled, and SHALL enable an existing route after updating it.
+This binds `serviceradar-cli notifications ensure-k8s-alerts` and
+`js/cli/ensure_k8s_node_alerts.py`; the route `update` action deliberately
+does not accept `enabled`, so updating alone leaves a disabled route disabled.
+
+#### Scenario: Disabled channel stops the run
+- **GIVEN** the named Discord channel exists but is disabled
+- **WHEN** an operator runs the ensure helper
+- **THEN** the helper SHALL fail with an actionable error and SHALL NOT print
+  a success line
+
+#### Scenario: Disabled route is re-enabled
+- **GIVEN** a `k8s-node-not-ready` route that exists and is disabled
+- **WHEN** an operator runs the ensure helper
+- **THEN** the helper SHALL enable that route before reporting success
+
+### Requirement: The node probe pages before it clears
+The synthetic node probe SHALL open the incident and clear it in two separate
+API calls. `POST /api/v2/alerts/k8s-node-not-ready-test` SHALL publish only
+`node.not_ready`, and `POST /api/v2/alerts/k8s-node-ready-test` SHALL publish
+only the matching `node.ready`. A single call SHALL NOT publish both, because
+concurrent evaluation of the two events either resolves the alert before its
+queued routing job runs - dispatch then skips a resolved alert - or clears an
+incident that has not yet opened.
+
+#### Scenario: Firing the probe leaves the incident open
+- **WHEN** a caller posts to `/api/v2/alerts/k8s-node-not-ready-test`
+- **THEN** only a `node.not_ready` event SHALL be published
+- **AND** the resulting incident SHALL remain open until the clear is posted
+
+#### Scenario: Clearing the probe is a separate call
+- **GIVEN** an open probe incident for the synthetic node
+- **WHEN** a caller posts to `/api/v2/alerts/k8s-node-ready-test` with the
+  same `cluster_id`, `node` and `role`
+- **THEN** a `node.ready` event SHALL be published for that group

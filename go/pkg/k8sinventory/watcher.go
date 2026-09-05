@@ -26,20 +26,10 @@ type WatcherLister struct {
 	stopCh        chan struct{}
 }
 
-// StartCoreInformers starts Service and EndpointSlice informers and registers
-// the controller Notify handler. Blocks until caches sync or ctx is done.
+// StartCoreInformers starts Service, EndpointSlice, and optionally Node
+// informers and registers the controller Notify handler. Blocks until caches
+// sync or ctx is done.
 func StartCoreInformers(
-	ctx context.Context,
-	client kubernetes.Interface,
-	namespaces []string,
-	resync time.Duration,
-	onChange func(),
-) (*WatcherLister, error) {
-	return StartCoreInformersWithNodes(ctx, client, namespaces, resync, onChange, true)
-}
-
-// StartCoreInformersWithNodes starts Service, EndpointSlice, and optionally Node informers.
-func StartCoreInformersWithNodes(
 	ctx context.Context,
 	client kubernetes.Interface,
 	namespaces []string,

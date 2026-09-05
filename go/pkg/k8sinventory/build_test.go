@@ -63,7 +63,7 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 					{
 						Addresses:    []string{testEnvoyPodIP},
 						Ready:        &ready,
-						NodeName:     "k8s-cp3-worker3",
+						NodeName:     "node-worker-3.example.com",
 						PodNamespace: "envoy-gateway-system",
 						PodName:      "envoy-forgejo-forgejo-gateway-6a27ab25-7fdd957dcd-6phgs",
 					},
@@ -81,7 +81,7 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 					{
 						Addresses:    []string{"10.42.68.186"},
 						Ready:        &ready,
-						NodeName:     "k8s-cp3-worker1",
+						NodeName:     "node-worker-1.example.com",
 						PodNamespace: "forgejo",
 						PodName:      "forgejo-5d58f77f85-9vpzn",
 					},
@@ -156,7 +156,7 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 			if t0.IP != testEnvoyPodIP || t0.Port != 10022 {
 				t.Errorf("envoy target: got %s:%d", t0.IP, t0.Port)
 			}
-			if t0.PodName == "" || t0.NodeName != "k8s-cp3-worker3" {
+			if t0.PodName == "" || t0.NodeName != "node-worker-3.example.com" {
 				t.Errorf("pod/node: got pod=%q node=%q", t0.PodName, t0.NodeName)
 			}
 		}

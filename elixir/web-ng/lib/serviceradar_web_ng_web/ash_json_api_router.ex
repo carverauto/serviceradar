@@ -32,6 +32,8 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
   - POST /api/v2/alerts - Trigger new alert
   - PATCH /api/v2/alerts/:id/acknowledge - Acknowledge alert
   - PATCH /api/v2/alerts/:id/resolve - Resolve alert
+  - POST /api/v2/alerts/k8s-node-not-ready-test - Publish a node.not_ready probe
+  - POST /api/v2/alerts/k8s-node-ready-test - Publish the matching node.ready clear
 
   ### Notifications Domain
   - GET /api/v2/notification-providers - List notification providers
@@ -41,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
   - GET /api/v2/notification-routes - List routes
   - POST /api/v2/notification-routes - Create a route
   - PATCH /api/v2/notification-routes/:id - Update a route
+  - PATCH /api/v2/notification-routes/:id/enable - Enable a route
   - PATCH /api/v2/notification-routes/:id/disable - Disable a route
   - GET /api/v2/notification-escalation-policies - List escalation policies
   - POST /api/v2/notification-escalation-policies - Create a policy

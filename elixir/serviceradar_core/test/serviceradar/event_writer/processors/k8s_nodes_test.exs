@@ -10,6 +10,10 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodesTest do
     }
   end
 
+  defp worker_previous(ready) do
+    %{ready: ready, role: "worker", cluster_id: "cluster-a"}
+  end
+
   defp snapshot(nodes) do
     %{
       "cluster_id" => "cluster-a",
@@ -79,8 +83,12 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodesTest do
     }
 
     previous = %{
-      "node-worker-1.example.com" => true,
-      "node-control-1.example.com" => true
+      "node-worker-1.example.com" => %{ready: true, role: "worker", cluster_id: "cluster-a"},
+      "node-control-1.example.com" => %{
+        ready: true,
+        role: "control-plane",
+        cluster_id: "cluster-a"
+      }
     }
 
     assert [{:not_ready, ^worker}] =
@@ -90,14 +98,18 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodesTest do
 
     assert [{:ready, ^recovered}] =
              K8sNodes.readiness_transitions(
-               %{"node-worker-1.example.com" => false},
+               %{"node-worker-1.example.com" => worker_previous(false)},
                [recovered]
              )
 
     assert [{:not_ready, ^worker}] =
              K8sNodes.readiness_transitions(%{}, [worker])
 
-    assert [] = K8sNodes.readiness_transitions(%{"node-worker-1.example.com" => false}, [worker])
+    assert [] =
+             K8sNodes.readiness_transitions(
+               %{"node-worker-1.example.com" => worker_previous(false)},
+               [worker]
+             )
   end
 
   test "disappeared_not_ready emits a ready/clear for a NotReady node that left the snapshot" do

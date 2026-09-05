@@ -100,6 +100,8 @@ defmodule ServiceRadar.Notifications.NotificationChannel do
   json_api do
     type "notification_channel"
 
+    hide_fields [:secret_refs]
+
     routes do
       base "/notification-channels"
 

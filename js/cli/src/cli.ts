@@ -94,7 +94,7 @@ Common dashboard subcommands:
   serviceradar-cli dashboard import [--config dashboard.config.mjs] [--exec "command"]
 
 Notification subcommands:
-  serviceradar-cli notifications ensure-k8s-alerts --instance <url> [--channel demo-discord] [--token <bearer>] [--fire-test]
+  serviceradar-cli notifications ensure-k8s-alerts --instance <url> [--channel demo-discord] [--token <bearer>] [--fire-test] [--clear-test]
 
 Plugin subcommands:
   serviceradar-cli plugin init <name> [--template go|rust] [--plugin-id my-plugin] [--force]

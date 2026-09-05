@@ -282,6 +282,13 @@ Bind that route's escalation step to the existing Discord channel. A
 channel-only test-send does not exercise the route; fire a test alert (or
 use an operator test dispatch) whose snapshot carries that rule name.
 
+`serviceradar-cli notifications ensure-k8s-alerts` wires that route and can
+run the probe. The probe is two steps, in this order: `--fire-test` publishes
+`node.not_ready` and opens the incident, and `--clear-test` publishes
+`node.ready` for the same synthetic node once the Discord page has arrived.
+Clearing before the page is delivered resolves the alert while its dispatch
+job is still queued, and the dispatcher then sends nothing.
+
 ### The match expression grammar
 
 Routes and silences share **one** predicate grammar, because they ask the same
