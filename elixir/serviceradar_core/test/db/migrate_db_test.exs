@@ -51,25 +51,45 @@ defmodule ServiceRadar.DB.MigrateTest do
     # again -- the same thing `mix ecto.migrate` does, without needing Mix.
     result =
       Ecto.Migrator.with_repo(Repo, fn repo ->
-        # Baseline an empty database rather than replaying every migration, which is what
-        # service startup has always done. Doing it here too is what keeps the 318 migrations
-        # the baseline already contains off this target's critical path -- and off the path of
-        # `20260126120000`, whose ledger relocation is issue #4151.
-        #
-        # `Ecto.Migrator.run/3` below is unchanged and still applies whatever is pending, so a
-        # database that already has history behaves exactly as before.
-        migrations_path = Application.app_dir(:serviceradar_core, "priv/repo/migrations")
-
+        # Classify first, and only to decide what to SAY and what to refuse -- the migrator
+        # below applies whatever is pending either way, so a database with history behaves
+        # exactly as before. What changed is the `:empty` arm; see the comment on it.
         case SchemaBootstrap.classify(repo) do
           :empty ->
-            IO.puts("empty database; applying schema baseline")
-            SchemaBootstrap.apply_baseline!(repo, migrations_path)
+            # REPLAY, never the baseline. The committed baseline is a `pg_dump --schema-only`,
+            # and rust/integration-db/src/template.rs says why that cannot rebuild this schema:
+            # TimescaleDB keeps hypertables, continuous aggregates and retention policies in
+            # `_timescaledb_catalog`, and AGE keeps graphs in `ag_catalog` plus a schema per
+            # graph, so a dump does not round-trip. The dump proves it -- 177 references into
+            # `_timescaledb_internal` (`_compressed_hypertable_45`, `_direct_view_23`, names
+            # carrying the SOURCE database's OIDs) and 42 statements reproducing AGE's per-graph
+            # storage. Replaying those does not merely need privileges nobody here has; it is
+            # wrong, because `create_hypertable()` and `create_graph()` register objects in
+            # catalogs that plain DDL never touches. A database built that way holds graph
+            # tables `ag_catalog.ag_graph` has no row for.
+            #
+            # This path had never run: the template was never empty until it was reset on
+            # 2026-09-05, and then every run on the fixture -- trunk included -- died in it.
+            #
+            # The migrations, by contrast, are written FOR a pre-provisioned database:
+            # `CREATE SCHEMA IF NOT EXISTS platform`, `CREATE EXTENSION IF NOT EXISTS`, and
+            # `create_graph` inside a duplicate_object/duplicate_schema handler. That is exactly
+            # the database //rust/integration-db:install_extensions hands this target.
+            #
+            # It costs one slow run per template rebuild, which is rare and is trunk's to pay:
+            # afterwards the template has history, `classify/1` returns `:migrated`, and every
+            # later run applies only what is pending. `Mix.Tasks.Serviceradar.Db.Migrate` keeps
+            # both behaviours behind `--no-baseline`; this target has only the correct one,
+            # deliberately, because a knob here is an invitation to turn the broken path back on.
+            IO.puts(
+              "empty database; replaying every migration (baseline cannot rebuild this schema)"
+            )
 
           :migrated ->
             IO.puts("existing migration history; applying pending migrations only")
 
           {:ambiguous, details} ->
-            # Fail closed. Baselining over a real schema would overwrite it.
+            # Fail closed. Migrating over a real schema with no history would corrupt it.
             flunk("""
             ambiguous database state; refusing to bootstrap.
 

@@ -400,6 +400,15 @@ that migrates it changes what every later run clones. That write belongs to trun
 lives in one place: the `LargeIngestionGate` action, which triggers on a push to `staging`, runs
 `//rust/integration-db:prepare_template` and then `//elixir/serviceradar_core:migrate_template`.
 
+It is the only action that may, and that is enforced by the targets rather than by where they
+are named. All three template writers -- those two plus `//rust/integration-db:reset_template` --
+refuse unless the caller passes `--//build:template_authority=true`, the checkout declaring
+itself to be trunk. `LargeIngestionGate` passes it; `//:ci_heavy_gate_contract_test` fails if
+any other action does. The decision reaches Rust and Elixir as the same staged file
+(`//build:template_authority_file`), for the reason the run id does: several invocations must
+agree, and ambient environment lets them differ. It fails closed -- an absent, empty or mangled
+marker is a refusal -- so the worst a mistake costs is a loud stop.
+
 Every other lifecycle -- BazelCI included, and BazelCI only ever runs on a branch -- applies its
 own migrations to its **run base** instead. `provision_base` seeds `sr_core_test_<run>` from the
 template, `migrate_run` brings that one database up to the checkout, and the lane databases are
@@ -416,9 +425,11 @@ Two consequences worth knowing:
   builds the run base from nothing and says so; the run costs a full schema build and the shared
   template is left untouched. A cache that cannot be used is a cache miss, not an outage.
 - `bazel run //rust/integration-db:reset_template` drops the template so the next trunk run
-  rebuilds it. The trunk lifecycle already does this automatically when `prepare_template`
-  reports it ahead, which is the only context where "ahead of this checkout" and "ahead of the
-  schema of record" mean the same thing.
+  rebuilds it, and needs `--//build:template_authority=true` from a trunk checkout. The trunk
+  lifecycle already does this automatically when `prepare_template` reports it ahead, which is
+  the only context where "ahead of this checkout" and "ahead of the schema of record" mean the
+  same thing. Do not add the flag on a branch to make a refusal go away -- it is a statement
+  about the checkout, and a branch that sets it recreates the outage this split fixed.
 
 ### Tags
 
@@ -901,7 +912,8 @@ reads Rust sources.
 | Integration suite green having run zero tests | Fixture URL absent, so `test_helper` took the no-database branch. The `manual` tag exists to prevent this. |
 | `42501 must be owner of schema platform` | Admin DSN has no password; see [Running things locally](#running-things-locally). |
 | `run base ... does not match this checkout` | The migrate step did not run. Run `//elixir/serviceradar_core:migrate_run` before `provision_db`. |
-| `template ... is AHEAD of this checkout` | Not fatal: `provision_base` builds the base from nothing instead. If the named versions are on `staging`, rebase. If they are on no landed branch, `bazel run //rust/integration-db:reset_template`. |
+| `template ... is AHEAD of this checkout` | Not fatal: `provision_base` builds the base from nothing instead. If the named versions are on `staging`, rebase. If they are on no landed branch, `bazel run //rust/integration-db:reset_template` from a trunk checkout. |
+| `writes the SHARED template sr_core_template, which only a trunk checkout may do` | Working as intended on a branch. Use the run base: `//rust/integration-db:provision_base`, then `//elixir/serviceradar_core:migrate_run`. Do not pass `--//build:template_authority=true` to get past it. |
 | `the application :X has a different value set for key :Y during runtime compared to compile time` | A Hex dependency read `Y` with `compile_env` and was compiled without it. Add it to `HEX_COMPILE_ENV_CONFIG` in `//build:hex_compile_env.bzl`. Never `validate_compile_env: false` -- see [Compile-time config a dependency reads](#compile-time-config-a-dependency-reads). |
 | `undefined function config/2` while compiling a Hex package | That package's `config/config.exs` exists but is empty, so nothing imported `Config`. `mix_app` handles this; if you see it, the guard regressed. |
 | `function config/2 imported from both Config and Mix.Config` | That package uses the deprecated `use Mix.Config`. Same guard, other direction. |

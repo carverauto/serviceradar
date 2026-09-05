@@ -1,12 +1,26 @@
 defmodule ServiceRadar.Postgres.SchemaSql do
   @moduledoc false
 
+  # Extensions the application role may legitimately be unable to install.
+  #
+  # The authority is priv/repo/migrations/20260123111500_add_pg_stat_statements.exs, which
+  # creates this one inside an `insufficient_privilege` handler rather than plainly. That is a
+  # decision the project already made, and for good reasons: it is an observability extension,
+  # nothing in the schema references it, and it is not a TRUSTED extension, so on a managed
+  # cluster the application role cannot create it however the deployment is configured.
+  #
+  # Every other extension the baseline names IS required, so its CREATE stays unguarded: a
+  # missing `vector` or `timescaledb` must fail here, naming the extension, rather than 700
+  # statements later as `type "vector" does not exist`.
+  @optional_extensions ~w(pg_stat_statements)
+
   @spec load_statements(Path.t(), keyword()) :: [String.t()]
   def load_statements(path, opts \\ []) do
     path
     |> File.read!()
     |> split()
     |> maybe_normalize_timescaledb_schema(opts)
+    |> maybe_apply_extension_privilege_discipline(opts)
   end
 
   @spec split(String.t()) :: [String.t()]
@@ -155,6 +169,76 @@ defmodule ServiceRadar.Postgres.SchemaSql do
       end)
     else
       statements
+    end
+  end
+
+  # Restores the privilege discipline the migrations have and `pg_dump` does not.
+  #
+  # The baseline reproduces the SCHEMA the migration history builds, but it is produced by
+  # `pg_dump --schema-only` running as the cluster SUPERUSER, and it re-emits the extension
+  # layer the way that superuser would write it. The migrations never wrote it that way, and no
+  # environment applies it that way:
+  #
+  #   * The fixture installs extensions from //rust/integration-db's `install_extensions`, on an
+  #     ADMIN connection, before any migrator runs.
+  #   * A CNPG deployment installs them from the cluster's `postInitApplicationSQL`, as the
+  #     superuser, plus the extension-update job in //helm/serviceradar.
+  #
+  # In both, the role that then applies this baseline is the ordinary application role, and it
+  # does not own the extensions. On 2026-09-05 that closed the whole fleet: `sr_core_template`
+  # was empty, so every run -- trunk included -- fell through to the baseline and died on
+  # statement twelve with `42501 must be owner of extension timescaledb`. The path had simply
+  # never been exercised by a non-owner role, because the template had never been rebuilt from
+  # empty.
+  defp maybe_apply_extension_privilege_discipline(statements, opts) do
+    if Keyword.get(opts, :apply_extension_privilege_discipline?, false) do
+      statements
+      |> Enum.reject(&comment_on_extension?/1)
+      |> Enum.map(&guard_optional_extension/1)
+    else
+      statements
+    end
+  end
+
+  # `COMMENT ON EXTENSION x IS '...'` requires ownership of x, and buys nothing.
+  #
+  # The text pg_dump emits is the extension's own control-file description, which PostgreSQL
+  # already attached when the extension was created -- so the statement is a no-op whenever it
+  # succeeds, and changes the outcome only by failing. The migration history contains no
+  # COMMENT ON EXTENSION at all; these exist purely because the dump round-trips them.
+  defp comment_on_extension?(statement) do
+    Regex.match?(~r/\A\s*COMMENT\s+ON\s+EXTENSION\b/i, statement)
+  end
+
+  # Wraps an OPTIONAL extension's CREATE in the same handler its migration uses, so a role
+  # without the privilege skips it with a notice instead of aborting the baseline.
+  #
+  # Deliberately the same shape as the migration rather than a cleverer one, because the two
+  # have to mean the same thing: this runs INSTEAD of that migration on a baselined database.
+  defp guard_optional_extension(statement) do
+    case optional_extension_created_by(statement) do
+      nil ->
+        statement
+
+      extension ->
+        String.trim("""
+        DO $serviceradar_optional_extension$
+        BEGIN
+          #{statement};
+        EXCEPTION
+          WHEN insufficient_privilege THEN
+            RAISE NOTICE 'Skipping #{extension} extension creation (insufficient privileges)';
+        END
+        $serviceradar_optional_extension$
+        """)
+    end
+  end
+
+  defp optional_extension_created_by(statement) do
+    if Regex.match?(~r/\A\s*CREATE\s+EXTENSION\b/i, statement) do
+      Enum.find(@optional_extensions, fn extension ->
+        Regex.match?(~r/\b#{Regex.escape(extension)}\b/i, statement)
+      end)
     end
   end
 

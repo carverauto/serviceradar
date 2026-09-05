@@ -48,6 +48,11 @@ ASYNC_SANDBOX_CONFIGURATION_SOURCE = (
     "test/serviceradar/async_sandbox_configuration_test.exs"
 )
 INTEGRATION_ENV = ROOT / "elixir/serviceradar_core/test/db/integration_env.exs"
+TEMPLATE_ENV = ROOT / "elixir/serviceradar_core/test/db/template_env.exs"
+TEMPLATE_AUTHORITY_BZL = ROOT / "build/template_authority.bzl"
+BUILD_FLAGS = ROOT / "build/BUILD.bazel"
+INTEGRATION_DB_LIB = ROOT / "rust/integration-db/src/lib.rs"
+INTEGRATION_DB_BUILD = ROOT / "rust/integration-db/BUILD.bazel"
 INTEGRATION_ENV_CONFIG = (
     ROOT / "elixir/serviceradar_core/test/db/integration_env_config.exs"
 )
@@ -844,6 +849,11 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
 
 
 class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
+    # `--//build:template_authority=true` is the caller declaring "this checkout is trunk, so
+    # the shared sr_core_template may be brought to match it". The write targets refuse without
+    # it. Exactly one action passes it; see
+    # test_only_the_trunk_push_action_may_write_the_shared_template.
+    template_authority_flag = "--//build:template_authority=true "
     preflight_migrate_command = (
         "bazel test $PREFLIGHT_FLAGS "
         "//elixir/serviceradar_core:migrate_template"
@@ -859,6 +869,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
     preflight_ahead_arm = '*"template is AHEAD"*)'
     preflight_reset_command = (
         "bazel run -c opt --config=ci --//build:enable_integration_tests "
+        f"{template_authority_flag}"
         "--//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:reset_template"
     )
     preflight_still_ahead_arm = (
@@ -880,7 +891,9 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
     measured_migrate_arm = f'*"migration(s) pending"*) {measured_migrate_command} ;;'
     preflight_prepare = (
         'preflight="$(bazel run -c opt --config=ci '
-        "--//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID "
+        "--//build:enable_integration_tests "
+        f"{template_authority_flag}"
+        "--//build:run_id=$PREFLIGHT_RUN_ID "
         '//rust/integration-db:prepare_template)"'
     )
     ordinary_suite = (
@@ -1024,6 +1037,121 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertLess(conditional_migrate, prepare_positions[2])
         self.assertLess(prepare_positions[2], pending_check)
         self.assertLess(pending_check, still_ahead_check)
+
+    def test_only_the_trunk_push_action_may_write_the_shared_template(self):
+        """`sr_core_template` has exactly one writer, and it is a push-to-staging action.
+
+        The template is cloned by every run and only ratchets forward, so whoever migrates it
+        decides the schema every other branch gets. When any caller could write it, seven
+        migrations from an unmerged pull request wedged every open pull request at once --
+        including ones whose diff contained no migration -- because the ahead-check correctly
+        told them to rebase onto a branch that could not be merged.
+
+        Restructuring the workflow moved every branch onto a per-run base, which the tests
+        above pin. This pins the other half: the write targets refuse without
+        `--//build:template_authority=true`, so exactly one action may grant it. Granting it to
+        a pull_request action would restore the original bug exactly. Granting it to
+        IntegrationBenchmark is worse than it looks -- its steps are a YAML anchor shared with
+        the two `benchmark/parallel-core-integration-cpu*` actions, which trigger on FEATURE
+        branches, so one edit would hand write access to two branch builds at once.
+        """
+        authority = named_action("LargeIngestionGate")
+
+        # Trunk, by trigger. A schedule entry is fine -- a cron checks out the default branch --
+        # but a pull_request trigger would mean the writer is not trunk at all.
+        self.assertIn("push:", authority)
+        self.assertIn('- "staging"', authority)
+        self.assertNotIn("pull_request:", authority)
+
+        shell = database_lifecycle_shell(authority)
+        flag = self.template_authority_flag.strip()
+
+        # Every direct invocation of a Rust write target carries it. A PARTIAL grant is its own
+        # bug: the preflight would migrate the shared template and then abort on the reset it
+        # was not allowed to run, leaving the template exactly as ahead as it started.
+        write_invocations = [
+            line
+            for line in normalized_shell_lines(shell)
+            if "//rust/integration-db:prepare_template" in line
+            or "//rust/integration-db:reset_template" in line
+        ]
+        self.assertEqual(4, len(write_invocations))
+        for line in write_invocations:
+            self.assertIn(flag, line)
+
+        # And the preflight flag bundle, which is how migrate_template -- the step that performs
+        # the ratchet itself -- receives it.
+        start = shell.index('PREFLIGHT_FLAGS="')
+        end = shell.index('"', shell.index("SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD", start))
+        self.assertIn(flag, shell[start:end])
+
+        # Nobody else, checked against each action's whole text so a stray occurrence in a
+        # comment or an unmeasured step is caught too.
+        for action_name in (
+            "BazelCI",
+            "IntegrationBenchmark",
+            "IntegrationBenchmarkCPU2",
+            "IntegrationBenchmarkCPU12",
+        ):
+            with self.subTest(action=action_name):
+                self.assertNotIn(flag, named_action(action_name))
+
+    def test_the_authority_flag_is_declared_off_and_read_from_the_build_graph(self):
+        """A refusal only holds if both halves of the lifecycle can see the same answer.
+
+        The trunk lifecycle writes the template from two languages: //rust/integration-db
+        creates and resets it, and //elixir/serviceradar_core:migrate_template performs the
+        ratchet. Both read the SAME staged file rather than ambient environment -- the run-id
+        format already taught this repository what happens when two steps of one lifecycle
+        resolve the same fact independently.
+        """
+        rust = INTEGRATION_DB_LIB.read_text(encoding="utf-8")
+        elixir = TEMPLATE_ENV.read_text(encoding="utf-8")
+        starlark = TEMPLATE_AUTHORITY_BZL.read_text(encoding="utf-8")
+
+        # The marker, in all three producers and consumers of it.
+        self.assertIn('const TEMPLATE_AUTHORITY_MARKER: &str = "trunk";', rust)
+        self.assertIn('_AUTHORITY_MARKER = "trunk"', starlark)
+        self.assertIn('String.trim(File.read!(authority_path)) == "trunk"', elixir)
+
+        # The flag defaults to OFF. A default of True would hand write access to every wildcard
+        # build, every pull request and every workstation at once, which is strictly worse than
+        # the state this replaced.
+        build_flags = BUILD_FLAGS.read_text(encoding="utf-8")
+        declaration = build_flags[build_flags.index('name = "template_authority"') :]
+        self.assertIn(
+            "build_setting_default = False", declaration[: declaration.index(")")]
+        )
+
+        # Both sides read the staged file, not the environment. A System.get_env of the flag
+        # here would be a name the build graph never declared.
+        staged = "build/template_authority_file.txt"
+        self.assertIn(staged, rust)
+        self.assertIn(staged, elixir)
+
+        # And it is actually staged for all three write targets, or the refusal fires on the
+        # trunk lifecycle itself: `require_template_authority` fails closed on a missing
+        # runfile, so an undeclared input and a withheld grant are the same answer.
+        core_build = CORE_BUILD.read_text(encoding="utf-8")
+        migrate = core_build[core_build.index('name = "migrate_template"') :]
+        migrate = migrate[: migrate.index("\n)\n")]
+        self.assertIn('"//build:template_authority_file"', migrate)
+
+        db_build = INTEGRATION_DB_BUILD.read_text(encoding="utf-8")
+        self.assertIn(
+            'TEMPLATE_WRITE_DATA = ["//build:template_authority_file"]', db_build
+        )
+        for target in ("prepare_template", "reset_template"):
+            with self.subTest(target=target):
+                block = db_build[db_build.index(f'name = "{target}"') :]
+                block = block[: block.index("\n)\n")]
+                self.assertIn("TEMPLATE_WRITE_DATA", block)
+
+        # provision_base must NOT declare it: the run-base path is what every branch uses, and
+        # a branch holding shared-template write authority is the bug this file exists to stop.
+        base = db_build[db_build.index('name = "provision_base"') :]
+        base = base[: base.index("\n)\n")]
+        self.assertNotIn("TEMPLATE_WRITE_DATA", base)
 
     def test_database_flags_disable_cache_and_remote_upload(self):
         for action_name, has_preflight in (
