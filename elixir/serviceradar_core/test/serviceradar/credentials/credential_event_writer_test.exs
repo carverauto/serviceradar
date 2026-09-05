@@ -90,6 +90,14 @@ defmodule ServiceRadar.Credentials.CredentialEventWriterTest do
   end
 
   describe "write_broker_grant_lifecycle/2" do
+    setup do
+      previous_level = Logger.level()
+      Logger.configure(level: :debug)
+      on_exit(fn -> Logger.configure(level: previous_level) end)
+
+      :ok
+    end
+
     test "routine issue is a debug log, not an ocsf event" do
       grant = grant_fixture(:issued)
       grant_id = grant.id
