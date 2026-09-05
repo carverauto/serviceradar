@@ -35,7 +35,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginRepositoryLiveTest do
           description: "Test profile for plugin repository permissions",
           permissions: permissions
         },
-        actor: system_actor()
+        actor: system_actor(),
+        context: %{privilege_boundary_owned: true}
       )
       |> Ash.create!()
 

@@ -70,7 +70,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundActionAuthorizationLiveTest 
           description: "Exact permissions for forged northbound event coverage",
           permissions: permissions
         },
-        actor: actor
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
       )
       |> Ash.create!()
 

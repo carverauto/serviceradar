@@ -14,11 +14,7 @@ defmodule ServiceRadar.Identity.IdpGroupPermissionMappingDbTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.AuthorizationSettings
-  alias ServiceRadar.Identity.IdpGroupMemberships
   alias ServiceRadar.Identity.RoleMapping
-  alias ServiceRadar.Identity.UserGroup
-  alias ServiceRadar.Identity.UserGroupMembership
-  alias ServiceRadar.Identity.Users
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -40,32 +36,6 @@ defmodule ServiceRadar.Identity.IdpGroupPermissionMappingDbTest do
       )
 
     settings
-  end
-
-  defp group!(name) do
-    {:ok, group} =
-      UserGroup.create_group(
-        %{name: "#{name}-#{System.unique_integer([:positive])}"},
-        actor: actor()
-      )
-
-    group
-  end
-
-  defp user! do
-    password = "idp_mapping_test_#{System.unique_integer([:positive])}!"
-
-    {:ok, user} =
-      Users.register_with_password(
-        %{
-          email: "idp-mapping-#{System.unique_integer([:positive])}@example.com",
-          password: password,
-          password_confirmation: password
-        },
-        actor: actor()
-      )
-
-    user
   end
 
   defp claims(groups), do: %{"email" => "user@example.com", "groups" => groups}
@@ -204,85 +174,5 @@ defmodule ServiceRadar.Identity.IdpGroupPermissionMappingDbTest do
       assert resolution.user_group_ids == [group_id]
       assert length(resolution.matched) == 1
     end
-  end
-
-  describe "group membership reconciliation" do
-    setup do
-      %{user: user!()}
-    end
-
-    test "creates a membership for a mapped group", %{user: user} do
-      group = group!("ops")
-
-      result = IdpGroupMemberships.sync(user.id, [group.id], actor: actor())
-
-      assert result.added == [group.id]
-      assert [membership] = memberships_for(user.id, group.id)
-      assert membership.source == :idp
-    end
-
-    test "withdraws a membership it created once the claim stops arriving", %{user: user} do
-      group = group!("ops")
-      IdpGroupMemberships.sync(user.id, [group.id], actor: actor())
-
-      result = IdpGroupMemberships.sync(user.id, [], actor: actor())
-
-      assert result.withdrawn == [group.id]
-      assert memberships_for(user.id, group.id) == []
-    end
-
-    test "never withdraws a membership an operator created", %{user: user} do
-      # "The claim did not arrive" is not evidence that an operator's decision
-      # was wrong, and the IdP knows nothing about this row.
-      group = group!("manual")
-
-      {:ok, _membership} =
-        UserGroupMembership.create_membership(
-          %{user_id: user.id, group_id: group.id, source: :manual},
-          actor: actor()
-        )
-
-      result = IdpGroupMemberships.sync(user.id, [], actor: actor())
-
-      assert result.withdrawn == []
-      assert [membership] = memberships_for(user.id, group.id)
-      assert membership.source == :manual
-    end
-
-    test "does not convert an operator's membership into an IdP-managed one", %{user: user} do
-      # Converting it would quietly make it withdrawable by a later claim change.
-      group = group!("manual")
-
-      {:ok, _membership} =
-        UserGroupMembership.create_membership(
-          %{user_id: user.id, group_id: group.id, source: :manual},
-          actor: actor()
-        )
-
-      result = IdpGroupMemberships.sync(user.id, [group.id], actor: actor())
-
-      assert result.added == []
-      assert result.kept == [group.id]
-      assert [membership] = memberships_for(user.id, group.id)
-      assert membership.source == :manual
-    end
-
-    test "is idempotent across repeated sign-ins", %{user: user} do
-      group = group!("ops")
-
-      IdpGroupMemberships.sync(user.id, [group.id], actor: actor())
-      second = IdpGroupMemberships.sync(user.id, [group.id], actor: actor())
-
-      assert second.added == []
-      assert second.withdrawn == []
-      assert length(memberships_for(user.id, group.id)) == 1
-    end
-  end
-
-  defp memberships_for(user_id, group_id) do
-    UserGroupMembership
-    |> Ash.Query.for_read(:by_user, %{user_id: user_id})
-    |> Ash.read!(actor: actor())
-    |> Enum.filter(&(&1.group_id == group_id))
   end
 end

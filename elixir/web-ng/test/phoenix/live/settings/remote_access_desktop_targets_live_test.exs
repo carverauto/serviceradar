@@ -419,7 +419,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessDesktopTargetsLiveTest do
           description: "Test profile for RDP desktop target LiveView permissions",
           permissions: permissions
         },
-        actor: system_actor()
+        actor: system_actor(),
+        context: %{privilege_boundary_owned: true}
       )
       |> Ash.create!()
 

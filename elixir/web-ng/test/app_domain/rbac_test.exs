@@ -30,35 +30,47 @@ defmodule ServiceRadarWebNG.RBACTest do
     assert WebRBAC.can?(stale_scope, "northbound.actions.launch")
   end
 
-  test "deleting a custom role profile clears assigned users so they fall back to role defaults" do
+  test "raw custom role profile deletion is rejected without the owned boundary" do
     actor = SystemActor.system(:rbac_test)
     user = AccountsFixtures.user_fixture(%{role: :operator})
 
-    {:ok, profile} =
-      RoleProfile.create_profile(
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
         %{
           name: "Temporary #{System.unique_integer([:positive])}",
           description: "Temporary test profile",
           permissions: ["devices.view"]
         },
-        actor: actor
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
       )
+      |> Ash.create!()
 
     {:ok, assigned} = User.update_role_profile(user, %{role_profile_id: profile.id}, actor: actor)
 
     assert assigned.role_profile_id == profile.id
 
-    assert :ok = RoleProfile.delete_profile(profile, actor: actor)
+    assert {:error, %Invalid{} = error} = Ash.destroy(profile, actor: actor)
+    assert Exception.message(error) =~ "privilege mutation boundary"
 
     {:ok, refreshed} = User.get_by_id(user.id, actor: actor)
-    assert is_nil(refreshed.role_profile_id)
+    assert refreshed.role_profile_id == profile.id
   end
 
   test "system role profiles still cannot be deleted" do
     actor = SystemActor.system(:rbac_test)
     {:ok, admin_profile} = RoleProfile.get_by_system_name("admin", actor: actor)
 
-    assert {:error, %Invalid{} = error} = RoleProfile.delete_profile(admin_profile, actor: %{role: :admin})
+    assert {:error, %Invalid{} = error} =
+             admin_profile
+             |> Ash.Changeset.for_destroy(:destroy, %{},
+               actor: %{role: :admin},
+               context: %{privilege_boundary_owned: true}
+             )
+             |> Ash.destroy(actor: %{role: :admin})
+
     assert Exception.message(error) =~ "system profiles cannot be deleted"
   end
 end

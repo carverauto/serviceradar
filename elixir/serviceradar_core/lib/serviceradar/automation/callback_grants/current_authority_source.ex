@@ -1,8 +1,19 @@
 defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthoritySource do
   @moduledoc false
 
+  @type authority_snapshot :: %{
+          required(:permissions) => MapSet.t(String.t()),
+          required(:profile_versions) => [%{id: String.t(), updated_at: DateTime.t()}]
+        }
+
   @callback load_principal(:human | :service_principal, String.t(), String.t() | nil) ::
-              {:ok, map()} | {:error, term()}
+              {:ok,
+               %{
+                 required(:principal) => map(),
+                 required(:owner) => map(),
+                 required(:authority) => authority_snapshot()
+               }}
+              | {:error, term()}
   @callback load_operation(String.t()) :: {:ok, map()} | {:error, term()}
   @callback load_execution(String.t()) :: {:ok, map()} | {:error, term()}
   @callback load_execution_targets(String.t()) :: {:ok, [map()]} | {:error, term()}

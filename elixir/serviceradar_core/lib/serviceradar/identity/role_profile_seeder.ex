@@ -76,7 +76,7 @@ defmodule ServiceRadar.Identity.RoleProfileSeeder do
 
     if profile.permissions != update_attrs.permissions or profile.name != update_attrs.name or
          profile.description != update_attrs.description do
-      case RoleProfile.update_profile(profile, update_attrs, opts) do
+      case RoleProfile.update_system_profile(profile, update_attrs, opts) do
         {:ok, _profile} ->
           Logger.info("Updated role profile #{attrs.system_name}")
           :ok

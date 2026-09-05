@@ -95,7 +95,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
          %{conn: conn} do
       manifest = manifest_for("com.test.pub.idempotent", @renderer)
 
-      _ = publish_multipart(auth_cli(conn, :admin, ["dashboard.publish"]), manifest, @renderer, nil)
+      _ =
+        publish_multipart(auth_cli(conn, :admin, ["dashboard.publish"]), manifest, @renderer, nil)
 
       conn2 =
         conn
@@ -468,13 +469,19 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
 
   defp auth_cli(conn, :admin, scopes) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
-    {:ok, token, _claims} = Guardian.create_api_token(user, scopes: Enum.map(scopes, &String.to_atom/1))
+
+    {:ok, token, _claims} =
+      Guardian.create_api_token(user, scopes: Enum.map(scopes, &String.to_atom/1))
+
     Plug.Conn.put_req_header(conn, "authorization", "Bearer #{token}")
   end
 
   defp auth_cli(conn, :viewer, scopes) do
     user = AccountsFixtures.user_fixture(%{role: :viewer})
-    {:ok, token, _claims} = Guardian.create_api_token(user, scopes: Enum.map(scopes, &String.to_atom/1))
+
+    {:ok, token, _claims} =
+      Guardian.create_api_token(user, scopes: Enum.map(scopes, &String.to_atom/1))
+
     Plug.Conn.put_req_header(conn, "authorization", "Bearer #{token}")
   end
 
@@ -580,7 +587,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
 
         if length(new_perms) != length(profile.permissions) do
           {:ok, _} =
-            RoleProfile.update_profile(
+            RoleProfile.update_system_profile(
               profile,
               %{permissions: new_perms},
               actor: actor

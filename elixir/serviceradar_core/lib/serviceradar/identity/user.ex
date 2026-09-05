@@ -32,6 +32,7 @@ defmodule ServiceRadar.Identity.User do
   alias ServiceRadar.Identity.Changes.HashPassword
   alias ServiceRadar.Identity.Changes.InvalidateUserRbacCache
   alias ServiceRadar.Identity.Changes.NormalizeTimezonePreference
+  alias ServiceRadar.Identity.Changes.RequirePrivilegeBoundary
   alias ServiceRadar.Identity.Constants
   alias ServiceRadar.Identity.PasswordHash
   alias ServiceRadar.Identity.Validations.CurrentPassword
@@ -45,6 +46,7 @@ defmodule ServiceRadar.Identity.User do
   @password_manage_permission Constants.password_manage_permission()
   @auth_manage_check {ActorHasPermission, permission: @auth_manage_permission}
   @password_manage_check {ActorHasPermission, permission: @password_manage_permission}
+  @rbac_manage_check {ActorHasPermission, permission: Constants.rbac_manage_permission()}
   @share_principals_check {ActorHasPermission, permission: "analytics.share_principals.view"}
   @user_admin_fields [:email, :display_name, :role, :role_profile_id]
   @user_profile_fields [:email, :display_name]
@@ -109,6 +111,11 @@ defmodule ServiceRadar.Identity.User do
 
     read :admins do
       filter expr(role == :admin and status == :active)
+    end
+
+    read :for_role_profile_boundary do
+      argument :role_profile_id, :uuid, allow_nil?: false
+      filter expr(role_profile_id == ^arg(:role_profile_id))
     end
 
     # Password authentication action
@@ -253,6 +260,14 @@ defmodule ServiceRadar.Identity.User do
       change InvalidateUserRbacCache
     end
 
+    update :clear_role_profile_for_boundary do
+      accept []
+      change set_attribute(:role_profile_id, nil)
+      change set_attribute(:role_profile_source, :manual)
+      validate RequirePrivilegeBoundary
+      change InvalidateUserRbacCache
+    end
+
     update :change_password do
       description "Change a user's password"
       # Non-atomic: validates current password against stored hash
@@ -356,6 +371,10 @@ defmodule ServiceRadar.Identity.User do
       authorize_if expr(id == ^actor(:id))
     end
 
+    bypass action(:for_role_profile_boundary) do
+      authorize_if @rbac_manage_check
+    end
+
     # Public registration (no actor available)
     policy action(:register_with_password) do
       authorize_if ActorIsNil
@@ -406,6 +425,10 @@ defmodule ServiceRadar.Identity.User do
     # Admin-only user management
     policy action(@admin_user_management_actions) do
       authorize_if @auth_manage_check
+    end
+
+    policy action(:clear_role_profile_for_boundary) do
+      authorize_if @rbac_manage_check
     end
   end
 

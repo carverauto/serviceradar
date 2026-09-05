@@ -18,7 +18,6 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityAshSource do
   alias ServiceRadar.Automation.Ansible.AwxTemplateBinding
   alias ServiceRadar.Identity.OAuthClient
   alias ServiceRadar.Identity.RBAC
-  alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
 
   @actor SystemActor.system(:automation_callback_current_authority_store)
@@ -26,8 +25,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityAshSource do
   @impl true
   def load_principal(:human, principal_id, _owner_id) do
     with {:ok, %User{} = user} <- required(User.get_by_id(principal_id, actor: @actor)),
-         {:ok, %RoleProfile{} = profile} <- effective_profile(user) do
-      {:ok, %{principal: user, owner: user, profile: profile}}
+         {:ok, authority} <- effective_authority(user) do
+      {:ok, %{principal: user, owner: user, authority: authority}}
     end
   end
 
@@ -37,8 +36,8 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityAshSource do
          true <-
            to_string(client.user_id) == to_string(owner_id) || {:error, :principal_owner_changed},
          {:ok, %User{} = owner} <- required(User.get_by_id(client.user_id, actor: @actor)),
-         {:ok, %RoleProfile{} = profile} <- effective_profile(owner) do
-      {:ok, %{principal: client, owner: owner, profile: profile}}
+         {:ok, authority} <- effective_authority(owner) do
+      {:ok, %{principal: client, owner: owner, authority: authority}}
     else
       false -> {:error, :principal_owner_changed}
       {:error, _} = error -> error
@@ -133,11 +132,13 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthorityAshSource do
     end
   end
 
-  defp effective_profile(user) do
-    case RBAC.effective_profile(user, @actor) do
-      {:ok, %RoleProfile{} = profile} -> {:ok, profile}
-      {:ok, nil} -> {:error, :role_profile_not_found}
-      {:error, reason} -> {:error, reason}
+  defp effective_authority(user) do
+    case RBAC.effective_authority(user, @actor) do
+      {:ok, %{permissions: %MapSet{} = permissions, profile_versions: profile_versions}} ->
+        {:ok, %{permissions: permissions, profile_versions: profile_versions}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

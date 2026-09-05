@@ -116,15 +116,19 @@ defmodule ServiceRadarWebNGWeb.UserLive.ApiCredentialsTest do
   defp restrict_user(user, permissions) do
     actor = SystemActor.system(:api_credentials_rbac_test)
 
-    {:ok, profile} =
-      RoleProfile.create_profile(
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
         %{
           name: "api-creds-rbac-#{System.unique_integer([:positive])}",
           description: "catalog-gate fixture",
           permissions: permissions
         },
-        actor: actor
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
       )
+      |> Ash.create!()
 
     {:ok, assigned} = User.update_role_profile(user, %{role_profile_id: profile.id}, actor: actor)
     RBAC.invalidate_user_cache(assigned.id)

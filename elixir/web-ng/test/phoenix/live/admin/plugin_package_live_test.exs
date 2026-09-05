@@ -660,10 +660,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     actor: actor
   } do
     gateway =
-      gateway_fixture(%{id: "plugin-offline-preview-gw", component_id: "plugin-offline-preview-component"})
+      gateway_fixture(%{
+        id: "plugin-offline-preview-gw",
+        component_id: "plugin-offline-preview-component"
+      })
 
     agent =
-      agent_fixture(gateway, %{uid: "agent-offline-preview-plugin", name: "Agent Offline Preview Plugin"})
+      agent_fixture(gateway, %{
+        uid: "agent-offline-preview-plugin",
+        name: "Agent Offline Preview Plugin"
+      })
 
     package = create_approved_package_version!(actor, "live-offline-preview-plugin", "1.0.0")
     {:ok, lv, _html} = live(conn, ~p"/admin/plugins/#{package.id}")
@@ -1660,7 +1666,8 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
           description: "Test profile for plugin recovery permissions",
           permissions: permissions
         },
-        actor: system_actor()
+        actor: system_actor(),
+        context: %{privilege_boundary_owned: true}
       )
       |> Ash.create!()
 

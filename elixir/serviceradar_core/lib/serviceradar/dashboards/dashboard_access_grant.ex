@@ -8,6 +8,7 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Dashboards.Changes.RequireGroupAccessBoundary
   alias ServiceRadar.Dashboards.Checks.ActorCanEditDashboardChild
   alias ServiceRadar.Dashboards.Checks.ActorCanEditDashboardTarget
   alias ServiceRadar.Identity.User
@@ -15,6 +16,8 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
 
   @view_all_check {ActorHasPermission, permission: "analytics.dashboards.view_all"}
   @share_check {ActorHasPermission, permission: "analytics.dashboards.share"}
+  @rbac_manage_check {ActorHasPermission, permission: "settings.rbac.manage"}
+  @edit_check {ActorHasPermission, permission: "analytics.dashboards.edit"}
   @fields [
     :dashboard_id,
     :subject_type,
@@ -47,12 +50,11 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
   code_interface do
     define :list, action: :read
     define :create_user_grant, action: :create
-    define :create_group_grant, action: :create_group
     define :update_grant, action: :update
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
 
     read :for_dashboard do
       argument :dashboard_id, :uuid, allow_nil?: false
@@ -75,10 +77,77 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
       upsert? true
       upsert_identity :unique_group_grant
       upsert_fields [:access, :granted_by_id, :metadata, :updated_at]
+      validate RequireGroupAccessBoundary
+    end
+
+    create :ensure_group_view do
+      accept [:dashboard_id, :subject_group_id, :granted_by_id]
+      change set_attribute(:subject_type, :group)
+      change set_attribute(:access, :view)
+      validate fn changeset, _context -> validate_subject(changeset, :group) end
+      validate RequireGroupAccessBoundary
+      upsert? true
+      upsert_identity :unique_group_grant
+      upsert_condition expr(access != :edit)
+      upsert_fields [:access, :granted_by_id, :updated_at]
+      return_skipped_upsert? true
+    end
+
+    create :policy_editor_ensure_group_view do
+      accept [:dashboard_id, :subject_group_id, :granted_by_id]
+      change set_attribute(:subject_type, :group)
+      change set_attribute(:access, :view)
+      validate fn changeset, _context -> validate_subject(changeset, :group) end
+      validate RequireGroupAccessBoundary
+      upsert? true
+      upsert_identity :unique_group_grant
+      upsert_condition expr(access != :edit)
+      upsert_fields [:access, :granted_by_id, :updated_at]
+      return_skipped_upsert? true
+    end
+
+    create :set_group_access do
+      accept [:dashboard_id, :subject_group_id, :access, :granted_by_id, :metadata]
+      change set_attribute(:subject_type, :group)
+      validate fn changeset, _context -> validate_subject(changeset, :group) end
+      validate RequireGroupAccessBoundary
+      upsert? true
+      upsert_identity :unique_group_grant
+      upsert_fields [:access, :granted_by_id, :metadata, :updated_at]
+      return_skipped_upsert? true
+    end
+
+    create :policy_editor_set_group_access do
+      accept [:dashboard_id, :subject_group_id, :access, :granted_by_id, :metadata]
+      change set_attribute(:subject_type, :group)
+      validate fn changeset, _context -> validate_subject(changeset, :group) end
+      validate RequireGroupAccessBoundary
+      upsert? true
+      upsert_identity :unique_group_grant
+      upsert_fields [:access, :granted_by_id, :metadata, :updated_at]
+      return_skipped_upsert? true
     end
 
     update :update do
       accept [:access, :metadata]
+      validate {RequireGroupAccessBoundary, group_only?: false}
+    end
+
+    destroy :destroy do
+      primary? true
+      validate {RequireGroupAccessBoundary, group_only?: false}
+    end
+
+    destroy :revoke_group_view do
+      validate RequireGroupAccessBoundary
+    end
+
+    destroy :policy_editor_revoke_group_view do
+      validate RequireGroupAccessBoundary
+    end
+
+    destroy :revoke_group_access do
+      validate RequireGroupAccessBoundary
     end
   end
 
@@ -93,9 +162,28 @@ defmodule ServiceRadar.Dashboards.DashboardAccessGrant do
       authorize_if ActorCanEditDashboardChild
     end
 
-    policy action_type([:create, :update, :destroy]) do
+    policy action([:create, :create_group, :ensure_group_view, :set_group_access]) do
       forbid_unless @share_check
       authorize_if ActorCanEditDashboardTarget
+    end
+
+    policy action([:policy_editor_ensure_group_view, :policy_editor_set_group_access]) do
+      forbid_unless @rbac_manage_check
+      forbid_unless @share_check
+      authorize_if @edit_check
+      authorize_if ActorCanEditDashboardTarget
+    end
+
+    policy action([:update, :destroy, :revoke_group_view, :revoke_group_access]) do
+      forbid_unless @share_check
+      authorize_if ActorCanEditDashboardChild
+    end
+
+    policy action(:policy_editor_revoke_group_view) do
+      forbid_unless @rbac_manage_check
+      forbid_unless @share_check
+      authorize_if @edit_check
+      authorize_if ActorCanEditDashboardChild
     end
   end
 

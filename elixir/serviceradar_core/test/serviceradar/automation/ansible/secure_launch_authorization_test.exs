@@ -10,7 +10,8 @@ defmodule ServiceRadar.Automation.Ansible.SecureLaunchAuthorizationTest do
   @launch_actor %{
     id: "user:ansible-launcher",
     role: :viewer,
-    permissions: MapSet.new(["ansible.runs.launch"])
+    permissions: MapSet.new(["ansible.runs.launch"]),
+    profile_versions: []
   }
 
   test "launch permission authorizes every resolver read needed for a secure launch" do

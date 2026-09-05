@@ -592,8 +592,7 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
       "actor_status" => to_string(value(actor, :status)),
       "actor_role" => to_string(value(actor, :role)),
       "actor_updated_at" => iso8601(value(actor, :updated_at)),
-      "profile_id" => value(authorization, :profile_id),
-      "profile_updated_at" => iso8601(value(authorization, :profile_updated_at)),
+      "profile_versions" => profile_versions(value(authorization, :profile_versions)),
       "fresh_permissions" => permissions
     }
 
@@ -609,6 +608,16 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher do
       approval_snapshot: approval_snapshot(binding, now)
     }
   end
+
+  defp profile_versions(versions) when is_list(versions) do
+    versions
+    |> Enum.map(fn version ->
+      {to_string(value(version, :id)), iso8601(value(version, :updated_at))}
+    end)
+    |> Enum.sort()
+  end
+
+  defp profile_versions(_versions), do: []
 
   defp require_action_permissions(_authorization, nil), do: :ok
 

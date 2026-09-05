@@ -16,7 +16,9 @@ defmodule ServiceRadar.Identity.CurrentUserAuthorityTest do
       load_user: fn @user_id ->
         {:ok, %{id: @user_id, status: :active, role: :viewer}}
       end,
-      load_permissions: fn _current_user -> {:ok, MapSet.new()} end
+      load_authority: fn _current_user ->
+        {:ok, %{permissions: MapSet.new(), profile_versions: []}}
+      end
     }
 
     assert {:error, :current_authority_denied} =
@@ -29,10 +31,12 @@ defmodule ServiceRadar.Identity.CurrentUserAuthorityTest do
 
     dependencies = %{
       load_user: fn @user_id -> {:ok, current_user} end,
-      load_permissions: fn ^current_user -> {:ok, permissions} end
+      load_authority: fn ^current_user ->
+        {:ok, %{permissions: permissions, profile_versions: []}}
+      end
     }
 
-    assert {:ok, %{user: ^current_user, permissions: ^permissions}} =
+    assert {:ok, %{user: ^current_user, permissions: ^permissions, profile_versions: []}} =
              CurrentUserAuthority.authorize(
                %{user: %{id: @user_id}, permissions: MapSet.new()},
                [@permission, "devices.remote_access.view"],
@@ -47,9 +51,9 @@ defmodule ServiceRadar.Identity.CurrentUserAuthorityTest do
       load_user: fn @user_id ->
         {:ok, %{id: @user_id, status: :inactive, role: :admin}}
       end,
-      load_permissions: fn _current_user ->
+      load_authority: fn _current_user ->
         send(test_pid, :permissions_loaded)
-        {:ok, MapSet.new([@permission])}
+        {:ok, %{permissions: MapSet.new([@permission]), profile_versions: []}}
       end
     }
 
@@ -66,7 +70,9 @@ defmodule ServiceRadar.Identity.CurrentUserAuthorityTest do
       load_user: fn @user_id ->
         {:ok, %{id: "8f5686a2-f48f-4fe9-8da9-04a9dbd3a373", status: :active, role: :admin}}
       end,
-      load_permissions: fn _current_user -> {:ok, MapSet.new([@permission])} end
+      load_authority: fn _current_user ->
+        {:ok, %{permissions: MapSet.new([@permission]), profile_versions: []}}
+      end
     }
 
     assert {:error, :current_authority_denied} =
@@ -85,7 +91,7 @@ defmodule ServiceRadar.Identity.CurrentUserAuthorityTest do
   test "fails closed when persistence or profile loading raises, exits, or returns invalid data" do
     base = %{load_user: fn @user_id -> {:ok, %{id: @user_id, status: :active, role: :admin}} end}
 
-    for load_permissions <- [
+    for load_authority <- [
           fn _ -> {:error, :database_unavailable} end,
           fn _ -> raise "database unavailable" end,
           fn _ -> exit(:database_unavailable) end,
@@ -93,7 +99,7 @@ defmodule ServiceRadar.Identity.CurrentUserAuthorityTest do
         ] do
       assert {:error, :current_authority_denied} =
                CurrentUserAuthority.authorize(%{id: @user_id}, @permission,
-                 dependencies: Map.put(base, :load_permissions, load_permissions)
+                 dependencies: Map.put(base, :load_authority, load_authority)
                )
     end
   end
@@ -101,11 +107,13 @@ defmodule ServiceRadar.Identity.CurrentUserAuthorityTest do
   test "an empty permission list reloads current authority without a permission gate" do
     current_user = %{id: @user_id, status: :active, role: :operator}
 
-    assert {:ok, %{user: ^current_user, permissions: permissions}} =
+    assert {:ok, %{user: ^current_user, permissions: permissions, profile_versions: []}} =
              CurrentUserAuthority.authorize(%{id: @user_id}, [],
                dependencies: %{
                  load_user: fn @user_id -> {:ok, current_user} end,
-                 load_permissions: fn ^current_user -> {:ok, MapSet.new(["analytics.view"])} end
+                 load_authority: fn ^current_user ->
+                   {:ok, %{permissions: MapSet.new(["analytics.view"]), profile_versions: []}}
+                 end
                }
              )
 
@@ -118,7 +126,7 @@ defmodule ServiceRadar.Identity.CurrentUserAuthorityTest do
                CurrentUserAuthority.authorize(%{id: @user_id}, required,
                  dependencies: %{
                    load_user: fn _ -> flunk("invalid requests must not read storage") end,
-                   load_permissions: fn _ ->
+                   load_authority: fn _ ->
                      flunk("invalid requests must not load permissions")
                    end
                  }
@@ -127,5 +135,38 @@ defmodule ServiceRadar.Identity.CurrentUserAuthorityTest do
 
     refute_authorized.("")
     refute_authorized.([@permission, nil])
+  end
+
+  test "returns deterministic group-derived authority versions and denies graph-load errors" do
+    current_user = %{id: @user_id, status: :active, role: :viewer}
+    updated_at = ~U[2026-09-04 00:00:00Z]
+
+    assert {:ok,
+            %{
+              permissions: permissions,
+              profile_versions: [%{id: "profile-group", updated_at: ^updated_at}]
+            }} =
+             CurrentUserAuthority.authorize(%{id: @user_id}, "alerts.acknowledge",
+               dependencies: %{
+                 load_user: fn @user_id -> {:ok, current_user} end,
+                 load_authority: fn ^current_user ->
+                   {:ok,
+                    %{
+                      permissions: MapSet.new(["alerts.acknowledge"]),
+                      profile_versions: [%{id: "profile-group", updated_at: updated_at}]
+                    }}
+                 end
+               }
+             )
+
+    assert MapSet.member?(permissions, "alerts.acknowledge")
+
+    assert {:error, :current_authority_denied} =
+             CurrentUserAuthority.authorize(%{id: @user_id}, "alerts.acknowledge",
+               dependencies: %{
+                 load_user: fn @user_id -> {:ok, current_user} end,
+                 load_authority: fn ^current_user -> {:error, :group_graph_unavailable} end
+               }
+             )
   end
 end
