@@ -1302,6 +1302,11 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             self.assertIn(required, action)
 
         self.assert_clock_contract(action)
+        prepare = action.index(self.generation_prepare)
+        leased = action.index("GENERATION_LEASED=1", prepare)
+        prepare_output = action.index('echo "$PREPARE_JSON"', prepare)
+        self.assertLess(prepare, leased)
+        self.assertLess(leased, prepare_output)
         for target in self.template_write_targets:
             self.assertNotIn(target, action)
 
