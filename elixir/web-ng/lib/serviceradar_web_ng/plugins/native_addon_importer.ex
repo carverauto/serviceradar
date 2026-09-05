@@ -117,19 +117,35 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
 
   Anchors to `release_tag` when GitHub has that release; otherwise falls back
   to the recent-release feed so an unpublished deployed VERSION does not fail
-  the Oban job.
+  the Oban job. The returned filter tag is the requested tag on an exact hit
+  and `nil` on a fallback feed, so callers never re-filter fallback entries by
+  the tag that 404d. The settings UI "all releases" sentinel keeps its
+  exact-only lookup, preserving the historical 404 instead of silently
+  importing another feed.
   """
-  @spec list_addons_for_sync(map(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  @spec list_addons_for_sync(map(), keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:error, term()}
   def list_addons_for_sync(attrs, opts \\ [])
 
   def list_addons_for_sync(attrs, opts) when is_map(attrs) and is_list(opts) do
     limit = Keyword.get(opts, :limit, @default_recent_release_limit)
+    release_tag = Keyword.get(opts, :release_tag)
 
-    Client.resolve_catalog(
-      Keyword.get(opts, :release_tag),
-      fn tag -> list_release_addons(attrs, tag) end,
-      fn -> list_recent_addons(attrs, limit) end
-    )
+    if release_tag == Client.admin_all_releases_sentinel() do
+      with {:ok, addons} <- list_release_addons(attrs, release_tag) do
+        {:ok, addons, release_tag}
+      end
+    else
+      case Client.resolve_catalog(
+             release_tag,
+             fn tag -> list_release_addons(attrs, tag) end,
+             fn -> list_recent_addons(attrs, limit) end
+           ) do
+        {:ok, addons, :exact} -> {:ok, addons, release_tag}
+        {:ok, addons, :recent} -> {:ok, addons, nil}
+        {:error, _} = error -> error
+      end
+    end
   end
 
   def list_addons_for_sync(_attrs, _opts), do: {:error, :invalid_attributes}

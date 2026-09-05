@@ -249,7 +249,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
   test "auto-sync discovery falls back to recent releases when the deployed tag is unpublished" do
     Process.put(:first_party_recent_release_requests, 0)
 
-    assert {:ok, [plugin]} =
+    assert {:ok, [plugin], nil} =
              FirstPartyImporter.list_plugins_for_sync(%{"repo_url" => @repo_url},
                release_tag: "v1.4.51",
                limit: 10
@@ -264,13 +264,28 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     Process.put(:first_party_recent_release_requests, 0)
     Process.put(:first_party_releases_without_index, true)
 
-    assert {:ok, [plugin]} =
+    assert {:ok, [plugin], "v1.2.3"} =
              FirstPartyImporter.list_plugins_for_sync(%{"repo_url" => @repo_url},
                release_tag: "v1.2.3",
                limit: 10
              )
 
     assert plugin.release_tag == "v1.2.3"
+    assert Process.get(:first_party_recent_release_requests) == 0
+  end
+
+  test "auto-sync discovery keeps the admin all-releases sentinel on its exact-only lookup" do
+    Process.put(:first_party_recent_release_requests, 0)
+
+    assert {:error, reason} =
+             FirstPartyImporter.list_plugins_for_sync(%{"repo_url" => @repo_url},
+               release_tag: "__all_releases__",
+               limit: 10
+             )
+
+    # The sentinel is not a GitHub tag: the 404 must surface as it did before
+    # the unattended-sync fallback existed, never silently import another feed.
+    assert reason =~ "Release tag __all_releases__ was not found"
     assert Process.get(:first_party_recent_release_requests) == 0
   end
 

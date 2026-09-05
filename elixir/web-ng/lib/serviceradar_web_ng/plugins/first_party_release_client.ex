@@ -132,22 +132,38 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
 
   def permanent_failure?(_reason), do: false
 
+  # Sentinel release option in the Plugins settings UI meaning "every release
+  # this repository publishes" (see @all_releases_tag in
+  # Admin.PluginPackageLive.Index). It is not a GitHub tag, so the
+  # unattended-sync fallback must not treat it as an unpublished deployed tag:
+  # the admin import keeps its historical exact-only lookup and the 404
+  # surfaces instead of silently importing another feed.
+  @admin_all_releases_sentinel "__all_releases__"
+
+  @doc """
+  The Plugins settings UI "all releases" sentinel, which is never a GitHub tag.
+  """
+  @spec admin_all_releases_sentinel() :: String.t()
+  def admin_all_releases_sentinel, do: @admin_all_releases_sentinel
+
   @doc """
   Discovers catalog entries for unattended sync.
 
   Prefers the exact deployed release tag when GitHub has that release.
   When that tag 404s -- unpublished VERSION, a sha-style demo rollout, or a
   private repository the process cannot see -- falls back to the recent-release
-  feed instead of failing the Oban job.
+  feed instead of failing the Oban job. The success triple reports which feed
+  served the entries so callers do not re-filter a fallback feed by the tag
+  that 404d.
   """
-  @spec resolve_catalog(String.t() | nil, (String.t() -> {:ok, term()} | {:error, term()}), (-> {:ok, term()} | {:error, term()})) ::
-          {:ok, term()} | {:error, term()}
+  @spec resolve_catalog(String.t() | nil, (String.t() -> {:ok, term()} | {:error, term()}), (-> {:ok, term()}
+                                                                                                | {:error, term()})) ::
+          {:ok, term(), :exact | :recent} | {:error, term()}
   def resolve_catalog(release_tag, exact_fun, recent_fun)
-      when is_binary(release_tag) and release_tag != "" and is_function(exact_fun, 1) and
-             is_function(recent_fun, 0) do
+      when is_binary(release_tag) and release_tag != "" and is_function(exact_fun, 1) and is_function(recent_fun, 0) do
     case exact_fun.(release_tag) do
       {:ok, items} ->
-        {:ok, items}
+        {:ok, items, :exact}
 
       {:error, reason} ->
         if missing_release?(reason) do
@@ -156,15 +172,22 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
             reason: inspect(reason, limit: 20, printable_limit: 500)
           )
 
-          recent_fun.()
+          case recent_fun.() do
+            {:ok, items} -> {:ok, items, :recent}
+            {:error, _} = error -> error
+          end
         else
           {:error, reason}
         end
     end
   end
 
-  def resolve_catalog(_release_tag, _exact_fun, recent_fun) when is_function(recent_fun, 0),
-    do: recent_fun.()
+  def resolve_catalog(_release_tag, _exact_fun, recent_fun) when is_function(recent_fun, 0) do
+    case recent_fun.() do
+      {:ok, items} -> {:ok, items, :recent}
+      {:error, _} = error -> error
+    end
+  end
 
   def fetch_recent_releases(repo, limit) do
     url = "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases?per_page=#{normalize_limit(limit)}"

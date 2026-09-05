@@ -216,7 +216,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClientAuthTest do
       exact = fn "v1.4.51" -> {:ok, [:from_exact]} end
       recent = fn -> {:ok, [:from_recent]} end
 
-      assert {:ok, [:from_exact]} = Client.resolve_catalog("v1.4.51", exact, recent)
+      assert {:ok, [:from_exact], :exact} = Client.resolve_catalog("v1.4.51", exact, recent)
     end
 
     test "falls back to recent releases when the deployed tag is unpublished" do
@@ -226,7 +226,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClientAuthTest do
 
       recent = fn -> {:ok, [:from_recent]} end
 
-      assert {:ok, [:from_recent]} = Client.resolve_catalog("v1.4.51", exact, recent)
+      assert {:ok, [:from_recent], :recent} = Client.resolve_catalog("v1.4.51", exact, recent)
     end
 
     test "does not fall back when the exact tag fails for a reason other than 404" do
@@ -244,8 +244,19 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClientAuthTest do
       exact = fn _tag -> flunk("exact lookup must not run without a tag") end
       recent = fn -> {:ok, [:from_recent]} end
 
-      assert {:ok, [:from_recent]} = Client.resolve_catalog(nil, exact, recent)
-      assert {:ok, [:from_recent]} = Client.resolve_catalog("", exact, recent)
+      assert {:ok, [:from_recent], :recent} = Client.resolve_catalog(nil, exact, recent)
+      assert {:ok, [:from_recent], :recent} = Client.resolve_catalog("", exact, recent)
+    end
+
+    test "reports the fallback feed as an error when recent releases fail too" do
+      exact = fn "v1.4.51" ->
+        {:error, "Release tag v1.4.51 was not found. If this repository is private, attach a token."}
+      end
+
+      recent = fn -> {:error, "Repository or releases not found"} end
+
+      assert {:error, "Repository or releases not found"} =
+               Client.resolve_catalog("v1.4.51", exact, recent)
     end
   end
 end

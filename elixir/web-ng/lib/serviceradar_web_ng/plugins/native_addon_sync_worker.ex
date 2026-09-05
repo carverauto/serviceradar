@@ -86,10 +86,10 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
 
     case discover_addons(discovery_attrs, limit, release_tag) do
-      {:ok, addons} ->
+      {:ok, addons, filter_tag} ->
         results =
           addons
-          |> NativeAddonSync.candidates(release_tag: release_tag, addon_ids: addon_ids)
+          |> NativeAddonSync.candidates(release_tag: filter_tag, addon_ids: addon_ids)
           |> Enum.map(fn addon ->
             {addon,
              NativeAddonSync.import_or_reuse(addon,

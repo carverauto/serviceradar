@@ -276,12 +276,13 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
     discovery_attrs = source_attrs
 
-    with {:ok, plugins} <- discover_first_party_plugins(discovery_attrs, limit, release_tag) do
+    with {:ok, plugins, filter_tag} <-
+           discover_first_party_plugins(discovery_attrs, limit, release_tag) do
       existing = existing_import_keys(opts)
 
       candidates =
         plugins
-        |> maybe_filter_release_tag(release_tag)
+        |> maybe_filter_release_tag(filter_tag)
         |> Enum.filter(&Map.get(&1, :import_ready?))
         |> dedupe_first_party_plugin_versions()
 
