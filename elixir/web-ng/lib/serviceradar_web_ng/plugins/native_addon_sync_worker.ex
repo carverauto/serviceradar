@@ -122,17 +122,17 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
         :ok
 
       {:error, reason} ->
-        Logger.warning("First-party native add-on sync failed",
-          reason: bounded_failure_reason(reason)
-        )
-
         if FirstPartyReleaseClient.permanent_failure?(reason) do
-          # A release GitHub cannot serve -- or serves without an add-on index
-          # asset -- is not transient: retrying it three times in a few seconds
-          # only emits Oban failures. Stamp the warning and let the hourly
-          # successor try again.
+          Logger.error("First-party native add-on sync failed",
+            reason: bounded_failure_reason(reason)
+          )
+
           :ok
         else
+          Logger.warning("First-party native add-on sync failed",
+            reason: bounded_failure_reason(reason)
+          )
+
           {:error, reason}
         end
     end

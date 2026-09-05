@@ -120,6 +120,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
           Keyword.put(
             [
               actor: actor,
+              allow_release_fallback: true,
               repo_url: import_attrs["repo_url"],
               index_asset_name: import_attrs["index_asset_name"],
               github_token: import_attrs["github_token"],

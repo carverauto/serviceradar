@@ -396,6 +396,19 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     assert package.content_hash == Storage.sha256(first_party_wasm("v1.0.2"))
   end
 
+  test "admin sync imports nothing when the selected release is missing" do
+    assert {:error, reason} =
+             Packages.sync_first_party_plugins(
+               actor: system_actor(),
+               repo_url: @repo_url,
+               release_tag: "v9.8.7"
+             )
+
+    assert reason =~ "Release tag v9.8.7 was not found"
+    assert Process.get(:first_party_recent_release_requests) == 0
+    assert [] = Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+  end
+
   test "periodic first-party sync anchors discovery to the deployed release" do
     original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
     System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.0.1")
