@@ -907,9 +907,20 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
     test "abandon releases only the PROVISIONAL attempt it names" do
       w = window()
       {:ok, w, provisional} = PublishWindow.admit(w, k(1), 100, 500, self(), gen())
+      {key, token} = provisional
 
       # Token-bound: a superseded attempt cannot release whatever holds the key now.
-      assert {:error, :not_outstanding} = PublishWindow.abandon(w, {k(1), 1})
+      #
+      # The WRONG token is derived from the real one rather than written as the literal 1, which
+      # is what this asserted before and is a real token often enough to matter. Attempt tokens
+      # come from `System.unique_integer([:monotonic, :positive])`, which is per-VM and starts at
+      # 1 -- so whenever this test happened to run before much else had drawn from that source,
+      # `{k(1), 1}` WAS the live reservation and abandoning it correctly succeeded. The suite then
+      # failed here on a window that was behaving exactly as specified.
+      #
+      # The other `{key, 1}` literals in this file are safe and stay: they name keys that are not
+      # outstanding at all, so the token is never reached.
+      assert {:error, :not_outstanding} = PublishWindow.abandon(w, {key, token + 1})
 
       assert {:ok, released} = PublishWindow.abandon(w, provisional)
       assert PublishWindow.outstanding_frames(released) === 0
