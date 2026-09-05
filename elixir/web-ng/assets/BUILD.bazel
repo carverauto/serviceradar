@@ -269,6 +269,22 @@ vitest_bin.vitest_test(
     tags = ["unit_test"],
 )
 
+vitest_bin.vitest_test(
+    name = "remote_access_ssh_console_hook_test",
+    args = [
+        "run",
+        "js/hooks/RemoteAccessSSHConsole.test.js",
+    ],
+    chdir = package_name(),
+    data = [
+        ":node_modules",
+        "component/src/RemoteAccessSSHConsole.jsx",
+        "js/hooks/RemoteAccessSSHConsole.js",
+        "js/hooks/RemoteAccessSSHConsole.test.js",
+    ],
+    tags = ["unit_test"],
+)
+
 js_binary(
     name = "god_view_elk_scene_bundler",
     data = [":node_modules/esbuild"],

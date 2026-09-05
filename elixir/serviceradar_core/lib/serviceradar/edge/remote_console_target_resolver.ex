@@ -61,6 +61,7 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
     virtualization_lookup = Keyword.get(opts, :virtualization_lookup, &virtualization_by_device/3)
     host_lookup = Keyword.get(opts, :host_lookup, &virtualization_host_by_id/2)
     device_lookup = Keyword.get(opts, :device_lookup, &device_by_uid/2)
+    identity_scope = normalize_identity_scope(Keyword.get(opts, :identity_scope))
 
     requested_kind =
       normalize_target_kind(Map.get(request, :target_kind) || Map.get(request, "target_kind"))
@@ -74,7 +75,8 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
              ash_opts,
              virtualization_lookup,
              host_lookup,
-             device_lookup
+             device_lookup,
+             identity_scope
            ),
          {:ok, target_kind} <- pick_target_kind(requested_kind, inventory_target.target_kind),
          {:ok, console_mode} <- pick_console_mode(requested_mode, target_kind) do
@@ -90,11 +92,12 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
          ash_opts,
          virtualization_lookup,
          host_lookup,
-         device_lookup
+         device_lookup,
+         identity_scope
        ) do
     case virtualization_lookup.(VirtualizationHost, device_uid(device), ash_opts) do
       {:ok, hosts} when is_list(hosts) ->
-        case select_proxmox_row(hosts, device) do
+        case select_or_complete_proxmox_row(hosts, device, identity_scope) do
           {:ok, host} ->
             build_host_target(host, device)
 
@@ -104,7 +107,8 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
               ash_opts,
               virtualization_lookup,
               host_lookup,
-              device_lookup
+              device_lookup,
+              identity_scope
             )
 
           {:error, reason} ->
@@ -119,12 +123,19 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
     end
   end
 
-  defp resolve_guest_target(device, ash_opts, virtualization_lookup, host_lookup, device_lookup) do
+  defp resolve_guest_target(
+         device,
+         ash_opts,
+         virtualization_lookup,
+         host_lookup,
+         device_lookup,
+         identity_scope
+       ) do
     case virtualization_lookup.(VirtualizationGuest, device_uid(device), ash_opts) do
       {:ok, guests} when is_list(guests) ->
-        case select_proxmox_row(guests, device) do
+        case select_or_complete_proxmox_row(guests, device, identity_scope) do
           {:ok, guest} ->
-            build_guest_target(guest, ash_opts, host_lookup, device_lookup)
+            build_guest_target(guest, ash_opts, host_lookup, device_lookup, identity_scope)
 
           {:error, :not_found} ->
             {:error, :unsupported_console_target}
@@ -141,9 +152,10 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
     end
   end
 
-  defp build_guest_target(guest, ash_opts, host_lookup, device_lookup) do
+  defp build_guest_target(guest, ash_opts, host_lookup, device_lookup, identity_scope) do
     with {:ok, host_id} <- required_string(guest, [:host_id, "host_id"]),
          {:ok, host} <- normalize_lookup_result(host_lookup.(host_id, ash_opts)),
+         {:ok, host} <- maybe_complete_legacy_row(host, identity_scope),
          :ok <- ensure_authoritative_owner(guest, host),
          {:ok, controller_device_uid} <- required_string(host, [:device_uid, "device_uid"]),
          {:ok, controller_device} <-
@@ -389,6 +401,120 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
       [] -> select_single_candidate(candidates)
     end
   end
+
+  defp select_or_complete_proxmox_row(rows, device, identity_scope) do
+    case select_proxmox_row(rows, device) do
+      {:ok, _row} = ok ->
+        ok
+
+      {:error, :not_found} ->
+        complete_legacy_proxmox_row(rows, device, identity_scope)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp complete_legacy_proxmox_row(_rows, _device, nil), do: {:error, :not_found}
+
+  defp complete_legacy_proxmox_row(rows, device, identity_scope) do
+    candidates = Enum.filter(rows, &completable_legacy_proxmox_row?/1)
+    requested_identities = device_identity_values(device)
+
+    exact =
+      Enum.filter(candidates, fn row ->
+        not MapSet.disjoint?(requested_identities, row_identity_values(row))
+      end)
+
+    selected =
+      case exact do
+        [row] -> {:ok, row}
+        [_first, _second | _rest] -> {:error, :ambiguous_console_target}
+        [] -> select_single_candidate(candidates)
+      end
+
+    case selected do
+      {:ok, row} -> complete_row_identity(row, identity_scope)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp maybe_complete_legacy_row(row, identity_scope) do
+    cond do
+      authoritative_proxmox_row?(row) ->
+        {:ok, row}
+
+      completable_legacy_proxmox_row?(row) ->
+        complete_row_identity(row, identity_scope)
+
+      true ->
+        {:ok, row}
+    end
+  end
+
+  defp complete_row_identity(_row, nil), do: {:error, :not_found}
+
+  defp complete_row_identity(row, identity_scope) do
+    native_cluster_id = value_string(row, [:native_cluster_id, "native_cluster_id"])
+    object_kind = value_string(row, [:object_kind, "object_kind"])
+    native_object_id = value_string(row, [:native_object_id, "native_object_id"])
+
+    case IntegrationIdentity.proxmox_v3_fields(
+           identity_scope.integration_id,
+           identity_scope.controller_id,
+           native_cluster_id,
+           object_kind,
+           native_object_id
+         ) do
+      {:ok, identity} ->
+        completed = merge_identity_into_row(row, identity)
+
+        if authoritative_proxmox_row?(completed),
+          do: {:ok, completed},
+          else: {:error, :unsupported_console_target}
+
+      {:error, _reason} ->
+        {:error, :not_found}
+    end
+  end
+
+  defp completable_legacy_proxmox_row?(row) do
+    value_string(row, [:provider, "provider"]) == @proxmox_provider and
+      not authoritative_proxmox_row?(row) and
+      present_value(value_string(row, [:native_cluster_id, "native_cluster_id"])) != nil and
+      value_string(row, [:object_kind, "object_kind"]) in ["cluster", "node", "qemu", "lxc"] and
+      present_value(value_string(row, [:native_object_id, "native_object_id"])) != nil
+  end
+
+  defp merge_identity_into_row(row, identity) when is_struct(row) do
+    struct(row, identity)
+  end
+
+  defp merge_identity_into_row(row, identity) when is_map(row) do
+    Map.merge(row, identity)
+  end
+
+  defp normalize_identity_scope(%{integration_id: integration_id, controller_id: controller_id}) do
+    with {:ok, integration_id} <- present_string(to_string_or_nil(integration_id)),
+         {:ok, controller_id} <- present_string(to_string_or_nil(controller_id)) do
+      %{integration_id: integration_id, controller_id: controller_id}
+    else
+      _ -> nil
+    end
+  end
+
+  defp normalize_identity_scope(%{
+         "integration_id" => integration_id,
+         "controller_id" => controller_id
+       }) do
+    normalize_identity_scope(%{integration_id: integration_id, controller_id: controller_id})
+  end
+
+  defp normalize_identity_scope(_scope), do: nil
+
+  defp to_string_or_nil(value) when is_binary(value), do: value
+  defp to_string_or_nil(value) when is_atom(value), do: Atom.to_string(value)
+  defp to_string_or_nil(_value), do: nil
 
   defp select_single_candidate([row]), do: {:ok, row}
   defp select_single_candidate([]), do: {:error, :not_found}

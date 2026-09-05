@@ -2973,6 +2973,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ node_name
     assert html =~ ~p"/devices/#{host_uid}"
     assert html =~ "Open node"
+    assert html =~ "Open console"
+
+    assert has_element?(
+             view,
+             "a[href='/devices/#{guest_uid}/proxmox-console']",
+             "Open console"
+           )
   end
 
   test "PVE node Guests tab reliably renders the node's guests", %{conn: conn, scope: scope} do

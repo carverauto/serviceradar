@@ -164,8 +164,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
 
   def remote_access_ssh_console(assigns) do
     ssh_options_path =
-      assigns.ssh_options_path ||
-        "/api/remote-access/devices/#{URI.encode(assigns.device_uid)}/ssh-options"
+      assigns.ssh_options_path || default_ssh_options_path(assigns.device_uid)
 
     assigns =
       assign(assigns, :props, %{
@@ -395,4 +394,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :class, :string, default: ""
 
   def proxmox_console_terminal(assigns), do: remote_console_terminal(assigns)
+
+  defp default_ssh_options_path(device_uid) when is_binary(device_uid) do
+    "/api/remote-access/devices/#{URI.encode(device_uid, &URI.char_unreserved?/1)}/ssh-options"
+  end
 end

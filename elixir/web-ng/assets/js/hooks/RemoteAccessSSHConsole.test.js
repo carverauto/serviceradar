@@ -66,6 +66,33 @@ describe("RemoteAccessSSHConsole hook", () => {
     expect(mocks.render.mock.calls[0][0].props.terminalModuleLoader).toEqual(expect.any(Function))
   })
 
+  it("keeps deviceUid when LiveView sends the production SSH console prop set", () => {
+    const deviceUid = "sr:5bf1b6f6-0e7c-43ac-b883-a13447199d85"
+    const sshOptionsPath = `/api/remote-access/devices/${encodeURIComponent(deviceUid)}/ssh-options`
+    const ctx = hookContext(
+      JSON.stringify({
+        deviceUid,
+        createPath: "/api/remote-access/sessions",
+        sshOptionsPath,
+        approvalId: "",
+        title: "SSH remote access",
+        allowRememberedKeys: false,
+        allowSkipVerifyHostKeyPolicy: false,
+        allowTargetHostOverride: false,
+        allowTargetPortOverride: false,
+      })
+    )
+
+    ctx.mounted()
+
+    expect(mocks.render.mock.calls[0][0].props).toMatchObject({
+      deviceUid,
+      createPath: "/api/remote-access/sessions",
+      sshOptionsPath,
+      title: "SSH remote access",
+    })
+  })
+
   it("rejects malformed, non-object, unknown, or wrong-typed dataset props", () => {
     for (const props of [
       "{",
