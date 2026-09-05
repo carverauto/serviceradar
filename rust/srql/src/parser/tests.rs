@@ -503,6 +503,70 @@ fn parses_endpoint_inventory_scan_entity_aliases() {
 }
 
 #[test]
+fn parses_sweep_groups_aliases() {
+    for alias in ["sweep_groups", "sweep_group", "sweeps"] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepGroups),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
+fn parses_sweep_profiles_aliases() {
+    for alias in [
+        "sweep_profiles",
+        "sweep_profile",
+        "scanner_profiles",
+        "scanner_profile",
+    ] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepProfiles),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
+fn parses_sweep_executions_aliases() {
+    for alias in [
+        "sweep_executions",
+        "sweep_execution",
+        "sweep_group_executions",
+    ] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepExecutions),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
+fn parses_sweep_results_aliases() {
+    for alias in ["sweep_results", "sweep_result", "sweep_host_results"] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepResults),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
+fn parses_sweep_coverage_aliases() {
+    for alias in ["sweep_coverage", "sweep_coverage_daily"] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepCoverage),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
 fn parses_security_signal_entity_aliases() {
     for raw in [
         "security_findings",

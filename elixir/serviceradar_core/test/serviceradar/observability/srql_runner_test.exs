@@ -81,6 +81,46 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
              )
   end
 
+  test "query_page decodes a valid date param" do
+    translate_fn = fn "in:sweep_coverage time:last_30d", nil, nil, nil, nil ->
+      {:ok,
+       Jason.encode!(%{
+         "sql" => "select day from sweep_coverage_daily where day >= $1",
+         "params" => [%{"t" => "date", "v" => "2026-01-15"}]
+       })}
+    end
+
+    query_fn = fn "select day from sweep_coverage_daily where day >= $1", [~D[2026-01-15]] ->
+      {:ok, %Postgrex.Result{columns: ["day"], rows: [["2026-01-15"]]}}
+    end
+
+    assert {:ok, %{rows: [%{"day" => "2026-01-15"}], next_cursor: nil}} =
+             SRQLRunner.query_page("in:sweep_coverage time:last_30d",
+               translate_fn: translate_fn,
+               query_fn: query_fn
+             )
+  end
+
+  test "query_page rejects a malformed date param" do
+    translate_fn = fn "in:sweep_coverage time:last_30d", nil, nil, nil, nil ->
+      {:ok,
+       Jason.encode!(%{
+         "sql" => "select day from sweep_coverage_daily where day >= $1",
+         "params" => [%{"t" => "date", "v" => "not-a-date"}]
+       })}
+    end
+
+    query_fn = fn _sql, _params ->
+      flunk("query_fn must not run when a param fails to decode")
+    end
+
+    assert {:error, :invalid_date_param} =
+             SRQLRunner.query_page("in:sweep_coverage time:last_30d",
+               translate_fn: translate_fn,
+               query_fn: query_fn
+             )
+  end
+
   test "query returns only rows from the page result" do
     translate_fn = fn "in:devices", nil, nil, nil, nil ->
       {:ok, Jason.encode!(%{"sql" => "select ip from devices", "params" => []})}

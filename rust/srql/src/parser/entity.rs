@@ -170,6 +170,15 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         | "vulnerability_matches"
         | "cve_matches"
         | "advisory_matches" => Ok(Entity::EndpointVulnerabilityAssessments),
+        "sweep_groups" | "sweep_group" | "sweeps" => Ok(Entity::SweepGroups),
+        "sweep_profiles" | "sweep_profile" | "scanner_profiles" | "scanner_profile" => {
+            Ok(Entity::SweepProfiles)
+        }
+        "sweep_executions" | "sweep_execution" | "sweep_group_executions" => {
+            Ok(Entity::SweepExecutions)
+        }
+        "sweep_results" | "sweep_result" | "sweep_host_results" => Ok(Entity::SweepResults),
+        "sweep_coverage" | "sweep_coverage_daily" => Ok(Entity::SweepCoverage),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),

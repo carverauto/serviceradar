@@ -428,6 +428,155 @@ pub(super) fn graph_cypher() -> VizMeta {
     }
 }
 
+pub(super) fn sweep_groups() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("sweep_group_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("name", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("partition", ColumnType::Text, None),
+            col("agent_ids", ColumnType::TextArray, None),
+            col("enabled", ColumnType::Bool, None),
+            col("interval", ColumnType::Text, None),
+            col("schedule_type", ColumnType::Text, None),
+            col("ports", ColumnType::IntArray, None),
+            col("sweep_modes", ColumnType::TextArray, None),
+            col(
+                "last_run_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn sweep_profiles() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("name", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("ports", ColumnType::IntArray, None),
+            col("sweep_modes", ColumnType::TextArray, None),
+            col("concurrency", ColumnType::Int, None),
+            col("timeout", ColumnType::Text, None),
+            col("admin_only", ColumnType::Bool, None),
+            col("enabled", ColumnType::Bool, None),
+            col("banner_grab_enabled", ColumnType::Bool, None),
+            col("banner_grab_protocols", ColumnType::TextArray, None),
+            col(
+                "updated_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn sweep_executions() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("status", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col(
+                "started_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("completed_at", ColumnType::Timestamptz, None),
+            col("duration_ms", ColumnType::Int, None),
+            col("hosts_total", ColumnType::Int, None),
+            col("hosts_available", ColumnType::Int, None),
+            col("hosts_failed", ColumnType::Int, None),
+            col("agent_id", ColumnType::Text, None),
+            col("config_version", ColumnType::Text, None),
+            col("sweep_group_id", ColumnType::Text, None),
+            col("scanner_metrics", ColumnType::Jsonb, None),
+            col("banner_grab_summary", ColumnType::Jsonb, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn sweep_results() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("ip", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("hostname", ColumnType::Text, None),
+            col("status", ColumnType::Text, None),
+            col("response_time_ms", ColumnType::Int, None),
+            col("modes_results", ColumnType::Jsonb, None),
+            col("open_ports", ColumnType::IntArray, None),
+            col("scanned_ports", ColumnType::IntArray, None),
+            col("device_id", ColumnType::Text, None),
+            col("agent_id", ColumnType::Text, None),
+            col("sweep_group_id", ColumnType::Text, None),
+            col("execution_id", ColumnType::Text, None),
+            col(
+                "inserted_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn sweep_coverage() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            // `day` is a real `date` column; there is no distinct viz
+            // column type for it, so it is surfaced as the closest fit
+            // (Timestamptz) with a Time semantic.
+            col("day", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),
+            col("device_uid", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("ip", ColumnType::Text, None),
+            col("sweep_group_id", ColumnType::Text, None),
+            col("agent_id", ColumnType::Text, None),
+            col("execution_count", ColumnType::Int, None),
+            col("available_count", ColumnType::Int, None),
+            col("unavailable_count", ColumnType::Int, None),
+            col("error_count", ColumnType::Int, None),
+            col("first_seen_at", ColumnType::Timestamptz, None),
+            col("last_seen_at", ColumnType::Timestamptz, None),
+            col("scanned_ports", ColumnType::IntArray, None),
+            col("open_ports", ColumnType::IntArray, None),
+            col("modes_requested", ColumnType::TextArray, None),
+            col("modes_observed", ColumnType::TextArray, None),
+            col("last_status", ColumnType::Text, None),
+            col("last_response_time_ms", ColumnType::Int, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 fn virtualization_table_meta(columns: Vec<ColumnMeta>) -> VizMeta {
     VizMeta {
         columns,

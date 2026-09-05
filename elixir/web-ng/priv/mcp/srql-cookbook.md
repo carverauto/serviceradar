@@ -77,6 +77,41 @@ the next run. `blocked_component_devices` lists the device uids of each componen
 it declined to merge; seed `in:identity_evidence_edges device:` with one of them
 to see why.
 
+## Sweep diagnostics
+
+Declared sweep configuration plus its execution/result history. Requires
+`networks.sweeps.view`. `in:sweep_results` is pruned at a 7-day retention
+default -- an empty result on an older window means "outside the retention
+window", not "no sweep activity"; query `in:sweep_coverage` for the daily
+rollup, which survives much longer.
+
+```
+in:sweep_groups partition:default enabled:true
+in:sweep_profiles name:%rids%
+in:sweep_results device_id:<device-uid> time:last_24h sort:inserted_at:desc
+in:sweep_results time:last_7d
+in:sweep_coverage device_uid:<device-uid> time:last_90d sort:day:desc
+in:sweep_executions sweep_group_id:<uuid> sort:started_at:desc
+```
+
+- `in:sweep_groups partition:default enabled:true` -- which sweep groups are
+  enabled in a given partition, and what they are configured to scan.
+- `in:sweep_profiles name:%rids%` -- find a scan profile (ports, timing,
+  banner-grab settings) by name. Profiles flagged `admin_only` are excluded
+  from this entity for every role, and `admin_only` is not an accepted filter
+  field -- a profile absent here may still exist and be in use, so treat it as
+  "restricted", not "no such profile".
+- `in:sweep_results device_id:<device-uid> time:last_24h sort:inserted_at:desc`
+  -- what did the last 24h of sweeps find for one device (open ports,
+  reachability, per-host errors)?
+- `in:sweep_results time:last_7d` -- every per-host sweep result within the
+  retention window, across all devices.
+- `in:sweep_coverage device_uid:<device-uid> time:last_90d sort:day:desc` --
+  the daily coverage rollup for one device beyond the 7-day result window: how
+  often it was scanned and available, day by day.
+- `in:sweep_executions sweep_group_id:<uuid> sort:started_at:desc` -- the run
+  history of one sweep group: status, duration, and host counts per run.
+
 ## Events and logs
 
 ```

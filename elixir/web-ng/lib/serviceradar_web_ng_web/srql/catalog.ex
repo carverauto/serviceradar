@@ -379,6 +379,107 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       boolean_fields: ["is_healthy"],
       downsample: false
     },
+    # Sweep diagnostics (issue 4167): declared sweep configuration plus its
+    # execution/result history. `sweep_groups`/`sweep_profiles` are config and
+    # route to the page that manages them; `sweep_executions`/`sweep_results`/
+    # `sweep_coverage` are read-only history and route to /devices, following
+    # the identity-reconciliation-diagnostics precedent above.
+    %{
+      id: "sweep_groups",
+      label: "Sweep Groups",
+      route: "/settings/networks",
+      default_time: "",
+      default_sort_field: "name",
+      default_sort_dir: "asc",
+      default_filter_field: "partition",
+      filter_fields: [
+        "name",
+        "partition",
+        "schedule_type",
+        "enabled",
+        "profile_id",
+        "agent_id"
+      ],
+      boolean_fields: ["enabled"],
+      known_values: %{
+        "schedule_type" => ["interval", "cron", "manual"]
+      },
+      downsample: false
+    },
+    # Admin-only scanner profiles (`admin_only == true`) are excluded from
+    # this entity unconditionally, matching the row-level read restriction
+    # the settings page enforces via Ash (`sweep_profile.ex`). SRQL's raw-SQL
+    # path has no actor/scope context to authorize per caller, so the
+    # restriction is applied to every query rather than being conditional on
+    # the viewer's role. A missing admin-only profile therefore means
+    # "restricted", not "no such profile". `admin_only` is not offered as a
+    # filter field here: the SRQL entity rejects it as unsupported, since
+    # every query is already unconditionally restricted to `admin_only =
+    # false` and accepting it as a caller filter would only ever produce
+    # either a redundant or a contradictory (and rejected) query.
+    %{
+      id: "sweep_profiles",
+      label: "Sweep Profiles",
+      route: "/settings/networks",
+      default_time: "",
+      default_sort_field: "name",
+      default_sort_dir: "asc",
+      default_filter_field: "name",
+      filter_fields: ["name", "enabled"],
+      boolean_fields: ["enabled"],
+      downsample: false
+    },
+    %{
+      id: "sweep_executions",
+      label: "Sweep Executions",
+      route: "/settings/networks",
+      default_time: "",
+      default_sort_field: "started_at",
+      default_sort_dir: "desc",
+      default_filter_field: "sweep_group_id",
+      filter_fields: ["status", "agent_id", "config_version", "sweep_group_id"],
+      known_values: %{
+        "status" => ["pending", "running", "completed", "failed"]
+      },
+      downsample: false
+    },
+    # `sweep_host_results` is pruned at a 7-day retention default (see
+    # `DataRetentionWorker`); an empty result for an older window means
+    # "outside the retention window", not "no sweep activity" — query
+    # `sweep_coverage` for the daily rollup that survives past 7 days.
+    %{
+      id: "sweep_results",
+      label: "Sweep Results",
+      route: "/devices",
+      default_time: "last_24h",
+      default_sort_field: "inserted_at",
+      default_sort_dir: "desc",
+      default_filter_field: "device_id",
+      filter_fields: [
+        "ip",
+        "hostname",
+        "status",
+        "device_id",
+        "agent_id",
+        "sweep_group_id",
+        "execution_id"
+      ],
+      known_values: %{
+        "status" => ["available", "unavailable", "timeout", "error"]
+      },
+      downsample: false
+    },
+    %{
+      id: "sweep_coverage",
+      label: "Sweep Coverage",
+      route: "/devices",
+      default_time: "last_30d",
+      default_sort_field: "day",
+      default_sort_dir: "desc",
+      default_filter_field: "device_uid",
+      filter_fields: ["device_uid", "ip", "agent_id", "sweep_group_id"],
+      downsample: false
+    },
     %{
       id: "events",
       label: "Events",
