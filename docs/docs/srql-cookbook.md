@@ -716,16 +716,22 @@ in:endpoint_packages cpe:cpe:2.3:a:nginx:nginx:% current:true
 
 Array overlap on installed package CPEs. Each row has `device_uid`.
 
-### Packages and devices the matcher marked affected
+### Packages and devices with actionable assessments
 
 ```srql
-in:cve_matches kev:true sort:cvss_score:desc
+in:cve_matches status:active assessment:confirmed disposition:affected kev:true sort:cvss_score:desc
 in:cve_matches cve:CVE-2024-1234
+in:cve_matches stats:count() as audit_rows
+in:cve_matches status:active assessment:confirmed disposition:affected stats:count() as exposed
 in:endpoint_packages cve:CVE-2024-1234 current:true
 ```
 
-`in:security_findings cve:` is the OCSF occurrence stream, not this table.
-Do not use `in:cpes` as an entity.
+Unqualified row browsing includes confirmed, candidate, and resolved states;
+there is no implicit active-only filter. Likewise, an unqualified
+`stats:count()` is a count of persisted audit/state rows, not current exposure.
+Use the exact `status:active assessment:confirmed disposition:affected` triple
+for actionable exposure rows or counts. `in:security_findings cve:` is the OCSF
+occurrence stream, not this table. Do not use `in:cpes` as an entity.
 
 ---
 

@@ -589,9 +589,11 @@ fn apply_package_match_cve_filter<'a>(
     query: EndpointPackagesQuery<'a>,
     filter: &Filter,
 ) -> Result<EndpointPackagesQuery<'a>> {
-    let prefix = "EXISTS (SELECT 1 FROM endpoint_vulnerability_matches m \
-         WHERE m.endpoint_package_ref = endpoint_inventory_packages.endpoint_package_ref \
-         AND m.status = 'active' AND ";
+    let prefix = "EXISTS (SELECT 1 FROM endpoint_vulnerability_assessments a \
+         WHERE a.endpoint_package_ref = endpoint_inventory_packages.endpoint_package_ref \
+         AND a.device_uid = endpoint_inventory_packages.device_uid \
+         AND a.status = 'active' AND a.assessment = 'confirmed' \
+         AND a.disposition = 'affected' AND ";
     match filter.op {
         FilterOp::Eq | FilterOp::NotEq | FilterOp::In | FilterOp::NotIn => {
             let values = crate::query::advisory::cve_eq_values(filter)?;
@@ -599,7 +601,7 @@ fn apply_package_match_cve_filter<'a>(
                 return Ok(query);
             }
             let expr = sql::<Bool>(prefix)
-                .sql("m.cve_id = ANY(")
+                .sql("a.cve_id = ANY(")
                 .bind::<Array<Text>, _>(values)
                 .sql("))");
             Ok(if matches!(filter.op, FilterOp::NotEq | FilterOp::NotIn) {
@@ -611,7 +613,7 @@ fn apply_package_match_cve_filter<'a>(
         FilterOp::Like | FilterOp::NotLike => {
             let value = filter.value.as_scalar()?.to_string();
             let expr = sql::<Bool>(prefix)
-                .sql("m.cve_id ILIKE ")
+                .sql("a.cve_id ILIKE ")
                 .bind::<Text, _>(value)
                 .sql(")");
             Ok(if matches!(filter.op, FilterOp::NotLike) {
@@ -642,9 +644,11 @@ fn apply_package_match_kev_filter<'a>(
         want
     };
     let expr = sql::<Bool>(
-        "EXISTS (SELECT 1 FROM endpoint_vulnerability_matches m \
-         WHERE m.endpoint_package_ref = endpoint_inventory_packages.endpoint_package_ref \
-         AND m.status = 'active' AND m.kev = ",
+        "EXISTS (SELECT 1 FROM endpoint_vulnerability_assessments a \
+         WHERE a.endpoint_package_ref = endpoint_inventory_packages.endpoint_package_ref \
+         AND a.device_uid = endpoint_inventory_packages.device_uid \
+         AND a.status = 'active' AND a.assessment = 'confirmed' \
+         AND a.disposition = 'affected' AND a.kev = ",
     )
     .bind::<Bool, _>(true)
     .sql(")");
@@ -964,7 +968,7 @@ mod tests {
     }
 
     #[test]
-    fn cve_pivot_uses_exists_against_matches() {
+    fn cve_pivot_uses_only_actionable_assessments() {
         let plan = plan_with(vec![Filter {
             field: "cve".into(),
             op: FilterOp::Eq,
@@ -972,8 +976,15 @@ mod tests {
         }]);
         let (sql, params) = to_sql_and_params(&plan).expect("sql");
         assert!(
-            sql.contains("endpoint_vulnerability_matches"),
-            "expected EXISTS against matches, got {sql}"
+            sql.contains("endpoint_vulnerability_assessments"),
+            "expected EXISTS against assessments, got {sql}"
+        );
+        assert!(sql.contains("a.status = 'active'"));
+        assert!(sql.contains("a.assessment = 'confirmed'"));
+        assert!(sql.contains("a.disposition = 'affected'"));
+        assert!(
+            sql.contains("a.device_uid = endpoint_inventory_packages.device_uid"),
+            "assessment lookup must stay scoped to the package's device, got {sql}"
         );
         assert!(
             sql.contains("endpoint_inventory_packages"),
@@ -984,6 +995,24 @@ mod tests {
                 matches!(param, BindParam::TextArray(values) if values == &["CVE-2026-0001".to_string()])
             }),
             "CVE must be bound uppercased, got {params:?}"
+        );
+    }
+
+    #[test]
+    fn kev_pivot_is_scoped_to_the_package_device() {
+        let plan = plan_with(vec![Filter {
+            field: "kev".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("true".into()),
+        }]);
+        let (sql, _params) = to_sql_and_params(&plan).expect("sql");
+
+        assert!(sql.contains("a.status = 'active'"));
+        assert!(sql.contains("a.assessment = 'confirmed'"));
+        assert!(sql.contains("a.disposition = 'affected'"));
+        assert!(
+            sql.contains("a.device_uid = endpoint_inventory_packages.device_uid"),
+            "KEV lookup must stay scoped to the package's device, got {sql}"
         );
     }
 

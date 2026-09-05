@@ -443,14 +443,16 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
       query_fn.(device_uids, opts)
     else
       Repo.all(
-        from(m in "endpoint_vulnerability_matches",
-          where: m.device_uid in ^device_uids and m.status == "active",
+        from(a in "endpoint_vulnerability_assessments",
+          where:
+            a.device_uid in ^device_uids and a.status == "active" and
+              a.assessment == "confirmed" and a.disposition == "affected",
           select: %{
-            device_uid: m.device_uid,
-            cve_id: m.cve_id,
-            kev: m.kev,
-            cvss: m.cvss_score,
-            package: fragment("COALESCE(?->'package'->>'name', '')", m.evidence)
+            device_uid: a.device_uid,
+            cve_id: a.cve_id,
+            kev: a.kev,
+            cvss: a.cvss_score,
+            package: a.package_name
           }
         ),
         prefix: "platform"

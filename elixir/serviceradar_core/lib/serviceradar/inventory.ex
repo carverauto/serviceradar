@@ -82,6 +82,11 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.EndpointVulnerabilityMatch
     resource ServiceRadar.Inventory.AdvisoryCoordinate
     resource ServiceRadar.Inventory.VulnerabilityAdvisory
+    resource ServiceRadar.Inventory.AdvisoryProduct
+    resource ServiceRadar.Inventory.AdvisoryProductSet
+    resource ServiceRadar.Inventory.AdvisoryPackageAssertion
+    resource ServiceRadar.Inventory.AdvisoryFeedSourcePresence
+    resource ServiceRadar.Inventory.EndpointVulnerabilityAssessment
     resource ServiceRadar.Inventory.VulnerabilityFeedDefinition
     resource ServiceRadar.Inventory.VulnerabilityFeedSnapshot
   end

@@ -13,9 +13,32 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     @moduledoc false
 
     def enqueue_events(events) do
-      send(self(), {:alert_evaluation_events, events})
+      send(test_pid(), {:alert_evaluation_events, events})
       :ok
     end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core, :analytics_signals_process_batch_test_pid)
+    end
+  end
+
+  defmodule NorthboundRunner do
+    @moduledoc false
+
+    def handle_event(event) do
+      send(test_pid(), {:northbound_event, event})
+      {:ok, []}
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core, :analytics_signals_process_batch_test_pid)
+    end
+  end
+
+  defmodule FailingNorthboundRunner do
+    @moduledoc false
+
+    def handle_event(_event), do: raise("northbound runner unavailable")
   end
 
   setup_all do
@@ -25,6 +48,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
   setup do
     previous_queue = Application.get_env(:serviceradar_core, :stateful_alert_evaluation_queue)
+
+    previous_northbound_runner =
+      Application.get_env(:serviceradar_core, :northbound_event_handler_runner)
+
+    previous_test_pid =
+      Application.get_env(:serviceradar_core, :analytics_signals_process_batch_test_pid)
+
     previous_episodes = Application.get_env(:serviceradar_core, :anomaly_episodes_enabled)
 
     previous_stale_after =
@@ -39,6 +69,18 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       __MODULE__.AlertQueue
     )
 
+    Application.put_env(
+      :serviceradar_core,
+      :northbound_event_handler_runner,
+      __MODULE__.NorthboundRunner
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :analytics_signals_process_batch_test_pid,
+      self()
+    )
+
     Application.put_env(:serviceradar_core, :anomaly_episodes_enabled, true)
     Application.put_env(:serviceradar_core, :anomaly_episode_stale_after_minutes, 30)
     AnomalyEpisodeRegistry.reset_rate_guard!()
@@ -46,6 +88,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     on_exit(fn ->
       restore_env(:stateful_alert_evaluation_queue, previous_queue)
+      restore_env(:northbound_event_handler_runner, previous_northbound_runner)
+      restore_env(:analytics_signals_process_batch_test_pid, previous_test_pid)
       restore_env(:anomaly_episodes_enabled, previous_episodes)
       restore_env(:anomaly_episode_stale_after_minutes, previous_stale_after)
       restore_env(:anomaly_episode_rate_limit_per_hour, previous_rate_limit)
@@ -72,6 +116,154 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     assert {:ok, 1} = AnalyticsSignals.process_batch([message])
     assert event_count(row) == 1
+    refute_receive {:alert_evaluation_events, _}, 100
+  end
+
+  test "inventory vulnerability assessment opens, resolves, and reopens one OCSF row" do
+    event_id = "assessment-lifecycle-#{System.unique_integer([:positive])}"
+    open_message = assessment_message(event_id, "open", "active", "confirmed", "affected")
+    row = AnalyticsSignals.parse_message(open_message)
+
+    delete_event!(row)
+    on_exit(fn -> delete_event!(row) end)
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([open_message])
+    assert event_count(row) == 1
+    assert event_lifecycle(row) == ["open", 1, "Create"]
+
+    assert_receive {:alert_evaluation_events, [open_alert_row]}
+    assert open_alert_row.status == "open"
+
+    assert_receive {:northbound_event, open_northbound_row}
+    assert open_northbound_row.id == uuid_string(row.id)
+    assert open_northbound_row.status == "open"
+    assert open_northbound_row.activity_name == "Create"
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([open_message])
+    refute_receive {:alert_evaluation_events, _}, 100
+    refute_receive {:northbound_event, _}, 100
+
+    resolved_message =
+      assessment_message(event_id, "resolved", "resolved", "confirmed", "fixed")
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([resolved_message])
+    assert event_count(row) == 1
+    assert event_lifecycle(row) == ["resolved", 3, "Close"]
+
+    assert_receive {:alert_evaluation_events, [resolved_alert_row]}
+    assert resolved_alert_row.status == "resolved"
+
+    assert_receive {:northbound_event, resolved_northbound_row}
+    assert resolved_northbound_row.id == uuid_string(row.id)
+    assert resolved_northbound_row.status == "resolved"
+    assert resolved_northbound_row.activity_name == "Close"
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([resolved_message])
+    refute_receive {:alert_evaluation_events, _}, 100
+    refute_receive {:northbound_event, _}, 100
+
+    reopened_message = assessment_message(event_id, "open", "active", "confirmed", "affected")
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([reopened_message])
+    assert event_count(row) == 1
+    assert event_lifecycle(row) == ["open", 2, "Update"]
+
+    assert_receive {:alert_evaluation_events, [reopened_alert_row]}
+    assert reopened_alert_row.status == "open"
+
+    assert_receive {:northbound_event, reopened_northbound_row}
+    assert reopened_northbound_row.id == uuid_string(row.id)
+    assert reopened_northbound_row.status == "open"
+    assert reopened_northbound_row.activity_name == "Update"
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([reopened_message])
+    refute_receive {:alert_evaluation_events, _}, 100
+    refute_receive {:northbound_event, _}, 100
+  end
+
+  test "northbound runner failure does not suppress the durable alert transition" do
+    Application.put_env(
+      :serviceradar_core,
+      :northbound_event_handler_runner,
+      __MODULE__.FailingNorthboundRunner
+    )
+
+    event_id = "assessment-runner-failure-#{System.unique_integer([:positive])}"
+    message = assessment_message(event_id, "open", "active", "confirmed", "affected")
+    row = AnalyticsSignals.parse_message(message)
+
+    delete_event!(row)
+    on_exit(fn -> delete_event!(row) end)
+
+    assert {:ok, 1} = AnalyticsSignals.process_batch([message])
+    assert event_count(row) == 1
+    assert_receive {:alert_evaluation_events, [alert_row]}
+    assert alert_row.status == "open"
+  end
+
+  @tag sandbox: :unboxed
+  test "concurrent duplicate opens serialize and dispatch one durable transition" do
+    event_id = "assessment-concurrent-open-#{System.unique_integer([:positive])}"
+    message = assessment_message(event_id, "open", "active", "confirmed", "affected")
+    row = AnalyticsSignals.parse_message(message)
+    event_uuid = uuid_string(row.id)
+    parent = self()
+
+    delete_event!(row)
+    on_exit(fn -> delete_event!(row) end)
+
+    lock_holder =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          Repo.query!(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+            ["serviceradar:inventory-vulnerability-lifecycle:#{event_uuid}"]
+          )
+
+          send(parent, :inventory_vulnerability_lock_held)
+
+          receive do
+            :release_inventory_vulnerability_lock -> :ok
+          after
+            5_000 -> raise "timed out waiting to release inventory vulnerability lock"
+          end
+        end)
+      end)
+
+    assert_receive :inventory_vulnerability_lock_held, 1_000
+
+    workers =
+      for _ <- 1..2 do
+        Task.async(fn ->
+          result = AnalyticsSignals.process_batch([message])
+          send(parent, {:inventory_vulnerability_process_finished, self()})
+          result
+        end)
+      end
+
+    on_exit(fn ->
+      send(lock_holder.pid, :release_inventory_vulnerability_lock)
+
+      Enum.each([lock_holder | workers], fn task ->
+        if Process.alive?(task.pid), do: Process.exit(task.pid, :kill)
+      end)
+    end)
+
+    refute_receive {:inventory_vulnerability_process_finished, _pid}, 250
+    send(lock_holder.pid, :release_inventory_vulnerability_lock)
+
+    assert {:ok, :ok} = Task.await(lock_holder, 5_000)
+    assert [{:ok, 1}, {:ok, 1}] = Task.await_many(workers, 5_000)
+    assert event_count(row) == 1
+
+    assert_receive {:northbound_event, northbound_row}
+    assert northbound_row.id == event_uuid
+    assert northbound_row.status == "open"
+    refute_receive {:northbound_event, _}, 100
+
+    assert_receive {:alert_evaluation_events, [alert_row]}
+    assert alert_row.id == event_uuid
+    assert alert_row.status == "open"
     refute_receive {:alert_evaluation_events, _}, 100
   end
 
@@ -202,6 +394,37 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     }
   end
 
+  defp assessment_message(event_id, finding_status, assessment_status, assessment, disposition) do
+    payload = %{
+      "event_id" => event_id,
+      "signal_type" => "inventory",
+      "event_type" => "vulnerability_assessment",
+      "finding_type" => "vulnerability",
+      "timestamp" =>
+        DateTime.utc_now() |> DateTime.truncate(:microsecond) |> DateTime.to_iso8601(),
+      "device_uid" => "sr:assessment-lifecycle-device",
+      "cve_id" => "CVE-2099-9001",
+      "status" => finding_status,
+      "finding_status" => finding_status,
+      "assessment_status" => assessment_status,
+      "assessment" => assessment,
+      "disposition" => disposition,
+      "package" => %{
+        "identity_key" => "pkgid:v1:assessment-lifecycle",
+        "name" => "starling-fetch",
+        "version" => "3.2.1-1ubuntu99.4"
+      }
+    }
+
+    %{
+      data: Jason.encode!(payload),
+      metadata: %{
+        subject: "signals.analytics.inventory.vulnerability_assessment",
+        received_at: DateTime.utc_now()
+      }
+    }
+  end
+
   defp anomaly_message(
          series_key,
          event_id,
@@ -270,6 +493,16 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
       )
 
     count
+  end
+
+  defp event_lifecycle(row) do
+    %{rows: [[status, activity_id, activity_name]]} =
+      Repo.query!(
+        "SELECT status, activity_id, activity_name FROM platform.ocsf_events WHERE id = ($1::text)::uuid AND time = $2",
+        [uuid_string(row.id), row.time]
+      )
+
+    [status, activity_id, activity_name]
   end
 
   defp uuid_string(<<_::128>> = id) do

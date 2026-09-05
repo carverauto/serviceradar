@@ -24,11 +24,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
   @vulncheck_credential_feeds ["vulncheck-kev", "nist-nvd2"]
 
   @cisa_kev_url "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+  @ubuntu_osv_url "https://security-metadata.canonical.com/osv/osv-all.tar.xz"
+  @ubuntu_vex_url "https://security-metadata.canonical.com/vex/vex-all.tar.xz"
 
   @refresh_seconds %{
     "cisa-kev" => 3_600,
     "vulncheck-kev" => 21_600,
     "nist-nvd2" => 21_600,
+    "ubuntu-osv-vex" => 21_600,
     "nvd-api" => 21_600
   }
 
@@ -96,6 +99,78 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
     System.get_env("SERVICERADAR_CISA_KEV_URL") ||
       config(:cisa_kev_url, @cisa_kev_url)
   end
+
+  @doc "Validated operator source for a registered feed."
+  @spec source(String.t()) :: %{url: String.t(), options: map()} | {:error, term()}
+  def source(feed) when is_binary(feed) do
+    case FeedRegistry.fetch(feed) do
+      {:ok, entry} ->
+        default =
+          if feed == "ubuntu-osv-vex",
+            do: %{url: @ubuntu_osv_url, options: %{"vex_url" => @ubuntu_vex_url}}
+
+        source =
+          definition_source(entry.provider, entry.feed_key) ||
+            application_source(feed) || default || {:error, :source_not_configured}
+
+        validate_feed_source(feed, source)
+
+      :error ->
+        {:error, :unknown_feed}
+    end
+  end
+
+  def source(_), do: {:error, :unknown_feed}
+
+  defp validate_feed_source(
+         "ubuntu-osv-vex",
+         %{url: url, options: %{"vex_url" => vex_url}} = source
+       )
+       when is_binary(url) and is_binary(vex_url) do
+    if present?(url) and present?(vex_url), do: source, else: {:error, :invalid_source_config}
+  end
+
+  defp validate_feed_source("ubuntu-osv-vex", _), do: {:error, :invalid_source_config}
+  defp validate_feed_source(_feed, source), do: source
+
+  defp definition_source(provider, feed_key) do
+    case read_definition(provider, feed_key) do
+      %VulnerabilityFeedDefinition{url: url, options: options} ->
+        if present?(url), do: valid_source(url, options)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp application_source(feed) do
+    :advisory_feed_sources
+    |> config(%{})
+    |> case do
+      sources when is_map(sources) -> Map.get(sources, feed)
+      _ -> nil
+    end
+    |> case do
+      %{url: url} = source -> valid_source(url, Map.get(source, :options, %{}))
+      %{"url" => url} = source -> valid_source(url, Map.get(source, "options", %{}))
+      _ -> nil
+    end
+  end
+
+  defp valid_source(url, options) when is_binary(url) and is_map(options) do
+    allowed = ["vex_url"]
+
+    if present?(url) and
+         Enum.all?(options, fn {key, value} ->
+           key in allowed and is_binary(value) and value != ""
+         end) do
+      %{url: url, options: options}
+    else
+      {:error, :invalid_source_config}
+    end
+  end
+
+  defp valid_source(_url, _options), do: {:error, :invalid_source_config}
 
   @doc """
   VulnCheck API token.

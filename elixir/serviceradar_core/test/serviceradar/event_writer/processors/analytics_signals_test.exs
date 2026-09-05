@@ -640,6 +640,83 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsTest do
       assert row.unmapped["package"]["name"] == "nginx"
     end
 
+    test "accepts actionable assessment opens and lifecycle resolutions" do
+      base = %{
+        "event_id" => "endpoint-vulnerability-assessment:11111111-1111-4111-8111-111111111111",
+        "signal_type" => "inventory",
+        "event_type" => "vulnerability_assessment",
+        "finding_type" => "vulnerability",
+        "timestamp" => "2026-09-02T12:30:00Z",
+        "device_uid" => "sr:test-device",
+        "cve_id" => "CVE-2099-9001",
+        "assessment_status" => "active",
+        "assessment" => "confirmed",
+        "disposition" => "affected",
+        "status" => "open",
+        "finding_status" => "open",
+        "package" => %{"identity_key" => "pkgid:v1:test", "name" => "starling-fetch"}
+      }
+
+      open_row =
+        AnalyticsSignals.parse_message(%{
+          data: Jason.encode!(base),
+          metadata: %{
+            subject: "signals.analytics.inventory.vulnerability_assessment",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      assert open_row.status == "open"
+      assert open_row.activity_id == 1
+      assert open_row.activity_name == "Create"
+
+      resolved_row =
+        AnalyticsSignals.parse_message(%{
+          data:
+            Jason.encode!(%{
+              base
+              | "status" => "resolved",
+                "finding_status" => "resolved",
+                "disposition" => "fixed"
+            }),
+          metadata: %{
+            subject: "signals.analytics.inventory.vulnerability_assessment",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      assert resolved_row.id == open_row.id
+      assert resolved_row.status == "resolved"
+      assert resolved_row.activity_id == 3
+      assert resolved_row.activity_name == "Close"
+      assert resolved_row.type_uid == 200_203
+    end
+
+    test "withholds a candidate assessment presented as an open finding" do
+      payload = %{
+        "event_id" => "endpoint-vulnerability-assessment:22222222-2222-4222-8222-222222222222",
+        "signal_type" => "inventory",
+        "event_type" => "vulnerability_assessment",
+        "finding_type" => "vulnerability",
+        "timestamp" => "2026-09-02T12:30:00Z",
+        "device_uid" => "sr:test-device",
+        "cve_id" => "CVE-2099-9002",
+        "assessment_status" => "active",
+        "assessment" => "candidate",
+        "disposition" => "unknown",
+        "status" => "open",
+        "finding_status" => "open"
+      }
+
+      assert AnalyticsSignals.parse_message(%{
+               data: Jason.encode!(payload),
+               metadata: %{
+                 subject: "signals.analytics.inventory.vulnerability_assessment",
+                 received_at: DateTime.utc_now()
+               }
+             }) == nil
+    end
+
     test "suppresses inventory vulnerability findings without canonical device UID" do
       payload = %{
         "event_id" => "inventory-vuln:agent-a:scan-a:CVE-2026-1234:coord-hash",

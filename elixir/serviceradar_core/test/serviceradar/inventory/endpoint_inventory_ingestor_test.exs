@@ -519,6 +519,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
                  "scan_id" => "scan-risk-#{unique}",
                  "device_uid" => device.uid,
                  "cve" => "CVE-2026-#{unique}",
+                 "status" => "active",
+                 "assessment" => "confirmed",
+                 "disposition" => "affected",
+                 "freshness" => "fresh",
                  "cvss_score" => 9.8,
                  "observed_at" => "2026-06-02T12:00:00Z",
                  "package_set_hash" => "package-set-risk-#{unique}",
@@ -587,7 +591,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
              EndpointInventoryIngestor.ingest_vulnerability_match(
                %{
                  "device_uid" => device.uid,
-                 "status" => "removed",
+                 "status" => "resolved",
+                 "assessment" => "confirmed",
+                 "disposition" => "fixed",
+                 "freshness" => "fresh",
                  "cvss_score" => 0,
                  "observed_at" => "2026-06-02T13:00:00Z",
                  "package" => %{"name" => "nginx"}

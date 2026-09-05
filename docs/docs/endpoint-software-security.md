@@ -36,9 +36,10 @@ Endpoint software inventory follows this path:
    `platform.endpoint_inventory_artifact_contents`.
 6. Current package rows are stored in `platform.endpoint_inventory_packages` and
    normalized package coordinates are stored in `platform.endpoint_packages`.
-7. The central matcher compares current package and SBOM coordinates against
-   producer-normalized advisories and writes device-scoped rows to
-   `platform.endpoint_vulnerability_matches`.
+7. The central matcher retains coordinate-level evidence in
+   `platform.endpoint_vulnerability_matches` and writes one stable applicability
+   decision per device/package/CVE to
+   `platform.endpoint_vulnerability_assessments`.
 
 The raw SBOM object key is a content-addressed path:
 
@@ -108,21 +109,28 @@ in:devices kev:true
 in:devices cve:CVE-2024-1234
 in:endpoint_packages cve:CVE-2024-1234 current:true
 in:endpoint_packages cpe:cpe:2.3:a:nginx:nginx:% current:true
-in:cve_matches kev:true sort:cvss_score:desc
+in:cve_matches status:active assessment:confirmed disposition:affected kev:true sort:cvss_score:desc
+in:cve_matches stats:count() as audit_rows
+in:cve_matches status:active assessment:confirmed disposition:affected stats:count() as exposed
 in:cves cve:CVE-2024-1234
 in:advisory_cpes cve:CVE-2024-1234 coordinate_type:cpe
 ```
 
-`in:cves` is the global catalog. `in:cve_matches` is matcher output for this
-deployment. `in:endpoint_packages cpe:` is installed CPE overlap, not NVD
-version matching. There is no `in:devices cpe:` and no `in:cpes` entity.
+`in:cves` is the global catalog. `in:cve_matches` is a compatibility alias for
+the assessment-grain deployment view, including candidates and resolved
+history. Its unqualified `stats:count()` counts persisted audit/state rows, not
+exposure; exposure counts require the exact active + confirmed + affected
+filters shown above. `in:endpoint_packages cpe:` is installed CPE overlap, not
+NVD version matching. There is no `in:devices cpe:` and no `in:cpes` entity.
 
 ## Vulnerability Intelligence Sources
 
-Vulnerability feeds are source-owned. A native add-on or Wasm plugin fetches,
-validates, and normalizes provider data, then submits a
-`serviceradar.advisory_feed.contract.v1` batch. Core does not include built-in
-NVD, CISA, VulnCheck, OSV, or other provider parsers.
+Vulnerability feeds are normally source-owned. A native add-on or Wasm plugin
+fetches, validates, and normalizes provider data, then submits a
+`serviceradar.advisory_feed.contract.v1` batch. Canonical's paired Ubuntu
+OSV/OpenVEX publication is the deliberate built-in exception: core acquires
+both archives atomically and consumes a bounded normalized projection so distro
+version and not-affected evidence retain their authority.
 
 Each source definition tracks:
 
@@ -224,21 +232,24 @@ matcher must be able to explain why a package matched.
 Matching runs in the control plane. Agents do not download vulnerability feeds and
 do not run feed matching jobs.
 
-The matcher reads current endpoint package rows and advisory coordinates, then
-writes device-scoped vulnerability matches with:
+The matcher reads current endpoint package rows, advisory coordinates, and
+distro assertions. It retains raw coordinate matches as supporting evidence and
+writes one stable device/package/CVE assessment with:
 
 - device UID and agent id
 - endpoint package and scan references
-- advisory reference and CVE/advisory id
-- feed provider and coordinate type
-- installed version and fixed version evidence
-- match confidence
+- CVE/advisory identity and authoritative provider
+- installed, introduced, and fixed-version evidence
+- confirmed or candidate assessment and affected/fixed/not-affected disposition
+- authority, applicability reason, and freshness
+- supporting raw-match and normalized-assertion IDs
 - KEV and exploit flags
 - first seen, last seen, and resolved timestamps
 
-The Software tab uses these match rows to show actionable package risk beside
-the inventory that produced it. Raw event pages remain audit context, not the
-primary remediation workflow.
+Only an active, confirmed, affected assessment is actionable. The Software tab
+shows those decisions beside the inventory that produced them while retaining
+candidates and resolved history for investigation. Raw match and event rows
+remain evidence and audit context, not the primary remediation workflow.
 
 ## Security Views
 
@@ -253,7 +264,7 @@ experience through OCSF-derived contracts.
   activity, DNS security activity, normalized vulnerability rows, and editable
   SRQL-backed widgets.
 - Device **Software** tabs are the remediation view for host packages and
-  endpoint vulnerability matches.
+  endpoint vulnerability assessments.
 - Raw event pages are audit and troubleshooting context. Integrations should
   ship display contracts so event details expose useful fields before the raw
   JSON.

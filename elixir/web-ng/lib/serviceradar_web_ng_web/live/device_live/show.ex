@@ -1134,7 +1134,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:endpoint_inventory_packages, [])
     |> assign(:endpoint_inventory_package_total, 0)
     |> assign(:endpoint_inventory_artifacts, [])
-    |> assign(:endpoint_inventory_vulnerability_matches, [])
+    |> assign(:endpoint_inventory_vulnerability_assessments, EndpointInventoryData.empty_assessment_pages())
     |> assign(:endpoint_inventory_cpe_catalog_current, true)
     |> assign(:endpoint_inventory_error, nil)
     |> assign(:has_software_inventory, false)
@@ -1198,7 +1198,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       Map.get(inventory, :stored_package_count, 0)
     )
     |> assign(:endpoint_inventory_artifacts, Map.get(inventory, :artifacts, []))
-    |> assign(:endpoint_inventory_vulnerability_matches, Map.get(inventory, :vulnerability_matches, []))
+    |> assign(
+      :endpoint_inventory_vulnerability_assessments,
+      Map.get(inventory, :vulnerability_assessments, EndpointInventoryData.empty_assessment_pages())
+    )
     |> assign(:endpoint_inventory_cpe_catalog_current, Map.get(inventory, :cpe_catalog_current, true))
     |> assign(:endpoint_inventory_error, Map.get(inventory, :error))
     |> assign(:has_software_inventory, Map.get(inventory, :has_inventory, false))
@@ -1208,8 +1211,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp software_inventory_present?(assigns) do
     assigns.endpoint_inventory_packages != [] or
-      assigns.endpoint_inventory_vulnerability_matches != []
+      assessment_total(assigns.endpoint_inventory_vulnerability_assessments) > 0
   end
+
+  defp assessment_total(pages) when is_map(pages) do
+    pages
+    |> Map.values()
+    |> Enum.reduce(0, fn page, total ->
+      total + if(is_map(page), do: Map.get(page, :total, Map.get(page, "total", 0)), else: 0)
+    end)
+  end
+
+  defp assessment_total(_pages), do: 0
 
   # Runs inside the async task (or synchronously in tests). Returns a plain map
   # of assigns; the follow-up tab resolution and background loads that must run

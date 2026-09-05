@@ -48,6 +48,15 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedRegistry do
       feed_type: @default_feed_type,
       requires_credential: true,
       refresh_interval_seconds: 21_600
+    },
+    %{
+      feed: "ubuntu-osv-vex",
+      provider: "ubuntu",
+      feed_key: "ubuntu-osv-vex",
+      display_name: "Ubuntu OSV + OpenVEX",
+      feed_type: @default_feed_type,
+      requires_credential: false,
+      refresh_interval_seconds: 21_600
     }
   ]
 
