@@ -25,11 +25,11 @@
 
 ## Implementation status
 
-Opt-in Rust generation lifecycle, Elixir builder, exact database authorization,
-ordinary reaper protections, and guarded synthetic qualification targets are
-implemented. Existing workflow callers deliberately remain unchanged. Lifecycle
-items above remain open until their database behavior is qualified in-cluster;
-pure tests are not proof of publication or isolation.
+Rust generation lifecycle, Elixir builder, exact database authorization,
+ordinary reaper protections, guarded synthetic qualification targets, and the
+synchronized workflow caller cutover are implemented on this draft branch.
+Lifecycle items above remain open until their database behavior is qualified
+in-cluster; pure tests are not proof of publication or isolation.
 
 The seven focused Bazel targets passed after the safety review and source freeze:
 manifest unit/artifact, Rust lifecycle unit, Elixir builder/guard, Go reaper, and
@@ -47,8 +47,9 @@ guarded generation/migrator targets (154 targets). This caught and corrected a
 Rust-edition keyword alias in the manual qualification test. No guarded database
 target was executed on the workstation.
 
-Before enabling keyed callers: deploy and verify the ordinary reaper namespace
-protection, execute guarded synthetic concurrency/recovery checks, qualify cold
-full replay and the separate cold-baseline path, then switch all callers together.
-See `docs/docs/ci-schema-templates.md`. Do not close #4277 based on this opt-in
-implementation alone.
+The deployed ordinary reaper namespace protection has been verified. Before this
+cutover can leave draft: pass guarded synthetic concurrency/recovery checks, cold
+full replay and the separate cold-baseline path, then ordinary and large-ingestion
+lifecycles plus warm reuse without migrator startup. See
+`docs/docs/ci-schema-templates.md`. Do not close #4277 based on implementation
+alone.

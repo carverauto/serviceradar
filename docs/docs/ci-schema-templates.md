@@ -4,11 +4,11 @@ title: CI Schema Templates
 
 # CI schema templates
 
-The keyed schema-template lifecycle is opt-in and is not yet qualified for
-workflow rollout. Existing BuildBuddy callers remain on the legacy lifecycle.
-Do not switch them until the scratch reaper's generation protections are deployed
-and verified, and the in-cluster qualification below passes. A successful manifest
-artifact test proves the build contract, not database construction or isolation.
+The keyed schema-template lifecycle is the configured source for BazelCI,
+LargeIngestionGate, and the integration benchmark actions. The legacy singleton
+remains protected for rollback, but active callers neither migrate it nor clone it.
+A successful manifest artifact test proves the build contract, not database
+construction or isolation; the in-cluster evidence below remains mandatory.
 
 ## Execution boundary
 
@@ -55,7 +55,14 @@ path must still pass its separate cold-baseline checks, including diagnosis of t
 reported shared-lock exhaustion. Do not interpret replay success as resolving that
 failure or silently change bootstrap strategy to get a green gate.
 
-## Opt-in lifecycle
+The separate production bootstrap baseline applies the same extension privilege
+discipline as the migrations: operator-owned extension comments are omitted, the
+optional statistics extension keeps its insufficient-privilege guard, and required
+extension creation still fails loudly. That does not make a schema-only dump a valid
+keyed-generation constructor; Timescale and AGE catalog state still requires full
+migration replay.
+
+## Keyed lifecycle
 
 Invoke each step separately and stop on a nonzero exit or unexpected output.
 These examples assume `SERVICERADAR_ENV=ci` is already selected by the guarded
@@ -177,6 +184,13 @@ registered database, without force, verifies its absence in the catalog, then
 removes the registry record. Legacy and unregistered databases are not cleanup
 candidates.
 
+Every active workflow runs the ordinary scratch sweep and this registry-owned
+cleanup before generation preparation. The ordinary reaper unconditionally excludes
+the entire `sr_tpl_` namespace. It can reclaim abandoned run clones but cannot race
+registry ownership or force-drop a generation. This separation keeps malformed or
+unregistered reserved names fail-closed while allowing eligible registered
+generations to be reclaimed under their coordination locks.
+
 ## Failure recovery
 
 - On an interrupted or partial build, stop the failed worker and establish that
@@ -203,7 +217,7 @@ candidates.
 Inspect registry state and leases in the administrative `postgres` database and
 the corresponding catalog/connection state through the approved fixture diagnostic
 path. Never commit captured rows, logs, identifiers, or credentials. For this
-opt-in lifecycle the recovery entrypoint is `prepare_generation`, not the legacy
+keyed lifecycle the recovery entrypoint is `prepare_generation`, not the legacy
 singleton target.
 
 ## Qualification and rollout gate
@@ -220,8 +234,9 @@ run ID to the workflow. Check fixture Timescale worker capacity before dispatch:
 the regression must observe a scheduler, and a worker-limit refusal is a failed
 prerequisite, not permission to skip that assertion or raise cluster limits.
 
-Before changing workflow callers, verify the deployed reaper excludes generation
-databases and protects their registry ownership. Run guarded, in-cluster checks for
+The caller cutover is releasable only after verifying that the deployed reaper
+excludes generation databases and protects their registry ownership. Run guarded,
+in-cluster checks for
 cold full replay, warm reuse without migrator startup, concurrent divergent
 synthetic migration sets, same-version edits, interrupted builders, stale fencing,
 clone/cleanup races, lease expiry, capacity failure, and protected database refusal.
@@ -232,6 +247,6 @@ Also pass cold-baseline bootstrap qualification, which remains part of
 time, connections, and storage against the policy. Keep preparation outside measured
 suite timing. These are required checks, not completed qualification claims.
 
-Until that evidence exists, preserve the current workflow and legacy template.
-Rollback changes callers while retaining both template families; it must not copy
-a keyed generation into the legacy singleton or broaden ordinary teardown rules.
+If any of that evidence fails, revert the callers while retaining both template
+families. Rollback must not copy a keyed generation into the legacy singleton or
+broaden ordinary teardown rules.

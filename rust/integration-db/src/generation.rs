@@ -528,6 +528,109 @@ async fn has_connections(client: &Client, database: &str) -> Result<bool> {
     Ok(active)
 }
 
+async fn has_generation_workers(client: &Client, database: &str) -> Result<bool> {
+    let active: bool = client
+        .query_one(
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND backend_type LIKE 'TimescaleDB Background Worker%')",
+            &[&database],
+        )
+        .await?
+        .get(0);
+    Ok(active)
+}
+
+/// Drain only extension-owned workers from an interrupted, fenced candidate.
+///
+/// Acquiring the generation lock proves that no cooperating builder still owns the
+/// candidate, but Timescale's scheduler outlives the session that installed the
+/// extension. Treating that scheduler like an application client makes recovery
+/// impossible. Fence new connections first, refuse every backend except this control
+/// session and Timescale workers, then use the database-local shutdown API. Arbitrary
+/// backend termination remains prohibited.
+async fn quiesce_recovery_workers(
+    admin: &Client,
+    manifest: &Manifest,
+    policy: &Policy,
+) -> Result<()> {
+    if !has_connections(admin, &manifest.database).await? {
+        return Ok(());
+    }
+
+    let allow_connections: bool = admin
+        .query_one(
+            "SELECT datallowconn FROM pg_database WHERE datname=$1",
+            &[&manifest.database],
+        )
+        .await?
+        .get(0);
+    ensure!(
+        allow_connections,
+        "sealed incomplete generation has active connections; refusing recovery"
+    );
+
+    let (candidate, candidate_driver) = crate::connect_admin(Some(&manifest.database)).await?;
+    let control_pid: i32 = candidate
+        .query_one("SELECT pg_backend_pid()", &[])
+        .await?
+        .get(0);
+    let unexpected: bool = admin
+        .query_one(
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND pid<>$2 AND backend_type NOT LIKE 'TimescaleDB Background Worker%')",
+            &[&manifest.database, &control_pid],
+        )
+        .await?
+        .get(0);
+    if unexpected {
+        drop(candidate);
+        candidate_driver.await?;
+        bail!("generation has active client connections; refusing recovery");
+    }
+
+    admin
+        .batch_execute(&format!(
+            "ALTER DATABASE {} ALLOW_CONNECTIONS false",
+            quote_ident(&manifest.database)
+        ))
+        .await?;
+    let unexpected_after_fence: bool = admin
+        .query_one(
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND pid<>$2 AND backend_type NOT LIKE 'TimescaleDB Background Worker%')",
+            &[&manifest.database, &control_pid],
+        )
+        .await?
+        .get(0);
+    if unexpected_after_fence {
+        admin
+            .batch_execute(&format!(
+                "ALTER DATABASE {} ALLOW_CONNECTIONS true",
+                quote_ident(&manifest.database)
+            ))
+            .await?;
+        drop(candidate);
+        candidate_driver.await?;
+        bail!("generation acquired a client connection while fencing recovery");
+    }
+
+    if has_generation_workers(admin, &manifest.database).await? {
+        let stopped: bool = candidate
+            .query_one(
+                "SELECT _timescaledb_functions.stop_background_workers()",
+                &[],
+            )
+            .await?
+            .get(0);
+        ensure!(
+            stopped || !has_generation_workers(admin, &manifest.database).await?,
+            "TimescaleDB worker shutdown was not acknowledged during recovery"
+        );
+    }
+    drop(candidate);
+    candidate_driver
+        .await
+        .context("closing generation recovery control session")?;
+    wait_for_no_connections(admin, &manifest.database, policy).await
+}
+
 async fn renew(client: &Client, digest: &str, lease_id: &str, policy: &Policy) -> Result<()> {
     ensure!(
         !lease_id.is_empty() && lease_id.len() <= 128,
@@ -590,6 +693,7 @@ pub async fn prepare(
                 builder_token: record.get(2),
             });
         }
+        quiesce_recovery_workers(client, manifest, policy).await?;
         no_connections(client, &manifest.database).await?;
     } else {
         let exists: bool = client

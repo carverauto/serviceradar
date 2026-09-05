@@ -29,11 +29,31 @@ fn manifest_hash(inputs: &[generation::Input], domain: &[u8]) -> String {
 }
 
 fn manifest(run: &str, branch: &str) -> generation::Manifest {
-    let inputs = vec![generation::Input {
+    let mut inputs = vec![generation::Input {
         path: format!("{PREFIX}1_synthetic.exs"),
         // This input is invented here, never copied from a fixture deployment.
-        sha256: hash(format!("synthetic-schema-{branch}-{run}").as_bytes()),
+        sha256: hash(format!("synthetic-schema-base-{run}").as_bytes()),
     }];
+    let migration_versions = match branch {
+        // Branch A models the staging-equivalent subset. Branch B has that exact
+        // history plus one invented migration, reproducing the shape that poisoned
+        // the mutable singleton when an unmerged checkout advanced it first.
+        "a" => vec![1],
+        "b" => {
+            inputs.push(generation::Input {
+                path: format!("{PREFIX}2_synthetic.exs"),
+                sha256: hash(format!("synthetic-schema-extra-{run}").as_bytes()),
+            });
+            vec![1, 2]
+        }
+        // The failed builder edits migration 1 without changing its version. Its
+        // distinct manifest must never reuse branch A's ready generation.
+        "failed" => {
+            inputs[0].sha256 = hash(format!("synthetic-schema-edited-{run}").as_bytes());
+            vec![1]
+        }
+        _ => panic!("unsupported synthetic branch"),
+    };
     let digest = manifest_hash(&inputs, b"serviceradar.schema-template.v1\0");
     let covered = manifest_hash(
         &inputs,
@@ -44,7 +64,7 @@ fn manifest(run: &str, branch: &str) -> generation::Manifest {
         database: generation::database_for_digest(&digest).unwrap(),
         digest,
         inputs,
-        migration_versions: vec![1],
+        migration_versions,
         covered_migrations: generation::CoveredMigrations {
             included_through: 1,
             digest: covered,
@@ -99,7 +119,15 @@ async fn publish(manifest: &generation::Manifest, branch: &str) -> Result<i64> {
     lock(&admin, manifest).await?;
     let token: i64 = admin.query_one("UPDATE sr_template_registry.generations SET builder_token=nextval('sr_template_registry.builder_tokens') WHERE digest=$1 AND state='building' RETURNING builder_token", &[&manifest.digest]).await?.get(0);
     let (candidate, candidate_driver) = db::connect_admin(Some(&manifest.database)).await?;
-    candidate.batch_execute(&format!("CREATE TABLE public.generation_probe (branch_{branch} integer NOT NULL); INSERT INTO public.generation_probe VALUES (7); CREATE TABLE platform.schema_migrations(version bigint PRIMARY KEY); INSERT INTO platform.schema_migrations VALUES (1)")).await?;
+    candidate.batch_execute(&format!("CREATE TABLE public.generation_probe (branch_{branch} integer NOT NULL); INSERT INTO public.generation_probe VALUES (7); CREATE TABLE platform.schema_migrations(version bigint PRIMARY KEY)")).await?;
+    for version in &manifest.migration_versions {
+        candidate
+            .execute(
+                "INSERT INTO platform.schema_migrations(version) VALUES($1)",
+                &[version],
+            )
+            .await?;
+    }
     let ledger: Vec<i64> = candidate
         .query(
             "SELECT version FROM platform.schema_migrations ORDER BY version",
@@ -176,7 +204,7 @@ async fn publish(manifest: &generation::Manifest, branch: &str) -> Result<i64> {
     Ok(token)
 }
 
-async fn verify_clone(database: &str, branch: &str) -> Result<()> {
+async fn verify_clone(database: &str, branch: &str, expected_versions: &[i64]) -> Result<()> {
     let (client, driver) = db::connect_admin(Some(database)).await?;
     let ordinary: bool = client.query_one(
         "SELECT datallowconn AND NOT datistemplate FROM pg_database WHERE datname=current_database()", &[]
@@ -209,7 +237,7 @@ async fn verify_clone(database: &str, branch: &str) -> Result<()> {
         .iter()
         .map(|r| r.get(0))
         .collect();
-    ensure!(ledger == vec![1], "clone ledger mismatch");
+    ensure!(ledger == expected_versions, "clone ledger mismatch");
     drop(client);
     driver.await?;
     Ok(())
@@ -235,6 +263,18 @@ async fn qualify() -> Result<()> {
     let a = manifest(&lease, "a");
     let b = manifest(&lease, "b");
     let failed = manifest(&lease, "failed");
+    ensure!(
+        b.inputs.starts_with(&a.inputs)
+            && b.migration_versions.starts_with(&a.migration_versions)
+            && b.migration_versions.len() == a.migration_versions.len() + 1,
+        "synthetic divergence must retain a staging-equivalent subset"
+    );
+    ensure!(
+        failed.migration_versions == a.migration_versions
+            && failed.digest != a.digest
+            && failed.database != a.database,
+        "same-version migration edit did not invalidate generation identity"
+    );
     let clone_a = db::shard_database_name("gen_a")?;
     let clone_b = db::shard_database_name("gen_b")?;
     let (admin, driver) = db::connect_admin(Some("postgres")).await?;
@@ -271,7 +311,10 @@ async fn qualify() -> Result<()> {
         generation::clone_generation(&a, &policy, &lease, &clone_a, &owner),
         generation::clone_generation(&b, &policy, &lease, &clone_b, &owner)
     )?;
-    tokio::try_join!(verify_clone(&clone_a, "a"), verify_clone(&clone_b, "b"))?;
+    tokio::try_join!(
+        verify_clone(&clone_a, "a", &a.migration_versions),
+        verify_clone(&clone_b, "b", &b.migration_versions)
+    )?;
 
     let mut tight = policy.clone();
     tight.max_generations = 1;
@@ -287,22 +330,40 @@ async fn qualify() -> Result<()> {
         !exists(&admin, &failed.database).await?,
         "capacity failure created candidate"
     );
-    verify_clone(&clone_a, "a").await?;
+    verify_clone(&clone_a, "a", &a.migration_versions).await?;
 
     let partial = generation::prepare(&failed, &policy, &lease, &owner).await?;
     let (candidate, candidate_driver) = db::connect_admin(Some(&failed.database)).await?;
     candidate
         .batch_execute("CREATE TABLE public.failed_build_marker(id integer)")
         .await?;
-    drop(candidate);
-    candidate_driver.await?;
+    let scheduler_started: bool = candidate
+        .query_one(
+            "SELECT _timescaledb_functions.start_background_workers()",
+            &[],
+        )
+        .await?
+        .get(0);
+    ensure!(
+        scheduler_started,
+        "failed-builder scheduler start was not acknowledged"
+    );
     ensure!(
         generation::clone_generation(&failed, &policy, &lease, &clone_a, &owner)
             .await
             .is_err(),
         "incomplete generation cloned"
     );
-    verify_clone(&clone_a, "a").await?;
+    verify_clone(&clone_a, "a", &a.migration_versions).await?;
+    let busy_recovery = generation::prepare(&failed, &policy, &lease, &owner)
+        .await
+        .expect_err("recovery accepted a live client backend");
+    ensure!(
+        busy_recovery.to_string().contains("active client"),
+        "unexpected busy recovery error: {busy_recovery:#}"
+    );
+    drop(candidate);
+    candidate_driver.await?;
     let recovered = generation::prepare(&failed, &policy, &lease, &owner).await?;
     ensure!(
         recovered.builder_token > partial.builder_token,
@@ -344,7 +405,7 @@ async fn qualify() -> Result<()> {
     generation::clone_generation(&a, &policy, &lease, &clone_a, &owner).await?;
     let live: bool=admin.query_one("SELECT expires_at>clock_timestamp() FROM sr_template_registry.leases WHERE digest=$1 AND lease_id=$2",&[&a.digest,&lease]).await?.get(0);
     ensure!(live, "clone did not renew lease");
-    verify_clone(&clone_a, "a").await?;
+    verify_clone(&clone_a, "a", &a.migration_versions).await?;
     ensure!(
         !generation::cleanup_digest(&a.digest, &policy).await?,
         "cleanup removed just-cloned generation"
@@ -371,7 +432,10 @@ async fn qualify() -> Result<()> {
         ensure!(!registered, "cleanup left registry row");
     }
     // Physical clones survive source cleanup and retain their divergent schemas.
-    tokio::try_join!(verify_clone(&clone_a, "a"), verify_clone(&clone_b, "b"))?;
+    tokio::try_join!(
+        verify_clone(&clone_a, "a", &a.migration_versions),
+        verify_clone(&clone_b, "b", &b.migration_versions)
+    )?;
     for database in [&clone_a, &clone_b] {
         db::teardown(database).await?;
         ensure!(

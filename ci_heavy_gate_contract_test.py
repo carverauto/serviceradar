@@ -740,12 +740,12 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         for target in (
             "//rust/integration-db:observe_connections",
             "//rust/integration-db:sweep_stale_dbs",
-            "//rust/integration-db:provision_base",
-            "//rust/integration-db:provision_db",
+            "//rust/integration-db:cleanup_generations",
+            "//rust/integration-db:prepare_generation",
+            "//rust/integration-db:provision_generation",
+            "//rust/integration-db:release_generation",
             "//rust/integration-db:teardown_db",
-            # Conditional at run time, unconditional here: a cohort that DID add a migration
-            # would otherwise compile the BEAM inside the measured clock.
-            "//elixir/serviceradar_core:migrate_run",
+            "//elixir/serviceradar_core:migrate_generation",
         ):
             self.assertEqual(1, prebuild.count(target), target)
 
@@ -758,12 +758,10 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
     def test_the_benchmark_never_writes_the_shared_template(self):
         """The measurement branch is still a branch, and shares one fixture with every other.
 
-        This action used to carry the same private preflight the other lifecycles did, and
-        that preflight advanced sr_core_template. It has no preflight now because it has
-        nothing shared to advance: the schema this run needs is built on its own database, so
-        a benchmark cohort cannot change what the next branch clones. The cost of the old
-        arrangement was not theoretical -- one branch left seven migrations in the template
-        and every branch without them was refused a clone until that branch landed.
+        Its keyed preflight can publish only the manifest-selected immutable generation; it
+        cannot advance sr_core_template. A benchmark cohort therefore cannot change what a
+        different checkout clones. The distinction is not theoretical: one branch once left
+        seven migrations in the singleton and every branch without them was refused a clone.
         """
         for target in (
             "//rust/integration-db:prepare_template",
@@ -771,18 +769,10 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
             "//elixir/serviceradar_core:migrate_template",
         ):
             self.assertNotIn(target, self.action)
-        for private_preflight_marker in (
-            "PREFLIGHT_RUN_ID=",
-            "PREFLIGHT_ENV_FILE=",
-            "PREFLIGHT_FLAGS=",
-        ):
-            self.assertNotIn(private_preflight_marker, self.action)
-
         self.assertIn("--//build:run_id=$RUN_ID", self.action)
-        self.assertEqual(
-            1, self.action.count("//rust/integration-db:provision_base\n")
-        )
-        self.assertIn("//elixir/serviceradar_core:migrate_run", self.action)
+        self.assertEqual(3, self.action.count("//rust/integration-db:prepare_generation"))
+        self.assertEqual(1, self.action.count("//rust/integration-db:provision_generation)"))
+        self.assertIn("//elixir/serviceradar_core:migrate_generation", self.action)
 
     def test_measured_flags_are_defined_before_each_measured_lifecycle_use(self):
         measured_start = self.action.index("\n          RUN_ID=")
@@ -792,8 +782,8 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         for use in (
             "bazel test $FLAGS //rust/integration-db:teardown_db",
             "bazel test $FLAGS //rust/integration-db:sweep_stale_dbs",
-            "bazel test $FLAGS //elixir/serviceradar_core:migrate_run",
-            "bazel test $FLAGS //rust/integration-db:provision_db",
+            "bazel test $FLAGS //elixir/serviceradar_core:migrate_generation",
+            "//rust/integration-db:provision_generation)",
             "bazel test $FLAGS --build_tests_only "
             "--build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test "
             "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...",
@@ -806,10 +796,9 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         measured_end = self.action.index("OBSERVER_DIR=", measured_start)
         block = self.action[measured_start:measured_end]
 
-        # One flag block now, because there is no preflight: the only database work this
-        # action does belongs to its own run. Credential-bearing local TestRunner results
-        # still must not enter the remote cache, and cached results must not contaminate a
-        # cohort, so both flags stay pinned exactly once.
+        # One flag block covers keyed preflight and measured execution for the same run.
+        # Credential-bearing local TestRunner results must not enter the remote cache, and
+        # cached results must not contaminate a cohort, so both flags stay pinned once.
         self.assertEqual(1, block.count("--nocache_test_results"))
         self.assertEqual(1, block.count("--noremote_upload_local_results"))
         self.assertEqual(1, block.count("--test_output=all"))
@@ -820,19 +809,14 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
             self.assertRegex(self.action, rf'{marker}="\$OBSERVER_DIR/')
             self.assertIn(f'[ ! -e "${{{marker}}}" ]', self.action)
 
-        # The schema build is inside the clock on purpose: seeding and migrating this run's
-        # own base is this run's work, and a cohort that adds a migration should show the cost
-        # rather than hide it in an unmeasured preflight. The shared template is not touched
-        # at all, so nothing outside the clock can change what this run clones.
-        start_ns = self.action.index("START_NS")
-        provision_base = self.action.index('base="$(bazel run', start_ns)
-        migrate_run = self.action.index("//elixir/serviceradar_core:migrate_run", provision_base)
-        provision_db = self.action.index(
-            "bazel test $FLAGS //rust/integration-db:provision_db", migrate_run
-        )
-        self.assertLess(start_ns, provision_base)
-        self.assertLess(provision_base, migrate_run)
-        self.assertLess(migrate_run, provision_db)
+        # Schema preparation is outside the clock. Only cloning and the suite are measured.
+        start_ns = self.action.index('START_NS="$(date +%s%N)"')
+        prepare = self.action.index('PREPARE_JSON="$(bazel run')
+        ready = self.action.index('READY_JSON="$(bazel run', prepare)
+        provision = self.action.index('PROVISION_JSON="$(bazel run', start_ns)
+        self.assertLess(prepare, ready)
+        self.assertLess(ready, start_ns)
+        self.assertLess(start_ns, provision)
         self.assertNotIn("migrate_template", self.action)
 
         teardown = self.action.index("//rust/integration-db:teardown_db")
@@ -865,52 +849,38 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
 
 
 class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
-    # `--//build:template_authority=true` is the caller declaring "this checkout is trunk, so
-    # the shared sr_core_template may be brought to match it". The write targets refuse without
-    # it. Exactly one action passes it; see
-    # test_only_the_trunk_push_action_may_write_the_shared_template.
-    template_authority_flag = "--//build:template_authority=true "
-    preflight_migrate_command = (
-        "bazel test $PREFLIGHT_FLAGS "
-        "//elixir/serviceradar_core:migrate_template"
-    )
-    preflight_migrate_arm = (
-        '*"migration(s) pending"*) bazel test $PREFLIGHT_FLAGS '
-        "//elixir/serviceradar_core:migrate_template ;;"
-    )
-    preflight_pending_arm = (
-        '*"migration(s) pending"*) echo "template remains pending after preflight" '
-        ">&2; exit 1 ;;"
-    )
-    preflight_ahead_arm = '*"template is AHEAD"*)'
-    preflight_reset_command = (
-        "bazel run -c opt --config=ci --//build:enable_integration_tests "
-        f"{template_authority_flag}"
-        "--//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:reset_template"
-    )
-    preflight_still_ahead_arm = (
-        '*"template is AHEAD"*) echo "template is still ahead of trunk after a reset" '
-        ">&2; exit 1 ;;"
-    )
-    # The shared template is written by exactly one action, and these three targets are the
-    # only way to write it. Anywhere else they are the bug this contract exists to prevent:
-    # BazelCI runs on branches, so migrate_template there advanced a cache every branch reads
-    # with migrations that were not yet on staging, and every branch without them was refused.
+    # These are retained only for rollback. No active caller may read or write the singleton.
     template_write_targets = (
         "//rust/integration-db:prepare_template",
         "//rust/integration-db:reset_template",
         "//elixir/serviceradar_core:migrate_template",
+        "//rust/integration-db:provision_base",
+        "//elixir/serviceradar_core:migrate_run",
+        "//rust/integration-db:provision_db",
+        "//rust/integration-db:provision_db_large_ingestion",
     )
     measured_migrate_command = (
-        "bazel test $FLAGS //elixir/serviceradar_core:migrate_run"
+        "bazel test $FLAGS //elixir/serviceradar_core:migrate_generation"
     )
-    measured_migrate_arm = f'*"migration(s) pending"*) {measured_migrate_command} ;;'
-    preflight_prepare = (
-        'preflight="$(bazel run -c opt --config=ci '
-        "--//build:enable_integration_tests "
-        f"{template_authority_flag}"
-        "--//build:run_id=$PREFLIGHT_RUN_ID "
-        '//rust/integration-db:prepare_template)"'
+    generation_cleanup = (
+        'CLEANUP_JSON="$(bazel run -c opt --config=ci '
+        "--//build:enable_integration_tests --//build:run_id=$RUN_ID "
+        '//rust/integration-db:cleanup_generations)"'
+    )
+    generation_prepare = (
+        'PREPARE_JSON="$(bazel run -c opt --config=ci '
+        "--//build:enable_integration_tests --//build:run_id=$RUN_ID "
+        '//rust/integration-db:prepare_generation)"'
+    )
+    generation_ready = (
+        'READY_JSON="$(bazel run -c opt --config=ci '
+        "--//build:enable_integration_tests --//build:run_id=$RUN_ID "
+        '//rust/integration-db:prepare_generation)"'
+    )
+    generation_release = (
+        'RELEASE_JSON="$(bazel run -c opt --config=ci '
+        "--//build:enable_integration_tests --//build:run_id=$RUN_ID "
+        '//rust/integration-db:release_generation)"'
     )
     ordinary_suite = (
         "bazel test $FLAGS --build_tests_only "
@@ -924,8 +894,14 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "--test_output=errors --nocache_test_results --flaky_test_attempts=1"
     )
     heavy_provision = (
-        "bazel test $FLAGS "
-        "//rust/integration-db:provision_db_large_ingestion"
+        'PROVISION_JSON="$(bazel run -c opt --config=ci '
+        "--//build:enable_integration_tests --//build:run_id=$RUN_ID "
+        '//rust/integration-db:provision_generation_large_ingestion)"'
+    )
+    ordinary_provision = (
+        'PROVISION_JSON="$(bazel run -c opt --config=ci '
+        "--//build:enable_integration_tests --//build:run_id=$RUN_ID "
+        '//rust/integration-db:provision_generation)"'
     )
     heavy_suite = (
         "bazel test $FLAGS "
@@ -944,27 +920,15 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             f"--max-seconds 1800 --required-pool-slots {required_pool_slots} &"
         )
     sweep = "bazel test $FLAGS //rust/integration-db:sweep_stale_dbs"
-    measured_provision_base = (
-        'base="$(bazel run -c opt --config=ci '
-        "--//build:enable_integration_tests --//build:run_id=$RUN_ID "
-        '//rust/integration-db:provision_base)"'
-    )
 
-    def assert_cache_flags(self, action_name: str, has_preflight: bool) -> None:
+    def assert_cache_flags(self, action_name: str) -> None:
         action = named_action(action_name)
         shell = database_lifecycle_shell(action)
         measured = measured_database_lifecycle_shell(action)
         measured_flags_start = measured.index('FLAGS="-c opt --config=ci')
         measured_flags_end = measured.index("OBSERVER_DIR=", measured_flags_start)
         flag_blocks = {"measured": measured[measured_flags_start:measured_flags_end]}
-        # Only the trunk action still has a preflight: it is the only one that writes the
-        # shared template, and that write is what the private run id and credentials wrap.
-        if has_preflight:
-            preflight_flags_start = shell.index('PREFLIGHT_FLAGS="')
-            preflight_flags_end = shell.index('preflight="$(bazel', preflight_flags_start)
-            flag_blocks["preflight"] = shell[preflight_flags_start:preflight_flags_end]
-        else:
-            self.assertNotIn("PREFLIGHT_FLAGS", shell)
+        self.assertNotIn("PREFLIGHT_FLAGS", shell)
         unexpected_counts = {
             phase: {
                 flag: block.count(flag)
@@ -1006,11 +970,13 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
 
         expected = (
             self.fixture_setup,
+            self.sweep,
+            self.generation_cleanup,
+            self.generation_prepare,
+            self.measured_migrate_command,
+            self.generation_ready,
             self.observer_start(required_pool_slots),
             wait,
-            self.sweep,
-            self.measured_provision_base,
-            self.measured_migrate_arm,
             provision_command,
             suite_command,
         )
@@ -1022,95 +988,44 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
 
     def assert_preflight_command_order(self, action: str) -> None:
         shell = database_lifecycle_shell(action)
-        measured_start = re.search(r"^RUN_ID=", shell, re.MULTILINE)
-        self.assertIsNotNone(measured_start)
-        preflight = shell[: measured_start.start()]
-        lines = normalized_shell_lines(preflight)
-        prepare_positions = [
-            index for index, line in enumerate(lines) if line == self.preflight_prepare
+        lines = normalized_shell_lines(shell)
+        positions = [
+            lines.index(command)
+            for command in (
+                self.fixture_setup,
+                self.sweep,
+                self.generation_cleanup,
+                self.generation_prepare,
+                self.measured_migrate_command,
+                self.generation_ready,
+            )
         ]
-        # Three: the first reading, the re-reading after an invalidated cache, and the final
-        # proof. The middle one is what makes the reset arm outcome-bearing rather than a
-        # command whose effect nothing checks.
-        self.assertEqual(3, len(prepare_positions))
-        self.assertEqual(1, lines.count(self.preflight_migrate_arm))
-        self.assertEqual(1, lines.count(self.preflight_pending_arm))
-        self.assertEqual(1, lines.count(self.preflight_ahead_arm))
-        self.assertEqual(1, lines.count(self.preflight_reset_command))
-        self.assertEqual(1, lines.count(self.preflight_still_ahead_arm))
-        ahead_arm = lines.index(self.preflight_ahead_arm)
-        reset = lines.index(self.preflight_reset_command)
-        conditional_migrate = lines.index(self.preflight_migrate_arm)
-        pending_check = lines.index(self.preflight_pending_arm)
-        still_ahead_check = lines.index(self.preflight_still_ahead_arm)
-        # An ahead template holds migrations on no landed branch, and the migrator cannot
-        # un-apply anything -- so the cache must be invalidated BEFORE the migrate arm, and
-        # re-read in between, or the migrate reports success having changed nothing.
-        self.assertLess(prepare_positions[0], ahead_arm)
-        self.assertLess(ahead_arm, reset)
-        self.assertLess(reset, prepare_positions[1])
-        self.assertLess(prepare_positions[1], conditional_migrate)
-        self.assertLess(conditional_migrate, prepare_positions[2])
-        self.assertLess(prepare_positions[2], pending_check)
-        self.assertLess(pending_check, still_ahead_check)
+        self.assertEqual(sorted(positions), positions)
+        self.assertIn('if [ "$GENERATION_STATUS" = "needs_migration" ]; then', lines)
+        self.assertIn('GENERATION_MIGRATOR_STARTED=0', lines)
+        self.assertIn('GENERATION_MIGRATOR_STARTED=1', lines)
 
-    def test_only_the_trunk_push_action_may_write_the_shared_template(self):
-        """`sr_core_template` has exactly one writer, and it is a push-to-staging action.
+    def test_no_active_workflow_may_write_the_shared_template(self):
+        """The authority mechanism remains for rollback, but no caller may grant it.
 
-        The template is cloned by every run and only ratchets forward, so whoever migrates it
-        decides the schema every other branch gets. When any caller could write it, seven
-        migrations from an unmerged pull request wedged every open pull request at once --
-        including ones whose diff contained no migration -- because the ahead-check correctly
-        told them to rebase onto a branch that could not be merged.
-
-        Restructuring the workflow moved every branch onto a per-run base, which the tests
-        above pin. This pins the other half: the write targets refuse without
-        `--//build:template_authority=true`, so exactly one action may grant it. Granting it to
-        a pull_request action would restore the original bug exactly. Granting it to
-        IntegrationBenchmark is worse than it looks -- its steps are a YAML anchor shared with
-        the two `benchmark/parallel-core-integration-cpu*` actions, which trigger on FEATURE
-        branches, so one edit would hand write access to two branch builds at once.
+        Every active database workflow now uses immutable generations. Retaining a trunk-only
+        singleton writer alongside the keyed callers would silently reintroduce two lifecycle
+        families and leave the old cache mutating after the cutover.
         """
-        authority = named_action("LargeIngestionGate")
+        flag = "--//build:template_authority=true"
 
-        # Trunk, by trigger. A schedule entry is fine -- a cron checks out the default branch --
-        # but a pull_request trigger would mean the writer is not trunk at all.
-        self.assertIn("push:", authority)
-        self.assertIn('- "staging"', authority)
-        self.assertNotIn("pull_request:", authority)
-
-        shell = database_lifecycle_shell(authority)
-        flag = self.template_authority_flag.strip()
-
-        # Every direct invocation of a Rust write target carries it. A PARTIAL grant is its own
-        # bug: the preflight would migrate the shared template and then abort on the reset it
-        # was not allowed to run, leaving the template exactly as ahead as it started.
-        write_invocations = [
-            line
-            for line in normalized_shell_lines(shell)
-            if "//rust/integration-db:prepare_template" in line
-            or "//rust/integration-db:reset_template" in line
-        ]
-        self.assertEqual(4, len(write_invocations))
-        for line in write_invocations:
-            self.assertIn(flag, line)
-
-        # And the preflight flag bundle, which is how migrate_template -- the step that performs
-        # the ratchet itself -- receives it.
-        start = shell.index('PREFLIGHT_FLAGS="')
-        end = shell.index('"', shell.index("SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD", start))
-        self.assertIn(flag, shell[start:end])
-
-        # Nobody else, checked against each action's whole text so a stray occurrence in a
-        # comment or an unmeasured step is caught too.
         for action_name in (
             "BazelCI",
+            "LargeIngestionGate",
             "IntegrationBenchmark",
             "IntegrationBenchmarkCPU2",
             "IntegrationBenchmarkCPU12",
         ):
             with self.subTest(action=action_name):
-                self.assertNotIn(flag, named_action(action_name))
+                action = named_action(action_name)
+                self.assertNotIn(flag, action)
+                for target in self.template_write_targets:
+                    self.assertNotIn(target, action)
 
     def test_the_authority_flag_is_declared_off_and_read_from_the_build_graph(self):
         """A refusal only holds if both halves of the lifecycle can see the same answer.
@@ -1170,12 +1085,9 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertNotIn("TEMPLATE_WRITE_DATA", base)
 
     def test_database_flags_disable_cache_and_remote_upload(self):
-        for action_name, has_preflight in (
-            ("BazelCI", False),
-            ("LargeIngestionGate", True),
-        ):
+        for action_name in ("BazelCI", "LargeIngestionGate"):
             with self.subTest(action=action_name):
-                self.assert_cache_flags(action_name, has_preflight)
+                self.assert_cache_flags(action_name)
 
     def test_test_output_mode_cannot_drift_in_either_direction(self):
         """Every site is pinned, and flipping any single one is rejected.
@@ -1355,34 +1267,20 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
 
     def assert_preflight_and_clock_contract(self, action: str) -> None:
         for required in (
-            "PREFLIGHT_RUN_ID=",
-            "PREFLIGHT_ENV_FILE=",
-            'chmod 600 "$PREFLIGHT_ENV_FILE"',
-            'SERVICERADAR_FIXTURE_ENV_FILE="$PREFLIGHT_ENV_FILE"',
-            'trap \'rm -f "$PREFLIGHT_ENV_FILE"\' EXIT',
-            "template remains pending after preflight",
-            "template is still ahead of trunk after a reset",
+            'RUN_DATABASE="sr_core_test_$RUN_ID"',
+            'chmod 600 "$SERVICERADAR_FIXTURE_ENV_FILE"',
+            "validate_prepare_json",
+            self.generation_cleanup,
+            self.generation_prepare,
+            self.measured_migrate_command,
+            self.generation_ready,
+            "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT",
         ):
             self.assertIn(required, action)
 
-        preflight_start = action.index("PREFLIGHT_RUN_ID=")
-        measured_start = action.index("\n          RUN_ID=", preflight_start)
-        self.assertLess(preflight_start, measured_start)
-
         self.assert_clock_contract(action)
-
-        start_ns = action.index("START_NS=", measured_start)
-        preflight = action[preflight_start:measured_start]
-        measured = action[start_ns:]
-        self.assertEqual(3, preflight.count("//rust/integration-db:prepare_template"))
-        self.assertEqual(1, preflight.count("//elixir/serviceradar_core:migrate_template"))
-        self.assertEqual(1, preflight.count("//rust/integration-db:reset_template"))
-        # Every write to the shared template is inside the preflight subshell, under its
-        # private run id and credentials. The measured lifecycle owns this run's database only.
         for target in self.template_write_targets:
-            self.assertNotIn(target, measured)
-        self.assertEqual(1, measured.count("//rust/integration-db:provision_base"))
-        self.assertEqual(1, measured.count("//elixir/serviceradar_core:migrate_run"))
+            self.assertNotIn(target, action)
 
     def assert_clock_contract(self, action: str) -> None:
         """The measured clock starts before the first thing it is supposed to measure.
@@ -1391,17 +1289,19 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         now, while every lifecycle has a clock.
         """
         measured_start = action.index("\n          RUN_ID=")
-        start_ns = action.index("START_NS=", measured_start)
-        fixture_setup = action.index("//:buildbuddy_setup_fixture_env", start_ns)
+        fixture_setup = action.index("//:buildbuddy_setup_fixture_env", measured_start)
+        prepare = action.index('PREPARE_JSON="$(bazel run', fixture_setup)
+        ready = action.index('READY_JSON="$(bazel run', prepare)
+        start_ns = action.index('START_NS="$(date +%s%N)"', ready)
+        observer = action.index("//rust/integration-db:observe_connections", start_ns)
         self.assertLess(measured_start, start_ns)
-        self.assertLess(start_ns, fixture_setup)
-        self.assertRegex(
-            action[start_ns:fixture_setup + len("//:buildbuddy_setup_fixture_env")],
-            r'START_NS="\$\(date \+%s%N\)"\n\s+bazel run .*//:buildbuddy_setup_fixture_env',
-        )
+        self.assertLess(fixture_setup, prepare)
+        self.assertLess(prepare, ready)
+        self.assertLess(ready, start_ns)
+        self.assertLess(start_ns, observer)
 
     def assert_shared_template_is_never_written(self, action: str) -> None:
-        """No preflight, and no path to the shared template, anywhere in the action.
+        """No active path to the shared template exists anywhere in the action.
 
         The invariant, stated where it can fail. A branch action that can advance
         sr_core_template poisons every other branch's clone source, and the failure surfaces
@@ -1409,15 +1309,11 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         """
         for target in self.template_write_targets:
             self.assertNotIn(target, action)
-        for private_preflight_marker in (
-            "PREFLIGHT_RUN_ID=",
-            "PREFLIGHT_ENV_FILE=",
-            "PREFLIGHT_FLAGS=",
-        ):
-            self.assertNotIn(private_preflight_marker, action)
         measured = measured_database_lifecycle_shell(action)
-        self.assertEqual(1, measured.count("//rust/integration-db:provision_base"))
-        self.assertEqual(1, measured.count("//elixir/serviceradar_core:migrate_run"))
+        self.assertEqual(2, measured.count("//rust/integration-db:prepare_generation"))
+        self.assertEqual(1, measured.count("//elixir/serviceradar_core:migrate_generation"))
+        self.assertEqual(1, measured.count("//rust/integration-db:cleanup_generations"))
+        self.assertEqual(1, measured.count("//rust/integration-db:release_generation"))
 
     def assert_observer_and_cleanup_contract(self, action: str) -> None:
         for marker, basename in (
@@ -1437,6 +1333,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             'touch "$SUITE_COMPLETE_FILE"',
             'wait_for_marker "$QUIESCENT_FILE" 30',
             '//rust/integration-db:teardown_db',
+            '//rust/integration-db:release_generation',
             'touch "$STOP_FILE"',
             'wait "$OBSERVER_PID"',
             'rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"',
@@ -1446,19 +1343,11 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
 
         cleanup = action[action.index("cleanup() {") :]
         cleanup_lines = normalized_shell_lines(cleanup)
-        teardown_window = (
-            "bazel test $FLAGS //rust/integration-db:teardown_db",
-            "TEARDOWN_STATUS=$?",
-            'END_NS="$(date +%s%N)"',
-        )
         self.assertEqual(
             1,
-            sum(
-                cleanup_lines[index : index + len(teardown_window)]
-                == teardown_window
-                for index in range(len(cleanup_lines) - len(teardown_window) + 1)
-            ),
+            cleanup_lines.count("bazel test $FLAGS //rust/integration-db:teardown_db"),
         )
+        self.assertEqual(1, cleanup_lines.count(self.generation_release))
         original = cleanup.index("ORIGINAL_STATUS=$?")
         disable_trap = cleanup.index("trap - EXIT", original)
         nonfatal = cleanup.index("set +e", disable_trap)
@@ -1468,7 +1357,9 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         )
         teardown = cleanup.index("//rust/integration-db:teardown_db", quiescent)
         teardown_status = cleanup.index("TEARDOWN_STATUS=$?", teardown)
-        end_ns = cleanup.index("END_NS=", teardown_status)
+        release = cleanup.index("//rust/integration-db:release_generation", teardown_status)
+        release_status = cleanup.index("RELEASE_STATUS=$?", release)
+        end_ns = cleanup.index("END_NS=", release_status)
         stop = cleanup.index('touch "$STOP_FILE"', end_ns)
         observer_wait = cleanup.index('wait "$OBSERVER_PID"', stop)
         self.assertLess(original, disable_trap)
@@ -1476,17 +1367,16 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertLess(suite_complete, quiescent)
         self.assertLess(quiescent, teardown)
         self.assertLess(teardown, teardown_status)
-        self.assertLess(teardown_status, end_ns)
+        self.assertLess(teardown_status, release)
+        self.assertLess(release, release_status)
+        self.assertLess(release_status, end_ns)
         self.assertLess(end_ns, stop)
         self.assertLess(stop, observer_wait)
-        self.assertRegex(
-            cleanup[teardown:],
-            r"TEARDOWN_STATUS=\$\?\n\s+END_NS=",
-        )
         self.assertIn("LIFECYCLE_NS=$((END_NS - START_NS))", cleanup)
         self.assertIn("suite_status=$SUITE_STATUS", cleanup)
         self.assertIn("observer_status=$OBSERVER_STATUS", cleanup)
         self.assertIn("teardown_status=$TEARDOWN_STATUS", cleanup)
+        self.assertIn("release_status=$RELEASE_STATUS", cleanup)
         self.assertIn("SUITE_STATUS=$ORIGINAL_STATUS", cleanup)
 
         status_init = action.index("SUITE_STATUS=0")
@@ -1498,8 +1388,10 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         suite_exit = cleanup.index('exit "$SUITE_STATUS"')
         observer_exit = cleanup.index('exit "$OBSERVER_STATUS"', suite_exit)
         teardown_exit = cleanup.index('exit "$TEARDOWN_STATUS"', observer_exit)
+        release_exit = cleanup.index('exit "$RELEASE_STATUS"', teardown_exit)
         self.assertLess(suite_exit, observer_exit)
         self.assertLess(observer_exit, teardown_exit)
+        self.assertLess(teardown_exit, release_exit)
 
     def assert_teardown_suffix_mutations_are_rejected(self, action: str) -> None:
         teardown = "bazel test $FLAGS //rust/integration-db:teardown_db"
@@ -1531,7 +1423,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assert_shared_template_is_never_written(action)
         self.assert_common_measured_lifecycle(
             action,
-            "bazel test $FLAGS //rust/integration-db:provision_db",
+            self.ordinary_provision,
             self.ordinary_suite,
             114,
         )
@@ -1544,7 +1436,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assert_clock_contract(action)
         self.assert_exact_measured_execution_order(
             action,
-            "bazel test $FLAGS //rust/integration-db:provision_db",
+            self.ordinary_provision,
             self.ordinary_suite,
             114,
         )
@@ -1553,11 +1445,10 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         commands = normalized_bazel_test_commands(action)
         self.assertEqual(
             (
-                # No preflight migrate: this action never writes the shared template.
+                # The conditional preflight migrator targets the private generation.
                 "bazel test $FLAGS //rust/integration-db:teardown_db",
                 self.sweep,
                 self.measured_migrate_command,
-                "bazel test $FLAGS //rust/integration-db:provision_db",
                 self.ordinary_suite,
                 self.web_db_suite,
             ),
@@ -1586,8 +1477,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             normalized_action.index(unit_suite),
             normalized_action.index(self.playwright_acceptance),
         )
-        # Anchored on the measured run id, not a preflight: BazelCI no longer has one,
-        # because it no longer writes the shared template.
+        # The browser gate runs before the run id that pins keyed preflight and measurement.
         self.assertLess(
             normalized_action.index(self.playwright_acceptance),
             normalized_action.index('RUN_ID="$(od -An -tx1 -N4 /dev/urandom'),
@@ -1654,9 +1544,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         )
         self.assertEqual(1, action.count(self.heavy_provision))
         self.assertEqual(1, action.count(self.heavy_suite))
-        self.assertNotIn(
-            "bazel test $FLAGS //rust/integration-db:provision_db\n", action
-        )
+        self.assertNotIn(self.ordinary_provision, action)
         self.assertNotRegex(
             action,
             r"bazel test \$FLAGS //\.\.\.\s+--test_tag_filters=integration_test",
@@ -1681,11 +1569,9 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         commands = normalized_bazel_test_commands(action)
         self.assertEqual(
             (
-                self.preflight_migrate_command,
                 "bazel test $FLAGS //rust/integration-db:teardown_db",
                 self.sweep,
                 self.measured_migrate_command,
-                self.heavy_provision,
                 self.heavy_suite,
             ),
             commands,
