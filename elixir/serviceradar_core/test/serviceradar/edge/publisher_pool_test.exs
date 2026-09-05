@@ -334,4 +334,100 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       eventually(fun, tries - 1)
     end
   end
+
+  describe "an accountant with no live transport is CLOSED" do
+    # These deliberately do NOT use pool/3, which registers a transport for you. The closed state
+    # is what pool/3 hides, and mutation testing is how that gap surfaced: the fail-closed guard
+    # could be deleted outright and every other test in this suite still passed.
+    defp bare_pool(frames \\ 2, bytes \\ 600) do
+      {:ok, pid} =
+        PublisherPool.start_link(
+          class: :bulk,
+          frame_credits: frames,
+          byte_credits: bytes,
+          name: nil
+        )
+
+      pid
+    end
+
+    defp live_transport(pool) do
+      transport = spawn(fn -> Process.sleep(:infinity) end)
+      on_exit(fn -> Process.exit(transport, :kill) end)
+      {:ok, generation} = PublisherPool.register_transport(pool, transport)
+      {transport, generation}
+    end
+
+    defp eventually(_fun, 0), do: false
+
+    defp eventually(fun, tries) do
+      if fun.(), do: true, else: Process.sleep(10) && eventually(fun, tries - 1)
+    end
+
+    test "a FRESH accountant admits nothing until a transport registers" do
+      # The fail-closed half of the restart contract. A replaced accountant has an EMPTY ledger,
+      # and an empty ledger that accepts admissions is the over-admission defect wearing a
+      # different hat -- so it must refuse until send capability exists again.
+      p = bare_pool()
+
+      assert {:error, :no_transport} = PublisherPool.admit(p, k(1), 50, 60_000)
+      assert %{outstanding_frames: 0, outstanding_bytes: 0} = PublisherPool.capacity(p)
+
+      # NOT VACUOUS: the identical call succeeds once a transport registers, so the refusal is
+      # about the missing generation and not about the request.
+      {_transport, _gen} = live_transport(p)
+      assert {:ok, _res} = PublisherPool.admit(p, k(1), 50, 60_000)
+    end
+
+    test "a refusal for want of transport charges NOTHING" do
+      # A refusal that consumed a credit would be worse than admitting: the lane would bleed
+      # capacity every time it was closed, and never get it back.
+      p = bare_pool(1, 100)
+      before = PublisherPool.capacity(p)
+
+      assert {:error, :no_transport} = PublisherPool.admit(p, k(1), 50, 60_000)
+      assert {:error, :no_transport} = PublisherPool.admit(p, k(2), 50, 60_000)
+
+      assert PublisherPool.capacity(p) === before
+    end
+
+    test "when its transport DIES the accountant closes again" do
+      # The generation is gone, so there is nothing to publish on. Continuing to admit would
+      # charge credits against transport that cannot carry them -- and would do it while the
+      # replacement generation has not registered, so nothing could report the outcome either.
+      p = bare_pool(2, 600)
+      {transport, generation} = live_transport(p)
+
+      assert {:ok, _res} = PublisherPool.admit(p, k(1), 50, 60_000)
+      assert PublisherPool.generations(p).accepting === generation
+
+      Process.exit(transport, :kill)
+
+      assert eventually(fn -> PublisherPool.generations(p).accepting === nil end, 300),
+             "the accountant kept accepting on a dead generation"
+
+      assert {:error, :no_transport} = PublisherPool.admit(p, k(2), 50, 60_000)
+
+      # AND the charge from before the death survived: generation death ends the ATTEMPT, never
+      # the reservation, because it is no evidence about whether the bytes reached the broker.
+      assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
+    end
+
+    test "a REPLACEMENT transport re-opens it, on the remaining capacity" do
+      p = bare_pool(2, 600)
+      {transport, first_gen} = live_transport(p)
+
+      assert {:ok, _res} = PublisherPool.admit(p, k(1), 50, 60_000)
+      Process.exit(transport, :kill)
+      assert eventually(fn -> PublisherPool.generations(p).accepting === nil end, 300)
+
+      {_replacement, second_gen} = live_transport(p)
+      refute second_gen === first_gen
+
+      # Open again -- but with ONE frame, not two: the fenced reservation is still charged.
+      assert %{outstanding_frames: 1, available_frames: 1} = PublisherPool.capacity(p)
+      assert {:ok, _res2} = PublisherPool.admit(p, k(2), 50, 60_000)
+      assert {:error, :frame_credits_exhausted} = PublisherPool.admit(p, k(3), 50, 60_000)
+    end
+  end
 end
