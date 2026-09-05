@@ -279,6 +279,10 @@ defmodule ServiceRadar.Monitoring.Alert do
       end
 
       change set_attribute(:triggered_at, &DateTime.utc_now/0)
+      # JSON:API / CLI test-sends use this action. Enqueue the same first-notify
+      # routing request as `:send_notification` so a created alert pages without
+      # waiting for the AshOban scan (which is first-100 of a large backlog).
+      change {EnqueueRoutingRequest, lifecycle_reason: :fire}
     end
 
     update :reassign_device do

@@ -17,6 +17,7 @@ import urllib.error
 import urllib.request
 
 JSON_API = "application/vnd.api+json"
+ACCEPT = f"{JSON_API}, application/json"
 RULE_NAME = "k8s_node_not_ready"
 ROUTE_NAME = "k8s-node-not-ready"
 POLICY_NAME = "k8s-node-not-ready"
@@ -85,13 +86,16 @@ def main() -> int:
     routes = client.list("notification-routes")
     for route in routes:
         expr = route["attributes"].get("match_expression") or {}
-        if route["attributes"].get("name") == "test" and expr.get("equals") == "":
+        if (
+            route["attributes"].get("name") == "test"
+            and _has_empty_equals(expr)
+            and route["attributes"].get("enabled")
+        ):
             client.patch(f"notification-routes/{route['id']}/disable", "notification_route", route["id"], {})
             print(f"Disabled empty-title route {route['id']}")
 
     route_attrs = {
         "name": ROUTE_NAME,
-        "enabled": True,
         "priority": 10,
         "continue": False,
         "match_expression": MATCH,
@@ -102,7 +106,7 @@ def main() -> int:
         client.patch(f"notification-routes/{existing['id']}", "notification_route", existing["id"], route_attrs)
         print(f"Updated route {ROUTE_NAME}")
     else:
-        client.create("notification-routes", "notification_route", route_attrs)
+        client.create("notification-routes", "notification_route", {**route_attrs, "enabled": True})
         print(f"Created route {ROUTE_NAME}")
 
     if args.fire_test:
@@ -147,15 +151,17 @@ class JsonApiClient:
 
     def request(self, method: str, path: str, body: dict | None = None) -> dict:
         data = None if body is None else json.dumps(body).encode("utf-8")
+        headers = {
+            "Authorization": f"Bearer {self.token}",
+            "Accept": ACCEPT,
+        }
+        if data is not None:
+            headers["Content-Type"] = JSON_API
         req = urllib.request.Request(
             self.instance + path,
             data=data,
             method=method,
-            headers={
-                "Authorization": f"Bearer {self.token}",
-                "Accept": JSON_API,
-                "Content-Type": JSON_API,
-            },
+            headers=headers,
         )
         try:
             with urllib.request.urlopen(req) as resp:
@@ -164,6 +170,21 @@ class JsonApiClient:
             detail = exc.read().decode("utf-8", errors="replace")[:400]
             raise SystemExit(f"{method} {path} -> {exc.code}: {detail}") from exc
         return json.loads(raw) if raw else {"data": {}}
+
+
+def _has_empty_equals(expr: object) -> bool:
+    if not isinstance(expr, dict):
+        return False
+    if expr.get("equals") == "":
+        return True
+    return any(
+        _has_empty_equals(value)
+        if isinstance(value, dict)
+        else any(_has_empty_equals(item) for item in value if isinstance(item, dict))
+        if isinstance(value, list)
+        else False
+        for value in expr.values()
+    )
 
 
 if __name__ == "__main__":

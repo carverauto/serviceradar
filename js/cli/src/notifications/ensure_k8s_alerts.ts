@@ -9,6 +9,8 @@ import {normalizeInstanceUrl} from "../auth/credentials.js"
 import {formatFetchFailure} from "../tls_ca.js"
 
 const JSON_API = "application/vnd.api+json"
+// Envoy/Kong in front of demo 406s when Accept is only vnd.api+json.
+const ACCEPT = `${JSON_API}, application/json`
 const RULE_NAME = "k8s_node_not_ready"
 const ROUTE_NAME = "k8s-node-not-ready"
 const POLICY_NAME = "k8s-node-not-ready"
@@ -75,8 +77,8 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
 
   const routes = await client.list("notification-routes")
   for (const route of routes) {
-    const expr = route.attributes?.match_expression as {equals?: unknown} | undefined
-    if (route.attributes?.name === "test" && expr && "equals" in expr && expr.equals === "") {
+    const expr = route.attributes?.match_expression
+    if (route.attributes?.name === "test" && hasEmptyEquals(expr) && route.attributes?.enabled) {
       await client.patch(`notification-routes/${route.id}/disable`, "notification_route", route.id, {})
       console.log(`Disabled empty-title route ${route.id}`)
     }
@@ -85,7 +87,6 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
   let route = routes.find((row) => row.attributes?.name === ROUTE_NAME)
   const routeAttrs = {
     name: ROUTE_NAME,
-    enabled: true,
     priority: 10,
     continue: false,
     match_expression: MATCH,
@@ -95,7 +96,10 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
     route = await client.patch(`notification-routes/${route.id}`, "notification_route", route.id, routeAttrs)
     console.log(`Updated route ${ROUTE_NAME}`)
   } else {
-    route = await client.create("notification-routes", "notification_route", routeAttrs)
+    route = await client.create("notification-routes", "notification_route", {
+      ...routeAttrs,
+      enabled: true,
+    })
     console.log(`Created route ${ROUTE_NAME}`)
   }
 
@@ -111,6 +115,16 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
   }
 
   console.log(`✓ ${ROUTE_NAME} routes to ${channelName} on ${instance}`)
+}
+
+function hasEmptyEquals(expr: unknown): boolean {
+  if (!expr || typeof expr !== "object") return false
+  const record = expr as Record<string, unknown>
+  if ("equals" in record && record.equals === "") return true
+  return Object.values(record).some((value) => {
+    if (Array.isArray(value)) return value.some(hasEmptyEquals)
+    return hasEmptyEquals(value)
+  })
 }
 
 class JsonApiClient {
@@ -143,8 +157,8 @@ class JsonApiClient {
         method,
         headers: {
           authorization: `Bearer ${this.token}`,
-          accept: JSON_API,
-          "content-type": JSON_API,
+          accept: ACCEPT,
+          ...(body ? {"content-type": JSON_API} : {}),
         },
         body: body ? JSON.stringify(body) : undefined,
       })

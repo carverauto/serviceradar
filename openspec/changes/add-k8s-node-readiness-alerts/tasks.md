@@ -79,12 +79,12 @@
 
 ## 6. Demo
 
-- [ ] 6.1 Roll collector + core-elx (EventWriter lives in core) to carverauto
+- [x] 6.1 Roll collector + core-elx (EventWriter lives in core) to carverauto
       `demo` per demo-local-rollout. Do not take a live node down.
-- [ ] 6.2 After rules seed, add or replace a demo NotificationRoute matching
+- [x] 6.2 After rules seed, add or replace a demo NotificationRoute matching
       `alert.metadata.incident_rule_name` equals `k8s_node_not_ready` whose
       escalation step fans out to `demo-discord`. Leave the empty-title `test`
       route disabled or deleted so it cannot win.
-- [ ] 6.3 Fire a test dispatch that exercises that route (synthetic node-down
+- [x] 6.3 Fire a test dispatch that exercises that route (synthetic node-down
       alert or equivalent). Confirm a `NotificationDelivery` with `state=sent`
       and that Discord received it. Record the portal/delivery evidence URL.
