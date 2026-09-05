@@ -200,6 +200,17 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
       {:error, :attempt_in_flight} ->
         {:error, :capacity}
 
+      # The lane has no live transport generation: it is between restarts, or its accountant was
+      # replaced and is deliberately CLOSED until a transport registers. Nothing was published --
+      # the refusal happens before any I/O -- and the condition clears on its own, so this is
+      # RETRYABLE like any other capacity refusal rather than a fault in this publication.
+      #
+      # Classifying it as a derivation error, which is what the fall-through did, would have been
+      # wrong twice: derivation is about THIS record's route, which is fine, and the fall-through
+      # class is not one a caller should treat as terminal.
+      {:error, :no_transport} ->
+        {:error, :capacity}
+
       # The pool died between the lookup and this call -- a lane restart landing mid-attempt. The
       # contract is a tuple, not an exit, and nothing was published.
       {:error, :pool_gone} ->

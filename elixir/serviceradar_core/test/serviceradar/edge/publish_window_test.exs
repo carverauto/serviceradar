@@ -18,6 +18,20 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
   defp k_other_record(seq),
     do: PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, seq, {:other_record, seq})
 
+  # ONE generation per test process, so repeated admits in a test share a transport the way a
+  # real lane does. Tests that need a SECOND generation mint their own with make_ref/0.
+  defp gen do
+    case Process.get(:generation) do
+      nil ->
+        ref = make_ref()
+        Process.put(:generation, ref)
+        ref
+
+      ref ->
+        ref
+    end
+  end
+
   defp window(frames \\ 4, bytes \\ 1000) do
     {:ok, w} = PublishWindow.new(frames, bytes)
     w
@@ -37,7 +51,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
   # Admits AND activates: an admission is provisional until its caller takes delivery, and every
   # test below is modelling a caller that did. The provisional phase has its own tests.
   defp admit!(w, seq, bytes, deadline) do
-    {:ok, w, reservation} = PublishWindow.admit(w, k(seq), bytes, deadline, self())
+    {:ok, w, reservation} = PublishWindow.admit(w, k(seq), bytes, deadline, self(), gen())
     {:ok, w} = PublishWindow.activate(w, reservation)
     Process.put({:reservation, seq}, reservation)
     w
@@ -50,7 +64,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
   # Admit AND activate, i.e. model a caller that took delivery. Direct `admit/4` leaves the
   # attempt PROVISIONAL, which is deliberately inert -- the provisional phase has its own tests.
   defp admit_active!(w, key, bytes, deadline) do
-    {:ok, w, reservation} = PublishWindow.admit(w, key, bytes, deadline, self())
+    {:ok, w, reservation} = PublishWindow.admit(w, key, bytes, deadline, self(), gen())
     {:ok, w} = PublishWindow.activate(w, reservation)
     {w, reservation}
   end
@@ -80,7 +94,9 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
       assert PublishWindow.available_frames(none) === 0
       refute PublishWindow.admits?(none, 0)
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(none, k(1), 0, 100, self())
+
+      assert {:error, :frame_credits_exhausted} =
+               PublishWindow.admit(none, k(1), 0, 100, self(), gen())
     end
 
     test "grant LEGALITY is not decided here; only type preconditions are" do
@@ -118,12 +134,15 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert PublishWindow.available_frames(w) === 0
       refute PublishWindow.admits?(w, 1)
 
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(5), 1, 500, self())
+      assert {:error, :frame_credits_exhausted} =
+               PublishWindow.admit(w, k(5), 1, 500, self(), gen())
 
       # Settling one makes room for exactly one.
       {:ok, w} = PublishWindow.settle(w, r(1), @primary, self())
-      assert {:ok, w, _res} = PublishWindow.admit(w, k(5), 1, 500, self())
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(6), 1, 500, self())
+      assert {:ok, w, _res} = PublishWindow.admit(w, k(5), 1, 500, self(), gen())
+
+      assert {:error, :frame_credits_exhausted} =
+               PublishWindow.admit(w, k(6), 1, 500, self(), gen())
     end
 
     # NAMED for what it does: `bytes` is SUPPLIED by the caller and accounted as given. Nothing
@@ -136,8 +155,10 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert PublishWindow.admits?(w, 400)
       refute PublishWindow.admits?(w, 401)
 
-      assert {:error, :byte_credits_exhausted} = PublishWindow.admit(w, k(2), 401, 500, self())
-      assert {:ok, w, _res} = PublishWindow.admit(w, k(2), 400, 500, self())
+      assert {:error, :byte_credits_exhausted} =
+               PublishWindow.admit(w, k(2), 401, 500, self(), gen())
+
+      assert {:ok, w, _res} = PublishWindow.admit(w, k(2), 400, 500, self(), gen())
       assert PublishWindow.available_bytes(w) === 0
     end
 
@@ -147,7 +168,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       # grant. A retry has to wait for the current attempt to end.
       w = admit!(window(), 1, 100, 500)
 
-      assert {:error, :attempt_in_flight} = PublishWindow.admit(w, k(1), 100, 900, self())
+      assert {:error, :attempt_in_flight} = PublishWindow.admit(w, k(1), 100, 900, self(), gen())
     end
 
     test "after the attempt ENDS, re-admitting is the republish path, not a double charge" do
@@ -188,20 +209,20 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       w = admit!(window(1, 1_000), 1, 100, 500)
 
       assert {:error, :frame_credits_exhausted} =
-               PublishWindow.admit(w, k_other_record(1), 100, 500, self())
+               PublishWindow.admit(w, k_other_record(1), 100, 500, self(), gen())
     end
 
     test "malformed inputs are refused" do
       w = window()
 
-      assert {:error, :publication} = PublishWindow.admit(w, k(0), 1, 500, self())
-      assert {:error, :publication} = PublishWindow.admit(w, k(-1), 1, 500, self())
+      assert {:error, :publication} = PublishWindow.admit(w, k(0), 1, 500, self(), gen())
+      assert {:error, :publication} = PublishWindow.admit(w, k(-1), 1, 500, self(), gen())
 
       assert {:error, :publication} =
-               PublishWindow.admit(w, k(0xFFFFFFFFFFFFFFFF + 1), 1, 500, self())
+               PublishWindow.admit(w, k(0xFFFFFFFFFFFFFFFF + 1), 1, 500, self(), gen())
 
-      assert {:error, :bytes} = PublishWindow.admit(w, k(1), -1, 500, self())
-      assert {:error, :deadline} = PublishWindow.admit(w, k(1), 1, nil, self())
+      assert {:error, :bytes} = PublishWindow.admit(w, k(1), -1, 500, self(), gen())
+      assert {:error, :deadline} = PublishWindow.admit(w, k(1), 1, nil, self(), gen())
     end
   end
 
@@ -219,7 +240,8 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert PublishWindow.available_frames(w) === 0
 
       # Still refused, because nothing was released.
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(3), 1, 900, self())
+      assert {:error, :frame_credits_exhausted} =
+               PublishWindow.admit(w, k(3), 1, 900, self(), gen())
     end
 
     test "expired/2 CANNOT release: its return type carries no window" do
@@ -259,13 +281,15 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       {:__struct__, 1},
       {:abandon, 2},
       {:activate, 2},
-      {:admit, 5},
+      {:admit, 6},
       {:attempt_failed, 3},
       {:admits?, 2},
       {:available_bytes, 1},
       {:available_frames, 1},
       {:expired, 2},
+      {:fence_generation, 2},
       {:key, 5},
+      {:live_generations, 1},
       {:reservation, 2},
       {:new, 2},
       {:outstanding?, 2},
@@ -396,15 +420,19 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert PublishWindow.available_frames(w) === 0
       assert PublishWindow.available_bytes(w) === 0
       refute PublishWindow.admits?(w, 1)
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(4), 100, 1_000, self())
+
+      assert {:error, :frame_credits_exhausted} =
+               PublishWindow.admit(w, k(4), 100, 1_000, self(), gen())
 
       # Settling ONE frame admits exactly ONE replacement, not more.
       {:ok, w} = PublishWindow.settle(w, r(2), @primary, self())
 
       assert PublishWindow.available_frames(w) === 1
       assert PublishWindow.available_bytes(w) === 100
-      assert {:ok, w, _res} = PublishWindow.admit(w, k(4), 100, 1_000, self())
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(5), 1, 1_000, self())
+      assert {:ok, w, _res} = PublishWindow.admit(w, k(4), 100, 1_000, self(), gen())
+
+      assert {:error, :frame_credits_exhausted} =
+               PublishWindow.admit(w, k(5), 1, 1_000, self(), gen())
     end
   end
 
@@ -433,7 +461,9 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       {:ok, w} = PublishWindow.rearm(w, r(1), 999, self())
 
       refute PublishWindow.admits?(w, 1)
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k(2), 0, 999, self())
+
+      assert {:error, :frame_credits_exhausted} =
+               PublishWindow.admit(w, k(2), 0, 999, self(), gen())
     end
 
     test "re-arming something not outstanding is refused" do
@@ -484,7 +514,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
         # until the following iteration -- so a settlement that overcommitted was never seen at
         # the point it happened.
         w =
-          case PublishWindow.admit(w, k(i), size, 500, self()) do
+          case PublishWindow.admit(w, k(i), size, 500, self(), gen()) do
             {:ok, w2, res} -> elem(PublishWindow.activate(w2, res), 1)
             {:error, _} -> w
           end
@@ -682,7 +712,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       {final, trace} =
         Enum.reduce(ops, {start, []}, fn
           {:admit, seq, bytes}, {w, acc} ->
-            case PublishWindow.admit(w, k(seq), bytes, 500, self()) do
+            case PublishWindow.admit(w, k(seq), bytes, 500, self(), gen()) do
               {:ok, w2, res} ->
                 {elem(PublishWindow.activate(w2, res), 1), [{:admit, seq, :ok} | acc]}
 
@@ -749,7 +779,8 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       {w, _res} = admit_active!(w, k(1), 100, 500)
 
       # One frame of credit, already held by another agent's publication: a capacity refusal.
-      assert {:error, :frame_credits_exhausted} = PublishWindow.admit(w, k2(1), 100, 500, self())
+      assert {:error, :frame_credits_exhausted} =
+               PublishWindow.admit(w, k2(1), 100, 500, self(), gen())
     end
 
     test "a slot differing ONLY in scope is still a different reservation" do
@@ -778,7 +809,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
             1,
             {1, 2}
           ] do
-        assert {:error, :publication} = PublishWindow.admit(w, bad, 100, 500, self()),
+        assert {:error, :publication} = PublishWindow.admit(w, bad, 100, 500, self(), gen()),
                "admitted a malformed publication key: #{inspect(bad)}"
       end
     end
@@ -875,7 +906,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
     test "abandon releases only the PROVISIONAL attempt it names" do
       w = window()
-      {:ok, w, provisional} = PublishWindow.admit(w, k(1), 100, 500, self())
+      {:ok, w, provisional} = PublishWindow.admit(w, k(1), 100, 500, self(), gen())
 
       # Token-bound: a superseded attempt cannot release whatever holds the key now.
       assert {:error, :not_outstanding} = PublishWindow.abandon(w, {k(1), 1})
@@ -894,7 +925,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       # attempt, admit a retry, and put two requests on the wire under one charge -- while the
       # caller handed the first token had not yet received it.
       w = window()
-      {:ok, w, res} = PublishWindow.admit(w, k(1), 100, 100, self())
+      {:ok, w, res} = PublishWindow.admit(w, k(1), 100, 100, self(), gen())
 
       # It DOES hold the slot: the credits are charged from admission.
       assert PublishWindow.outstanding_frames(w) === 1
@@ -908,7 +939,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert {:error, :not_outstanding} = PublishWindow.attempt_failed(w, res, self())
 
       # Nor can a retry slip into the slot it is holding.
-      assert {:error, :attempt_in_flight} = PublishWindow.admit(w, k(1), 100, 900, self())
+      assert {:error, :attempt_in_flight} = PublishWindow.admit(w, k(1), 100, 900, self(), gen())
 
       # NOT VACUOUS: activation makes every one of those work.
       {:ok, w} = PublishWindow.activate(w, res)
@@ -920,7 +951,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
     test "revoking a provisional retry restores the reservation without releasing it" do
       w = admit!(window(), 1, 100, 500)
       {:ok, w} = PublishWindow.attempt_failed(w, r(1), self())
-      {:ok, w, provisional} = PublishWindow.admit(w, k(1), 100, 900, self())
+      {:ok, w, provisional} = PublishWindow.admit(w, k(1), 100, 900, self(), gen())
 
       # revoke_pending is the retry half of revocation: credits stay, the attempt goes.
       assert {:ok, w} = PublishWindow.revoke_pending(w, provisional)
@@ -928,7 +959,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert PublishWindow.outstanding_bytes(w) === 100
 
       # ...and the slot is free for the next attempt.
-      assert {:ok, _w, _next} = PublishWindow.admit(w, k(1), 100, 900, self())
+      assert {:ok, _w, _next} = PublishWindow.admit(w, k(1), 100, 900, self(), gen())
     end
 
     test "revoke_pending refuses a CONFIRMED attempt" do
@@ -940,7 +971,7 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
 
     test "activate refuses anything but its own provisional attempt" do
       w = window()
-      {:ok, w, res} = PublishWindow.admit(w, k(1), 100, 500, self())
+      {:ok, w, res} = PublishWindow.admit(w, k(1), 100, 500, self(), gen())
       {:ok, w} = PublishWindow.activate(w, res)
 
       # Twice is not idempotent-by-accident: the second call finds no provisional attempt.
@@ -993,9 +1024,9 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
     test "an owner that is not a process is refused at admission" do
       w = window(1, 100)
 
-      assert {:error, :owner} = PublishWindow.admit(w, k(1), 50, 500, :not_a_pid)
-      assert {:error, :owner} = PublishWindow.admit(w, k(1), 50, 500, nil)
-      assert {:ok, _w, _res} = PublishWindow.admit(w, k(1), 50, 500, self())
+      assert {:error, :owner} = PublishWindow.admit(w, k(1), 50, 500, :not_a_pid, gen())
+      assert {:error, :owner} = PublishWindow.admit(w, k(1), 50, 500, nil, gen())
+      assert {:ok, _w, _res} = PublishWindow.admit(w, k(1), 50, 500, self(), gen())
     end
   end
 
@@ -1018,11 +1049,134 @@ defmodule ServiceRadar.Edge.PublishWindowTest do
       assert {:error, :not_outstanding} = PublishWindow.settle(w, res, @primary, sweep)
 
       # So the attempt is still in flight and the retry is still refused.
-      assert {:error, :attempt_in_flight} = PublishWindow.admit(w, k(1), 50, 900, self())
+      assert {:error, :attempt_in_flight} = PublishWindow.admit(w, k(1), 50, 900, self(), gen())
 
       # Only the owner reporting TERMINATION opens the retry.
       assert {:ok, w} = PublishWindow.attempt_failed(w, res, self())
-      assert {:ok, _w, _retry} = PublishWindow.admit(w, k(1), 50, 900, self())
+      assert {:ok, _w, _retry} = PublishWindow.admit(w, k(1), 50, 900, self(), gen())
+    end
+  end
+
+  describe "a dead transport generation ends attempts WITHOUT releasing them" do
+    test "THE RESTART INVARIANT: a fenced generation frees no capacity" do
+      # Grant of ONE frame. A is admitted and reaches the transport; that transport then dies.
+      # The old accounting used to vanish with it, so a replacement started with the full grant
+      # and B could publish alongside an A that may already be on the wire.
+      w = window(1, 100)
+      {w, res_a} = admit_active!(w, k(1), 50, 500)
+      assert %{outstanding_frames: 1, available_frames: 0} = accounting(w)
+
+      {:ok, w, fenced} = PublishWindow.fence_generation(w, gen())
+      assert fenced === 1
+
+      # THE POINT: the charge SURVIVES. A's bytes may already be at the broker, so releasing
+      # here would hand back a broker-ambiguous frame.
+      assert %{outstanding_frames: 1, outstanding_bytes: 50, available_frames: 0} = accounting(w)
+
+      # So B is still refused -- the replacement transport inherits the REMAINING capacity, not a
+      # fresh grant.
+      assert {:error, :frame_credits_exhausted} =
+               PublishWindow.admit(w, k(2), 50, 900, self(), make_ref())
+
+      # A itself may retry on the charge it already holds, on the NEW generation, costing nothing.
+      newgen = make_ref()
+      assert {:ok, w, retry} = PublishWindow.admit(w, k(1), 50, 900, self(), newgen)
+      assert %{outstanding_frames: 1, outstanding_bytes: 50} = accounting(w)
+
+      # Only once A SETTLES does B become admissible.
+      {:ok, w} = PublishWindow.activate(w, retry)
+      {:ok, w} = PublishWindow.settle(w, retry, @primary, self())
+      assert %{outstanding_frames: 0, available_frames: 1} = accounting(w)
+      assert {:ok, _w, _b} = PublishWindow.admit(w, k(2), 50, 900, self(), newgen)
+      # NOT VACUOUS: res_a's token is dead, so the fenced attempt cannot also settle.
+      assert {:error, :not_outstanding} = PublishWindow.settle(w, res_a, @primary, self())
+    end
+
+    test "the BYTE twin: a fenced generation frees no bytes either" do
+      # Same property on the other bound. A frame-only assertion would pass while byte credits
+      # leaked, and the byte grant is what actually bounds a large record.
+      w = window(4, 100)
+      {w, _res} = admit_active!(w, k(1), 80, 500)
+      assert %{outstanding_bytes: 80, available_bytes: 20} = accounting(w)
+
+      {:ok, w, 1} = PublishWindow.fence_generation(w, gen())
+
+      assert %{outstanding_bytes: 80, available_bytes: 20} = accounting(w),
+             "fencing released byte credits for a record that may already be at the broker"
+
+      assert {:error, :byte_credits_exhausted} =
+               PublishWindow.admit(w, k(2), 80, 900, self(), make_ref())
+    end
+
+    test "fencing touches ONLY its own generation" do
+      # A replacement transport's attempts must survive the fencing of the one it replaced,
+      # which is why the generation is recorded per attempt rather than as one current value.
+      old_gen = gen()
+      new_gen = make_ref()
+
+      w = window(4, 1000)
+      {w, _old} = admit_active!(w, k(1), 50, 500)
+
+      {:ok, w, res_new} = PublishWindow.admit(w, k(2), 50, 500, self(), new_gen)
+      {:ok, w} = PublishWindow.activate(w, res_new)
+
+      {:ok, w, fenced} = PublishWindow.fence_generation(w, old_gen)
+      assert fenced === 1, "fencing crossed into another generation"
+
+      # The new generation's attempt is untouched: still live, still settleable by its owner.
+      assert PublishWindow.reservation(w, k(2)) === {:ok, res_new}
+      assert {:ok, _w} = PublishWindow.settle(w, res_new, @primary, self())
+
+      # The old one is idle-but-charged: no live attempt, credits still held.
+      assert PublishWindow.reservation(w, k(1)) === :error
+      assert PublishWindow.outstanding?(w, k(1))
+    end
+
+    test "a PENDING attempt on the dead generation is fenced too" do
+      # Its caller never took delivery and its transport is gone, so it will issue nothing. Left
+      # pending it would hold the slot against a retry forever, because only that caller could
+      # revoke it and it is about to receive an error instead.
+      w = window(1, 100)
+      {:ok, w, _pending} = PublishWindow.admit(w, k(1), 50, 500, self(), gen())
+
+      {:ok, w, fenced} = PublishWindow.fence_generation(w, gen())
+      assert fenced === 1
+
+      assert PublishWindow.outstanding?(w, k(1)), "the reservation was released, not fenced"
+      assert {:ok, _w, _retry} = PublishWindow.admit(w, k(1), 50, 900, self(), make_ref())
+    end
+
+    test "fencing a generation with nothing on it is a no-op, and says so" do
+      w = window(2, 200)
+      {w, _res} = admit_active!(w, k(1), 50, 500)
+      before = accounting(w)
+
+      {:ok, w, fenced} = PublishWindow.fence_generation(w, make_ref())
+
+      assert fenced === 0
+      assert accounting(w) === before
+    end
+
+    test "live_generations/1 reports what is actually in flight" do
+      other = make_ref()
+      w = window(4, 1000)
+      {w, _a} = admit_active!(w, k(1), 10, 500)
+      {:ok, w, r2} = PublishWindow.admit(w, k(2), 10, 500, self(), other)
+      {:ok, w} = PublishWindow.activate(w, r2)
+
+      assert Enum.sort(PublishWindow.live_generations(w)) === Enum.sort([gen(), other])
+
+      # An idle-but-charged reservation has NO generation: it is owed a republish, not tied to a
+      # transport. That is what keeps the metadata bounded after a fence.
+      {:ok, w, 1} = PublishWindow.fence_generation(w, gen())
+      assert PublishWindow.live_generations(w) === [other]
+    end
+
+    test "admit REFUSES a generation that is not a reference" do
+      w = window(1, 100)
+      assert {:error, :generation} = PublishWindow.admit(w, k(1), 50, 500, self(), nil)
+      assert {:error, :generation} = PublishWindow.admit(w, k(1), 50, 500, self(), :current)
+      assert {:ok, _w, _r} = PublishWindow.admit(w, k(1), 50, 500, self(), make_ref())
     end
   end
 end

@@ -66,6 +66,8 @@ defmodule ServiceRadar.Edge.PublisherPool do
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublishWindow
 
+  require Logger
+
   # Read at COMPILE time so the values can still appear in guards. ONE list, owned by
   # PublisherLane, because a second copy here would let the pools and the connections drift:
   # a lane with a pool and no connection publishes nowhere, and a connection with no pool is
@@ -185,6 +187,34 @@ defmodule ServiceRadar.Edge.PublisherPool do
   @doc "The frames whose PubAck deadline has passed. Reports only."
   def expired(pool), do: GenServer.call(pool, :expired)
 
+  @doc """
+  Registers a transport generation and returns its reference.
+
+  Called by the lane's transport runtime once its connection is up. Until one is registered this
+  accountant is CLOSED: `admit/4` returns `{:error, :no_transport}` rather than handing out
+  credits against transport that does not exist.
+
+  That is the fail-closed half of the restart contract. This process outlives transport restarts
+  ON PURPOSE -- that is what stops a replacement from reopening the full grant -- but the
+  converse must not hold: if this process is itself replaced, its ledger is empty, and an empty
+  ledger that accepts admissions is exactly the over-admission defect wearing a different hat. So
+  a fresh accountant refuses everything until a transport registers, which under `:rest_for_one`
+  cannot happen until the previous transport subtree has been terminated.
+
+  The generation is a reference, not a counter: a counter restarted with this process, so a stale
+  generation would compare equal to a fresh one and fencing the old would fence the new.
+  """
+  def register_transport(pool, transport_pid) when is_pid(transport_pid),
+    do: GenServer.call(pool, {:register_transport, transport_pid})
+
+  @doc """
+  The generations this accountant knows, and which one is accepting.
+
+  Exposed so the spec's bound can be asserted rather than assumed: at most one accepting and one
+  draining generation at a time.
+  """
+  def generations(pool), do: GenServer.call(pool, :generations)
+
   @doc "This class's current capacity, for tests and observability."
   def capacity(pool), do: GenServer.call(pool, :capacity)
 
@@ -204,7 +234,13 @@ defmodule ServiceRadar.Edge.PublisherPool do
        # of in-flight admit calls, not by retries: an entry leaves on confirmation, revocation, or
        # the caller's death. It previously kept one entry per admission for the life of the
        # reservation, so a record retried a hundred times carried a hundred entries.
-       pending: %{}
+       pending: %{},
+       # The generation admissions are issued against, or nil when no transport is registered.
+       # nil is the STARTING state: a fresh accountant is closed until a transport registers.
+       accepting: nil,
+       # generation ref => %{pid, monitor}. Bounded by the spec's "at most one accepting and one
+       # draining generation", asserted in generations/1 rather than left to trust.
+       transports: %{}
      }}
   end
 
@@ -213,10 +249,37 @@ defmodule ServiceRadar.Edge.PublisherPool do
     # The deadline is stamped HERE, not by the caller before the call. Stamped earlier, the time a
     # caller spent queued for this GenServer was silently deducted from the PubAck interval that
     # the deadline is supposed to measure -- so a contended pool shortened every ack window.
-    case deadline(ack_timeout_ms) do
-      {:ok, deadline_at} -> admit_reply(state, {attempt_ref, caller}, key, bytes, deadline_at)
-      :error -> {:reply, {:error, :deadline}, state}
+    # CLOSED until a transport registers. Admitting here would charge credits against transport
+    # that does not exist, and on a fresh accountant would do it from an empty ledger.
+    if state.accepting == nil do
+      {:reply, {:error, :no_transport}, state}
+    else
+      case deadline(ack_timeout_ms) do
+        {:ok, deadline_at} -> admit_reply(state, {attempt_ref, caller}, key, bytes, deadline_at)
+        :error -> {:reply, {:error, :deadline}, state}
+      end
     end
+  end
+
+  def handle_call({:register_transport, pid}, _from, state) do
+    generation = make_ref()
+    monitor = Process.monitor(pid)
+
+    {:reply, {:ok, generation},
+     %{
+       state
+       | accepting: generation,
+         transports: Map.put(state.transports, generation, %{pid: pid, monitor: monitor})
+     }}
+  end
+
+  def handle_call(:generations, _from, state) do
+    {:reply,
+     %{
+       accepting: state.accepting,
+       known: Map.keys(state.transports),
+       live: PublishWindow.live_generations(state.window)
+     }, state}
   end
 
   # `from` is the OWNER, and it is taken from the message rather than from the request body so a
@@ -295,7 +358,16 @@ defmodule ServiceRadar.Edge.PublisherPool do
   end
 
   @impl true
-  def handle_info({:DOWN, monitor, :process, _pid, _reason}, state) do
+  def handle_info({:DOWN, monitor, :process, _pid, _reason} = down, state) do
+    # TWO kinds of monitor land here and they authorise OPPOSITE things, so they are dispatched
+    # by which map the monitor belongs to rather than by anything in the message.
+    case Enum.find(state.transports, fn {_gen, t} -> t.monitor === monitor end) do
+      {generation, _t} -> {:noreply, fence(state, generation)}
+      nil -> caller_down(down, state)
+    end
+  end
+
+  defp caller_down({:DOWN, monitor, :process, _pid, _reason}, state) do
     # Only ever a PENDING admission: the monitor is dropped the moment the handoff is confirmed.
     # A caller dying before it received its reservation cannot have published, so revoking is
     # authorised here in a way that caller death in general is NOT.
@@ -303,6 +375,30 @@ defmodule ServiceRadar.Edge.PublisherPool do
       {attempt_ref, _pending} -> {:noreply, revoke(state, attempt_ref)}
       nil -> {:noreply, state}
     end
+  end
+
+  # A transport generation is gone. Its attempts can no longer be completed on it, so they END --
+  # but their reservations stay CHARGED, because transport death says nothing about whether the
+  # bytes reached the broker. See PublishWindow.fence_generation/2.
+  defp fence(state, generation) do
+    {:ok, window, fenced} = PublishWindow.fence_generation(state.window, generation)
+
+    if fenced > 0 do
+      Logger.info(
+        "edge publisher lane #{state.class}: transport generation ended with #{fenced} " <>
+          "attempt(s) in flight; their reservations stay charged and may be retried without " <>
+          "consuming another credit"
+      )
+    end
+
+    accepting = if state.accepting == generation, do: nil, else: state.accepting
+
+    %{
+      state
+      | window: window,
+        accepting: accepting,
+        transports: Map.delete(state.transports, generation)
+    }
   end
 
   def handle_info(_message, state), do: {:noreply, state}
@@ -315,7 +411,7 @@ defmodule ServiceRadar.Edge.PublisherPool do
     # reservation and let the lane publish past its grant.
     kind = if PublishWindow.outstanding?(state.window, key), do: :rearmed, else: :created
 
-    case PublishWindow.admit(state.window, key, bytes, deadline_at, caller) do
+    case PublishWindow.admit(state.window, key, bytes, deadline_at, caller, state.accepting) do
       {:ok, window, {_key, token} = reservation} ->
         pending = %{key: key, token: token, kind: kind, monitor: Process.monitor(caller)}
 

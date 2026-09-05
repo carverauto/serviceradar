@@ -878,12 +878,26 @@
   validation and prefix advancement). This task MAY NOT be checked until BOTH
   hold, each covered by a scenario under `ingestion-routing`'s "Backpressure and
   fairness are bounded at every hop":
-  (i) RESTART OVERLAP -- STILL OPEN. A lane restart MUST NOT reopen capacity that
-  an in-flight request still occupies, so old and replacement requests together
-  cannot exceed the grant. Eventual supervisor restart of a sibling does not
-  satisfy this: restarts are ordered but not instantaneous, and a request may
-  complete inside that interval. A replacement `PublisherPool` still starts with
-  an empty window and therefore its full grant.
+  (i) RESTART OVERLAP -- CLOSED for the restart invariant itself; the ASYNC
+  PIPELINE it must hold under is still open (see the closing note below). A lane
+  restart MUST NOT reopen capacity that an in-flight request still occupies, so
+  old and replacement requests together cannot exceed the grant.
+  How it is discharged: the lane is split into a STABLE accountant and a
+  REPLACEABLE transport under `LaneSupervisor`'s `:rest_for_one`, accountant
+  FIRST. Transport death therefore cannot reach the ledger -- a replacement
+  inherits the credits the previous generation consumed rather than a fresh
+  grant. Each attempt records the transport `generation` it was issued on, and
+  when a generation dies `PublishWindow.fence_generation/2` ends its attempts
+  while KEEPING their reservations charged: generation death proves the request
+  cannot complete on that transport, and proves nothing about whether the bytes
+  reached the broker. Affected publications become idle-but-charged and may retry
+  on the charge they already hold. Only a validated resolving PubAck releases
+  credits.
+  The converse is fail-closed: a replaced accountant has an empty ledger, so
+  `:rest_for_one` terminates the transport subtree first, and the accountant
+  additionally starts CLOSED -- `admit` returns `:no_transport` until a new
+  generation registers, which cannot happen until the previous send capability is
+  gone.
   (ii) POST-HANDOFF FENCING -- CLOSED. Once a reservation is handed to a caller, a
   retry MUST NOT be admitted until the previous attempt is fenced by its REQUEST
   (owner, start, termination). A passed deadline or an absent PubAck is NOT

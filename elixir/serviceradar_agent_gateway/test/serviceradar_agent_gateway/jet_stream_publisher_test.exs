@@ -54,6 +54,13 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
             name: nil
           )
 
+        # A lane accountant is CLOSED until a transport registers. These tests are about the
+        # PUBLISHER, not the transport, so a bare process stands in: what the accountant binds to
+        # is a lifetime, and a real Gnat connection is not needed to provide one.
+        transport = spawn(fn -> Process.sleep(:infinity) end)
+        on_exit(fn -> Process.exit(transport, :kill) end)
+        {:ok, _generation} = PublisherPool.register_transport(pid, transport)
+
         {lane, pid}
       end)
 
@@ -345,6 +352,10 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
         {:ok, pid} =
           PublisherPool.start_link(class: lane, frame_credits: 1, byte_credits: 10_000, name: nil)
 
+        transport = spawn(fn -> Process.sleep(:infinity) end)
+        on_exit(fn -> Process.exit(transport, :kill) end)
+        {:ok, _generation} = PublisherPool.register_transport(pid, transport)
+
         {lane, pid}
       end)
     end
@@ -410,6 +421,10 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
         Map.new(PublisherLane.lanes(), fn lane ->
           {:ok, pid} =
             PublisherPool.start_link(class: lane, frame_credits: 2, byte_credits: 10_000, name: nil)
+
+          transport = spawn(fn -> Process.sleep(:infinity) end)
+          on_exit(fn -> Process.exit(transport, :kill) end)
+          {:ok, _generation} = PublisherPool.register_transport(pid, transport)
 
           {lane, pid}
         end)

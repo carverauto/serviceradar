@@ -128,6 +128,16 @@ defmodule ServiceRadar.Edge.PublisherSupervisorTest do
   describe "the running pools" do
     setup do
       for spec <- lane_pool_specs(), do: start_supervised!(spec)
+
+      # These specs deliberately take the POOL only -- the subject here is credits, not transport
+      # -- but an accountant is CLOSED until a transport registers, so each needs a stand-in. What
+      # the accountant binds to is a process LIFETIME, not anything a connection can do.
+      for lane <- PublisherLane.lanes() do
+        transport = spawn(fn -> Process.sleep(:infinity) end)
+        on_exit(fn -> Process.exit(transport, :kill) end)
+        {:ok, _gen} = PublisherPool.register_transport(PublisherPool.via(lane), transport)
+      end
+
       :ok
     end
 

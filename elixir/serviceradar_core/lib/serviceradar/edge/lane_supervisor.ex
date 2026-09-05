@@ -62,9 +62,8 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
 
   use Supervisor
 
-  alias ServiceRadar.Edge.PublisherLane
+  alias ServiceRadar.Edge.LaneTransportRuntime
   alias ServiceRadar.Edge.PublisherPool
-  alias ServiceRadar.NATS.Supervisor, as: NATSSupervisor
 
   def start_link(opts) do
     lane = Keyword.fetch!(opts, :lane)
@@ -75,10 +74,14 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   def via(lane), do: :"edge_publisher_lane_#{lane}"
 
   @doc """
-  This lane's two children, connection first.
+  This lane's two children, ACCOUNTANT FIRST.
 
-  Public so the pairing and the ORDER can be asserted without a NATS server: the transport has to
-  exist before the window admits anything against it.
+  The order is the invariant, not a style choice, because `:rest_for_one` derives its behaviour
+  from it: children after the accountant are torn down when it dies, and children before it are
+  not. Accountant first therefore means transport death leaves the ledger alone, while accountant
+  death fences the transport before a fresh, empty ledger can exist.
+
+  Public so both the inventory and that order can be asserted without a NATS server.
   """
   def child_specs(opts) do
     lane = Keyword.fetch!(opts, :lane)
@@ -86,17 +89,38 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
     backoff = Keyword.fetch!(opts, :backoff_period)
     credits = Keyword.fetch!(opts, :credits)
 
-    NATSSupervisor.child_specs([PublisherLane.connection_name(lane)], settings, backoff) ++
-      [
-        Supervisor.child_spec(
-          {PublisherPool, [class: lane, name: PublisherPool.via(lane)] ++ credits},
-          id: PublisherPool.via(lane)
-        )
-      ]
+    [
+      Supervisor.child_spec(
+        {PublisherPool, [class: lane, name: PublisherPool.via(lane)] ++ credits},
+        id: PublisherPool.via(lane)
+      ),
+      Supervisor.child_spec(
+        {LaneTransportRuntime,
+         lane: lane,
+         connection_settings: settings,
+         backoff_period: backoff,
+         accountant: PublisherPool.via(lane)},
+        id: LaneTransportRuntime.via(lane)
+      )
+    ]
   end
 
   @impl true
   def init(opts) do
-    Supervisor.init(child_specs(opts), strategy: :one_for_all)
+    # :rest_for_one, and the direction matters in both senses:
+    #
+    #   transport dies    -> the accountant is BEFORE it, so it is untouched. Every charge
+    #                        survives, and the replacement transport inherits the remaining
+    #                        capacity instead of a fresh grant. That is the restart invariant.
+    #   accountant dies   -> the transport is AFTER it, so it is terminated before the accountant
+    #                        restarts. A fresh accountant has an empty ledger, and an empty ledger
+    #                        with live send capability is the over-admission defect again; the
+    #                        accountant additionally starts CLOSED, so it admits nothing until a
+    #                        new generation registers.
+    #
+    # :one_for_all would have been wrong in the first direction (it would restart the accountant
+    # on every transport blip, emptying the ledger); :one_for_one wrong in the second (an
+    # accountant could restart empty alongside a live transport).
+    Supervisor.init(child_specs(opts), strategy: :rest_for_one)
   end
 end
