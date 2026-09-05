@@ -484,6 +484,25 @@ defmodule ServiceRadar.Edge.PublishPipelineTest do
       assert :ok = PublishPipeline.open_lane(pipe, {@scope, "agent-4", @spool}, 1)
     end
 
+    test "a lane sequence outside the protobuf range is REFUSED, not raised" do
+      # `ResolvedPrefix.new/1` GUARDS on the uint64 range rather than refusing it, so an unchecked
+      # value raises inside this GenServer -- killing the process and every OTHER lane's prefix
+      # with it. A refusable input must not be able to do that.
+      p = pool(8, 4_000)
+      pipe = pipeline(p, windowed_publisher(self()))
+
+      for bad <- [0, -1, 0x1_0000_0000_0000_0000, :not_a_sequence, nil] do
+        assert {:error, :first_unresolved_sequence} =
+                 PublishPipeline.open_lane(pipe, @lane, bad),
+               "open_lane accepted #{inspect(bad)}"
+      end
+
+      # ALIVE, and still usable: the refusals changed nothing.
+      assert Process.alive?(pipe)
+      assert %{lanes: 0} = PublishPipeline.stats(pipe)
+      assert :ok = PublishPipeline.open_lane(pipe, @lane, 1)
+    end
+
     test "a publication with no usable slot is refused, and nothing is charged for it" do
       p = pool(8, 4_000)
       pipe = open(pipeline(p, windowed_publisher(self())))
