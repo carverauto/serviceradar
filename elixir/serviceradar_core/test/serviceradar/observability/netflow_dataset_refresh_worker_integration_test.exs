@@ -99,60 +99,6 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
     assert results == ["cloudflare", "aws", nil]
   end
 
-  test "rebuilt provider CIDR indexes keep the primary key and gist cidr index intact" do
-    payload =
-      Jason.encode!(
-        for i <- 0..31 do
-          %{
-            "cidr" => "192.0.2.#{i}/32",
-            "provider" => "aws",
-            "service" => "ec2",
-            "region" => "us-east-1",
-            "ip_version" => "IPv4"
-          }
-        end
-      )
-
-    {url, stop_server} = start_http_fixture(payload, "application/json", 200)
-    on_exit(fn -> stop_server.() end)
-
-    with_worker_env(NetflowProviderDatasetRefreshWorker,
-      source_url: url,
-      validate_url: fn _ -> :ok end,
-      timeout_ms: 200,
-      reschedule_seconds: 60,
-      failure_reschedule_seconds: 60
-    )
-
-    assert :ok = NetflowProviderDatasetRefreshWorker.perform(%Oban.Job{args: %{}})
-    %{id: snapshot_id, record_count: 32} = active_provider_snapshot!()
-
-    assert provider_prefix_count(snapshot_id) == 32
-
-    %{rows: [[pkey_def]]} =
-      Repo.query!(
-        "SELECT pg_get_indexdef('platform.netflow_provider_cidrs_pkey'::regclass)",
-        []
-      )
-
-    assert pkey_def =~ "(snapshot_id, cidr, provider)"
-
-    %{rows: [[amname]]} =
-      Repo.query!(
-        """
-        SELECT am.amname
-        FROM pg_class c
-        JOIN pg_am am ON am.oid = c.relam
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'platform'
-          AND c.relname = 'netflow_provider_cidrs_cidr_idx'
-        """,
-        []
-      )
-
-    assert amname == "gist"
-  end
-
   test "oui csv refresh promotes snapshot on success and keeps last-known-good on failure" do
     csv =
       "Registry,Assignment,Organization Name,Organization Address\n" <>

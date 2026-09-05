@@ -22,10 +22,9 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   the primary key's 640,289 pages carry all 821,788 live entries; the rest are
   marked deleted, which makes them available for reuse but never hands them back
   to the OS, because no VACUUM truncates a btree -- only a rebuild does. At 4,440
-  leaf pages per snapshot the file is sized for about 144 snapshots' worth, and
-  `DatasetSnapshotPrune` records that before it existed the nightly 14-day window
-  "left a dozen inactive copies in demo". Retention is two snapshots now, so those
-  pages are free and simply stay unused.
+  leaf pages per snapshot that file is sized for about 144 snapshots' worth, far
+  more history than the two-snapshot retention now keeps, so the pages are free
+  and simply stay unused.
 
   This migration reclaims that space once. It does not establish what drove each
   file to its size, so whether any of them regrow is unsettled here -- including
@@ -47,8 +46,6 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   @pkey "netflow_provider_cidrs_pkey"
 
   def up do
-    execute("SET statement_timeout TO 0")
-
     execute("DROP INDEX CONCURRENTLY IF EXISTS #{@schema}.#{@pkey_uidx}")
 
     execute("""
