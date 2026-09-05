@@ -256,6 +256,47 @@ async fn expire(
     Ok(())
 }
 
+async fn recover_interrupted_build(
+    admin: &Client,
+    manifest: &generation::Manifest,
+    policy: &generation::Policy,
+    lease: &str,
+    owner: &str,
+) -> Result<()> {
+    let state = admin
+        .query_opt(
+            "SELECT state FROM sr_template_registry.generations WHERE digest=$1",
+            &[&manifest.digest],
+        )
+        .await?
+        .map(|row| row.get::<_, String>(0));
+    if state.as_deref() != Some("building") {
+        return Ok(());
+    }
+
+    // An explicit same-run retry may have left one of this test's invented
+    // generations unpublished. Exercise the production recovery path before
+    // starting the fresh assertions, then remove only that exact registered
+    // digest. A ready generation is deliberately not handled here: reusing a
+    // run that already published still fails the fresh-run assertion below.
+    let recovered = generation::prepare(manifest, policy, lease, owner).await?;
+    ensure!(
+        recovered.status == "needs_migration",
+        "interrupted qualification generation was not recovered as a builder"
+    );
+    generation::release_lease(manifest, policy, lease).await?;
+    expire(admin, manifest, policy, true).await?;
+    ensure!(
+        generation::cleanup_digest(&manifest.digest, policy).await?,
+        "recovered qualification generation was not reclaimed"
+    );
+    ensure!(
+        !exists(admin, &manifest.database).await?,
+        "recovered qualification database survived scoped cleanup"
+    );
+    Ok(())
+}
+
 async fn qualify() -> Result<()> {
     let (_, policy) = generation::declared_inputs()?;
     let lease = db::database_name()?;
@@ -279,6 +320,14 @@ async fn qualify() -> Result<()> {
     let clone_b = db::shard_database_name("gen_b")?;
     let (admin, driver) = db::connect_admin(Some("postgres")).await?;
     admin.batch_execute("SET statement_timeout='30s'").await?;
+
+    // The workflow's guarded run-ID override exists solely to resume its own
+    // interrupted synthetic run. Clear any matching unpublished candidate
+    // through normal fenced recovery and exact-digest cleanup before replaying
+    // the complete qualification sequence.
+    for manifest in [&a, &b, &failed] {
+        recover_interrupted_build(&admin, manifest, &policy, &lease, &owner).await?;
+    }
 
     ensure!(
         generation::quiesce_candidate_workers(&admin, &a)
