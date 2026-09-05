@@ -18,7 +18,6 @@ package netprobe
 
 import (
 	"context"
-	"errors"
 	"io"
 	"sync"
 	"testing"
@@ -423,7 +422,10 @@ func TestATransportFailureStillEndsTheSession(t *testing.T) {
 	select {
 	case err := <-done:
 		require.Error(t, err, "a dead transport must end the session rather than hang it")
-		assert.True(t, errors.Is(err, io.EOF) || err != nil)
+		// Named, not `err != nil`: an assertion that cannot fail is
+		// indistinguishable from one that is still waiting. The transport's own
+		// EOF must reach the caller, so a hang and a dead peer are told apart.
+		require.ErrorIs(t, err, io.EOF)
 	case <-time.After(5 * time.Second):
 		t.Fatal("a dead transport left the forwarder hanging on credit")
 	}
