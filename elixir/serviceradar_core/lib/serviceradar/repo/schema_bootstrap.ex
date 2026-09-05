@@ -216,7 +216,11 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
     statements =
       ServiceRadar.Postgres.SchemaSql.load_statements(schema_file,
         normalize_timescaledb_schema?: true,
-        timescaledb_search_path: search_path()
+        timescaledb_search_path: search_path(),
+        # The baseline is a superuser's dump; the role applying it here is the ordinary
+        # application role, which does not own the extensions underneath the schema. See
+        # SchemaSql for what that reshapes and why the migrations already worked this way.
+        apply_extension_privilege_discipline?: true
       )
 
     Logger.info(
