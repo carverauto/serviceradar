@@ -1334,10 +1334,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive do
     generation = socket.assigns.group_profile_generation
 
     with true <- connected?(socket),
+         true <- socket.private[:dashboard_group_generation] != generation,
          {:ok, data} <- current_group_profile_data(socket),
-         {:ok, _current} <- PolicyData.accept_generation(generation, data),
-         true <- socket.private[:dashboard_group_generation] != generation do
-      send(self(), {:refresh_dashboard_group_tokens, generation})
+         {:ok, _current} <- PolicyData.accept_generation(generation, data) do
+      if is_binary(socket.assigns.dashboard_audience.group_id) do
+        send(self(), {:refresh_dashboard_group_tokens, generation})
+      end
+
       put_private(socket, :dashboard_group_generation, generation)
     else
       _ -> socket
