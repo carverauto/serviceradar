@@ -55,8 +55,10 @@ fn manifest(run: &str, branch: &str) -> generation::Manifest {
         _ => panic!("unsupported synthetic branch"),
     };
     let digest = manifest_hash(&inputs, b"serviceradar.schema-template.v1\0");
+    let included_through = 1;
+    let covered_count = migration_versions.partition_point(|version| *version <= included_through);
     let covered = manifest_hash(
-        &inputs,
+        &inputs[..covered_count],
         b"serviceradar.schema-template.covered-migrations.v1\0",
     );
     generation::Manifest {
@@ -66,9 +68,16 @@ fn manifest(run: &str, branch: &str) -> generation::Manifest {
         inputs,
         migration_versions,
         covered_migrations: generation::CoveredMigrations {
-            included_through: 1,
+            included_through,
             digest: covered,
         },
+    }
+}
+
+#[test]
+fn synthetic_manifest_contracts_are_valid() {
+    for branch in ["a", "b", "failed"] {
+        manifest("example01", branch).validate().unwrap();
     }
 }
 
