@@ -330,6 +330,27 @@ web-ng-only fast path), Docker Compose refresh, local development against Docker
 web-ng visual testing and remote dev, the local mTLS ERTS cluster, edge onboarding
 testing, the release playbook, CNPG database access, and the SRQL fixture lifecycle.
 
+## Which CI gates actually run on a pull request
+
+`BazelCI` (every unit test) and `Elixir Quality` (`mix format --check-formatted`
++ `mix credo --strict`) are **branch-filtered to `staging` and
+`usp-01-proposal`** -- see `triggers.pull_request.branches` in `buildbuddy.yaml`
+and `on:` in `.github/workflows/elixir-quality.yml`.
+
+A PR **stacked on a feature branch therefore gets neither**: what still runs is
+path-filtered (`proto-abi`), plus the add-on version-bump and secret-scan gates.
+A green check list on such a PR is not evidence the tests or lint ran. This is a
+repeat, not a hypothetical -- `elixir-quality.yml`'s own comment records the
+gate running "by accident" while PRs were stacked, catching eight Credo findings
+immediately, then stopping again when they were unstacked.
+
+When stacking, either target the PR at a listed branch or run `make test` and
+`./scripts/elixir_quality.sh --project <project> --lint-only` locally and say so
+on the PR. Verify with
+`gh api repos/carverauto/serviceradar/commits/<sha>/status` -- `BazelCI` reports
+as a commit STATUS, not a check-run, so it is absent from
+`gh api .../check-runs` output entirely.
+
 ## When Updating This File
 
 - Add new build/test commands when tooling changes.
