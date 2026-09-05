@@ -893,6 +893,7 @@ func ParseFlags() (*CmdConfig, error) {
 		"edge":                  EdgeHandler{},
 		"nats-bootstrap":        NatsBootstrapHandler{},
 		"admin":                 AdminHandler{},
+		"auth":                  AuthHandler{},
 	}
 
 	// Parse subcommand flags if present

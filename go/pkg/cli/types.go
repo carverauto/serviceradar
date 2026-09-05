@@ -114,6 +114,11 @@ type CmdConfig struct {
 	NATSAccountLimit     int
 	AdminNatsAction      string
 	AdminCommand         string
+	// Device-code auth (RFC 8628) client
+	AuthCommand   string
+	AuthInstance  string
+	AuthScope     string
+	AuthNoBrowser bool
 }
 
 // logStyles defines styles for logging messages

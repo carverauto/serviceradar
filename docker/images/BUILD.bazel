@@ -626,13 +626,17 @@ declare_service_container_amd64(
         "etc/serviceradar/config",
     ],
     files = {
-        "//go/cmd/cli:cli": "usr/local/bin/serviceradar-cli",
+        "//go/cmd/cli:srctl": "usr/local/bin/srctl",
         "//docker/compose:update-config.sh": "usr/local/bin/update-config.sh",
     },
     image_title = "serviceradar-config-updater",
     modes = {
-        "usr/local/bin/serviceradar-cli": "0755",
+        "usr/local/bin/srctl": "0755",
         "usr/local/bin/update-config.sh": "0755",
+    },
+    symlinks = {
+        # Deprecated alias for the pre-rename binary (see #4260).
+        "usr/local/bin/serviceradar-cli": "/usr/local/bin/srctl",
     },
     repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-config-updater:local"],
     runtime = "alpine",
@@ -753,7 +757,7 @@ declare_custom_base_service_container_amd64(
         ],
     }),
     files = {
-        "//go/cmd/cli:cli": "usr/local/bin/serviceradar-cli",
+        "//go/cmd/cli:srctl": "usr/local/bin/srctl",
         "//go/cmd/tools/srql-fixture-reaper:srql-fixture-reaper": "usr/local/bin/srql-fixture-reaper",
         "//docker/compose:tools-entrypoint.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:tools-profile.sh": "etc/profile.d/serviceradar-tools.sh",
@@ -762,12 +766,16 @@ declare_custom_base_service_container_amd64(
     },
     image_title = "serviceradar-tools",
     modes = {
-        "usr/local/bin/serviceradar-cli": "0755",
+        "usr/local/bin/srctl": "0755",
         "usr/local/bin/srql-fixture-reaper": "0755",
         "usr/local/bin/entrypoint.sh": "0755",
         "etc/profile.d/serviceradar-tools.sh": "0644",
         "etc/motd": "0644",
         "usr/local/bin/nats": "0755",
+    },
+    symlinks = {
+        # Deprecated alias for the pre-rename binary (see #4260).
+        "usr/local/bin/serviceradar-cli": "/usr/local/bin/srctl",
     },
     repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-tools:local"],
 )

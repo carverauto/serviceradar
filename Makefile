@@ -714,7 +714,8 @@ build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@$(GO) build -ldflags "-X github.com/carverauto/serviceradar/go/cmd/agent.Version=$(VERSION)" -o bin/serviceradar-agent go/cmd/agent/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-core cmd/core/main.go
 	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-datasvc go/cmd/data-services/main.go
-	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/serviceradar-cli go/cmd/cli/main.go
+	@$(GO) build -ldflags "-X main.version=$(VERSION)" -o bin/srctl go/cmd/cli/main.go
+	@ln -sf srctl bin/serviceradar-cli
 	@echo "$(COLOR_BOLD)Building Rust binaries$(COLOR_RESET)"
 	@cd rust/rperf-client && $(CARGO) build --release
 	@cd rust/rperf-server && $(CARGO) build --release

@@ -30,7 +30,7 @@ the next configuration push from the gateway overwrites local changes.
 
 The agent has one small local file — its **bootstrap configuration**,
 `/etc/serviceradar/agent.json` by default. It is generated for you during
-enrollment (`serviceradar-cli enroll`) and only tells the agent how to start up
+enrollment (`srctl enroll`) and only tells the agent how to start up
 and reach the gateway. Once the agent connects, everything else is delivered by
 the gateway.
 
