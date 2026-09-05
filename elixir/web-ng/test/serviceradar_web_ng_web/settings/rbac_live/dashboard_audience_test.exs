@@ -103,6 +103,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.DashboardAudienceTest do
     assert {:ok, requested, {:after, "authored-after"}, 3} =
              DashboardAudience.start_request(previous, :authored, :next, "request-a")
 
+    assert {:error, :stale} = DashboardAudience.resolve_row(requested, :authored, "authored-row")
+
     assert requested.package == package
 
     assert {:replace, next, [_row]} =
@@ -138,6 +140,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.DashboardAudienceTest do
     assert next.authored.after == previous.authored.after
     assert next.authored.expected == previous.authored.expected
     assert next.authored.error == :load_failed
+    assert {:error, :stale} = DashboardAudience.resolve_row(next, :authored, "authored-row")
+
+    assert {:ok, %{source: :package}} =
+             DashboardAudience.resolve_row(next, :package, "package-row")
+
     refute next.authored.loading?
     assert next.package == previous.package
   end

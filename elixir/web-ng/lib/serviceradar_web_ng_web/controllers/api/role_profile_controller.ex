@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNGWeb.Api.RoleProfileController do
 
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
-  alias ServiceRadarWebNG.AdminApi
+  alias ServiceRadar.Identity.RoleProfilePolicy
 
   require Ash.Query
 
@@ -59,7 +59,7 @@ defmodule ServiceRadarWebNGWeb.Api.RoleProfileController do
       permissions: normalize_permissions(params["permissions"])
     }
 
-    case AdminApi.create_role_profile(scope, attrs) do
+    case RoleProfilePolicy.create(scope, attrs) do
       {:ok, profile} ->
         conn
         |> put_status(:created)
@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNGWeb.Api.RoleProfileController do
 
     attrs = attrs |> Enum.reject(fn {_key, value} -> is_nil(value) end) |> Map.new()
 
-    case AdminApi.update_role_profile(scope, id, attrs) do
+    case RoleProfilePolicy.update(scope, id, attrs) do
       {:ok, updated} -> json(conn, role_profile_to_json(updated))
       {:error, error} -> normalize_mutation_error(error)
     end
@@ -90,7 +90,7 @@ defmodule ServiceRadarWebNGWeb.Api.RoleProfileController do
   def delete(conn, %{"id" => id}) do
     scope = conn.assigns.current_scope
 
-    case AdminApi.delete_role_profile(scope, id) do
+    case RoleProfilePolicy.delete(scope, id) do
       {:ok, _result} -> json(conn, %{status: "deleted"})
       {:error, error} -> normalize_mutation_error(error)
     end

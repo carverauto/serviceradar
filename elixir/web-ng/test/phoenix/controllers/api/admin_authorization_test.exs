@@ -15,6 +15,58 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
   require Ash.Query
 
   describe "/api/admin/* authorization" do
+    @tag :web_ng_shared_fixture_db
+    @tag sandbox: :unboxed
+    test "role-profile CRUD persists locally with the production HTTP transport default", %{
+      conn: conn
+    } do
+      marker = "controller-local-#{System.unique_integer([:positive])}"
+      email = "#{marker}@example.test"
+      previous = Application.fetch_env(:serviceradar_web_ng, :admin_api_client)
+
+      on_exit(fn ->
+        case previous do
+          {:ok, client} -> Application.put_env(:serviceradar_web_ng, :admin_api_client, client)
+          :error -> Application.delete_env(:serviceradar_web_ng, :admin_api_client)
+        end
+
+        cleanup_unboxed!(marker, email)
+      end)
+
+      user = AshTestHelpers.admin_user_fixture(%{email: email})
+      system = AshTestHelpers.system_actor()
+      Application.delete_env(:serviceradar_web_ng, :admin_api_client)
+
+      conn =
+        conn
+        |> log_in_user(user)
+        |> post(~p"/api/admin/role-profiles", %{
+          "name" => "#{marker}-created",
+          "permissions" => ["devices.view"]
+        })
+
+      assert %{"id" => id} = json_response(conn, 201)
+      assert %{permissions: ["devices.view"]} = Ash.get!(RoleProfile, id, actor: system)
+
+      conn =
+        conn
+        |> recycle()
+        |> patch(~p"/api/admin/role-profiles/#{id}", %{
+          "name" => "#{marker}-renamed",
+          "permissions" => ["services.view"]
+        })
+
+      assert %{"name" => name} = json_response(conn, 200)
+      assert name == "#{marker}-renamed"
+      assert %{permissions: ["services.view"]} = Ash.get!(RoleProfile, id, actor: system)
+
+      conn = conn |> recycle() |> delete(~p"/api/admin/role-profiles/#{id}")
+      assert %{"status" => "deleted"} = json_response(conn, 200)
+
+      assert {:ok, nil} =
+               RoleProfile |> Ash.Query.filter(id == ^id) |> Ash.read_one(actor: system)
+    end
+
     test "denies viewers for role profiles endpoints", %{conn: conn} do
       user = viewer_user_fixture()
       conn = log_in_user(conn, user)

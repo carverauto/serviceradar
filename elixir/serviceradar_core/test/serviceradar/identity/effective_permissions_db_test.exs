@@ -22,25 +22,30 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
   end
 
   setup do
+    marker = "effective-authority-#{System.unique_integer([:positive])}"
     actor = SystemActor.system(:effective_permissions_db_test)
     RBAC.invalidate_all_caches()
 
     on_exit(fn ->
+      cleanup!(marker)
       RBAC.invalidate_all_caches()
       RBAC.clear_process_cache()
     end)
 
-    {:ok, actor: actor}
+    {:ok, actor: actor, marker: marker}
   end
 
-  test "strict authority unions a base profile and every group profile", %{actor: actor} do
-    user = user!(actor)
-    base = profile!(actor, ["devices.view", "services.update"])
-    group_profile = profile!(actor, ["services.update", "alerts.acknowledge"])
-    duplicate_profile = profile!(actor, ["devices.view"])
-    group = group!(actor, group_profile.id)
-    duplicate_group = group!(actor, duplicate_profile.id)
-    group_without_profile = group!(actor, nil)
+  test "strict authority unions a base profile and every group profile", %{
+    actor: actor,
+    marker: marker
+  } do
+    user = user!(actor, marker)
+    base = profile!(actor, marker, ["devices.view", "services.update"])
+    group_profile = profile!(actor, marker, ["services.update", "alerts.acknowledge"])
+    duplicate_profile = profile!(actor, marker, ["devices.view"])
+    group = group!(actor, marker, group_profile.id)
+    duplicate_group = group!(actor, marker, duplicate_profile.id)
+    group_without_profile = group!(actor, marker, nil)
 
     {:ok, user} = User.update_role_profile(user, %{role_profile_id: base.id}, actor: actor)
     membership!(actor, user.id, group.id)
@@ -60,10 +65,11 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
   end
 
   test "strict authority preserves the base profile when the user has no group memberships", %{
-    actor: actor
+    actor: actor,
+    marker: marker
   } do
-    user = user!(actor)
-    base = profile!(actor, ["devices.view", "services.update"])
+    user = user!(actor, marker)
+    base = profile!(actor, marker, ["devices.view", "services.update"])
 
     {:ok, user} = User.update_role_profile(user, %{role_profile_id: base.id}, actor: actor)
 
@@ -78,11 +84,14 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
     assert base_updated_at == base.updated_at
   end
 
-  test "removing a membership removes its group-derived permissions", %{actor: actor} do
-    user = user!(actor)
-    base = profile!(actor, ["devices.view"])
-    group_profile = profile!(actor, ["alerts.acknowledge"])
-    group = group!(actor, group_profile.id)
+  test "removing a membership removes its group-derived permissions", %{
+    actor: actor,
+    marker: marker
+  } do
+    user = user!(actor, marker)
+    base = profile!(actor, marker, ["devices.view"])
+    group_profile = profile!(actor, marker, ["alerts.acknowledge"])
+    group = group!(actor, marker, group_profile.id)
 
     {:ok, user} = User.update_role_profile(user, %{role_profile_id: base.id}, actor: actor)
     membership = membership!(actor, user.id, group.id)
@@ -102,11 +111,14 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
     assert RBAC.permissions_for_user(user, actor: actor) == MapSet.new(["devices.view"])
   end
 
-  test "ordinary resolution does not use a stale process dictionary value", %{actor: actor} do
-    user = user!(actor)
-    base = profile!(actor, ["devices.view"])
-    group_profile = profile!(actor, ["alerts.acknowledge"])
-    group = group!(actor, group_profile.id)
+  test "ordinary resolution does not use a stale process dictionary value", %{
+    actor: actor,
+    marker: marker
+  } do
+    user = user!(actor, marker)
+    base = profile!(actor, marker, ["devices.view"])
+    group_profile = profile!(actor, marker, ["alerts.acknowledge"])
+    group = group!(actor, marker, group_profile.id)
 
     {:ok, user} = User.update_role_profile(user, %{role_profile_id: base.id}, actor: actor)
     membership!(actor, user.id, group.id)
@@ -119,12 +131,13 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
   end
 
   test "invalidating shared cache refreshes resolution in a supervised resolver process", %{
-    actor: actor
+    actor: actor,
+    marker: marker
   } do
-    user = user!(actor)
-    base = profile!(actor, ["devices.view"])
-    group_profile = profile!(actor, ["services.update"])
-    group = group!(actor, group_profile.id)
+    user = user!(actor, marker)
+    base = profile!(actor, marker, ["devices.view"])
+    group_profile = profile!(actor, marker, ["services.update"])
+    group = group!(actor, marker, group_profile.id)
 
     {:ok, user} = User.update_role_profile(user, %{role_profile_id: base.id}, actor: actor)
     membership!(actor, user.id, group.id)
@@ -170,20 +183,23 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
     assert_receive {:DOWN, ^resolver_ref, :process, ^resolver, :normal}
   end
 
-  test "strict authority fails closed when the selected base profile cannot load", %{actor: actor} do
-    user = user!(actor)
+  test "strict authority fails closed when the selected base profile cannot load", %{
+    actor: actor,
+    marker: marker
+  } do
+    user = user!(actor, marker)
     missing_profile_user = %{user | role_profile_id: Ecto.UUID.generate()}
 
     assert {:error, _reason} = RBAC.effective_authority(missing_profile_user, actor)
   end
 
-  defp profile!(actor, permissions) do
+  defp profile!(actor, marker, permissions) do
     profile =
       RoleProfile
       |> Ash.Changeset.for_create(
         :create,
         %{
-          name: "Authority profile #{System.unique_integer([:positive])}",
+          name: "#{marker}-profile-#{System.unique_integer([:positive])}",
           permissions: permissions
         },
         actor: actor,
@@ -194,10 +210,10 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
     profile
   end
 
-  defp group!(actor, role_profile_id) do
+  defp group!(actor, marker, role_profile_id) do
     {:ok, group} =
       UserGroup.create_group(
-        %{name: "Authority group #{System.unique_integer([:positive])}"},
+        %{name: "#{marker}-group-#{System.unique_integer([:positive])}"},
         actor: actor
       )
 
@@ -228,14 +244,14 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
     membership
   end
 
-  defp user!(actor) do
+  defp user!(actor, marker) do
     suffix = System.unique_integer([:positive])
     password = "SyntheticAuthority#{suffix}!"
 
     {:ok, user} =
       Users.register_with_password(
         %{
-          email: "authority-#{suffix}@example.test",
+          email: "#{marker}-#{suffix}@example.test",
           password: password,
           password_confirmation: password
         },
@@ -243,5 +259,37 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
       )
 
     user
+  end
+
+  defp cleanup!(marker) do
+    groups =
+      from(g in "user_groups", prefix: "platform", where: like(g.name, ^"#{marker}-group-%"))
+
+    users =
+      from(u in "ng_users", prefix: "platform", where: like(u.email, ^"#{marker}-%@example.test"))
+
+    profiles =
+      from(p in "role_profiles", prefix: "platform", where: like(p.name, ^"#{marker}-profile-%"))
+
+    memberships =
+      from(m in "user_group_memberships",
+        prefix: "platform",
+        where: m.group_id in subquery(from(g in groups, select: g.id))
+      )
+
+    membership_ids = Repo.all(from(m in memberships, select: m.id))
+    Repo.delete_all(memberships)
+    Repo.delete_all(groups)
+    Repo.delete_all(users)
+    Repo.delete_all(profiles)
+
+    refute Repo.exists?(
+             from(m in "user_group_memberships",
+               prefix: "platform",
+               where: m.id in ^membership_ids
+             )
+           )
+
+    for query <- [groups, users, profiles], do: refute(Repo.exists?(query))
   end
 end

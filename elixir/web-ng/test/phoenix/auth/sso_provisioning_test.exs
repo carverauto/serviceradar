@@ -322,64 +322,140 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningIdpBoundaryDbTest do
     :ok
   end
 
-  test "one invalid group mapping does not block sign-in or another membership" do
-    marker = "sso-idp-boundary-#{System.unique_integer([:positive])}"
-    actor = SystemActor.system(:sso_idp_boundary_test)
-    email = "#{marker}@example.test"
+  for initially_present <- [true, false] do
+    @tag initially_present: initially_present
+    test "one invalid group mapping does not block sign-in or another membership (settings present: #{initially_present})",
+         %{initially_present: initially_present} do
+      marker = "sso-idp-boundary-#{System.unique_integer([:positive])}"
+      actor = SystemActor.system(:sso_idp_boundary_test)
+      email = "#{marker}@example.test"
 
-    on_exit(fn -> cleanup!(marker, email) end)
+      original_settings = settings_snapshot()
 
-    valid_group_name = "#{marker}-valid"
-    stale_group_name = "#{marker}-stale"
-    missing_group_id = Ecto.UUID.generate()
+      on_exit(fn ->
+        try do
+          cleanup!(marker, email)
+        after
+          restore_settings!(original_settings, marker)
+        end
+      end)
 
-    {:ok, _settings} =
-      AuthorizationSettings.create_settings(
-        %{
-          default_role: :viewer,
-          role_mappings: [
-            mapping(valid_group_name, %{"role" => "operator"}),
-            mapping(stale_group_name, %{"user_group_id" => missing_group_id})
-          ]
-        },
-        actor: actor
+      # Exercise both initial states in the disposable fixture database. Keep any
+      # previous singleton only in memory and register restoration before writes.
+      Repo.delete_all(
+        from(s in "authorization_settings", prefix: "platform", where: s.key == "default")
       )
 
-    {:ok, _user} =
-      User.provision_sso_user(
-        %{
-          email: email,
-          display_name: "Synthetic Mapped User",
-          external_id: "oidc|#{marker}",
-          role: :viewer,
-          provider: :oidc
-        },
-        actor: actor
+      if initially_present do
+        {:ok, _settings} =
+          AuthorizationSettings.create_settings(
+            %{
+              default_role: :operator,
+              role_mappings: [mapping("#{marker}-initial", %{"role" => "operator"})],
+              cli_session_ttl_days: 17
+            },
+            actor: actor
+          )
+      end
+
+      prior_settings = settings_snapshot()
+
+      valid_group_name = "#{marker}-valid"
+      stale_group_name = "#{marker}-stale"
+      missing_group_id = Ecto.UUID.generate()
+
+      {:ok, _settings} =
+        put_settings(
+          %{
+            default_role: :viewer,
+            role_mappings: [
+              mapping(valid_group_name, %{"role" => "operator"}),
+              mapping(stale_group_name, %{"user_group_id" => missing_group_id})
+            ]
+          },
+          actor
+        )
+
+      {:ok, _user} =
+        User.provision_sso_user(
+          %{
+            email: email,
+            display_name: "Synthetic Mapped User",
+            external_id: "oidc|#{marker}",
+            role: :viewer,
+            provider: :oidc
+          },
+          actor: actor
+        )
+
+      assert {:ok, user} =
+               SSOProvisioning.find_or_create_user(
+                 %{
+                   email: email,
+                   name: "Synthetic Mapped User",
+                   external_id: "oidc|#{marker}"
+                 },
+                 %{
+                   "sub" => "oidc|#{marker}",
+                   "email" => email,
+                   "groups" => [stale_group_name, valid_group_name]
+                 },
+                 :oidc,
+                 actor
+               )
+
+      assert {:ok, %UserGroup{id: valid_group_id}} =
+               UserGroup
+               |> Ash.Query.filter(name == ^valid_group_name)
+               |> Ash.read_one(actor: actor)
+
+      assert [%UserGroupMembership{group_id: ^valid_group_id, source: :idp}] =
+               UserGroupMembership.list_by_user!(user.id, actor: actor)
+
+      restore_settings!(prior_settings, marker)
+      assert settings_snapshot() == prior_settings
+    end
+  end
+
+  defp put_settings(attrs, actor) do
+    case Ash.get(AuthorizationSettings, "default", actor: actor, not_found_error?: false) do
+      {:ok, nil} -> AuthorizationSettings.create_settings(attrs, actor: actor)
+      {:ok, settings} -> AuthorizationSettings.update_settings(settings, attrs, actor: actor)
+    end
+  end
+
+  defp settings_snapshot do
+    fields = Enum.map(Ash.Resource.Info.attributes(AuthorizationSettings), & &1.name)
+
+    Repo.one(
+      from(s in "authorization_settings",
+        prefix: "platform",
+        where: s.key == "default",
+        select: map(s, ^fields)
       )
+    )
+  end
 
-    assert {:ok, user} =
-             SSOProvisioning.find_or_create_user(
-               %{
-                 email: email,
-                 name: "Synthetic Mapped User",
-                 external_id: "oidc|#{marker}"
-               },
-               %{
-                 "sub" => "oidc|#{marker}",
-                 "email" => email,
-                 "groups" => [stale_group_name, valid_group_name]
-               },
-               :oidc,
-               actor
-             )
+  defp restore_settings!(nil, marker) do
+    Repo.delete_all(
+      from(s in "authorization_settings",
+        prefix: "platform",
+        where:
+          s.key == "default" and
+            fragment("?::text LIKE ?", s.role_mappings, ^"%#{marker}%")
+      )
+    )
 
-    assert {:ok, %UserGroup{id: valid_group_id}} =
-             UserGroup
-             |> Ash.Query.filter(name == ^valid_group_name)
-             |> Ash.read_one(actor: actor)
+    assert settings_snapshot() == nil
+  end
 
-    assert [%UserGroupMembership{group_id: ^valid_group_id, source: :idp}] =
-             UserGroupMembership.list_by_user!(user.id, actor: actor)
+  defp restore_settings!(snapshot, _marker) do
+    Repo.delete_all(
+      from(s in "authorization_settings", prefix: "platform", where: s.key == "default")
+    )
+
+    Repo.insert_all("authorization_settings", [snapshot], prefix: "platform")
+    assert settings_snapshot() == snapshot
   end
 
   defp mapping(value, grant) do
@@ -393,8 +469,10 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioningIdpBoundaryDbTest do
 
     Repo.delete_all(from(u in "ng_users", prefix: "platform", where: u.email == ^email))
 
-    Repo.delete_all(
-      from(s in "authorization_settings", prefix: "platform", where: s.key == "default")
-    )
+    refute Repo.exists?(
+             from(g in "user_groups", prefix: "platform", where: like(g.name, ^"#{marker}-%"))
+           )
+
+    refute Repo.exists?(from(u in "ng_users", prefix: "platform", where: u.email == ^email))
   end
 end

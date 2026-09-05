@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Dashboards.DashboardAccessGrant
+  alias ServiceRadar.Dashboards.DashboardInstance
+  alias ServiceRadar.Identity.GroupPolicy
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.UserGroup
@@ -50,7 +52,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
 
     conn = conn |> log_in_user(fixture.user) |> get(~p"/settings/auth/rbac")
 
-    assert html_response(conn, 200) =~ "rbac-group-profile-loading"
+    assert conn
+           |> html_response(200)
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query("#rbac-group-profile-loading[data-state='loading']")
+           |> LazyHTML.to_tree() != []
+
     refute_received {:group_profile_query, _kind}
   end
 
@@ -64,11 +71,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
       |> log_in_user(fixture.user)
       |> live(~p"/settings/auth/rbac")
 
-    html = render_async(live_view, 5_000)
+    _html = render_async(live_view, 5_000)
 
     assert has_element?(live_view, "#rbac-group-profile-controls[data-state='success']")
-    assert html =~ fixture.group.name
-    assert html =~ fixture.target_profile.name
+
+    assert has_element?(
+             live_view,
+             "[data-group-profile-row][data-group-name='#{fixture.group.name}']"
+           )
+
+    assert has_element?(
+             live_view,
+             "#rbac-group-profile-controls option[data-profile-name='#{fixture.target_profile.name}']"
+           )
   end
 
   @tag :web_ng_shared_fixture_db
@@ -82,10 +97,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
       |> log_in_user(fixture.user)
       |> live(~p"/settings/auth/rbac")
 
-    html = render_async(live_view, 5_000)
+    _html = render_async(live_view, 5_000)
 
     assert has_element?(live_view, "#rbac-group-profile-empty[data-state='empty']")
-    refute html =~ "Unable to load user groups. Try again."
+    refute has_element?(live_view, "#rbac-group-profile-error")
   end
 
   @tag :web_ng_shared_fixture_db
@@ -144,18 +159,20 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
 
     assert_receive {:failed_group_refresh_waiting, failed_query_pid}, 1_000
 
-    loading_html = render(live_view)
-    assert loading_html =~ "rbac-group-profile-loading"
-    refute loading_html =~ "rbac-group-profile-controls"
+    assert has_element?(live_view, "#rbac-group-profile-loading")
+    refute has_element?(live_view, "#rbac-group-profile-controls")
 
     send(failed_query_pid, :release_failed_group_refresh)
     html = render_async(live_view, 5_000)
 
     assert has_element?(live_view, "#rbac-group-profile-error[data-state='error']")
-    assert html =~ "Unable to load user groups. Try again."
-    refute html =~ "rbac-group-profile-controls"
+
+    assert live_view |> element("#rbac-group-profile-error") |> render() =~
+             "Unable to load user groups. Try again."
+
+    refute has_element?(live_view, "#rbac-group-profile-controls")
     refute html =~ marker
-    refute html =~ "No user groups have been created yet."
+    refute has_element?(live_view, "#rbac-group-profile-empty")
   end
 
   @tag :web_ng_shared_fixture_db
@@ -202,9 +219,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
 
     assert %{role_profile_id: nil} = Ash.get!(UserGroup, fixture.group.id, actor: fixture.system)
 
-    html = render_click(live_view, "clear_group_profile", %{"group-token" => group_token})
+    _html = render_click(live_view, "clear_group_profile", %{"group-token" => group_token})
 
-    assert html =~ "Group assignments changed. Reloaded the latest values."
+    assert live_view |> element("#flash-error") |> render() =~
+             "Group assignments changed. Reloaded the latest values."
+
     assert %{role_profile_id: nil} = Ash.get!(UserGroup, fixture.group.id, actor: fixture.system)
   end
 
@@ -240,9 +259,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
     })
     |> render_change()
 
-    html = render_async(live_view, 5_000)
+    _html = render_async(live_view, 5_000)
 
-    assert html =~ "Group assignment could not be updated. Reloaded the latest values."
+    assert live_view |> element("#flash-error") |> render() =~
+             "Group assignment could not be updated. Reloaded the latest values."
+
     assert %{role_profile_id: nil} = Ash.get!(UserGroup, fixture.group.id, actor: fixture.system)
   end
 
@@ -266,10 +287,19 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
 
     assert has_element?(live_view, "#rbac-dashboard-audience")
     assert dashboard_row_count(page, :authored) == 50
-    assert dashboard_row_count(page, :package) == 1
-    assert html =~ "Public to users with analytics access"
-    assert html =~ "Public to authenticated users"
-    assert html =~ "Edit access includes view and cannot be removed here"
+    assert dashboard_row_count(page, :package) == 2
+
+    assert live_view
+           |> element("[data-dashboard-name='#{fixture.public_authored.title}']")
+           |> render() =~ "Public to users with analytics access"
+
+    assert live_view
+           |> element("[data-dashboard-name='#{fixture.public_package.name}']")
+           |> render() =~ "Public to authenticated users"
+
+    assert live_view
+           |> element("[data-dashboard-name='#{fixture.edit_authored.title}']")
+           |> render() =~ "Edit access includes view and cannot be removed here"
 
     live_view
     |> element("button[phx-click='next_authored_dashboard_audience']")
@@ -279,7 +309,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
     next_page = LazyHTML.from_fragment(next_html)
 
     assert dashboard_row_count(next_page, :authored) == 1
-    assert next_html =~ fixture.public_package.name
+    assert has_element?(live_view, "[data-dashboard-name='#{fixture.public_package.name}']")
   end
 
   @tag :web_ng_shared_fixture_db
@@ -319,22 +349,88 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
              "[data-dashboard-source='authored'] [data-dashboard-name='#{fixture.private_authored.title}']"
            )
 
+    # The accepted group load starts the two audience loads; render_async waits
+    # only for the tasks present when it is called, so settle the second stage too.
+    _html = render_async(live_view, 5_000)
+
     {fresh_group_token, _fresh_profile_token} =
       group_profile_tokens(live_view, fixture.group.name, fixture.target_profile.name)
 
     refute fresh_group_token == initial_group_token
 
-    current_row_token =
-      dashboard_row_token(live_view, :authored, fixture.private_authored.title)
+    for {source, name, id} <- [
+          {:authored, fixture.private_authored.title, fixture.private_authored.id},
+          {:package, fixture.private_package.name, fixture.private_package.id}
+        ] do
+      button = dashboard_button(source, name, :ensure)
+      assert has_element?(live_view, "#{button}[phx-value-group-token='#{fresh_group_token}']")
+      live_view |> element(button) |> render_click()
+      _html = render_async(live_view, 5_000)
+      assert group_grant_access(source, id, fixture.group.id) == "view"
+    end
 
-    render_click(live_view, "ensure_authored_dashboard_group_view", %{
-      "group-token" => fresh_group_token,
-      "row-token" => current_row_token
-    })
-
+    authored_token = dashboard_row_token(live_view, :authored, fixture.private_authored.title)
+    send(live_view.pid, {:refresh_dashboard_group_tokens, 0})
     _html = render_async(live_view, 5_000)
 
-    assert group_grant_access(:authored, fixture.private_authored.id, fixture.group.id) == "view"
+    assert dashboard_row_token(live_view, :authored, fixture.private_authored.title) ==
+             authored_token
+
+    assert {:ok, _group} = GroupPolicy.delete(%{user: fixture.user}, fixture.group.id)
+
+    live_view
+    |> element(
+      "button[phx-click='clear_group_profile'][phx-value-group-token='#{fresh_group_token}']"
+    )
+    |> render_click()
+
+    _html = render_async(live_view, 5_000)
+    refute has_element?(live_view, "[data-group-name='#{fixture.group.name}']")
+    refute has_element?(live_view, "#rbac-dashboard-audience")
+  end
+
+  @tag :web_ng_shared_fixture_db
+  @tag sandbox: :unboxed
+  test "private package buttons grant and revoke view while leaving the authored window unchanged",
+       %{conn: conn} do
+    fixture = dashboard_audience_fixture!(3)
+    {:ok, live_view, _html} = conn |> log_in_user(fixture.user) |> live(~p"/settings/auth/rbac")
+    _html = render_async(live_view, 5_000)
+    select_dashboard_group(live_view, fixture.group.name)
+    _html = render_async(live_view, 5_000)
+    authored_before = live_view |> element("[data-dashboard-source='authored']") |> render()
+
+    assert %{visibility: :private} =
+             Ash.get!(DashboardInstance, fixture.private_package.id, actor: fixture.system)
+
+    live_view
+    |> element(dashboard_button(:package, fixture.private_package.name, :ensure))
+    |> render_click()
+
+    _html = render_async(live_view, 5_000)
+    assert group_grant_access(:package, fixture.private_package.id, fixture.group.id) == "view"
+
+    assert %{visibility: :shared} =
+             Ash.get!(DashboardInstance, fixture.private_package.id, actor: fixture.system)
+
+    assert live_view |> element("[data-dashboard-source='authored']") |> render() ==
+             authored_before
+
+    live_view
+    |> element(dashboard_button(:package, fixture.private_package.name, :revoke))
+    |> render_click()
+
+    _html = render_async(live_view, 5_000)
+    assert is_nil(group_grant_access(:package, fixture.private_package.id, fixture.group.id))
+
+    assert %{visibility: :shared} =
+             Ash.get!(DashboardInstance, fixture.private_package.id, actor: fixture.system)
+
+    assert live_view |> element("[data-dashboard-source='authored']") |> render() ==
+             authored_before
+
+    assert is_nil(group_grant_access(:authored, fixture.private_authored.id, fixture.group.id))
+    assert group_grant_access(:authored, fixture.edit_authored.id, fixture.group.id) == "edit"
   end
 
   @tag :web_ng_shared_fixture_db
@@ -378,7 +474,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
 
     assert has_element?(live_view, "#rbac-authored-dashboards-error[role='alert']")
     refute has_element?(live_view, "#rbac-package-dashboards-error")
-    assert html =~ fixture.public_package.name
+    assert has_element?(live_view, "[data-dashboard-name='#{fixture.public_package.name}']")
     refute html =~ "synthetic_page_failure"
   end
 
@@ -410,13 +506,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
     other_group_token = select_dashboard_group(live_view, fixture.other_group.name)
     _html = render_async(live_view, 5_000)
 
-    html =
+    _html =
       render_click(live_view, "ensure_authored_dashboard_group_view", %{
         "group-token" => other_group_token,
         "row-token" => row_token
       })
 
-    assert html =~ "Dashboard audience could not be updated. Reloaded the latest values."
+    assert live_view |> element("#flash-error") |> render() =~
+             "Dashboard audience could not be updated. Reloaded the latest values."
 
     assert is_nil(
              group_grant_access(:authored, fixture.private_authored.id, fixture.other_group.id)
@@ -439,13 +536,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
                :edit
              )
 
-    html =
+    _html =
       render_click(live_view, "ensure_authored_dashboard_group_view", %{
         "group-token" => other_group_token,
         "row-token" => stale_row
       })
 
-    assert html =~ "Dashboard audience could not be updated. Reloaded the latest values."
+    assert live_view |> element("#flash-error") |> render() =~
+             "Dashboard audience could not be updated. Reloaded the latest values."
 
     assert group_grant_access(:authored, fixture.private_authored.id, fixture.other_group.id) ==
              "edit"
@@ -481,9 +579,11 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
       "row-token" => row_token
     })
 
-    html = render_async(live_view, 5_000)
+    _html = render_async(live_view, 5_000)
 
-    assert html =~ "Dashboard audience could not be updated. Reloaded the latest values."
+    assert live_view |> element("#flash-error") |> render() =~
+             "Dashboard audience could not be updated. Reloaded the latest values."
+
     assert is_nil(group_grant_access(:authored, fixture.private_authored.id, fixture.group.id))
   end
 
@@ -526,7 +626,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
     |> form("#new-profile-form", profile: %{name: name, description: "Synthetic profile"})
     |> render_submit()
 
-    assert render(live_view) =~ "Unexpected error"
+    assert live_view |> element("#flash-error") |> render() =~ "Unexpected error"
 
     assert {:ok, []} =
              RoleProfile
@@ -546,6 +646,157 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
       context: %{privilege_boundary_owned: true}
     )
     |> Ash.create!()
+  end
+
+  @tag :web_ng_shared_fixture_db
+  @tag sandbox: :unboxed
+  test "created and cloned profiles immediately become assignable without losing matrix edits", %{
+    conn: conn
+  } do
+    fixture = group_profile_fixture!()
+    {:ok, live_view, _html} = conn |> log_in_user(fixture.user) |> live(~p"/settings/auth/rbac")
+    _html = render_async(live_view, 5_000)
+    select_matrix_profile(live_view, fixture.target_profile.id)
+
+    live_view
+    |> element("button[phx-click='set_profile_permissions'][phx-value-mode='all']")
+    |> render_click()
+
+    for mode <- [:create, :clone] do
+      select_matrix_profile(live_view, fixture.target_profile.id)
+
+      selector =
+        case mode do
+          :create ->
+            "button[phx-click='open_new_profile']:not([phx-value-clone-source-id])"
+
+          :clone ->
+            "button[phx-click='open_new_profile'][phx-value-clone-source-id='#{fixture.target_profile.id}']"
+        end
+
+      live_view |> element(selector) |> render_click()
+      name = "#{fixture.marker}-#{mode}-profile"
+
+      live_view
+      |> form("#new-profile-form", profile: %{name: name, description: "Synthetic lifecycle"})
+      |> render_submit()
+
+      _html = render_async(live_view, 5_000)
+      assign_profile_from_controls(live_view, fixture.group.name, name)
+
+      created =
+        RoleProfile |> Ash.Query.filter(name == ^name) |> Ash.read_one!(actor: fixture.system)
+
+      assert %{role_profile_id: assigned} =
+               Ash.get!(UserGroup, fixture.group.id, actor: fixture.system)
+
+      assert assigned == created.id
+
+      if mode == :create,
+        do: assert(created.permissions == []),
+        else: assert("devices.view" in created.permissions)
+    end
+
+    select_matrix_profile(live_view, fixture.target_profile.id)
+
+    assert has_element?(
+             live_view,
+             "button[phx-click='save_profile'][phx-value-profile-id='#{fixture.target_profile.id}']"
+           )
+
+    assert %{permissions: []} =
+             Ash.get!(RoleProfile, fixture.target_profile.id, actor: fixture.system)
+
+    live_view |> element("button[phx-click='save_profile']") |> render_click()
+
+    assert "devices.view" in Ash.get!(RoleProfile, fixture.target_profile.id,
+             actor: fixture.system
+           ).permissions
+  end
+
+  @tag :web_ng_shared_fixture_db
+  @tag sandbox: :unboxed
+  test "rename refreshes options and delete clears options and associations while preserving unsaved permissions",
+       %{conn: conn} do
+    fixture = group_profile_fixture!()
+    {:ok, live_view, _html} = conn |> log_in_user(fixture.user) |> live(~p"/settings/auth/rbac")
+    _html = render_async(live_view, 5_000)
+    assign_profile_from_controls(live_view, fixture.group.name, fixture.target_profile.name)
+    select_matrix_profile(live_view, fixture.target_profile.id)
+
+    live_view
+    |> element("button[phx-click='set_profile_permissions'][phx-value-mode='all']")
+    |> render_click()
+
+    live_view |> element("button[phx-click='start_rename_profile']") |> render_click()
+    name = "#{fixture.marker}-renamed-profile"
+
+    live_view
+    |> form("form[phx-submit='rename_profile']", profile: %{name: name})
+    |> render_submit()
+
+    _html = render_async(live_view, 5_000)
+
+    assert has_element?(
+             live_view,
+             "#rbac-group-profile-controls option[data-profile-name='#{name}'][selected]"
+           )
+
+    refute has_element?(
+             live_view,
+             "#rbac-group-profile-controls option[data-profile-name='#{fixture.target_profile.name}']"
+           )
+
+    assert has_element?(live_view, "button[phx-click='save_profile']")
+    live_view |> element("button[phx-click='save_profile']") |> render_click()
+
+    assert "devices.view" in Ash.get!(RoleProfile, fixture.target_profile.id,
+             actor: fixture.system
+           ).permissions
+
+    live_view |> element("button[phx-click='open_delete_profile']") |> render_click()
+
+    live_view
+    |> element("#rbac-delete-profile-modal button[phx-click='delete_profile']")
+    |> render_click()
+
+    _html = render_async(live_view, 5_000)
+
+    refute has_element?(
+             live_view,
+             "#rbac-group-profile-controls option[data-profile-name='#{name}']"
+           )
+
+    assert has_element?(
+             live_view,
+             "[data-group-name='#{fixture.group.name}'] option[value=''][selected]"
+           )
+
+    refute has_element?(
+             live_view,
+             "[data-group-name='#{fixture.group.name}'] button[phx-click='clear_group_profile']"
+           )
+
+    assert %{role_profile_id: nil} = Ash.get!(UserGroup, fixture.group.id, actor: fixture.system)
+  end
+
+  defp select_matrix_profile(live_view, profile_id) do
+    live_view
+    |> element("button[phx-click='select_profile'][phx-value-profile-id='#{profile_id}']")
+    |> render_click()
+  end
+
+  defp assign_profile_from_controls(live_view, group_name, profile_name) do
+    {group_token, profile_token} = group_profile_tokens(live_view, group_name, profile_name)
+
+    live_view
+    |> form("#rbac-group-profile-form-#{group_token}", %{
+      "group-token" => group_token,
+      "profile-token" => profile_token
+    })
+    |> render_change()
+
+    render_async(live_view, 5_000)
   end
 
   defp group_profile_fixture! do
@@ -668,6 +919,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
       name: "#{fixture.marker}-public-package"
     }
 
+    private_package = %{id: Ecto.UUID.generate(), name: "#{fixture.marker}-private-package"}
+
     Repo.insert_all(
       "dashboard_instances",
       [
@@ -678,6 +931,14 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
           route_slug: "#{fixture.marker}-public-package",
           owner_id: fixture.user.id,
           visibility: "public"
+        },
+        %{
+          id: private_package.id,
+          dashboard_package_id: package_id,
+          name: private_package.name,
+          route_slug: "#{fixture.marker}-private-package",
+          owner_id: fixture.user.id,
+          visibility: "private"
         }
       ],
       prefix: "platform"
@@ -688,7 +949,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
       public_authored: public_authored,
       edit_authored: edit_authored,
       private_authored: private_authored,
-      public_package: public_package
+      public_package: public_package,
+      private_package: private_package
     })
   end
 
@@ -761,12 +1023,22 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
     |> length()
   end
 
-  defp group_grant_access(:authored, target_id, group_id) do
+  defp dashboard_button(source, name, operation) do
+    "[data-dashboard-source='#{source}'] [data-dashboard-name='#{name}'] button[phx-click='#{operation}_#{source}_dashboard_group_view']"
+  end
+
+  defp group_grant_access(source, target_id, group_id) do
+    {table, target_field} =
+      case source do
+        :authored -> {"dashboard_access_grants", :dashboard_id}
+        :package -> {"dashboard_instance_access_grants", :dashboard_instance_id}
+      end
+
     Repo.one(
-      from(g in "dashboard_access_grants",
+      from(g in table,
         prefix: "platform",
         where:
-          g.dashboard_id == type(^target_id, :binary_id) and
+          field(g, ^target_field) == type(^target_id, :binary_id) and
             g.subject_group_id == type(^group_id, :binary_id) and g.subject_type == "group",
         select: g.access
       )

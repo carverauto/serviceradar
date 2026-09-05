@@ -10,6 +10,21 @@ defmodule ServiceRadar.Identity.PrivilegeMutationResourceContractTest do
   @boundary_context %{privilege_boundary_owned: true}
   @boundary_error "must be called through the privilege mutation boundary"
 
+  test "atomic cache changes install transaction hooks unless the boundary owns effects" do
+    for {change, resource} <- [
+          {ServiceRadar.Identity.Changes.InvalidateRbacCache, RoleProfile},
+          {ServiceRadar.Identity.Changes.InvalidateUserRbacCache, User}
+        ] do
+      changeset = Ash.Changeset.new(resource)
+      assert {:ok, atomic} = change.atomic(changeset, [], %{})
+      assert [_hook] = atomic.after_transaction
+
+      owned = Ash.Changeset.set_context(changeset, @boundary_context)
+      assert {:ok, suppressed} = change.atomic(owned, [], %{})
+      assert suppressed.after_transaction == []
+    end
+  end
+
   test "custom role-profile writes are boundary guarded and absent from the code interface" do
     assert %{type: :create, accept: [:name, :description, :permissions]} =
              Info.action(RoleProfile, :create)

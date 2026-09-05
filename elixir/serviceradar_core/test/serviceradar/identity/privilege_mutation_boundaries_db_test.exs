@@ -7,6 +7,7 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
   alias ServiceRadar.Identity.GroupPolicy
   alias ServiceRadar.Identity.PrivilegedMembership
   alias ServiceRadar.Identity.PrivilegeMutationEffects
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.RoleProfilePolicy
   alias ServiceRadar.Identity.RoleProfileSeeder
@@ -316,14 +317,31 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
                actor: context.system
              )
 
+    member = user!(context.system, context.marker, "atomic-cache")
+
+    {:ok, member} =
+      User.update_role_profile(member, %{role_profile_id: profile.id}, actor: context.system)
+
+    assert RBAC.permissions_for_user(member, actor: context.system) ==
+             MapSet.new(["devices.view"])
+
     assert {:ok, %RoleProfile{description: "Synthetic trusted update"}} =
              RoleProfile.update_system_profile(
                profile,
-               %{description: "Synthetic trusted update"},
+               %{description: "Synthetic trusted update", permissions: ["services.view"]},
                actor: context.system
              )
 
+    assert RBAC.permissions_for_user(member, actor: context.system) ==
+             MapSet.new(["services.view"])
+
     custom = profile!(context.system, context.marker, ["devices.view"])
+
+    {:ok, reassigned} =
+      User.update_role_profile(member, %{role_profile_id: custom.id}, actor: context.system)
+
+    assert RBAC.permissions_for_user(reassigned, actor: context.system) ==
+             MapSet.new(["devices.view"])
 
     assert {:error, error} =
              RoleProfile.update_system_profile(
@@ -704,7 +722,7 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
   defp cleanup!(marker) do
     group_pattern = "#{marker}-group-%"
     user_pattern = "%-#{marker}-%@example.test"
-    profile_pattern = "#{marker}-profile-%"
+    profile_pattern = "#{marker}-%"
 
     Repo.delete_all(
       from(g in "user_groups", prefix: "platform", where: like(g.name, ^group_pattern))
@@ -717,5 +735,17 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
     Repo.delete_all(
       from(p in "role_profiles", prefix: "platform", where: like(p.name, ^profile_pattern))
     )
+
+    for {table, field, pattern} <- [
+          {"user_groups", :name, group_pattern},
+          {"ng_users", :email, user_pattern},
+          {"role_profiles", :name, profile_pattern}
+        ] do
+      refute Repo.exists?(
+               from(r in table, prefix: "platform", where: like(field(r, ^field), ^pattern))
+             )
+    end
+
+    RBAC.invalidate_all_caches()
   end
 end

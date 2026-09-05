@@ -114,10 +114,8 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
   defp run_mutation(_scope, _entrypoint_source, _target_id, _group_id, _operation, _opts),
     do: {:error, :invalid_attributes}
 
-  defp current_actor(scope, entrypoint_source, opts) do
-    authority_module = Keyword.get(opts, :current_authority_module, CurrentUserAuthority)
-
-    case authority_module.authorize(scope, required_permissions(entrypoint_source)) do
+  defp current_actor(scope, entrypoint_source, _opts) do
+    case CurrentUserAuthority.authorize(scope, required_permissions(entrypoint_source)) do
       {:ok, %{user: user, permissions: %MapSet{} = permissions}} ->
         {:ok, Map.put(user, :permissions, permissions)}
 
@@ -164,13 +162,14 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
 
   defp mutate_visible_target(
          _actor,
-         _entrypoint,
+         entrypoint,
          _source,
          %{visibility: :public} = target,
          _group_id,
-         _operation,
+         operation,
          _opts
-       ) do
+       )
+       when entrypoint == :policy_editor or operation == {:set, :view} do
     result = %{
       target: target,
       grant: selected_grant(target),
@@ -263,7 +262,7 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccess do
     |> Ash.Changeset.for_create(action, attrs, actor: actor, context: @boundary_context)
     |> Ash.create(actor: actor)
     |> case do
-      {:ok, grant} -> {:ok, grant, true}
+      {:ok, grant} -> {:ok, grant, Ash.Resource.get_metadata(grant, :upsert_skipped) != true}
       {:error, _reason} = error -> error
     end
   end

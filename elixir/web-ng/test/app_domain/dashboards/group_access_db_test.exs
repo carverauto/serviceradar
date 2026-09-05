@@ -129,16 +129,62 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessDbTest do
     private = authored!(context.marker, context.actor.id, "Editable", :private)
     group_grant!(:authored, private.id, context.group.id, context.actor.id, :edit, context.system)
 
-    assert {:ok, _result} =
+    assert {:ok, %{changed?: false, visibility_changed?: false}} =
              GroupAccess.ensure_group_view(
                context.scope,
                {:policy_editor, :authored},
                private.id,
-               context.group.id
+               context.group.id,
+               audit_writer: audit_to(self())
              )
 
     assert %{access: :edit} = grant!(:authored, private.id, context.group.id, context.system)
     assert count_group_grants(:authored, private.id, context.group.id) == 1
+    refute_receive {:audit, _audit, _transaction?}
+  end
+
+  test "local public authored and package targets permit edit and full revoke while central intent is no-write",
+       context do
+    package = package!(context.marker)
+    authored = authored!(context.marker, context.actor.id, "Local public", :public)
+    instance = instance!(context.marker, package.id, context.actor.id, "Local public", :public)
+
+    for {source, target} <- [authored: authored, package: instance] do
+      assert {:ok, %{grant: %{access: :edit}, changed?: true}} =
+               GroupAccess.set_group_access(
+                 context.scope,
+                 {:local, source},
+                 target.id,
+                 context.group.id,
+                 :edit,
+                 audit_writer: fn _ -> :ok end
+               )
+
+      for operation <- [:ensure_group_view, :revoke_group_view] do
+        assert {:ok, %{grant: %{access: :edit}, changed?: false}} =
+                 apply(GroupAccess, operation, [
+                   context.scope,
+                   {:policy_editor, source},
+                   target.id,
+                   context.group.id,
+                   [audit_writer: audit_to(self())]
+                 ])
+      end
+
+      refute_receive {:audit, _audit, _transaction?}
+      assert count_group_grants(source, target.id, context.group.id) == 1
+
+      assert {:ok, %{changed?: true}} =
+               GroupAccess.revoke_group_access(
+                 context.scope,
+                 {:local, source},
+                 target.id,
+                 context.group.id,
+                 audit_writer: fn _ -> :ok end
+               )
+
+      assert count_group_grants(source, target.id, context.group.id) == 0
+    end
   end
 
   test "a conditional revoke serialized with a local edit preserves the edit", context do

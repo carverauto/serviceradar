@@ -100,7 +100,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.DashboardAudience do
   @spec resolve_row(map(), :authored | :package, String.t()) ::
           {:ok, map()} | {:error, :stale}
   def resolve_row(state, source, row_token) when source in @sources and is_binary(row_token) do
-    with %{source: ^source, group_id: group_id, epoch: epoch} = entry <-
+    with %{loading?: false, error: nil} <- Map.fetch!(state, source),
+         %{source: ^source, group_id: group_id, epoch: epoch} = entry <-
            get_in(state, [source, :expected, row_token]),
          true <- group_id == state.group_id,
          true <- epoch == state.epoch do

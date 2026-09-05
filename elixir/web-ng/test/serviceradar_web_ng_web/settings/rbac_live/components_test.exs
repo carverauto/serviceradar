@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.ComponentsTest do
     page = document(html)
 
     assert present?(LazyHTML.query(page, "#rbac-group-profile-empty[data-state='empty']"))
-    refute LazyHTML.text(page) =~ "Unable to load user groups. Try again."
+    refute present?(LazyHTML.query(page, "#rbac-group-profile-error"))
   end
 
   test "success state renders only opaque values for assign and clear events" do
@@ -100,20 +100,21 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.ComponentsTest do
         result: AsyncResult.ok(AsyncResult.loading(), data)
       )
 
-    assert success_html =~ "rbac-group-profile-controls"
+    assert present?(LazyHTML.query(document(success_html), "#rbac-group-profile-controls"))
 
     loading = AsyncResult.loading()
     loading_html = render_component(&Components.group_profile_controls/1, result: loading)
 
-    assert loading_html =~ "rbac-group-profile-loading"
-    refute loading_html =~ "rbac-group-profile-controls"
+    assert present?(LazyHTML.query(document(loading_html), "#rbac-group-profile-loading"))
+    refute present?(LazyHTML.query(document(loading_html), "#rbac-group-profile-controls"))
 
     failure = AsyncResult.failed(loading, :synthetic_refresh_failure)
     failure_html = render_component(&Components.group_profile_controls/1, result: failure)
 
-    assert failure_html =~ "Unable to load user groups. Try again."
-    assert failure_html =~ "rbac-group-profile-error"
-    refute failure_html =~ "rbac-group-profile-controls"
+    error = LazyHTML.query(document(failure_html), "#rbac-group-profile-error[role='alert']")
+    assert present?(error)
+    assert LazyHTML.text(error) =~ "Unable to load user groups. Try again."
+    refute present?(LazyHTML.query(document(failure_html), "#rbac-group-profile-controls"))
   end
 
   test "failure state renders the exact generic retry message and omits the reason" do
@@ -127,10 +128,12 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.ComponentsTest do
              LazyHTML.query(page, "#rbac-group-profile-error[data-state='error'][role='alert']")
            )
 
-    assert LazyHTML.text(page) =~ "Unable to load user groups. Try again."
+    assert LazyHTML.text(LazyHTML.query(page, "#rbac-group-profile-error")) =~
+             "Unable to load user groups. Try again."
+
     assert present?(LazyHTML.query(page, "button[phx-click='retry_group_profiles']"))
     refute html =~ marker
-    refute LazyHTML.text(page) =~ "No user groups"
+    refute present?(LazyHTML.query(page, "#rbac-group-profile-empty"))
   end
 
   defp document(html), do: LazyHTML.from_fragment(html)
