@@ -454,9 +454,8 @@ core:
       interface:
         drift_mode: deseasonalized_only
       disk:
-        # Quoted: YAML 1.1 parses a bare `off` as boolean false, which the
-        # seeder stores verbatim and the projector then fails add-on schema
-        # validation with (see issue #4323).
+        # Keep "off" quoted: drift_mode is a schema string, while YAML 1.1
+        # parses an unquoted off as boolean false.
         drift_mode: "off"
       icmp:
         drift_mode: "off"

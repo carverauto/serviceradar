@@ -253,7 +253,9 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjectorTest do
     assert managed["metric_classes"]["disk"] == %{"drift_min_effect" => 2.0}
     assert managed["metric_classes"]["icmp"] == %{"drift_mode" => "bogus"}
     assert managed["metric_classes"]["other"] == %{"drift_mode" => 42}
-    assert {:error, _} = ConfigSchema.validate_params(load_addon_schema(), %{"managed" => managed})
+
+    assert {:error, _} =
+             ConfigSchema.validate_params(load_addon_schema(), %{"managed" => managed})
   end
 
   defp load_addon_schema do
