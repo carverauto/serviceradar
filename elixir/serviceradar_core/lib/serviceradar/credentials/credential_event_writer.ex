@@ -30,12 +30,8 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
 
   The flag defaults to `false`.
 
-  ## Routine broker-grant lifecycle is a debug log, not an event
-
-  Grant `:issue` / `:activate` / `:consume` used to be written to `ocsf_events`
-  with `log_level` debug. The events UI still lists every `ocsf_events` row, so
-  those routine transitions showed up as events. They are now `Logger.debug`
-  only. Deny, revoke, and expire stay OCSF events.
+  For broker grant event visibility and history, see "Broker grant logs and
+  history" in `docs/docs/credentials.md`.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -92,11 +88,8 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
   @doc """
   Write a broker grant lifecycle record.
 
-  Routine issuance/use (`:issue`, `:activate`, `:consume`) is high-frequency
-  control-plane noise: those transitions are logged at debug and are **not**
-  written to `ocsf_events`. Security-relevant outcomes (`:deny`, `:revoke`,
-  `:expire`) remain OCSF events. Grant history itself is unchanged
-  (`credential_broker_grant_versions` via AshPaperTrail).
+  See "Broker grant logs and history" in `docs/docs/credentials.md` for the
+  event-emission policy.
   """
   def write_broker_grant_lifecycle(grant, action) do
     attrs = broker_grant_lifecycle_event_attrs(grant, action)
@@ -110,10 +103,7 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
   end
 
   @doc false
-  # Whether a grant lifecycle `action` should be mirrored into `ocsf_events`.
-  # Routine issue/activate/consume are debug logs only; deny/revoke/expire stay
-  # events. Anything else is emitted: unknown actions fail closed to an event,
-  # never silently suppressed. Exposed for testing.
+  # Unknown actions fail closed to an event, never silently suppressed.
   def emit_grant_lifecycle_event?(action) do
     not routine_grant_lifecycle?(action)
   end
@@ -356,9 +346,6 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
   defp routine_resolution_success?(outcome) when outcome in [:success, :cache_hit], do: true
   defp routine_resolution_success?(_outcome), do: false
 
-  # Routine grant issuance/use is the same class of noise as resolution success:
-  # every plugin poll and task launch issues a grant. Deny/revoke/expire keep
-  # their higher severity and remain events.
   defp routine_grant_lifecycle?(action) when action in [:issue, :activate, :consume], do: true
   defp routine_grant_lifecycle?(_action), do: false
 
@@ -392,9 +379,7 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
     end
   end
 
-  # When an OCSF record is still written, informational activity is tagged
-  # debug rather than info. Routine grant issue/activate/consume no longer
-  # write that record at all (`write_broker_grant_lifecycle/2`).
+  # This tags retained OCSF records; emission is decided by the write functions.
   defp routine_log_level(severity_id) do
     if severity_id <= OCSF.severity_informational() do
       "debug"
