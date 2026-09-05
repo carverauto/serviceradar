@@ -68,26 +68,34 @@ actions:
       # its screenshots and traces are retained through TEST_UNDECLARED_OUTPUTS_DIR.
       #
       # PATH-GATED, GitHub-workflow `paths:` style: the scene this target renders
-      # is a static bundle -- the spec installs fixture DOM via page.setContent,
-      # with no server and no webServer in playwright.config.js -- so only the
-      # inputs below can change its outcome. A PR outside that cone skips the
-      # browser run instead of paying for it (see #4165). BuildBuddy workflow
-      # steps have no native paths filter, hence the explicit git check against
-      # the staging fork point. FAIL-OPEN: when the merge-base cannot be
-      # resolved, the test RUNS. A gate that cannot see the diff must never
+      # is a static bundle -- the spec installs fixture DOM, with no server and no
+      # webServer in playwright.config.js -- so every Bazel input it declares lives
+      # under elixir/web-ng/test/playwright or elixir/web-ng/assets. The cone is
+      # those two packages, this file (it carries the invocation), and the godview
+      # NIF as a deliberately conservative in-area path. A PR outside that cone
+      # skips the browser run instead of paying for it (see #4165). BuildBuddy
+      # workflow steps have no native paths filter, hence the explicit git check
+      # against the staging fork point.
+      #
+      # FAIL-OPEN on every arm that cannot see the diff. The base ref is fetched
+      # first because the runner clones by SHA and need not leave a
+      # refs/remotes/origin/* ref behind; an unresolved merge-base and a failed
+      # diff both RUN the acceptance. A gate that cannot see the diff must never
       # silently drop coverage.
       - run: |
           set -euo pipefail
+          git fetch --no-tags --quiet origin \
+            +refs/heads/staging:refs/remotes/origin/staging 2>/dev/null || true
           GOD_VIEW_GATE_BASE="$(git merge-base HEAD origin/staging 2>/dev/null || true)"
           if [ -z "$GOD_VIEW_GATE_BASE" ]; then
             echo "godview gate: no staging merge-base, running acceptance (fail-open)"
-          elif git diff --name-only "$GOD_VIEW_GATE_BASE" HEAD -- \
+          elif ! GOD_VIEW_GATE_CHANGED="$(git diff --name-only "$GOD_VIEW_GATE_BASE" HEAD -- \
             elixir/web-ng/test/playwright \
             elixir/web-ng/assets \
             elixir/web-ng/native/god_view_nif \
-            buildbuddy.yaml \
-            ci_heavy_gate_contract_test.py \
-            | grep -q .; then
+            buildbuddy.yaml)"; then
+            echo "godview gate: diff unavailable, running acceptance (fail-open)"
+          elif [ -n "$GOD_VIEW_GATE_CHANGED" ]; then
             echo "godview gate: godview-area changes detected, running acceptance"
           else
             echo "godview gate: no godview-area changes, skipping acceptance"
