@@ -17,14 +17,75 @@
 package reaper
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
+
+const protectedReason = "protected"
+
+func TestTemplateGenerationNamespaceIsProtected(t *testing.T) {
+	t.Parallel()
+
+	generation := "sr_tpl_" + strings.Repeat("abcdef01", 6)
+	for _, name := range []string{
+		generation,
+		generation + "_c12345",
+		generation + "_1234567",             // PostgreSQL's 63-byte identifier limit.
+		"sr_tpl_",                           // Missing digest.
+		"sr_tpl_deadbeef",                   // Truncated digest.
+		"sr_tpl_" + strings.Repeat("z", 48), // Non-hex digest.
+		generation + "_unfinished_candidate",
+		"sr_tpl_has space",
+		`sr_tpl_has"quote`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if !IsProtected(name) {
+				t.Fatalf("reserved name %q is not protected", name)
+			}
+			if drop, reason := ShouldDrop(Database{Name: name, Age: 48 * time.Hour}, DefaultMaxAge); drop || reason != protectedReason {
+				t.Fatalf("reserved name %q: drop=%v reason=%q", name, drop, reason)
+			}
+			if stmt, err := DropStatement(name); stmt != "" || !errors.Is(err, ErrProtected) {
+				t.Fatalf("reserved name %q: statement=%q error=%v", name, stmt, err)
+			}
+		})
+	}
+}
+
+func TestTemplateNamespaceDoesNotProtectUnrelatedScratchNames(t *testing.T) {
+	t.Parallel()
+
+	for _, name := range []string{"sr_tpl", "sr_tplx_deadbeef", "srXtpl_deadbeef", "scratch_sr_tpl_deadbeef", "sr_core_test_example"} {
+		if IsProtected(name) {
+			t.Fatalf("unrelated scratch name %q is protected", name)
+		}
+		if drop, reason := ShouldDrop(Database{Name: name, Age: 48 * time.Hour}, DefaultMaxAge); !drop {
+			t.Fatalf("unrelated scratch name %q is not droppable: %s", name, reason)
+		}
+		if stmt, err := DropStatement(name); err != nil || stmt == "" {
+			t.Fatalf("unrelated scratch name %q: statement=%q error=%v", name, stmt, err)
+		}
+	}
+}
+
+func TestScratchReaperSQLProtectsEntireTemplateNamespace(t *testing.T) {
+	t.Parallel()
+
+	body, _ := readScratchReaperSQL(t)
+	// Require an unconditional prefix exclusion in the candidate WHERE clause.
+	// A digest-shaped matcher would leave malformed reserved names droppable.
+	guard := regexp.MustCompile(`(?m)^\s*AND d\.datname !~ '\^sr_tpl_'\s*$`)
+	if !guard.Match(body) {
+		t.Fatal("scratch reaper SQL must exclude the entire literal sr_tpl_ prefix")
+	}
+}
 
 func TestShouldDropProtectsTheFixture(t *testing.T) {
 	t.Parallel()
@@ -35,7 +96,7 @@ func TestShouldDropProtectsTheFixture(t *testing.T) {
 			t.Fatalf("protected database %q was marked droppable (%s)", name, reason)
 		}
 
-		if reason != "protected" {
+		if reason != protectedReason {
 			t.Fatalf("protected database %q: got reason %q", name, reason)
 		}
 	}

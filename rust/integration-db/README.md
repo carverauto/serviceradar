@@ -1,5 +1,44 @@
 # Integration database fixture: environment and TLS contract
 
+## Keyed generation lifecycle (opt-in)
+
+The legacy `prepare_template` text interface and provisioning targets remain available
+during rollout. The new guarded targets are `prepare_generation`, `provision_generation`,
+`provision_generation_large_ingestion`, `release_generation`, and `cleanup_generations`.
+They consume the declared `build/schema_template/manifest.json` and `policy.json`;
+there are no ambient generation or capacity overrides. Preparation emits JSON with
+`status` (`needs_migration` or `ready`), `digest`, `database`, and `builder_token`.
+
+The SQL contract is `registry.sql`. All locks and registry queries use `postgres`.
+Generation session locks use `(1397904460, signed_int32(digest[0:8]))`; registry
+initialization/capacity uses `(1397904461, 0)`. Acquire generation before capacity
+when both are needed. Rust prepares or recreates a private `building` database named
+`sr_tpl_` plus the first 48 digest characters. The Elixir builder rereads and advances
+the fencing token under its generation lock, holds that session through full replay,
+ledger/extension verification, Repo shutdown, connection disabling, and publication.
+Ready generations are immutable. PostgreSQL major and required extension versions
+must match the registry on reuse. Full replay is mandatory until baseline provenance
+has been independently established.
+
+Both building and ready preparations acquire a lease for the declared run database.
+Cloning rechecks readiness and renews that lease while holding the generation lock.
+Building recovery may replace a failed candidate despite old leases, but requires
+ownership and no connected backends; builders must always reread the token. Leases
+prevent cleanup during the gap between preparation and migration. Teardown drops
+disposable clones; `release_generation` releases only its run's lease. Cleanup never
+forces a drop, requires a registered exact identity, expired retention, no live lease,
+no builder lock and no connections, and rechecks the database catalog after dropping.
+At capacity, preparation fails with guidance to finish/recover builders or run cleanup.
+
+`generation_lifecycle_test` is an unexecuted-until-qualified, guarded in-cluster test.
+It uses invented schema inputs and separate PostgreSQL sessions to check schema and
+ledger artifacts, reuse, recovery, fencing, capacity, lease renewal and cleanup locks.
+It cleans only its own generation identities. This does not qualify application full
+replay, independent OS-process orchestration, or the cold-baseline lock budget.
+Before workflow activation, deploy `sr_tpl_` exclusions to every ordinary reaper and
+complete those separate qualification gates. Merely compiling this target does not
+execute database operations.
+
 This crate owns the lifecycle of the `serviceradar_core` integration database — create the
 template, clone a per-run database, tear it down, sweep what earlier runs leaked. It reaches
 CNPG entirely through environment variables, and **those variables are supplied differently by

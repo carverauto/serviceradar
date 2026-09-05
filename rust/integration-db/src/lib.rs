@@ -43,6 +43,7 @@ use srql::db::PgRustlsConnect;
 use tokio::task::JoinHandle;
 use tokio_postgres::{Client, Config as PgConfig, NoTls};
 
+pub mod generation;
 pub mod template;
 
 /// Prefix every database this crate is willing to create or drop must carry.
@@ -151,6 +152,7 @@ const UNPROTECTED_STALE_QUERY: &str = "SELECT d.datname \
      JOIN pg_tablespace AS t ON t.oid = d.dattablespace \
      WHERE NOT d.datistemplate \
        AND d.datname NOT IN ('postgres', 'template0', 'template1', 'srql_fixture', 'sr_core_template') \
+       AND left(d.datname, 7) <> 'sr_tpl_' \
        AND t.spcname = 'pg_default' \
        AND (pg_stat_file(format('base/%s/PG_VERSION', d.oid), true)).modification \
            < now() - make_interval(secs => $1::double precision)";
@@ -363,8 +365,8 @@ pub fn admin_url() -> Result<String> {
 
 /// Connect with the admin credentials, optionally overriding the database.
 ///
-/// The returned [`JoinHandle`] drives the connection; dropping it closes the socket, so it
-/// has to outlive every query the caller makes.
+/// The returned [`JoinHandle`] drives the connection. Dropping the handle detaches
+/// the task; abort it to close immediately when cancelling a multi-connection operation.
 pub async fn connect_admin(database: Option<&str>) -> Result<(Client, JoinHandle<()>)> {
     let admin_url = admin_url().context("admin URL unavailable")?;
     let mut config = parse_pg_config(&admin_url, "SRQL_TEST_ADMIN_URL")?;
@@ -516,8 +518,19 @@ fn tls_connector_for(fixture: &config::Fixture) -> Result<Option<PgRustlsConnect
     )?))
 }
 
+struct AbortConnectionOnDrop(JoinHandle<()>);
+
+impl Drop for AbortConnectionOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 pub(crate) async fn install_extensions(database: &str, owner: &str) -> Result<()> {
-    let (client, _task) = connect_admin(Some(database)).await?;
+    let (client, task) = connect_admin(Some(database)).await?;
+    // In keyed preparation this future is cancelled if its ownership session dies.
+    // Do not detach a separate initializer connection when that happens.
+    let _driver = AbortConnectionOnDrop(task);
 
     // Create the platform schema BEFORE any migration runs, or Ecto's bookkeeping table
     // moves between runs.
@@ -809,7 +822,7 @@ pub async fn sweep_stale(max_age_secs: i64) -> Result<Vec<String>> {
 }
 
 fn is_protected_database(name: &str) -> bool {
-    PROTECTED_DATABASES.contains(&name)
+    PROTECTED_DATABASES.contains(&name) || name.starts_with("sr_tpl_")
 }
 
 fn stale_drop_statement(database: &str) -> String {
@@ -894,6 +907,9 @@ mod tests {
         assert!(is_protected_database("postgres"));
         assert!(is_protected_database("srql_fixture"));
         assert!(is_protected_database("sr_core_template"));
+        assert!(is_protected_database("sr_tpl_0123456789abcdef"));
+        assert!(is_protected_database("sr_tpl_build_42"));
+        assert!(UNPROTECTED_STALE_QUERY.contains("left(d.datname, 7) <> 'sr_tpl_'"));
         assert!(!is_protected_database("codex_mfreeman_1"));
         assert!(!is_protected_database("sr_core_test_a1b2c3d4"));
     }

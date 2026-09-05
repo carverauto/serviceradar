@@ -1,0 +1,65 @@
+load("@rules_python//python:py_binary.bzl", "py_binary")
+load("@rules_python//python:py_library.bzl", "py_library")
+load("@rules_python//python:py_test.bzl", "py_test")
+load(":manifest.bzl", "schema_template_manifest")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "policy.json",
+    "replay_env.bzl",
+])
+
+py_library(
+    name = "manifest_lib",
+    srcs = ["manifest.py"],
+)
+
+py_binary(
+    name = "generate_manifest",
+    srcs = ["manifest.py"],
+    main = "manifest.py",
+)
+
+# Explicit review boundaries: migration bytes, baseline pair, application helpers,
+# and construction code/configuration plus dependency versions. Never use :srcs
+# for the core application: unrelated product changes should not churn identity.
+schema_template_manifest(
+    name = "manifest",
+    baseline_metadata = "//elixir/serviceradar_core:schema_template_baseline_metadata",
+    baseline_sql = "//elixir/serviceradar_core:schema_template_baseline_sql",
+    construction = [
+        "BUILD.bazel",
+        "manifest.bzl",
+        "manifest.py",
+        "policy.json",
+        "replay_env.bzl",
+        "//:Cargo.lock",
+        "//:Cargo.toml",
+        "//build:elixir_test_config_loader.exs",
+        # Nonsecret fixture identities (including the database owner) affect grants.
+        "//config/environments:ci.textproto",
+        "//config/manager_config/rust:schema_template_configuration_inputs",
+        "//elixir/serviceradar_core:schema_template_configuration",
+        "//rust/integration-db:schema_template_construction_inputs",
+        "//rust/srql:schema_template_connection_inputs",
+    ],
+    helpers = ["//elixir/serviceradar_core:schema_template_helpers"],
+    migrations = ["//elixir/serviceradar_core:migrations"],
+)
+
+py_test(
+    name = "manifest_test",
+    size = "small",
+    srcs = ["manifest_test.py"],
+    deps = [":manifest_lib"],
+)
+
+py_test(
+    name = "manifest_artifact_test",
+    size = "small",
+    srcs = ["manifest_artifact_test.py"],
+    args = ["$(rootpath :manifest)"],
+    data = [":manifest"],
+    deps = [":manifest_lib"],
+)

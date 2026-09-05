@@ -96,6 +96,11 @@ export SRQL_TEST_DATABASE_CA_CERT_FILE=/tmp/srql-fixture-ca.crt
   protected-name list in sync with `go/pkg/srqlfixture/reaper` and
   `rust/integration-db`. The Go binary is `//go/cmd/tools/srql-fixture-reaper`
   (`--interval` for daemon mode; default is one pass).
+- Template generations use a separate registry-owned cleanup path. Active
+  BuildBuddy database workflows run `//rust/integration-db:cleanup_generations`
+  before preparation. It takes the generation coordination lock and checks
+  retention, leases, builders, and connections; the ordinary reaper must continue
+  excluding the entire `sr_tpl_` namespace.
 - If the fixture database gets wedged (for example, TimescaleDB library mismatches), reset it:
 
 ```bash

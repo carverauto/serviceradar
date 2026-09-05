@@ -79,8 +79,8 @@ pub const TEMPLATE_DATABASE: &str = "sr_core_template";
 
 /// Guards template creation and migration against concurrent runs.
 ///
-/// Advisory locks are cluster-wide rather than per-database, which is what makes this usable
-/// from a session connected to `postgres` to guard work happening in another database.
+/// Advisory locks are local to the coordination database. Every cooperating caller
+/// must lock on that same database, even when its DDL targets another database.
 /// Arbitrary but fixed; "SRTP" in ASCII.
 const TEMPLATE_LOCK_KEY: i64 = 0x5352_5450;
 

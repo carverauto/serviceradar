@@ -1,9 +1,18 @@
 # gazelle:ignore
 
-load("@crates//:defs.bzl", "all_crate_deps")
 load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
+
+filegroup(
+    name = "schema_template_configuration_inputs",
+    srcs = glob([
+        "src/**/*.rs",
+        "src/*.binpb",
+    ]) + ["Cargo.toml"],
+    visibility = ["//visibility:public"],
+)
 
 filegroup(
     name = "srcs",
@@ -22,8 +31,6 @@ filegroup(
 rust_library(
     name = "manager",
     srcs = glob(["src/**/*.rs"]),
-    crate_name = "serviceradar_config_manager",
-    crate_root = "src/lib.rs",
     # The embedded rule set. `include_bytes!` needs the file at COMPILE time, which is what
     # compile_data provides; //config/manager_config/rust:ruleset_drift_test keeps this copy
     # byte-identical to what protoc produces from //config/rules:ruleset.textproto.
@@ -32,13 +39,15 @@ rust_library(
         "src/localhost.binpb",
         "src/ruleset.binpb",
     ],
+    crate_name = "serviceradar_config_manager",
+    crate_root = "src/lib.rs",
     visibility = ["//visibility:public"],
     deps = all_crate_deps(
         cargo_only = True,
         normal = True,
     ) + [
-        "//config/proto_bindings/rust:config_schema",
         "//config/manager_validator/rust:validator",
+        "//config/proto_bindings/rust:config_schema",
     ],
 )
 

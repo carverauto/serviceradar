@@ -1,4 +1,49 @@
 actions:
+  # Explicit API dispatch only, after verifying the reaper namespace protection.
+  # No push/PR/scheduled trigger: this mutates isolated fixture generations.
+  - name: "SchemaTemplateQualification"
+    triggers: {}
+    env:
+      OCI_REGISTRY: "registry.carverauto.dev"
+      OCI_AUTH_REQUIRED: "1"
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    resource_requests:
+      memory: "50GB"
+      disk: "40GB"
+    steps:
+      - run: >-
+          bazel run -c opt --config=ci --//build:enable_integration_tests //:buildbuddy_setup_docker_auth
+      - run: |
+          set -euo pipefail
+          umask 077
+          export SERVICERADAR_ENV=ci
+          export BAZEL_PROFILE=ci
+          # An explicit dispatch may recover its own interrupted synthetic run.
+          # Rust revalidates identity and refuses live connections before rebuild.
+          RUN_ID="${SCHEMA_TEMPLATE_QUALIFICATION_RUN_ID:-$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')}"
+          [[ "$RUN_ID" =~ ^[a-z0-9]{8,32}$ ]] || { echo "Invalid qualification run ID" >&2; exit 1; }
+          export RUN_ID
+          SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-template-qualification.XXXXXX")"
+          export SERVICERADAR_FIXTURE_ENV_FILE
+          trap 'rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"' EXIT
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
+          set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          echo "Schema template synthetic qualification run: $RUN_ID"
+          FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
+             --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
+             --test_output=errors --nocache_test_results --noremote_upload_local_results
+             --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
+             --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
+             $SERVICERADAR_TEST_ENV_FLAGS"
+          bazel test $FLAGS //rust/integration-db:generation_lifecycle_test
+
   - name: "BazelCI"
     env:
       OCI_REGISTRY: "registry.carverauto.dev"
@@ -125,21 +170,13 @@ actions:
           export SERVICERADAR_ENV=ci
           export BAZEL_PROFILE=ci
 
-          # THE SHARED TEMPLATE IS NOT WRITTEN HERE, and that is the entire point of this
-          # comment. BazelCI runs on branches, never on staging, so every run that reached the
-          # template migrator was advancing a cache every branch reads with migrations that were
-          # not yet on staging. One branch left seven behind and every other branch then went red
-          # on a step unrelated to its own diff, until that branch landed. A branch's CI outcome
-          # must not depend on which other branches ran before it.
-          #
-          # This run's migrations go to this run's own database instead: provision_base seeds
-          # sr_core_test_$RUN_ID from the template, migrate_run brings it up to this checkout,
-          # and provision_db clones the lanes from it -- all under $RUN_ID, all inside the
-          # measured lifecycle below, because they are this run's own work. Only the trunk
-          # action (LargeIngestionGate, push to staging) advances sr_core_template.
+          # Every checkout selects an immutable generation from declared schema inputs. The
+          # same run id owns its lease before and during the measured lifecycle; there is no
+          # branch name in the identity and no fallback to sr_core_template.
 
           RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
           export RUN_ID
+          RUN_DATABASE="sr_core_test_$RUN_ID"
           SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
           chmod 600 "$SERVICERADAR_FIXTURE_ENV_FILE"
           export SERVICERADAR_FIXTURE_ENV_FILE
@@ -164,7 +201,47 @@ actions:
           SUITE_STATUS=0
           OBSERVER_STATUS=0
           TEARDOWN_STATUS=0
+          RELEASE_STATUS=0
+          GENERATION_LEASED=0
+          GENERATION_DIGEST=""
+          GENERATION_DATABASE=""
           START_NS=0
+
+          validate_cleanup_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,list) or any(not isinstance(item,str) or re.fullmatch(r"sr_tpl_[0-9a-f]{48}",item) is None for item in value):
+              raise SystemExit("invalid generation cleanup response")'
+          }
+
+          parse_prepare_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          digest=value.get("digest") if isinstance(value,dict) else None
+          valid=(isinstance(value,dict) and set(value)=={"builder_token","database","digest","status"}
+              and value["status"] in {"ready","needs_migration"}
+              and isinstance(digest,str) and re.fullmatch(r"[0-9a-f]{64}",digest) is not None
+              and value["database"]=="sr_tpl_"+digest[:48]
+              and type(value["builder_token"]) is int and value["builder_token"]>0)
+          if not valid:
+              raise SystemExit("invalid generation preparation response")
+          print(value["status"],value["digest"],value["database"],sep="\t")'
+          }
+
+          validate_ready_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,dict) or value.get("status")!="ready" or value.get("digest")!=sys.argv[1] or value.get("database")!=sys.argv[2]:
+              raise SystemExit("generation did not become ready with its pinned identity")' "$1" "$2"
+          }
+
+          validate_lifecycle_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          expected={"digest":sys.argv[2],"lease_id":sys.argv[3],"status":sys.argv[1]}
+          if not isinstance(value,dict) or set(value)!={"digest","lease_id","status"} or value!=expected:
+              raise SystemExit("invalid generation lifecycle response")' "$1" "$2" "$3"
+          }
 
           wait_for_marker() {
             marker="$1"
@@ -225,6 +302,14 @@ actions:
             fi
             bazel test $FLAGS //rust/integration-db:teardown_db
             TEARDOWN_STATUS=$?
+            if [ "$GENERATION_LEASED" -eq 1 ]; then
+              RELEASE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:release_generation)"
+              RELEASE_STATUS=$?
+              echo "$RELEASE_JSON"
+              if [ "$RELEASE_STATUS" -eq 0 ]; then
+                validate_lifecycle_json released "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$RELEASE_JSON" || RELEASE_STATUS=1
+              fi
+            fi
             END_NS="$(date +%s%N)"
             if [ -n "$OBSERVER_PID" ]; then
               touch "$STOP_FILE"
@@ -234,8 +319,12 @@ actions:
                 OBSERVER_STATUS=$OBSERVER_PROCESS_STATUS
               fi
             fi
-            LIFECYCLE_NS=$((END_NS - START_NS))
-            echo "SERVICERADAR_BAZEL_CI_LIFECYCLE start_ns=$START_NS end_ns=$END_NS lifecycle_ns=$LIFECYCLE_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS"
+            if [ "$START_NS" -eq 0 ]; then
+              LIFECYCLE_NS=0
+            else
+              LIFECYCLE_NS=$((END_NS - START_NS))
+            fi
+            echo "SERVICERADAR_BAZEL_CI_LIFECYCLE start_ns=$START_NS end_ns=$END_NS lifecycle_ns=$LIFECYCLE_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS release_status=$RELEASE_STATUS"
             rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"
             rm -rf "$OBSERVER_DIR"
             if [ "$SUITE_STATUS" -ne 0 ]; then
@@ -244,28 +333,46 @@ actions:
               exit "$OBSERVER_STATUS"
             elif [ "$TEARDOWN_STATUS" -ne 0 ]; then
               exit "$TEARDOWN_STATUS"
+            elif [ "$RELEASE_STATUS" -ne 0 ]; then
+              exit "$RELEASE_STATUS"
             fi
             exit "$ORIGINAL_STATUS"
           }
 
           trap cleanup EXIT
-          START_NS="$(date +%s%N)"
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
           set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
           FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
+
+          bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
+          CLEANUP_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:cleanup_generations)"
+          echo "$CLEANUP_JSON"
+          validate_cleanup_json <<<"$CLEANUP_JSON"
+
+          PREPARE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          GENERATION_LEASED=1
+          echo "$PREPARE_JSON"
+          IFS=$'\t' read -r GENERATION_STATUS GENERATION_DIGEST GENERATION_DATABASE < <(parse_prepare_json <<<"$PREPARE_JSON")
+          GENERATION_MIGRATOR_STARTED=0
+          if [ "$GENERATION_STATUS" = "needs_migration" ]; then
+            GENERATION_MIGRATOR_STARTED=1
+            bazel test $FLAGS //elixir/serviceradar_core:migrate_generation
+          fi
+
+          READY_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          echo "$READY_JSON"
+          parse_prepare_json <<<"$READY_JSON" >/dev/null
+          validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$READY_JSON"
+          echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
+
+          START_NS="$(date +%s%N)"
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &
           OBSERVER_PID=$!
           wait_for_observer_ready 30 || exit 1
 
-          bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
-          base="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_base)"
-          echo "$base"
-          # Only when this branch actually adds migrations. The BEAM costs 28.8-45.6s before it
-          # runs a line of test code, and provision_db re-checks the base either way.
-          case "$base" in
-            *"migration(s) pending"*) bazel test $FLAGS //elixir/serviceradar_core:migrate_run ;;
-          esac
-          bazel test $FLAGS //rust/integration-db:provision_db
+          PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation)"
+          echo "$PROVISION_JSON"
+          validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$PROVISION_JSON"
           # test_tag_filters controls execution, not every top-level target Bazel builds from
           # //.... Keep build selection identical so packages and images stay out of this wave.
           bazel test $FLAGS --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
@@ -353,67 +460,12 @@ actions:
           export SERVICERADAR_ENV=ci
           export BAZEL_PROFILE=ci
 
-          # THE ONLY PLACE THE SHARED TEMPLATE IS WRITTEN. This action triggers on a push to
-          # staging and on the nightly cron, so the migrations in this checkout are the MERGED
-          # ones -- which is the whole qualification for advancing a cache every branch reads.
-          # Pull requests build a per-run base instead; see rust/integration-db/src/template.rs
-          # for the incident that split these two apart.
-          #
-          # `--//build:template_authority=true` below is this action DECLARING that. The write
-          # targets refuse without it, so the rule is enforced by the targets rather than by
-          # which action happens to name them -- placement is a convention a later edit undoes
-          # silently, and one a workstation running the documented local recipe never obeyed at
-          # all. //:ci_heavy_gate_contract_test pins the grant to this action alone; note
-          # IntegrationBenchmark must never receive it, because its steps are a YAML anchor
-          # reused by the two `benchmark/parallel-core-integration-cpu*` actions, which trigger
-          # on FEATURE branches.
-          #
-          # Outside the measured lifecycle and using private state: its credentials and run id
-          # belong to this subshell, so it cannot warm or leak measured-run configuration.
-          (
-            PREFLIGHT_RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
-            PREFLIGHT_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-preflight-env.XXXXXX")"
-            chmod 600 "$PREFLIGHT_ENV_FILE"
-            SERVICERADAR_FIXTURE_ENV_FILE="$PREFLIGHT_ENV_FILE"
-            export SERVICERADAR_FIXTURE_ENV_FILE
-            trap 'rm -f "$PREFLIGHT_ENV_FILE"' EXIT
-            bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //:buildbuddy_setup_fixture_env
-            set -a; . "$PREFLIGHT_ENV_FILE"; set +a
-            PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests --//build:template_authority=true
-               --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-               --test_output=errors
-               --nocache_test_results --noremote_upload_local_results
-               --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
-               --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
-               --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
-               $SERVICERADAR_TEST_ENV_FLAGS"
-            preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:template_authority=true --//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:prepare_template)"
-            echo "$preflight"
-            # An AHEAD template holds migrations that are on no merged branch. The migrator
-            # cannot un-apply anything, so running it here would report success and change
-            # nothing, and every branch would keep paying a full schema build. Invalidate the
-            # cache instead -- on trunk, and only on trunk, "ahead of this checkout" and "ahead
-            # of the schema of record" are the same statement.
-            case "$preflight" in
-              *"template is AHEAD"*)
-                bazel run -c opt --config=ci --//build:enable_integration_tests --//build:template_authority=true --//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:reset_template
-                preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:template_authority=true --//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:prepare_template)"
-                echo "$preflight"
-                ;;
-            esac
-            case "$preflight" in
-              *"migration(s) pending"*) bazel test $PREFLIGHT_FLAGS //elixir/serviceradar_core:migrate_template ;;
-            esac
-            preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:template_authority=true --//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:prepare_template)"
-            echo "$preflight"
-            case "$preflight" in
-              *"migration(s) pending"*) echo "template remains pending after preflight" >&2; exit 1 ;;
-              *"template is AHEAD"*) echo "template is still ahead of trunk after a reset" >&2; exit 1 ;;
-            esac
-          )
+          # Trunk and branch callers use the same immutable generation protocol. The legacy
+          # singleton remains protected for rollback but is never migrated or cloned here.
 
           RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
           export RUN_ID
+          RUN_DATABASE="sr_core_test_$RUN_ID"
           SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
           chmod 600 "$SERVICERADAR_FIXTURE_ENV_FILE"
           export SERVICERADAR_FIXTURE_ENV_FILE
@@ -438,7 +490,47 @@ actions:
           SUITE_STATUS=0
           OBSERVER_STATUS=0
           TEARDOWN_STATUS=0
+          RELEASE_STATUS=0
+          GENERATION_LEASED=0
+          GENERATION_DIGEST=""
+          GENERATION_DATABASE=""
           START_NS=0
+
+          validate_cleanup_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,list) or any(not isinstance(item,str) or re.fullmatch(r"sr_tpl_[0-9a-f]{48}",item) is None for item in value):
+              raise SystemExit("invalid generation cleanup response")'
+          }
+
+          parse_prepare_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          digest=value.get("digest") if isinstance(value,dict) else None
+          valid=(isinstance(value,dict) and set(value)=={"builder_token","database","digest","status"}
+              and value["status"] in {"ready","needs_migration"}
+              and isinstance(digest,str) and re.fullmatch(r"[0-9a-f]{64}",digest) is not None
+              and value["database"]=="sr_tpl_"+digest[:48]
+              and type(value["builder_token"]) is int and value["builder_token"]>0)
+          if not valid:
+              raise SystemExit("invalid generation preparation response")
+          print(value["status"],value["digest"],value["database"],sep="\t")'
+          }
+
+          validate_ready_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,dict) or value.get("status")!="ready" or value.get("digest")!=sys.argv[1] or value.get("database")!=sys.argv[2]:
+              raise SystemExit("generation did not become ready with its pinned identity")' "$1" "$2"
+          }
+
+          validate_lifecycle_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          expected={"digest":sys.argv[2],"lease_id":sys.argv[3],"status":sys.argv[1]}
+          if not isinstance(value,dict) or set(value)!={"digest","lease_id","status"} or value!=expected:
+              raise SystemExit("invalid generation lifecycle response")' "$1" "$2" "$3"
+          }
 
           wait_for_marker() {
             marker="$1"
@@ -499,6 +591,14 @@ actions:
             fi
             bazel test $FLAGS //rust/integration-db:teardown_db
             TEARDOWN_STATUS=$?
+            if [ "$GENERATION_LEASED" -eq 1 ]; then
+              RELEASE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:release_generation)"
+              RELEASE_STATUS=$?
+              echo "$RELEASE_JSON"
+              if [ "$RELEASE_STATUS" -eq 0 ]; then
+                validate_lifecycle_json released "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$RELEASE_JSON" || RELEASE_STATUS=1
+              fi
+            fi
             END_NS="$(date +%s%N)"
             if [ -n "$OBSERVER_PID" ]; then
               touch "$STOP_FILE"
@@ -508,8 +608,12 @@ actions:
                 OBSERVER_STATUS=$OBSERVER_PROCESS_STATUS
               fi
             fi
-            LIFECYCLE_NS=$((END_NS - START_NS))
-            echo "SERVICERADAR_LARGE_INGESTION_LIFECYCLE start_ns=$START_NS end_ns=$END_NS lifecycle_ns=$LIFECYCLE_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS"
+            if [ "$START_NS" -eq 0 ]; then
+              LIFECYCLE_NS=0
+            else
+              LIFECYCLE_NS=$((END_NS - START_NS))
+            fi
+            echo "SERVICERADAR_LARGE_INGESTION_LIFECYCLE start_ns=$START_NS end_ns=$END_NS lifecycle_ns=$LIFECYCLE_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS release_status=$RELEASE_STATUS"
             rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"
             rm -rf "$OBSERVER_DIR"
             if [ "$SUITE_STATUS" -ne 0 ]; then
@@ -518,28 +622,46 @@ actions:
               exit "$OBSERVER_STATUS"
             elif [ "$TEARDOWN_STATUS" -ne 0 ]; then
               exit "$TEARDOWN_STATUS"
+            elif [ "$RELEASE_STATUS" -ne 0 ]; then
+              exit "$RELEASE_STATUS"
             fi
             exit "$ORIGINAL_STATUS"
           }
 
           trap cleanup EXIT
-          START_NS="$(date +%s%N)"
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
           set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
           FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
+
+          bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
+          CLEANUP_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:cleanup_generations)"
+          echo "$CLEANUP_JSON"
+          validate_cleanup_json <<<"$CLEANUP_JSON"
+
+          PREPARE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          GENERATION_LEASED=1
+          echo "$PREPARE_JSON"
+          IFS=$'\t' read -r GENERATION_STATUS GENERATION_DIGEST GENERATION_DATABASE < <(parse_prepare_json <<<"$PREPARE_JSON")
+          GENERATION_MIGRATOR_STARTED=0
+          if [ "$GENERATION_STATUS" = "needs_migration" ]; then
+            GENERATION_MIGRATOR_STARTED=1
+            bazel test $FLAGS //elixir/serviceradar_core:migrate_generation
+          fi
+
+          READY_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          echo "$READY_JSON"
+          parse_prepare_json <<<"$READY_JSON" >/dev/null
+          validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$READY_JSON"
+          echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
+
+          START_NS="$(date +%s%N)"
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 15 &
           OBSERVER_PID=$!
           wait_for_observer_ready 30 || exit 1
 
-          bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
-          base="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_base)"
-          echo "$base"
-          # Only when this branch actually adds migrations. The BEAM costs 28.8-45.6s before it
-          # runs a line of test code, and provision_db re-checks the base either way.
-          case "$base" in
-            *"migration(s) pending"*) bazel test $FLAGS //elixir/serviceradar_core:migrate_run ;;
-          esac
-          bazel test $FLAGS //rust/integration-db:provision_db_large_ingestion
+          PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation_large_ingestion)"
+          echo "$PROVISION_JSON"
+          validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$PROVISION_JSON"
           bazel test $FLAGS //elixir/serviceradar_core:large_ingestion_release_gate
 
   # This is deliberately a branch-only measurement action, not a pull-request gate. Its
@@ -580,17 +702,19 @@ actions:
           bazel build -c opt --config=ci --//build:enable_integration_tests
           --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
 
-      # These manual lifecycle targets execute inside the measured clock, so warm them explicitly.
-      # The positive integration filter above intentionally excludes manual targets.
+      # Warm every manual keyed-lifecycle target. Generation preparation itself remains outside
+      # the measured clock; provisioning and teardown remain inside it.
       - run: >-
           bazel build -c opt --config=ci --//build:enable_integration_tests
           --build_tag_filters=
           //rust/integration-db:observe_connections
           //rust/integration-db:sweep_stale_dbs
-          //rust/integration-db:provision_base
-          //rust/integration-db:provision_db
+          //rust/integration-db:cleanup_generations
+          //rust/integration-db:prepare_generation
+          //rust/integration-db:provision_generation
+          //rust/integration-db:release_generation
           //rust/integration-db:teardown_db
-          //elixir/serviceradar_core:migrate_run
+          //elixir/serviceradar_core:migrate_generation
 
       - run: |
           set -euo pipefail
@@ -599,22 +723,14 @@ actions:
           export SERVICERADAR_ENV=ci
           export BAZEL_PROFILE=ci
 
-          # THE SHARED TEMPLATE IS NOT WRITTEN HERE, and that is the entire point of this
-          # comment. BazelCI runs on branches, never on staging, so every run that reached the
-          # template migrator was advancing a cache every branch reads with migrations that were
-          # not yet on staging. One branch left seven behind and every other branch then went red
-          # on a step unrelated to its own diff, until that branch landed. A branch's CI outcome
-          # must not depend on which other branches ran before it.
-          #
-          # This run's migrations go to this run's own database instead: provision_base seeds
-          # sr_core_test_$RUN_ID from the template, migrate_run brings it up to this checkout,
-          # and provision_db clones the lanes from it -- all under $RUN_ID, all inside the
-          # measured lifecycle below, because they are this run's own work. Only the trunk
-          # action (LargeIngestionGate, push to staging) advances sr_core_template.
+          # Keyed preparation is outside the benchmark clock. Provisioning clones the exact
+          # pinned digest and never consults the legacy singleton.
 
           RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
           export RUN_ID
+          RUN_DATABASE="sr_core_test_$RUN_ID"
           SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-fixture-env.XXXXXX")"
+          chmod 600 "$SERVICERADAR_FIXTURE_ENV_FILE"
           export SERVICERADAR_FIXTURE_ENV_FILE
           FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
              --//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
@@ -634,6 +750,47 @@ actions:
           SUITE_STATUS=0
           OBSERVER_STATUS=0
           TEARDOWN_STATUS=0
+          RELEASE_STATUS=0
+          GENERATION_LEASED=0
+          GENERATION_DIGEST=""
+          GENERATION_DATABASE=""
+          START_NS=0
+
+          validate_cleanup_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,list) or any(not isinstance(item,str) or re.fullmatch(r"sr_tpl_[0-9a-f]{48}",item) is None for item in value):
+              raise SystemExit("invalid generation cleanup response")'
+          }
+
+          parse_prepare_json() {
+            python3 -c 'import json,re,sys
+          value=json.load(sys.stdin)
+          digest=value.get("digest") if isinstance(value,dict) else None
+          valid=(isinstance(value,dict) and set(value)=={"builder_token","database","digest","status"}
+              and value["status"] in {"ready","needs_migration"}
+              and isinstance(digest,str) and re.fullmatch(r"[0-9a-f]{64}",digest) is not None
+              and value["database"]=="sr_tpl_"+digest[:48]
+              and type(value["builder_token"]) is int and value["builder_token"]>0)
+          if not valid:
+              raise SystemExit("invalid generation preparation response")
+          print(value["status"],value["digest"],value["database"],sep="\t")'
+          }
+
+          validate_ready_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          if not isinstance(value,dict) or value.get("status")!="ready" or value.get("digest")!=sys.argv[1] or value.get("database")!=sys.argv[2]:
+              raise SystemExit("generation did not become ready with its pinned identity")' "$1" "$2"
+          }
+
+          validate_lifecycle_json() {
+            python3 -c 'import json,sys
+          value=json.load(sys.stdin)
+          expected={"digest":sys.argv[2],"lease_id":sys.argv[3],"status":sys.argv[1]}
+          if not isinstance(value,dict) or set(value)!={"digest","lease_id","status"} or value!=expected:
+              raise SystemExit("invalid generation lifecycle response")' "$1" "$2" "$3"
+          }
 
           wait_for_marker() {
             marker="$1"
@@ -648,6 +805,7 @@ actions:
 
           cleanup() {
             ORIGINAL_STATUS=$?
+            trap - EXIT
             set +e
             if [ "$ORIGINAL_STATUS" -ne 0 ] && [ "$SUITE_STATUS" -eq 0 ]; then
               SUITE_STATUS=$ORIGINAL_STATUS
@@ -658,6 +816,14 @@ actions:
             fi
             bazel test $FLAGS //rust/integration-db:teardown_db
             TEARDOWN_STATUS=$?
+            if [ "$GENERATION_LEASED" -eq 1 ]; then
+              RELEASE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:release_generation)"
+              RELEASE_STATUS=$?
+              echo "$RELEASE_JSON"
+              if [ "$RELEASE_STATUS" -eq 0 ]; then
+                validate_lifecycle_json released "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$RELEASE_JSON" || RELEASE_STATUS=1
+              fi
+            fi
             END_NS="$(date +%s%N)"
             if [ -n "$OBSERVER_PID" ]; then
               touch "$STOP_FILE"
@@ -667,38 +833,60 @@ actions:
                 OBSERVER_STATUS=$OBSERVER_PROCESS_STATUS
               fi
             fi
-            echo "SERVICERADAR_INTEGRATION_BENCHMARK start_ns=$START_NS end_ns=$END_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS"
+            if [ "$START_NS" -eq 0 ]; then
+              LIFECYCLE_NS=0
+            else
+              LIFECYCLE_NS=$((END_NS - START_NS))
+            fi
+            echo "SERVICERADAR_INTEGRATION_BENCHMARK start_ns=$START_NS end_ns=$END_NS lifecycle_ns=$LIFECYCLE_NS suite_status=$SUITE_STATUS observer_status=$OBSERVER_STATUS teardown_status=$TEARDOWN_STATUS release_status=$RELEASE_STATUS"
             rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"
             rm -rf "$OBSERVER_DIR"
-            trap - EXIT
             if [ "$SUITE_STATUS" -ne 0 ]; then
               exit "$SUITE_STATUS"
             elif [ "$OBSERVER_STATUS" -ne 0 ]; then
               exit "$OBSERVER_STATUS"
             elif [ "$TEARDOWN_STATUS" -ne 0 ]; then
               exit "$TEARDOWN_STATUS"
+            elif [ "$RELEASE_STATUS" -ne 0 ]; then
+              exit "$RELEASE_STATUS"
             fi
             exit "$ORIGINAL_STATUS"
           }
 
-          START_NS="$(date +%s%N)"
           trap cleanup EXIT
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
           set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
           FLAGS="$FLAGS $SERVICERADAR_TEST_ENV_FLAGS"
+
+          bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
+          CLEANUP_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:cleanup_generations)"
+          echo "$CLEANUP_JSON"
+          validate_cleanup_json <<<"$CLEANUP_JSON"
+
+          PREPARE_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          GENERATION_LEASED=1
+          echo "$PREPARE_JSON"
+          IFS=$'\t' read -r GENERATION_STATUS GENERATION_DIGEST GENERATION_DATABASE < <(parse_prepare_json <<<"$PREPARE_JSON")
+          GENERATION_MIGRATOR_STARTED=0
+          if [ "$GENERATION_STATUS" = "needs_migration" ]; then
+            GENERATION_MIGRATOR_STARTED=1
+            bazel test $FLAGS //elixir/serviceradar_core:migrate_generation
+          fi
+
+          READY_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_generation)"
+          echo "$READY_JSON"
+          parse_prepare_json <<<"$READY_JSON" >/dev/null
+          validate_ready_json "$GENERATION_DIGEST" "$GENERATION_DATABASE" <<<"$READY_JSON"
+          echo "SERVICERADAR_SCHEMA_GENERATION_PREFLIGHT status=ready digest=$GENERATION_DIGEST migrator_started=$GENERATION_MIGRATOR_STARTED"
+
+          START_NS="$(date +%s%N)"
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:observe_connections -- --ready-file "$READY_FILE" --suite-complete-file "$SUITE_COMPLETE_FILE" --quiescent-file "$QUIESCENT_FILE" --stop-file "$STOP_FILE" --max-seconds 1800 --required-pool-slots 114 &
           OBSERVER_PID=$!
           wait_for_marker "$READY_FILE" 30 || { echo "observer did not become ready" >&2; exit 1; }
 
-          bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
-          base="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_base)"
-          echo "$base"
-          # Only when this branch actually adds migrations. The BEAM costs 28.8-45.6s before it
-          # runs a line of test code, and provision_db re-checks the base either way.
-          case "$base" in
-            *"migration(s) pending"*) bazel test $FLAGS //elixir/serviceradar_core:migrate_run ;;
-          esac
-          bazel test $FLAGS //rust/integration-db:provision_db
+          PROVISION_JSON="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_generation)"
+          echo "$PROVISION_JSON"
+          validate_lifecycle_json cloned "$GENERATION_DIGEST" "$RUN_DATABASE" <<<"$PROVISION_JSON"
           # test_tag_filters controls execution, not every top-level target Bazel builds from
           # //.... Keep build selection identical so packages and images stay out of the clock.
           bazel test $FLAGS --build_tests_only --build_tag_filters=integration_test,-large_ingestion_test,-acceptance_test --test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //...
