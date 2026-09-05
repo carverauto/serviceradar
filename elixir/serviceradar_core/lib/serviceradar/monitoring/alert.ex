@@ -29,6 +29,7 @@ defmodule ServiceRadar.Monitoring.Alert do
     domain: ServiceRadar.Monitoring,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
+    notifiers: [ServiceRadar.Monitoring.AlertNotifier],
     extensions: [AshStateMachine, AshOban, AshJsonApi.Resource]
 
   alias ServiceRadar.Inventory.DeviceLifecycle
