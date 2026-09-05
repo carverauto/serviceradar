@@ -4,13 +4,20 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   space their files still hold. Nothing is redefined: same primary key columns,
   same secondary keys, same access methods.
 
-  Issue #4281 reports 2.4 MB per row. That is this relation over `n_live_tup`, not
-  a per-row encoding size: 8519 MiB divided by ~3,550 is 2.4 MiB, and ~3,550 is the
-  live-tuple estimate, not the 821,788 rows present. `n_live_tup` is a statistics
-  estimate that falls as each prune batch commits and is only recomputed by
-  VACUUM/ANALYZE, so mid-rotation it reads far below the true count; once it
-  catches up the same relation reads 10.6 KiB per row. Measured 2026-09-05, two
-  retained snapshots of ~410k CIDRs each, 821,788 rows total:
+  Issue #4281 reports 2.4 MB per row. That is a relation size over a row count, and
+  the numerator is the part that is wrong: 8519 MiB of files holding 82 MiB of
+  tuples. The denominator the report implies -- 8519 MiB / 2.4 MiB is about 3,550
+  rows -- was never observed. It is inferred from the reported ratio, not measured.
+
+  What was measured is that the ratio moves entirely with the denominator. Two
+  readings on 2026-09-05, before and after a prune, `n_live_tup` equal to `count(*)`
+  on both:
+
+      2 snapshots   821,788 rows   10.6 KiB per row
+      1 snapshot    410,899 rows   21.2 KiB per row
+
+  The three index files measured 5002 / 3020 / 371 MiB at both readings: half the
+  rows went away and not one page came back. Per-index detail from the first:
 
       pg_relation_size         123 MiB  (82 MiB of tuples, avg 105 B per row)
       pkey                    5002 MiB  640,289 pages, 631,327 (98.6%) deleted
@@ -18,13 +25,13 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
       snapshot/provider        371 MiB   47,466 pages,  46,768 (98.5%) deleted
       pg_total_relation_size  8519 MiB
 
-  What the btrees hold is a high-water mark rather than an active leak. 8,961 of
-  the primary key's 640,289 pages carry all 821,788 live entries; the rest are
-  marked deleted, which makes them available for reuse but never hands them back
-  to the OS, because no VACUUM truncates a btree -- only a rebuild does. At 4,440
-  leaf pages per snapshot that file is sized for about 144 snapshots' worth, far
-  more history than the two-snapshot retention now keeps, so the pages are free
-  and simply stay unused.
+  So what the btrees hold is a high-water mark rather than an active leak. 8,961 of
+  the primary key's 640,289 pages carried all 821,788 entries live at the first
+  reading; the rest are marked deleted, which makes them available for reuse but
+  never hands them back to the OS, because no VACUUM truncates a btree -- only a
+  rebuild does. At 4,440 leaf pages per snapshot that file is sized for about 144
+  snapshots' worth, far more history than retention now keeps, so the pages are
+  free and simply stay unused.
 
   This migration reclaims that space once. It does not establish what drove each
   file to its size, so whether any of them regrow is unsettled here -- including
