@@ -106,7 +106,10 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
       assert MapSet.member?(RBAC.permissions_for_user(user), "settings.rbac.manage")
 
       Repo.update_all(
-        from(p in "role_profiles", prefix: "platform", where: p.id == ^profile.id),
+        from(p in "role_profiles",
+          prefix: "platform",
+          where: p.id == type(^profile.id, :binary_id)
+        ),
         set: [permissions: []]
       )
 

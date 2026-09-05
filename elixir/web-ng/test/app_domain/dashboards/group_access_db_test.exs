@@ -617,10 +617,10 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessDbTest do
       "authored_dashboards",
       [
         %{
-          id: id,
+          id: Ecto.UUID.dump!(id),
           dashboard_ref: synthetic_dashboard_ref(),
           title: "#{marker}-#{title}",
-          owner_id: owner_id,
+          owner_id: Ecto.UUID.dump!(owner_id),
           visibility: Atom.to_string(visibility)
         }
       ],
@@ -636,7 +636,14 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessDbTest do
 
     Repo.insert_all(
       "dashboard_packages",
-      [%{id: id, dashboard_id: dashboard_id, name: dashboard_id, version: "1.0.0"}],
+      [
+        %{
+          id: Ecto.UUID.dump!(id),
+          dashboard_id: dashboard_id,
+          name: dashboard_id,
+          version: "1.0.0"
+        }
+      ],
       prefix: "platform"
     )
 
@@ -651,11 +658,11 @@ defmodule ServiceRadarWebNG.Dashboards.GroupAccessDbTest do
       "dashboard_instances",
       [
         %{
-          id: id,
-          dashboard_package_id: package_id,
+          id: Ecto.UUID.dump!(id),
+          dashboard_package_id: Ecto.UUID.dump!(package_id),
           name: full_name,
           route_slug: "#{marker}-#{id}",
-          owner_id: owner_id,
+          owner_id: Ecto.UUID.dump!(owner_id),
           visibility: Atom.to_string(visibility)
         }
       ],
