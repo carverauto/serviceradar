@@ -104,6 +104,39 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
     refute Map.has_key?(hd(host["bindings"]), "ca_bundle_pem")
   end
 
+  test "one CA bundle anchors every origin the assignment resolves to" do
+    bundle = "-----BEGIN CERTIFICATE-----\nTESTBUNDLE\n-----END CERTIFICATE-----"
+
+    {_public, host} =
+      partition(
+        "proxmox-inventory",
+        "run_check",
+        multi_target_trust_material_params(%{"ca_bundle_pem" => bundle}),
+        "assignment-ca-multi"
+      )
+
+    assert length(host["bindings"]) == 2
+    assert Enum.all?(host["bindings"], &(&1["ca_bundle_pem"] == bundle))
+  end
+
+  test "a fingerprint spanning more than one origin refuses the assignment" do
+    fingerprint = "sha256:" <> String.duplicate("ab", 32)
+
+    {{_public, host}, log} =
+      ExUnit.CaptureLog.with_log(fn ->
+        partition(
+          "proxmox-inventory",
+          "run_check",
+          multi_target_trust_material_params(%{"server_cert_fingerprint" => fingerprint}),
+          "assignment-fingerprint-multi"
+        )
+      end)
+
+    refute host
+    assert log =~ "server_cert_fingerprint pins a single certificate"
+    assert log =~ "ca_bundle_pem"
+  end
+
   test "native guest console binds only the owning PVE and exact guest paths" do
     params = %{
       "schema" => "serviceradar.plugin_inputs.v1",
@@ -513,6 +546,32 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthorityTest do
         }
       ]
     }
+  end
+
+  defp multi_target_trust_material_params(template_extra) do
+    template_extra
+    |> trust_material_params()
+    |> Map.put("inputs", [
+      %{
+        "name" => "targets",
+        "items" => [
+          %{
+            "uid" => "device-lab-pve01",
+            "ip" => "192.0.2.10",
+            "integration_id" => "proxmox:v2:lab01:node:pve01",
+            "provider_ref" => "proxmox:node:pve01",
+            "target_kind" => "pve_host"
+          },
+          %{
+            "uid" => "device-lab-pve02",
+            "ip" => "192.0.2.11",
+            "integration_id" => "proxmox:v2:lab01:node:pve02",
+            "provider_ref" => "proxmox:node:pve02",
+            "target_kind" => "pve_host"
+          }
+        ]
+      }
+    ])
   end
 
   defp partition(plugin_id, entrypoint, params, assignment_id) do
