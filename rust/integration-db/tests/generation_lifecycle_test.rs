@@ -113,16 +113,29 @@ async fn publish(manifest: &generation::Manifest, branch: &str) -> Result<i64> {
         ledger == manifest.migration_versions,
         "synthetic ledger differs before publication"
     );
-    // Reproduce the failure deterministically: publication must quiesce a real
-    // scheduler, not pass merely because the launcher has not started one yet.
-    let started: bool = candidate
+    // Publication must quiesce a real scheduler, not pass merely because the
+    // launcher has not started one yet. Extension installation can race this
+    // check and start the scheduler first; in that case start_background_workers
+    // correctly returns false because there is nothing left to start. Preserve
+    // the capacity gate by requiring a positive start acknowledgement only when
+    // the scheduler was not already observable.
+    let scheduler_was_running: bool = admin
         .query_one(
-            "SELECT _timescaledb_functions.start_background_workers()",
-            &[],
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND backend_type='TimescaleDB Background Worker Scheduler')",
+            &[&manifest.database],
         )
         .await?
         .get(0);
-    ensure!(started, "synthetic scheduler start was not acknowledged");
+    if !scheduler_was_running {
+        let started: bool = candidate
+            .query_one(
+                "SELECT _timescaledb_functions.start_background_workers()",
+                &[],
+            )
+            .await?
+            .get(0);
+        ensure!(started, "synthetic scheduler start was not acknowledged");
+    }
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
         let active: bool = admin.query_one(
