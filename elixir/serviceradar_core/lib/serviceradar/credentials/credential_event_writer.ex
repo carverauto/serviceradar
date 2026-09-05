@@ -29,6 +29,13 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
       config :serviceradar_core, :credential_resolution_audit_success_events, true
 
   The flag defaults to `false`.
+
+  ## Routine broker-grant lifecycle is a debug log, not an event
+
+  Grant `:issue` / `:activate` / `:consume` used to be written to `ocsf_events`
+  with `log_level` debug. The events UI still lists every `ocsf_events` row, so
+  those routine transitions showed up as events. They are now `Logger.debug`
+  only. Deny, revoke, and expire stay OCSF events.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -82,11 +89,32 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
     not routine_resolution_success?(outcome) or success_events_enabled?()
   end
 
-  @doc "Write a broker grant lifecycle event."
+  @doc """
+  Write a broker grant lifecycle record.
+
+  Routine issuance/use (`:issue`, `:activate`, `:consume`) is high-frequency
+  control-plane noise: those transitions are logged at debug and are **not**
+  written to `ocsf_events`. Security-relevant outcomes (`:deny`, `:revoke`,
+  `:expire`) remain OCSF events. Grant history itself is unchanged
+  (`credential_broker_grant_versions` via AshPaperTrail).
+  """
   def write_broker_grant_lifecycle(grant, action) do
-    grant
-    |> broker_grant_lifecycle_event_attrs(action)
-    |> record_event()
+    attrs = broker_grant_lifecycle_event_attrs(grant, action)
+
+    if emit_grant_lifecycle_event?(action) do
+      record_event(attrs)
+    else
+      log_grant_lifecycle_debug(attrs)
+      :ok
+    end
+  end
+
+  @doc false
+  # Whether a grant lifecycle `action` should be mirrored into `ocsf_events`.
+  # Routine issue/activate/consume are debug logs only; deny/revoke/expire stay
+  # events. Exposed for testing.
+  def emit_grant_lifecycle_event?(action) do
+    not routine_grant_lifecycle?(normalize_atom(action, :issue))
   end
 
   def provider_lifecycle_event_attrs(provider, action) do
@@ -295,6 +323,15 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
       :ok
   end
 
+  defp log_grant_lifecycle_debug(attrs) do
+    Logger.debug(attrs.message,
+      log_name: attrs.log_name,
+      event_family: Map.get(attrs.unmapped, "event_family"),
+      action: Map.get(attrs.unmapped, "action"),
+      credential_broker_grant_id: Map.get(attrs.unmapped, "credential_broker_grant_id")
+    )
+  end
+
   defp severity_for_provider_action(action) when action in [:record_test_unavailable],
     do: OCSF.severity_medium()
 
@@ -317,6 +354,12 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
   # non-actionable outcomes suppressed from `ocsf_events` by default.
   defp routine_resolution_success?(outcome) when outcome in [:success, :cache_hit], do: true
   defp routine_resolution_success?(_outcome), do: false
+
+  # Routine grant issuance/use is the same class of noise as resolution success:
+  # every plugin poll and task launch issues a grant. Deny/revoke/expire keep
+  # their higher severity and remain events.
+  defp routine_grant_lifecycle?(action) when action in [:issue, :activate, :consume], do: true
+  defp routine_grant_lifecycle?(_action), do: false
 
   defp success_events_enabled? do
     Application.get_env(:serviceradar_core, :credential_resolution_audit_success_events, false) ==
@@ -348,12 +391,9 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
     end
   end
 
-  # Routine, successful credential activity (secret resolution success/cache
-  # hit, normal grant issuance/lifecycle) is high-frequency and pure noise at
-  # info level, so log it at debug. The OCSF severity stays informational (the
-  # correct classification) while only the emitted log level is lowered.
-  # Failures, denials, revocations, and expiries carry a higher severity, so
-  # they keep their severity-derived level (info/warning+) and stay visible.
+  # When an OCSF record is still written, informational activity is tagged
+  # debug rather than info. Routine grant issue/activate/consume no longer
+  # write that record at all (`write_broker_grant_lifecycle/2`).
   defp routine_log_level(severity_id) do
     if severity_id <= OCSF.severity_informational() do
       "debug"

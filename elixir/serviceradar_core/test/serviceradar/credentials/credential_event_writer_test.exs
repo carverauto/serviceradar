@@ -2,6 +2,8 @@ defmodule ServiceRadar.Credentials.CredentialEventWriterTest do
   # Mutates application env (the success-emission flag), so it cannot be async.
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Credentials.CredentialEventWriter
 
   @flag :credential_resolution_audit_success_events
@@ -66,5 +68,50 @@ defmodule ServiceRadar.Credentials.CredentialEventWriterTest do
                  outcome: :success
                })
     end
+  end
+
+  describe "emit_grant_lifecycle_event?/1" do
+    test "routine grant issuance and use are NOT emitted to ocsf_events" do
+      refute CredentialEventWriter.emit_grant_lifecycle_event?(:issue)
+      refute CredentialEventWriter.emit_grant_lifecycle_event?(:activate)
+      refute CredentialEventWriter.emit_grant_lifecycle_event?(:consume)
+    end
+
+    test "security-relevant grant outcomes ARE emitted" do
+      assert CredentialEventWriter.emit_grant_lifecycle_event?(:deny)
+      assert CredentialEventWriter.emit_grant_lifecycle_event?(:revoke)
+      assert CredentialEventWriter.emit_grant_lifecycle_event?(:expire)
+    end
+  end
+
+  describe "write_broker_grant_lifecycle/2" do
+    test "routine issue is a debug log, not an ocsf event" do
+      grant = grant_fixture(:issued)
+      grant_id = grant.id
+
+      log =
+        capture_log([level: :debug], fn ->
+          assert :ok = CredentialEventWriter.write_broker_grant_lifecycle(grant, :issue)
+        end)
+
+      assert log =~ "Credential broker grant #{grant_id} issue"
+      refute log =~ "Failed to write credential OCSF event"
+    end
+  end
+
+  defp grant_fixture(status) do
+    %{
+      id: Ecto.UUID.generate(),
+      secret_id: Ecto.UUID.generate(),
+      grant_type: "unit_test",
+      consumer_kind: :device_task,
+      consumer_id: "consumer-1",
+      purpose: "unit-test",
+      target_kind: "device",
+      target_id: "device-1",
+      agent_id: "agent-1",
+      resolution_location: :agent,
+      status: status
+    }
   end
 end
