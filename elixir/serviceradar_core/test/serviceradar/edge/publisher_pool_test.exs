@@ -28,6 +28,14 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
         name: nil
       )
 
+    # A lane is CLOSED until a transport registers, so every pool a test uses needs one. The
+    # stand-in is a bare process: what the accountant binds to is its LIFETIME, not anything it
+    # can do -- generation death is the signal, and a real Gnat connection is not needed to
+    # produce it.
+    transport = spawn(fn -> Process.sleep(:infinity) end)
+    on_exit(fn -> Process.exit(transport, :kill) end)
+    {:ok, _generation} = PublisherPool.register_transport(pid, transport)
+
     pid
   end
 

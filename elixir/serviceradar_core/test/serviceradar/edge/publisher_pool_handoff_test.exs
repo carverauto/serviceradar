@@ -23,6 +23,15 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
         name: nil
       )
 
+    # A lane is CLOSED until a transport registers, so every pool a test uses needs one. The
+    # stand-in is a bare process: what the accountant binds to is its LIFETIME, not anything it
+    # can do -- generation death is the signal, and a real Gnat connection is not needed to
+    # produce it.
+    transport = spawn(fn -> Process.sleep(:infinity) end)
+    on_exit(fn -> Process.exit(transport, :kill) end)
+    {:ok, _generation} = PublisherPool.register_transport(pid, transport)
+    Process.put({:transport, pid}, transport)
+
     pid
   end
 
@@ -174,8 +183,11 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
       # check that only looks at the map.
       {:monitors, monitors} = Process.info(p, :monitors)
 
-      assert monitors === [],
-             "monitors leaked across retries: #{length(monitors)}"
+      # The accountant permanently monitors its TRANSPORT -- that is how generation death is
+      # detected -- so the bound is not "no monitors" but "no monitor that grows with retries".
+      # Naming the expected one keeps this a real bound instead of a loosened count.
+      assert monitors === [{:process, Process.get({:transport, p})}],
+             "monitors leaked across retries: #{inspect(monitors)}"
 
       # NOT VACUOUS, but not by racing the confirmation: an admission is confirmed by a cast from
       # the same process, so by the time this test can observe anything the entry is already gone.
@@ -255,7 +267,10 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
 
       assert %{^key => {50, _deadline, attempt}} = :sys.get_state(p).window.outstanding
 
-      assert attempt === {:pending, token, self()},
+      assert match?(
+               {:pending, ^token, owner, gen} when owner === self() and is_reference(gen),
+               attempt
+             ),
              "the pool activated the attempt at admission: #{inspect(attempt)}"
 
       # While provisional it is inert, so nothing can take the slot from the caller that is about
@@ -270,7 +285,7 @@ defmodule ServiceRadar.Edge.PublisherPoolHandoffTest do
 
       assert eventually(fn ->
                match?(
-                 {_bytes, _deadline, {:active, ^token2, _owner}},
+                 {_bytes, _deadline, {:active, ^token2, _owner, _gen}},
                  :sys.get_state(p).window.outstanding[key2]
                )
              end),
