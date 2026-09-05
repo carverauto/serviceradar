@@ -169,13 +169,31 @@ defmodule ServiceRadar.Edge.PublishWindow do
   """
   @type reservation :: {key(), pos_integer()}
 
+  @typedoc """
+  One generation of transport: the reference the accountant mints when a transport runtime starts.
+
+  A reference rather than a counter, for the reason `mint_token/0` is: a counter restarted with
+  the process that owned it, so a stale generation compared EQUAL to a fresh one and fencing the
+  old one would have fenced the new one's attempts.
+  """
+  @type generation :: reference()
+
+  @typedoc """
+  An attempt: its phase, its epoch token, the process that will issue it, and the transport
+  generation it is issued on.
+
+  All four are needed to decide who may end it. The token fences a superseded attempt, the owner
+  fences a non-owner, and the generation is what lets a transport restart resolve the attempts it
+  killed WITHOUT touching the ones a replacement transport has since started.
+  """
+  @type attempt :: {:pending | :active, pos_integer(), pid(), generation()}
+
   @opaque t :: %__MODULE__{
             frame_credits: non_neg_integer(),
             byte_credits: non_neg_integer(),
-            # publication key => {bytes, deadline, nil | {:pending | :active, token}}
+            # publication key => {bytes, deadline, nil | attempt()}
             outstanding: %{
-              optional(key()) =>
-                {non_neg_integer(), integer(), nil | {:pending | :active, pos_integer()}}
+              optional(key()) => {non_neg_integer(), integer(), nil | attempt()}
             },
             bytes_outstanding: non_neg_integer()
           }
@@ -232,9 +250,9 @@ defmodule ServiceRadar.Edge.PublishWindow do
   Refuses rather than overcommitting: a frame that would exceed either grant is not admitted, and
   the caller waits for a settlement instead of publishing anyway.
   """
-  @spec admit(t(), key(), non_neg_integer(), integer(), pid()) ::
+  @spec admit(t(), key(), non_neg_integer(), integer(), pid(), generation()) ::
           {:ok, t(), reservation()} | {:error, atom()}
-  def admit(%__MODULE__{} = w, key, bytes, deadline_at, owner) do
+  def admit(%__MODULE__{} = w, key, bytes, deadline_at, owner, generation) do
     cond do
       not valid_key?(key) ->
         {:error, :publication}
@@ -251,15 +269,21 @@ defmodule ServiceRadar.Edge.PublishWindow do
       not is_pid(owner) ->
         {:error, :owner}
 
+      # The GENERATION of transport this attempt will be issued on. A restart replaces the
+      # transport WITHOUT replacing this ledger, so when the old generation is later confirmed
+      # dead, `fence_generation/2` needs to know which attempts went with it.
+      not is_reference(generation) ->
+        {:error, :generation}
+
       true ->
-        reserve(w, key, bytes, deadline_at, owner)
+        reserve(w, key, bytes, deadline_at, owner, generation)
     end
   end
 
   # A reservation holds CREDITS. An ATTEMPT is what is in flight against them. Separating the two
   # is what stops concurrent identical retries from sharing one charge: the credits are charged
   # once, but only one attempt may be outstanding at a time.
-  defp reserve(w, key, bytes, deadline_at, owner) do
+  defp reserve(w, key, bytes, deadline_at, owner, generation) do
     case Map.fetch(w.outstanding, key) do
       {:ok, {_bytes, _deadline, attempt}} when attempt !== nil ->
         # An attempt is ALREADY in flight for this publication. Starting a second one would put
@@ -281,12 +305,12 @@ defmodule ServiceRadar.Edge.PublishWindow do
                Map.put(
                  w.outstanding,
                  key,
-                 {reserved_bytes, deadline_at, {:pending, token, owner}}
+                 {reserved_bytes, deadline_at, {:pending, token, owner, generation}}
                )
          }, {key, token}}
 
       :error ->
-        admit_new(w, key, bytes, deadline_at, owner)
+        admit_new(w, key, bytes, deadline_at, owner, generation)
     end
   end
 
@@ -318,7 +342,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
       # publishing; releasing it would free the credit while that request is on the wire, so one
       # grant would cover two publications. Accepting either phase here made the narrow authority
       # this function documents unenforceable.
-      {:ok, {bytes, _deadline, {:pending, ^token, _owner}}} ->
+      {:ok, {bytes, _deadline, {:pending, ^token, _owner, _gen}}} ->
         {:ok,
          %{
            w
@@ -343,11 +367,12 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @spec activate(t(), reservation()) :: {:ok, t()} | {:error, atom()}
   def activate(%__MODULE__{} = w, {key, token}) do
     case Map.fetch(w.outstanding, key) do
-      {:ok, {bytes, deadline, {:pending, ^token, owner}}} ->
+      {:ok, {bytes, deadline, {:pending, ^token, owner, gen}}} ->
         {:ok,
          %{
            w
-           | outstanding: Map.put(w.outstanding, key, {bytes, deadline, {:active, token, owner}})
+           | outstanding:
+               Map.put(w.outstanding, key, {bytes, deadline, {:active, token, owner, gen}})
          }}
 
       _ ->
@@ -368,7 +393,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
   @spec revoke_pending(t(), reservation()) :: {:ok, t()} | {:error, atom()}
   def revoke_pending(%__MODULE__{} = w, {key, token}) do
     case Map.fetch(w.outstanding, key) do
-      {:ok, {bytes, deadline, {:pending, ^token, _owner}}} ->
+      {:ok, {bytes, deadline, {:pending, ^token, _owner, _gen}}} ->
         {:ok, %{w | outstanding: Map.put(w.outstanding, key, {bytes, deadline, nil})}}
 
       _ ->
@@ -393,12 +418,85 @@ defmodule ServiceRadar.Edge.PublishWindow do
       # completed: ending it would free the slot for a retry while the original caller is still
       # about to receive its reservation, putting two attempts on the wire under one charge.
       # Requiring the owner is what makes this TERMINATION rather than a guess.
-      {:ok, {bytes, deadline, {:active, ^token, ^owner}}} ->
+      {:ok, {bytes, deadline, {:active, ^token, ^owner, _gen}}} ->
         {:ok, %{w | outstanding: Map.put(w.outstanding, key, {bytes, deadline, nil})}}
 
       _ ->
         {:error, :not_outstanding}
     end
+  end
+
+  @doc """
+  Ends every attempt issued on a DEAD transport generation, keeping every reservation charged.
+
+  ## The invariant this exists for
+
+  A lane restart replaces the transport but NOT this ledger. Without that split, a replacement
+  `PublisherPool` started with an empty window and therefore its full grant, while requests
+  admitted under the previous accounting were still in flight on the previous transport -- so the
+  old and new requests together could exceed the lane grant. That is task 3.3's restart-overlap
+  criterion.
+
+  ## What it does and, more importantly, what it does NOT
+
+  It ends ATTEMPTS. It does NOT release RESERVATIONS, and the distinction is the whole point:
+  generation death proves the request can no longer be completed on that transport, which is
+  enough to say the attempt is over. It proves NOTHING about whether the record was published --
+  the connection may have died after the bytes reached the broker and before any PubAck.
+
+  So the reservation stays charged and its publication may be retried WITHOUT consuming another
+  credit. Only a validated resolving PubAck releases credits, through `settle/4`. Releasing here
+  would hand back a broker-ambiguous frame and let the lane publish past its grant, which is the
+  same defect in a new place.
+
+  Affected reservations therefore become IDLE-BUT-CHARGED: no attempt, credits held, retryable.
+
+  ## WHEN it may be called
+
+  ONLY once the named generation's transport AND its request workers are confirmed dead. Called
+  while any of them could still be running, it would end an attempt that may still publish and
+  admit a retry alongside it -- two requests under one charge, which is exactly what the owner
+  fence in `attempt_failed/3` refuses for the same reason. The accountant owns that determination
+  via monitors; this function trusts it and cannot check it.
+
+  Attempts on OTHER generations are untouched, including a replacement generation's, which is why
+  the generation is recorded per attempt rather than tracked as a single "current" value.
+
+  Returns the window and how many attempts were ended, so a caller can log a fence that did
+  nothing differently from one that ended twenty.
+  """
+  @spec fence_generation(t(), generation()) :: {:ok, t(), non_neg_integer()}
+  def fence_generation(%__MODULE__{} = w, generation) when is_reference(generation) do
+    {outstanding, fenced} =
+      Enum.reduce(w.outstanding, {%{}, 0}, fn
+        {key, {bytes, deadline, {_phase, _token, _owner, ^generation}}}, {acc, n} ->
+          # PENDING attempts on the dead generation are fenced too. A pending attempt's caller
+          # has not taken delivery, so it has issued nothing and never will -- its transport is
+          # gone. Leaving it pending would hold the slot against a retry forever, since only its
+          # own caller could revoke it and that caller is about to receive an error instead.
+          {Map.put(acc, key, {bytes, deadline, nil}), n + 1}
+
+        {key, entry}, {acc, n} ->
+          {Map.put(acc, key, entry), n}
+      end)
+
+    {:ok, %{w | outstanding: outstanding}, fenced}
+  end
+
+  @doc """
+  The generations that currently have at least one attempt against them.
+
+  Lets the accountant assert the bound the spec puts on generation metadata: at most one accepting
+  and one draining generation, so this is expected to hold at most two entries.
+  """
+  @spec live_generations(t()) :: [generation()]
+  def live_generations(%__MODULE__{} = w) do
+    w.outstanding
+    |> Enum.flat_map(fn
+      {_key, {_bytes, _deadline, {_phase, _token, _owner, gen}}} -> [gen]
+      {_key, {_bytes, _deadline, nil}} -> []
+    end)
+    |> Enum.uniq()
   end
 
   # Attempt tokens are drawn from the VM's unique-integer source, NOT a per-window counter. A
@@ -407,7 +505,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
   # cannot outlive the node, so node-unique is enough.
   defp mint_token, do: System.unique_integer([:monotonic, :positive])
 
-  defp admit_new(w, key, bytes, deadline_at, owner) do
+  defp admit_new(w, key, bytes, deadline_at, owner, generation) do
     cond do
       map_size(w.outstanding) + 1 > w.frame_credits ->
         {:error, :frame_credits_exhausted}
@@ -422,7 +520,11 @@ defmodule ServiceRadar.Edge.PublishWindow do
          %{
            w
            | outstanding:
-               Map.put(w.outstanding, key, {bytes, deadline_at, {:pending, token, owner}}),
+               Map.put(
+                 w.outstanding,
+                 key,
+                 {bytes, deadline_at, {:pending, token, owner, generation}}
+               ),
              bytes_outstanding: w.bytes_outstanding + bytes
          }, {key, token}}
     end
@@ -440,7 +542,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
     case Map.fetch(w.outstanding, key) do
       # Only an IN-FLIGHT attempt has a handle. A reservation whose attempt has ended holds its
       # credits but has nothing to settle or re-arm; the next `admit/5` mints its next attempt.
-      {:ok, {_bytes, _deadline, {:active, token, _owner}}} -> {:ok, {key, token}}
+      {:ok, {_bytes, _deadline, {:active, token, _owner, _gen}}} -> {:ok, {key, token}}
       _ -> :error
     end
   end
@@ -555,7 +657,7 @@ defmodule ServiceRadar.Edge.PublishWindow do
       # attempt could be settled by anyone who learned its token before its caller did; without
       # the owner, any process holding the reservation tuple could release a request that is
       # still on the wire.
-      {:ok, {bytes, _deadline, {:active, ^token, ^owner}}} ->
+      {:ok, {bytes, _deadline, {:active, ^token, ^owner, _gen}}} ->
         {:ok,
          %{
            w
@@ -588,12 +690,12 @@ defmodule ServiceRadar.Edge.PublishWindow do
         # Token-checked for the same reason release/2 is: an observer can read an expired
         # reservation, watch it settle, and then move the deadline of whatever reserved the key
         # next.
-        {:ok, {bytes, _old, {:active, ^token, ^owner}}} ->
+        {:ok, {bytes, _old, {:active, ^token, ^owner, gen}}} ->
           {:ok,
            %{
              w
              | outstanding:
-                 Map.put(w.outstanding, key, {bytes, deadline_at, {:active, token, owner}})
+                 Map.put(w.outstanding, key, {bytes, deadline_at, {:active, token, owner, gen}})
            }}
 
         _ ->
@@ -619,10 +721,10 @@ defmodule ServiceRadar.Edge.PublishWindow do
     # before the original caller had even received its reservation.
     w.outstanding
     |> Enum.filter(fn {_key, {_bytes, deadline, attempt}} ->
-      match?({:active, _, _}, attempt) and deadline <= now
+      match?({:active, _, _, _}, attempt) and deadline <= now
     end)
     |> Enum.sort_by(fn {key, {_bytes, deadline, _attempt}} -> {deadline, key} end)
-    |> Enum.map(fn {key, {_bytes, _deadline, {:active, token, _owner}}} -> {key, token} end)
+    |> Enum.map(fn {key, {_bytes, _deadline, {:active, token, _o, _g}}} -> {key, token} end)
   end
 
   @doc """
