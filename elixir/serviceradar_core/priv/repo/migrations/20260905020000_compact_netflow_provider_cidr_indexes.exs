@@ -3,14 +3,26 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   Rebuilds `platform.netflow_provider_cidrs` indexes so snapshot rotation
   does not leak deleted btree/GiST pages.
 
-  The previous primary key was `(snapshot_id, cidr, provider)`. Each promoted
-  snapshot is a new leading-key range, so deleting the previous snapshot leaves
-  btree pages autovacuum cannot reuse. Demo measured 123MB heap / 821k rows
-  (avg 100B, max 328B) against 5GB PK + 3GB GiST, 98% deleted pages.
+  The reported per-row size is `relation size / row count`, and the numerator is
+  what is wrong, not the rows. Measured 2026-09-05 with two retained snapshots of
+  ~410k CIDRs each, 821,788 rows total:
 
-  Leading with `cidr` keeps the same CIDR from consecutive snapshots adjacent
-  so vacuumed holes are reusable. SP-GiST `inet_ops` replaces GiST for the
-  `<<=` fallback (the in-memory provider trie is the primary lookup).
+      pg_relation_size         123 MiB  (82 MiB of tuples, avg 105 B per row)
+      pkey                    5002 MiB  640,289 pages, 631,327 (98.6%) deleted
+      cidr GiST               3020 MiB
+      snapshot/provider        371 MiB   47,466 pages,  46,768 (98.5%) deleted
+      pg_total_relation_size  8519 MiB  = 10.6 KiB per row of 105 B content
+
+  The two btrees hold 75 MiB of live pages inside 5373 MiB of index. The previous
+  primary key was `(snapshot_id, cidr, provider)`, so every promoted snapshot is a
+  new leading-key range: pruning the previous snapshot empties whole pages that the
+  next rotation never descends into and so cannot refill.
+
+  Leading with `cidr` keeps the same CIDR from consecutive snapshots adjacent so
+  vacuumed holes are reusable, and the writer emits rows in that order. Rebuilding
+  returns each index to its live content now; the key order is what keeps it there.
+  SP-GiST `inet_ops` replaces GiST for the `<<=` fallback (the in-memory provider
+  trie is the primary lookup).
 
   `netflow_provider_cidrs_snapshot_provider_idx` keeps `(snapshot_id, provider)`
   because snapshot pruning deletes by `snapshot_id`, so it is rebuilt in place to
