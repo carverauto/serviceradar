@@ -76,6 +76,21 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     :ok
   end
 
+  test "falls back to the discovering sync service when the device has no owning agent" do
+    uid = unique_uid("sync-scope")
+    insert_device!(uid, metadata: %{"sync_service_id" => "agent-sync-scope"})
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: "ssh", credential_custody_mode: "user_present", cols: 120, rows: 40},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert session.agent_id == "agent-sync-scope"
+  end
+
   test "attach tickets are single-use and credential material is not persisted in metadata" do
     uid = unique_uid("ticket")
     insert_device!(uid, agent_id: "agent-ticket", gateway_id: "gateway-ticket")
@@ -2080,7 +2095,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
         agent_id: Keyword.get(opts, :agent_id),
         gateway_id: Keyword.get(opts, :gateway_id),
         is_available: true,
-        metadata: %{},
+        metadata: Keyword.get(opts, :metadata, %{}),
         first_seen_time: now,
         last_seen_time: now
       }
