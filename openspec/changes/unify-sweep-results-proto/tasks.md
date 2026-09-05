@@ -878,8 +878,10 @@
   validation and prefix advancement). This task MAY NOT be checked until BOTH
   hold, each covered by a scenario under `ingestion-routing`'s "Backpressure and
   fairness are bounded at every hop":
-  (i) RESTART OVERLAP -- CLOSED for the restart invariant itself; the ASYNC
-  PIPELINE it must hold under is still open (see the closing note below). A lane
+  (i) RESTART OVERLAP -- CLOSED for the restart invariant itself. The invariant is
+  proven against the SERIAL publisher that exists today; 3.3 stays unchecked
+  because the asynchronous pipeline it must also hold under is not built yet, and
+  an invariant only exercised serially is not an invariant under concurrency. A lane
   restart MUST NOT reopen capacity that an in-flight request still occupies, so
   old and replacement requests together cannot exceed the grant.
   How it is discharged: the lane is split into a STABLE accountant and a
@@ -913,7 +915,15 @@
   and a sweep holding `{key, token}` cannot act on it -- the deadline is now
   observable but never authorising. Owner DEATH is deliberately NOT treated as
   termination, because a process can die after its request reached the socket;
-  that leaves a dead owner's reservation charged, which (i) is what will free.
+  that leaves a dead owner's reservation charged.
+  CORRECTION, now that (i) is implemented: an earlier version of this note said (i)
+  would free such a reservation. It does not. Fencing fires on the death of a
+  TRANSPORT GENERATION, not on the death of an owner, so an owner that dies while
+  its transport stays healthy still leaves its reservation charged with no attempt
+  against it. That is deliberate -- owner death is not evidence the record was not
+  published -- but it is a real retention gap and it remains OPEN. Bounding it needs
+  evidence that the specific request terminated, which is the correlation work in
+  3.5, not a supervision change here.
 - [ ] 3.4 Bounded-decode and verify the bounded binary record against the mTLS
   session, grant, registry, route, cost, size, and digest, but publish the exact
   `EdgeDeliveryFrameV1.record_bytes` unchanged to JetStream, never the delivery
