@@ -33,6 +33,21 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
   - PATCH /api/v2/alerts/:id/acknowledge - Acknowledge alert
   - PATCH /api/v2/alerts/:id/resolve - Resolve alert
 
+  ### Notifications Domain
+  - GET /api/v2/notification-providers - List notification providers
+  - GET /api/v2/notification-channels - List channels
+  - POST /api/v2/notification-channels - Create a channel
+  - PATCH /api/v2/notification-channels/:id - Update a channel
+  - GET /api/v2/notification-routes - List routes
+  - POST /api/v2/notification-routes - Create a route
+  - PATCH /api/v2/notification-routes/:id - Update a route
+  - PATCH /api/v2/notification-routes/:id/disable - Disable a route
+  - GET /api/v2/notification-escalation-policies - List escalation policies
+  - POST /api/v2/notification-escalation-policies - Create a policy
+  - GET /api/v2/notification-escalation-steps - List steps
+  - POST /api/v2/notification-escalation-steps - Create a step
+  - POST /api/v2/notification-escalation-step-channels - Attach a channel to a step
+
   ## Authentication
 
   Access is authorized by each resource's Ash policies. The actor is extracted
@@ -57,7 +72,8 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
     domains: [
       ServiceRadar.Inventory,
       ServiceRadar.Infrastructure,
-      ServiceRadar.Monitoring
+      ServiceRadar.Monitoring,
+      ServiceRadar.Notifications
     ],
     open_api_title: "ServiceRadar API",
     open_api_version: "2.0.0"

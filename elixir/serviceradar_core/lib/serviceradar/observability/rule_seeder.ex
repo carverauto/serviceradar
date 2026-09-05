@@ -319,6 +319,21 @@ defmodule ServiceRadar.Observability.RuleSeeder do
           "status_detail" => "Falco detected AF_ALG socket creation in a container",
           "alert" => false
         }
+      },
+      %{
+        name: "k8s_node_readiness_events",
+        enabled: true,
+        priority: 52,
+        source_type: :log,
+        source: %{},
+        match: %{
+          "subject_prefix" => "logs.internal.k8s",
+          "event_type" => ["node.not_ready", "node.ready"]
+        },
+        event: %{
+          "log_name" => "k8s.node.readiness",
+          "alert" => false
+        }
       }
     ]
   end
@@ -356,6 +371,38 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         alert: %{
           "title" => "Device Unreachable",
           "severity" => "warning"
+        }
+      },
+      %{
+        name: "k8s_node_not_ready",
+        managed: true,
+        template_version: 1,
+        description:
+          "Open one incident per Kubernetes node when Ready becomes False, and clear it when Ready returns True. Control-plane vs worker is taken from node.role.",
+        priority: 20,
+        enabled: true,
+        signal: :event,
+        match: %{
+          "subject_prefix" => "k8s.node.readiness",
+          "attribute_equals" => %{"event_type" => "node.not_ready"},
+          "recovery" => %{
+            "subject_prefix" => "k8s.node.readiness",
+            "attribute_equals" => %{"event_type" => "node.ready"}
+          }
+        },
+        group_by: ["cluster_id", "node"],
+        threshold: 1,
+        window_seconds: 300,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        event: %{
+          "log_name" => "alert.availability.k8s.node",
+          "message" => "Kubernetes node is NotReady"
+        },
+        alert: %{
+          "title" => "Alert",
+          "severity" => "critical"
         }
       },
       %{

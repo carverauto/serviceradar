@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Kubernetes node NotReady to Discord",
+    "quality_profile": "showcase",
+    "locale": "en",
+    "viewBox": [1280, 620],
+    "views": [
+      {
+        "id": "trigger-path",
+        "label": "Node Ready trigger",
+        "focus": ["kube-api", "k8s-inventory", "nats", "event-writer", "k8s-nodes-table"],
+        "note": "k8s-inventory watches Node Ready and publishes inventory.k8s.nodes."
+      },
+      {
+        "id": "page-path",
+        "label": "Alert to Discord",
+        "focus": ["alert-engine", "notifications", "discord", "delivery-log"],
+        "note": "Seeded k8s_node_not_ready opens an incident; Notifications routes it to Discord."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "kube-api",
+      "type": "cloud",
+      "label": "Kubernetes API",
+      "sublabel": "Ready condition",
+      "pos": [36, 180],
+      "size": [148, 68]
+    },
+    {
+      "id": "k8s-inventory",
+      "type": "backend",
+      "label": "k8s-inventory",
+      "sublabel": "read-only ClusterRole",
+      "pos": [210, 180],
+      "size": [148, 68]
+    },
+    {
+      "id": "nats",
+      "type": "messagebus",
+      "label": "NATS JetStream",
+      "sublabel": "inventory.k8s.nodes",
+      "pos": [384, 180],
+      "size": [148, 68]
+    },
+    {
+      "id": "event-writer",
+      "type": "backend",
+      "label": "EventWriter",
+      "sublabel": "K8sNodes processor",
+      "pos": [558, 180],
+      "size": [148, 68]
+    },
+    {
+      "id": "alert-engine",
+      "type": "backend",
+      "label": "StatefulAlertEngine",
+      "sublabel": "k8s_node_not_ready",
+      "pos": [732, 180],
+      "size": [156, 68]
+    },
+    {
+      "id": "notifications",
+      "type": "backend",
+      "label": "Notifications",
+      "sublabel": "Router + Discord",
+      "pos": [914, 180],
+      "size": [156, 68]
+    },
+    {
+      "id": "discord",
+      "type": "external",
+      "label": "Discord",
+      "sublabel": "existing channel",
+      "pos": [1096, 180],
+      "size": [148, 68]
+    },
+    {
+      "id": "k8s-nodes-table",
+      "type": "database",
+      "label": "CNPG",
+      "sublabel": "k8s_nodes_current",
+      "pos": [558, 360],
+      "size": [148, 68]
+    },
+    {
+      "id": "delivery-log",
+      "type": "database",
+      "label": "Delivery log",
+      "sublabel": "sent or no_matching_route",
+      "pos": [914, 360],
+      "size": [156, 68]
+    }
+  ],
+  "connections": [
+    { "id": "watch-nodes", "from": "kube-api", "to": "k8s-inventory", "label": "watch Nodes", "variant": "emphasis", "labelDy": -28 },
+    { "id": "publish-snapshot", "from": "k8s-inventory", "to": "nats", "label": "publish snapshot", "variant": "emphasis", "labelDy": -28 },
+    { "id": "consume-nodes", "from": "nats", "to": "event-writer", "label": "K8S_NODES consumer", "variant": "emphasis", "labelDy": -28 },
+    { "id": "upsert-current", "from": "event-writer", "to": "k8s-nodes-table", "label": "upsert current state", "fromSide": "bottom", "toSide": "top", "labelDy": 58 },
+    { "id": "emit-flips", "from": "event-writer", "to": "alert-engine", "label": "readiness events", "variant": "emphasis", "labelDy": -28 },
+    { "id": "enqueue-route", "from": "alert-engine", "to": "notifications", "label": "send_notification", "variant": "emphasis", "labelDy": -28 },
+    { "id": "page-discord", "from": "notifications", "to": "discord", "label": "Discord transport", "variant": "emphasis", "labelDy": -28 },
+    { "id": "audit-decision", "from": "notifications", "to": "delivery-log", "label": "every decision audited", "fromSide": "bottom", "toSide": "top", "labelDy": 58 }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Trigger",
+      "items": [
+        "Node Ready=False is observed from the kube API, not from sweep ICMP",
+        "k8s-inventory stays the only process with Nodes get/list/watch"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Delivery",
+      "items": [
+        "Alerts go through ServiceRadar.Notifications only",
+        "The existing Discord channel is the destination; no parallel webhook"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Why Discord was silent",
+      "items": [
+        "No Node Ready signal existed, so no node-down alert was created",
+        "The demo route matched an empty title, so every other alert was no_matching_route"
+      ]
+    }
+  ]
+}

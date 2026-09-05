@@ -11,6 +11,7 @@ import (
 
 const (
 	defaultNATSSubjectPrefix = "inventory.k8s.public_endpoints"
+	defaultNodeSubject       = "inventory.k8s.nodes"
 	defaultNATSStreamName    = "k8s_inventory"
 	defaultMetricsAddr       = ":9109"
 	defaultPublishTimeout    = 5 * time.Second
@@ -45,8 +46,10 @@ type Config struct {
 	Namespaces     []string // empty = all
 
 	EnableGatewayAPI bool
+	EnableNodes      bool
 	PublishMode      string // nats | agent_spool | stdout | none
 	Subject          string // full subject for snapshot publish
+	NodeSubject      string // full subject for node snapshot publish
 	SpoolDir         string // required for agent_spool
 
 	NATSHostPort   string
@@ -73,8 +76,10 @@ func LoadConfigFromEnv() (Config, error) {
 		ClusterID:            strings.TrimSpace(os.Getenv("CLUSTER_ID")),
 		KubeConfigPath:       strings.TrimSpace(os.Getenv("KUBECONFIG")),
 		EnableGatewayAPI:     parseBoolEnv("K8S_INVENTORY_GATEWAY_API", true),
+		EnableNodes:          parseBoolEnv("K8S_INVENTORY_NODES", true),
 		PublishMode:          strings.ToLower(strings.TrimSpace(os.Getenv("PUBLISH_MODE"))),
 		Subject:              strings.TrimSpace(os.Getenv("K8S_INVENTORY_SUBJECT")),
+		NodeSubject:          strings.TrimSpace(os.Getenv("K8S_INVENTORY_NODES_SUBJECT")),
 		SpoolDir:             strings.TrimSpace(os.Getenv("K8S_INVENTORY_SPOOL_DIR")),
 		NATSHostPort:         strings.TrimSpace(os.Getenv("NATS_HOSTPORT")),
 		NATSStreamName:       strings.TrimSpace(os.Getenv("NATS_STREAM")),
@@ -107,6 +112,9 @@ func LoadConfigFromEnv() (Config, error) {
 
 	if cfg.Subject == "" {
 		cfg.Subject = defaultNATSSubjectPrefix
+	}
+	if cfg.NodeSubject == "" {
+		cfg.NodeSubject = defaultNodeSubject
 	}
 	if cfg.NATSStreamName == "" {
 		cfg.NATSStreamName = defaultNATSStreamName

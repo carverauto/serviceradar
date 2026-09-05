@@ -506,6 +506,19 @@ defmodule ServiceRadar.EventWriter.Config do
         stream_max_age: 86_400_000_000_000
       },
       %{
+        name: "K8S_NODES",
+        stream_name: "k8s_inventory",
+        subject: "inventory.k8s.nodes",
+        processor: ServiceRadar.EventWriter.Processors.K8sNodes,
+        batch_size: 1,
+        batch_timeout: 2_000,
+        stream_retention: "limits",
+        stream_storage: "file",
+        stream_discard: "old",
+        stream_max_bytes: 1_073_741_824,
+        stream_max_age: 86_400_000_000_000
+      },
+      %{
         name: "OTEL_METRICS",
         stream_name: "events",
         subject: "otel.metrics.>",

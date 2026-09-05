@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,11 +28,13 @@ type Controller struct {
 
 	metrics *Metrics
 
-	mu           sync.Mutex
-	lastHash     string
-	lastSnapshot Snapshot
-	ready        atomic.Bool
-	generation   atomic.Uint64
+	mu               sync.Mutex
+	lastHash         string
+	lastSnapshot     Snapshot
+	lastNodeHash     string
+	lastNodeSnapshot NodeSnapshot
+	ready            atomic.Bool
+	generation       atomic.Uint64
 
 	// notifyCh coalesces rebuild requests.
 	notifyCh chan struct{}
@@ -163,9 +166,33 @@ func (c *Controller) rebuildAndPublish(ctx context.Context) error {
 	}
 
 	c.mu.Lock()
-	unchanged := hash == c.lastHash
+	endpointsUnchanged := hash == c.lastHash
 	c.mu.Unlock()
-	if unchanged {
+
+	published := false
+	if !endpointsUnchanged {
+		if err := c.publishWithRetry(ctx, c.cfg.Subject, payload); err != nil {
+			return err
+		}
+		c.mu.Lock()
+		c.lastHash = hash
+		c.lastSnapshot = snap
+		c.mu.Unlock()
+		published = true
+		c.metrics.IncPublish()
+		log.Printf("k8s-inventory: published snapshot endpoints=%d hints=%d bytes=%d gen=%d",
+			len(snap.Endpoints), len(snap.Hints), len(payload), c.generation.Load()+1)
+	}
+
+	nodesPublished, err := c.publishNodesIfEnabled(ctx, opts)
+	if err != nil {
+		return err
+	}
+	if nodesPublished {
+		published = true
+	}
+
+	if !published {
 		c.metrics.IncRebuildSkipped()
 		c.ready.Store(true)
 		c.metrics.SetEndpointCount(len(snap.Endpoints))
@@ -174,24 +201,50 @@ func (c *Controller) rebuildAndPublish(ctx context.Context) error {
 		return nil
 	}
 
-	if err := c.publishWithRetry(ctx, c.cfg.Subject, payload); err != nil {
-		return err
-	}
-
-	c.mu.Lock()
-	c.lastHash = hash
-	c.lastSnapshot = snap
-	c.mu.Unlock()
-
 	c.generation.Add(1)
 	c.ready.Store(true)
-	c.metrics.IncPublish()
 	c.metrics.SetEndpointCount(len(snap.Endpoints))
 	c.metrics.SetHintCount(len(snap.Hints))
 	c.metrics.ObserveRebuild(time.Since(start))
-	log.Printf("k8s-inventory: published snapshot endpoints=%d hints=%d bytes=%d gen=%d",
-		len(snap.Endpoints), len(snap.Hints), len(payload), c.generation.Load())
 	return nil
+}
+
+func (c *Controller) publishNodesIfEnabled(ctx context.Context, opts SnapshotOptions) (bool, error) {
+	if !c.cfg.EnableNodes {
+		return false, nil
+	}
+	subject := strings.TrimSpace(c.cfg.NodeSubject)
+	if subject == "" {
+		subject = defaultNodeSubject
+	}
+	nodeSnap, err := NodeSnapshotFromLister(ctx, c.lister, opts)
+	if err != nil {
+		return false, err
+	}
+	payload, err := json.Marshal(nodeSnap)
+	if err != nil {
+		return false, fmt.Errorf("marshal node snapshot: %w", err)
+	}
+	hash, err := stableNodeSnapshotHash(nodeSnap)
+	if err != nil {
+		return false, err
+	}
+	c.mu.Lock()
+	unchanged := hash == c.lastNodeHash
+	c.mu.Unlock()
+	if unchanged {
+		return false, nil
+	}
+	if err := c.publishWithRetry(ctx, subject, payload); err != nil {
+		return false, err
+	}
+	c.mu.Lock()
+	c.lastNodeHash = hash
+	c.lastNodeSnapshot = nodeSnap
+	c.mu.Unlock()
+	c.metrics.IncPublish()
+	log.Printf("k8s-inventory: published nodes count=%d bytes=%d", len(nodeSnap.Nodes), len(payload))
+	return true, nil
 }
 
 // stableSnapshotHash ignores wall-clock fields so unchanged inventory does not republish.
@@ -208,6 +261,24 @@ func stableSnapshotHash(snap Snapshot) (string, error) {
 	raw, err := json.Marshal(stable)
 	if err != nil {
 		return "", fmt.Errorf("marshal stable snapshot: %w", err)
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func stableNodeSnapshotHash(snap NodeSnapshot) (string, error) {
+	stable := snap
+	stable.GeneratedAt = time.Time{}
+	if len(snap.Nodes) > 0 {
+		stable.Nodes = make([]NodeInventory, len(snap.Nodes))
+		copy(stable.Nodes, snap.Nodes)
+		for i := range stable.Nodes {
+			stable.Nodes[i].ObservedAt = time.Time{}
+		}
+	}
+	raw, err := json.Marshal(stable)
+	if err != nil {
+		return "", fmt.Errorf("marshal stable node snapshot: %w", err)
 	}
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:]), nil

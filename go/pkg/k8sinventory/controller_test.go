@@ -78,6 +78,60 @@ func TestController_PublishesOnChangeAndSkipsUnchanged(t *testing.T) {
 	}
 }
 
+func TestController_PublishesNodeSnapshotWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		ClusterID:            "cluster-a",
+		PublishMode:          "none",
+		Subject:              "inventory.k8s.public_endpoints",
+		NodeSubject:          "inventory.k8s.nodes",
+		EnableNodes:          true,
+		Resync:               time.Hour,
+		Debounce:             10 * time.Millisecond,
+		PublishTimeout:       time.Second,
+		PublishMaxRetries:    1,
+		PublishRetryDelay:    time.Millisecond,
+		PublishRetryMaxDelay: 5 * time.Millisecond,
+	}
+	lister := &MemoryLister{
+		Nodes: []NodeView{{
+			Name:        "node-worker-1.example.com",
+			Ready:       false,
+			ReadyReason: "KubeletNotReady",
+			InternalIP:  "192.0.2.11",
+		}},
+	}
+	rec := &RecordingPublisher{}
+	ctrl := NewController(cfg, lister, rec, NewMetrics())
+	if err := ctrl.RebuildOnce(context.Background()); err != nil {
+		t.Fatalf("rebuild: %v", err)
+	}
+	if rec.Len() != 2 {
+		t.Fatalf("want endpoint + node publish, got %d", rec.Len())
+	}
+	foundNodes := false
+	for i := 0; i < rec.Len(); i++ {
+		if rec.SubjectAt(i) != cfg.NodeSubject {
+			continue
+		}
+		foundNodes = true
+		var snap NodeSnapshot
+		if err := json.Unmarshal(rec.PayloadAt(i), &snap); err != nil {
+			t.Fatal(err)
+		}
+		if snap.ClusterID != "cluster-a" || len(snap.Nodes) != 1 {
+			t.Fatalf("node snapshot: %+v", snap)
+		}
+		if snap.Nodes[0].Name != "node-worker-1.example.com" || snap.Nodes[0].Ready {
+			t.Fatalf("node: %+v", snap.Nodes[0])
+		}
+	}
+	if !foundNodes {
+		t.Fatal("missing inventory.k8s.nodes publish")
+	}
+}
+
 func TestController_RunDebounce(t *testing.T) {
 	t.Parallel()
 

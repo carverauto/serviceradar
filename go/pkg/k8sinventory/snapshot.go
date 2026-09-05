@@ -37,6 +37,7 @@ type Lister interface {
 	ListEndpointSlices(ctx context.Context, namespace string) ([]EndpointSliceView, error)
 	ListGateways(ctx context.Context, namespace string) ([]GatewayView, error)
 	ListRoutes(ctx context.Context, namespace string) ([]RouteView, error)
+	ListNodes(ctx context.Context) ([]NodeView, error)
 }
 
 // ClientLister implements Lister using client-go typed + dynamic clients.
@@ -84,6 +85,21 @@ func (l *ClientLister) ListServices(ctx context.Context, namespace string) ([]Se
 	out := make([]ServiceView, 0, len(list.Items))
 	for i := range list.Items {
 		out = append(out, ServiceFromCore(&list.Items[i]))
+	}
+	return out, nil
+}
+
+func (l *ClientLister) ListNodes(ctx context.Context) ([]NodeView, error) {
+	if l.Client == nil {
+		return nil, errKubeClientNil
+	}
+	list, err := l.Client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]NodeView, 0, len(list.Items))
+	for i := range list.Items {
+		out = append(out, NodeFromCore(&list.Items[i]))
 	}
 	return out, nil
 }
@@ -190,6 +206,21 @@ func SnapshotFromLister(ctx context.Context, lister Lister, opts SnapshotOptions
 	return BuildSnapshot(in), nil
 }
 
+// NodeSnapshotFromLister lists cluster Nodes once (namespace allow-lists do not apply).
+func NodeSnapshotFromLister(ctx context.Context, lister Lister, opts SnapshotOptions) (NodeSnapshot, error) {
+	if opts.ClusterID == "" {
+		return NodeSnapshot{}, errClusterIDRequired
+	}
+	if lister == nil {
+		return NodeSnapshot{}, errListerNil
+	}
+	nodes, err := lister.ListNodes(ctx)
+	if err != nil {
+		return NodeSnapshot{}, fmt.Errorf("list nodes: %w", err)
+	}
+	return BuildNodeSnapshot(opts.ClusterID, opts.Now, nodes), nil
+}
+
 // MemoryLister is a test double that returns fixed objects.
 //
 // A Controller lists from its own goroutine, so a test that changes what the lister returns
@@ -204,6 +235,7 @@ type MemoryLister struct {
 	EndpointSlices []EndpointSliceView
 	Gateways       []GatewayView
 	Routes         []RouteView
+	Nodes          []NodeView
 }
 
 // SetServices replaces the service list. Safe to call while a Controller is running.
@@ -232,4 +264,9 @@ func (m *MemoryLister) ListRoutes(context.Context, string) ([]RouteView, error) 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.Routes, nil
+}
+func (m *MemoryLister) ListNodes(context.Context) ([]NodeView, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.Nodes, nil
 }

@@ -83,7 +83,7 @@ defmodule ServiceRadar.Notifications.NotificationProvider do
   use Ash.Resource,
     domain: ServiceRadar.Notifications,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshStateMachine, AshPaperTrail.Resource],
+    extensions: [AshStateMachine, AshPaperTrail.Resource, AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Notifications.Transports.Registry, as: TransportRegistry
@@ -204,6 +204,17 @@ defmodule ServiceRadar.Notifications.NotificationProvider do
 
   @doc "Execution routes a provider may support. Mirrored in `Plugins.Manifest`."
   def execution_routes, do: @execution_routes
+
+  json_api do
+    type "notification_provider"
+
+    routes do
+      base "/notification-providers"
+
+      get :by_id
+      index :read
+    end
+  end
 
   postgres do
     table "notification_providers"

@@ -45,7 +45,7 @@ defmodule ServiceRadar.Notifications.NotificationEscalationStep do
   use Ash.Resource,
     domain: ServiceRadar.Notifications,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshPaperTrail.Resource],
+    extensions: [AshPaperTrail.Resource, AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Notifications.NotificationEscalationStepChannel
@@ -60,6 +60,19 @@ defmodule ServiceRadar.Notifications.NotificationEscalationStep do
     :delay_seconds,
     :condition
   ]
+
+  json_api do
+    type "notification_escalation_step"
+
+    routes do
+      base "/notification-escalation-steps"
+
+      get :by_id
+      index :read
+      post :create
+      patch :update
+    end
+  end
 
   postgres do
     table "notification_escalation_steps"

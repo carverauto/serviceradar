@@ -485,6 +485,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:pdns_ocsf, &pdns_ocsf_subject?/1},
       {:falco, &falco_subject?/1},
       {:trivy, &trivy_subject?/1},
+      {:k8s_nodes, &k8s_nodes_subject?/1},
       {:k8s_inventory, &k8s_inventory_subject?/1},
       {:otel_metrics, &String.starts_with?(&1, "otel.metrics")},
       {:otel_traces, &String.starts_with?(&1, "otel.traces")},
@@ -542,10 +543,15 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp trivy_subject?(subject),
     do: subject == "trivy.report" or String.starts_with?(subject, "trivy.report.")
 
+  defp k8s_nodes_subject?(subject),
+    do:
+      subject == "inventory.k8s.nodes" or
+        String.starts_with?(subject, "inventory.k8s.nodes.")
+
   defp k8s_inventory_subject?(subject),
     do:
       subject == "inventory.k8s.public_endpoints" or
-        String.starts_with?(subject, "inventory.k8s.")
+        String.starts_with?(subject, "inventory.k8s.public_endpoints.")
 
   defp get_processor(:otel_metrics), do: ServiceRadar.EventWriter.Processors.OtelMetrics
   defp get_processor(:otel_traces), do: ServiceRadar.EventWriter.Processors.OtelTraces
@@ -554,6 +560,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:falco), do: ServiceRadar.EventWriter.Processors.FalcoEvents
   defp get_processor(:trivy), do: ServiceRadar.EventWriter.Processors.TrivyReports
   defp get_processor(:k8s_inventory), do: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints
+  defp get_processor(:k8s_nodes), do: ServiceRadar.EventWriter.Processors.K8sNodes
   defp get_processor(:bmp_causal), do: AnalyticsSignals
   defp get_processor(:arancini_causal), do: AnalyticsSignals
   defp get_processor(:siem_causal), do: AnalyticsSignals

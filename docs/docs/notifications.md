@@ -255,7 +255,7 @@ A route claims alerts and points them at an escalation policy.
 
 | Field | Meaning |
 | --- | --- |
-| `match_expression` | The predicate deciding which alerts this route claims. An empty object matches everything |
+| `match_expression` | The predicate deciding which alerts this route claims. An empty object matches everything. `equals: ""` is rejected: it matches only a blank value |
 | `priority` | Evaluation order. Lower numbers are considered first |
 | `continue` | Alertmanager semantics: when false, the first matching route wins and evaluation stops |
 | `escalation_policy_id` | The ladder to run |
@@ -264,6 +264,23 @@ A route claims alerts and points them at an escalation policy.
 | `dedupe_key_template` | Optional override of the incident identity, for cases rule grouping does not cover |
 | `group_wait_seconds`, `group_interval_seconds` | Grouping cadence |
 | `enabled` | A disabled route is not considered at all |
+
+### Kubernetes node NotReady
+
+The seeded rule `k8s_node_not_ready` opens when a cluster Node's Ready
+condition becomes False (worker or control-plane) and clears when Ready
+returns. Page it through this platform, not a second Discord webhook:
+
+```json
+{
+  "field": "alert.metadata.incident_rule_name",
+  "equals": "k8s_node_not_ready"
+}
+```
+
+Bind that route's escalation step to the existing Discord channel. A
+channel-only test-send does not exercise the route; fire a test alert (or
+use an operator test dispatch) whose snapshot carries that rule name.
 
 ### The match expression grammar
 

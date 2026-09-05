@@ -7,6 +7,7 @@ import {parseArgs} from "./args.js"
 import {dispatchAuth} from "./auth/index.js"
 import {dispatchDashboard} from "./dashboard/index.js"
 import {doctorCommand, printVersion} from "./doctor.js"
+import {dispatchNotifications} from "./notifications/index.js"
 import {dispatchPlugin} from "./plugin/index.js"
 import {describeError, ensureExtraCaCertificates} from "./tls_ca.js"
 
@@ -40,6 +41,12 @@ async function main(): Promise<void> {
     return dispatchAuth(authSub, options)
   }
 
+  if (first === "notifications") {
+    const [notifySub = "help", ...notifyRest] = rest
+    const options = parseArgs(notifyRest)
+    return dispatchNotifications(notifySub, options, printHelp)
+  }
+
   if (first === "plugin") {
     const [pluginSub = "help", ...pluginRest] = rest
     const options = parseArgs(pluginRest)
@@ -70,7 +77,8 @@ Usage:
 Groups:
   auth        Authenticate against a ServiceRadar instance and manage stored credentials.
   dashboard   Author and operate ServiceRadar dashboard packages.
-  plugin      Author and publish ServiceRadar Wasm plugins.
+  plugin         Author and publish ServiceRadar Wasm plugins.
+  notifications  Configure notification routes against a ServiceRadar instance.
 
 Top-level commands:
   --version   Print the installed @carverauto/serviceradar-cli version.
@@ -84,6 +92,9 @@ Common dashboard subcommands:
   serviceradar-cli dashboard dev [--config dashboard.config.mjs] [--port 4177] [--no-hmr] [--no-build] [--open] [--mapbox-token pk.…]
   serviceradar-cli dashboard publish --instance <url> [--route <slug>] [--token <bearer>] [--enable] [--yes]
   serviceradar-cli dashboard import [--config dashboard.config.mjs] [--exec "command"]
+
+Notification subcommands:
+  serviceradar-cli notifications ensure-k8s-alerts --instance <url> [--channel demo-discord] [--token <bearer>] [--fire-test]
 
 Plugin subcommands:
   serviceradar-cli plugin init <name> [--template go|rust] [--plugin-id my-plugin] [--force]

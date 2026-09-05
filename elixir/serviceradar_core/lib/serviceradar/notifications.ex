@@ -16,7 +16,7 @@ defmodule ServiceRadar.Notifications do
   """
 
   use Ash.Domain,
-    extensions: [AshAdmin.Domain, AshPaperTrail.Domain]
+    extensions: [AshAdmin.Domain, AshPaperTrail.Domain, AshJsonApi.Domain]
 
   admin do
     show?(true)

@@ -75,7 +75,7 @@ defmodule ServiceRadar.Notifications.NotificationRoute do
   use Ash.Resource,
     domain: ServiceRadar.Notifications,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshPaperTrail.Resource],
+    extensions: [AshPaperTrail.Resource, AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Notifications.MatchExpression
@@ -108,6 +108,21 @@ defmodule ServiceRadar.Notifications.NotificationRoute do
     :group_interval_seconds,
     :continue
   ]
+
+  json_api do
+    type "notification_route"
+
+    routes do
+      base "/notification-routes"
+
+      get :by_id
+      index :read
+      post :create
+      patch :update
+      patch :enable, route: "/:id/enable"
+      patch :disable, route: "/:id/disable"
+    end
+  end
 
   postgres do
     table "notification_routes"

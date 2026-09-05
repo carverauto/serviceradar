@@ -47,7 +47,9 @@ defmodule ServiceRadar.Notifications.MatchExpression do
 
   Operand rules:
 
-    * `"equals"` - a string, number, boolean, or null
+    * `"equals"` - a non-empty string, number, boolean, or null.
+      An empty string is rejected: `%{}` matches every alert, and
+      `equals: ""` matches only a blank value.
     * `"in"` - a non-empty list of those scalars
     * `"contains"` - a string or a number
     * `"exists"` - a boolean
@@ -388,10 +390,17 @@ defmodule ServiceRadar.Notifications.MatchExpression do
   end
 
   defp validate_operand("equals", operand, where) do
-    if scalar?(operand) do
-      :ok
-    else
-      {:error, "#{where}: \"equals\" takes a string, number, boolean, or null"}
+    cond do
+      operand == "" ->
+        {:error,
+         "#{where}: \"equals\" cannot be an empty string; use {} to match every alert, " <>
+           "because equals: \"\" matches only a blank value"}
+
+      scalar?(operand) ->
+        :ok
+
+      true ->
+        {:error, "#{where}: \"equals\" takes a string, number, boolean, or null"}
     end
   end
 

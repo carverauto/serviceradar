@@ -46,7 +46,7 @@ API and rebuilds a snapshot of *public edge ownership*.
 | Scope question | Default behavior today |
 |---|---|
 | Where does the Deployment run? | ServiceRadar **release namespace** (e.g. `demo`, `serviceradar`) |
-| What API can it list? | **Cluster-wide** `ClusterRole`: Services, EndpointSlices, Gateway API objects in **all namespaces** (unless narrowed) |
+| What API can it list? | **Cluster-wide** `ClusterRole`: Services, EndpointSlices, Nodes (Ready), Gateway API objects in **all namespaces** (unless narrowed) |
 | What is stored? | Only endpoints that look **public/edge** (LoadBalancer ingress, ExternalIP, Gateway listeners)—not every ClusterIP |
 | Does it see pod traffic? | No. Backend `endpoint_targets` are **control-plane** EndpointSlice refs (pod IP:port, name, node)—not flow bytes |
 | Multi-tenant isolation | Rows are tagged with `cluster_id`. Namespace allow-lists are optional (see below) |
@@ -319,6 +319,7 @@ When `k8sInventory.enabled: true`, the chart template
 Read-only verbs only: `get`, `list`, `watch` on:
 
 - `services` (core)
+- `nodes` (core), when `k8sInventory.nodes.enabled` is true (the default)
 - `endpointslices` (`discovery.k8s.io`)
 - Gateway API resources when `k8sInventory.gatewayAPI.enabled: true`
   (`gateways`, `httproutes`, `grpcroutes`, `tcproutes`, `udproutes`, `tlsroutes`)
@@ -327,6 +328,14 @@ Read-only verbs only: `get`, `list`, `watch` on:
 
 **Not granted:** secrets, pods/exec, nodes/proxy, create/update/delete on
 cluster objects.
+
+Node snapshots publish on `inventory.k8s.nodes`. EventWriter upserts
+`platform.k8s_nodes_current` and emits `node.not_ready` / `node.ready` when
+the Ready condition flips. The seeded StatefulAlertRule `k8s_node_not_ready`
+opens one critical incident per cluster node. Route that rule to Discord
+(or any channel) with a NotificationRoute whose match expression is
+`alert.metadata.incident_rule_name` equals `k8s_node_not_ready`. Do not add a
+second Discord webhook.
 
 ### Values
 

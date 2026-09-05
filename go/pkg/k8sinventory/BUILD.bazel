@@ -4,6 +4,7 @@ go_library(
     name = "k8sinventory",
     srcs = [
         "build.go",
+        "build_nodes.go",
         "config.go",
         "controller.go",
         "convert.go",
@@ -43,6 +44,7 @@ go_test(
     name = "k8sinventory_test",
     srcs = [
         "spool_test.go",
+        "build_nodes_test.go",
         "build_test.go",
         "controller_test.go",
         "convert_test.go",

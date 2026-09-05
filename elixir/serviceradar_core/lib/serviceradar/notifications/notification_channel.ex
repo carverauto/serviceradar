@@ -46,7 +46,7 @@ defmodule ServiceRadar.Notifications.NotificationChannel do
   use Ash.Resource,
     domain: ServiceRadar.Notifications,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshPaperTrail.Resource],
+    extensions: [AshPaperTrail.Resource, AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Notifications.Changes.ApplyProviderContract
@@ -96,6 +96,21 @@ defmodule ServiceRadar.Notifications.NotificationChannel do
     :max_attempts,
     :metadata
   ]
+
+  json_api do
+    type "notification_channel"
+
+    routes do
+      base "/notification-channels"
+
+      get :by_id
+      index :read
+      post :create
+      patch :update
+      patch :enable, route: "/:id/enable"
+      patch :disable, route: "/:id/disable"
+    end
+  end
 
   postgres do
     table "notification_channels"

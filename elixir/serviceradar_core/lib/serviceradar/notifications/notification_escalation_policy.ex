@@ -44,7 +44,7 @@ defmodule ServiceRadar.Notifications.NotificationEscalationPolicy do
   use Ash.Resource,
     domain: ServiceRadar.Notifications,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshPaperTrail.Resource],
+    extensions: [AshPaperTrail.Resource, AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Notifications.Validations.RepeatIntervalFloor
@@ -61,6 +61,21 @@ defmodule ServiceRadar.Notifications.NotificationEscalationPolicy do
     :repeat_interval_seconds,
     :resolve_notifies
   ]
+
+  json_api do
+    type "notification_escalation_policy"
+
+    routes do
+      base "/notification-escalation-policies"
+
+      get :by_id
+      index :read
+      post :create
+      patch :update
+      patch :enable, route: "/:id/enable"
+      patch :disable, route: "/:id/disable"
+    end
+  end
 
   postgres do
     table "notification_escalation_policies"
