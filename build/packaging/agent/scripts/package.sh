@@ -51,7 +51,8 @@ GOOS=linux GOARCH=amd64 go build -ldflags "${AGENT_LDFLAGS}" -o "../../servicera
 cd "${BASE_DIR}/go/cmd/agent-updater"
 GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-agent-build/usr/local/bin/serviceradar-agent-updater"
 cd "${BASE_DIR}/go/cmd/cli"
-GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-agent-build/usr/local/bin/serviceradar-cli"
+GOOS=linux GOARCH=amd64 go build -o "../../serviceradar-agent-build/usr/local/bin/srctl"
+ln -sfn srctl "../../serviceradar-agent-build/usr/local/bin/serviceradar-cli"
 cd "${BASE_DIR}"
 
 echo "Preparing ServiceRadar Agent package files..."

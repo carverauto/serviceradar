@@ -28,6 +28,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 const testAuthInstance = "https://sr.example.com"
@@ -84,12 +86,66 @@ func TestAuthParseErrors(t *testing.T) {
 }
 
 func TestNormalizeAuthInstance(t *testing.T) {
-	if got := normalizeAuthInstance(""); got != defaultCoreURL {
-		t.Fatalf("empty instance = %q, want default %q", got, defaultCoreURL)
+	if got := normalizeAuthInstance("  "); got != "" {
+		t.Fatalf("blank instance = %q, want empty", got)
 	}
 
 	if got := normalizeAuthInstance("https://sr.example.com///"); got != testAuthInstance {
 		t.Fatalf("trailing slashes not stripped: %q", got)
+	}
+
+	// The store is shared with the JS CLI, whose normalizeInstanceUrl only
+	// trims and strips trailing slashes; inventing a scheme here would write a
+	// key the JS CLI could never look up.
+	if got := normalizeAuthInstance("sr.example.com"); got != "sr.example.com" {
+		t.Fatalf("scheme-less instance = %q, want it left alone", got)
+	}
+}
+
+func TestAuthLoginRejectsInstanceWithoutScheme(t *testing.T) {
+	isolateCredentialStore(t)
+
+	err := RunAuthLogin(&CmdConfig{AuthInstance: "sr.example.com"})
+	if !errors.Is(err, errAuthInstanceURL) {
+		t.Fatalf("scheme-less login err = %v, want %v", err, errAuthInstanceURL)
+	}
+
+	if err := RunAuthLogin(&CmdConfig{AuthInstance: "   "}); !errors.Is(err, errAuthInstanceRequired) {
+		t.Fatalf("blank login err = %v, want %v", err, errAuthInstanceRequired)
+	}
+}
+
+// TestAuthBcryptGenMatchesHelmHookInvocation reproduces the argv the Helm
+// secret-generator hook runs: `... auth bcrypt-gen --password <pw>`. It must
+// succeed and print a hash of the password itself.
+func TestAuthBcryptGenMatchesHelmHookInvocation(t *testing.T) {
+	const password = "s3cret-admin-pw"
+
+	cfg := &CmdConfig{}
+	if err := (AuthHandler{}).Parse([]string{"bcrypt-gen", "--password", password}, cfg); err != nil {
+		t.Fatalf("parse auth bcrypt-gen: %v", err)
+	}
+
+	out := captureStdout(t, func() {
+		if err := RunAuthCommand(cfg); err != nil {
+			t.Fatalf("run auth bcrypt-gen: %v", err)
+		}
+	})
+
+	hash := strings.TrimSpace(out)
+	if err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)); err != nil {
+		t.Fatalf("printed hash %q does not verify against the password: %v", hash, err)
+	}
+}
+
+func TestAuthBcryptGenRequiresPassword(t *testing.T) {
+	cfg := &CmdConfig{}
+	if err := (AuthHandler{}).Parse([]string{"bcrypt-gen"}, cfg); err != nil {
+		t.Fatalf("parse auth bcrypt-gen: %v", err)
+	}
+
+	if err := RunAuthCommand(cfg); !errors.Is(err, errAuthPasswordRequired) {
+		t.Fatalf("err = %v, want %v", err, errAuthPasswordRequired)
 	}
 }
 
@@ -271,6 +327,24 @@ func TestDeviceCodeFlowDeviceNotFound(t *testing.T) {
 	}
 }
 
+func TestDeviceCodeFlowRejectsNonHTTPVerificationURI(t *testing.T) {
+	srv := newDeviceTestServer(t, []tokenAnswer{successTokenAnswer()})
+	srv.devicePayload = map[string]any{
+		"verification_uri":          "file:///etc/passwd",
+		"verification_uri_complete": "file:///etc/passwd",
+	}
+
+	var out bytes.Buffer
+	_, err := runDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, true, &out)
+	if !errors.Is(err, errAuthFlowFailed) {
+		t.Fatalf("err = %v, want %v", err, errAuthFlowFailed)
+	}
+
+	if strings.Contains(out.String(), "file:///etc/passwd") {
+		t.Fatalf("rejected URI was printed anyway:\n%s", out.String())
+	}
+}
+
 func TestDeviceCodeFlowPrintsVerificationURL(t *testing.T) {
 	srv := newDeviceTestServer(t, []tokenAnswer{successTokenAnswer()})
 
@@ -364,6 +438,62 @@ func TestAuthStatusNeverPrintsToken(t *testing.T) {
 
 	if !strings.Contains(out.String(), "tester") || !strings.Contains(out.String(), testAuthInstance) {
 		t.Fatalf("status missing user/instance:\n%s", out.String())
+	}
+}
+
+func TestAuthStatusReportsUnmatchedFilter(t *testing.T) {
+	isolateCredentialStore(t)
+
+	if err := upsertStoredCredential(testAuthInstance, authCredentialEntry{Token: "secret-jwt"}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	var out bytes.Buffer
+	if err := writeAuthStatus(&out, "https://typo.example.com"); err != nil {
+		t.Fatalf("status: %v", err)
+	}
+
+	if !strings.Contains(out.String(), "No credential stored for https://typo.example.com") {
+		t.Fatalf("unmatched filter produced no message:\n%q", out.String())
+	}
+}
+
+func TestCredentialStoreWritesAtomically(t *testing.T) {
+	isolateCredentialStore(t)
+
+	if err := upsertStoredCredential(testAuthInstance, authCredentialEntry{Token: "first"}); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+
+	info, err := os.Lstat(credentialsPath())
+	if err != nil {
+		t.Fatalf("stat credential file: %v", err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("credential file must be a regular file, not a symlink")
+	}
+
+	entries, err := os.ReadDir(credentialsDir())
+	if err != nil {
+		t.Fatalf("read credential dir: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("credential dir left temp files behind: %v", entries)
+	}
+
+	if err := upsertStoredCredential("https://two.example.com", authCredentialEntry{Token: "second"}); err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+
+	store, err := readCredentialStore()
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	if len(store.Instances) != 2 {
+		t.Fatalf("instances = %v, want both preserved", store.Instances)
 	}
 }
 

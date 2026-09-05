@@ -22,7 +22,9 @@ mkdir -p %{buildroot}/lib/systemd/system
 
 install -m 755 %{_builddir}/serviceradar-agent %{buildroot}/usr/local/bin/
 install -m 4750 %{_builddir}/serviceradar-agent-updater %{buildroot}/usr/local/bin/
-install -m 755 %{_builddir}/serviceradar-cli %{buildroot}/usr/local/bin/
+install -m 755 %{_builddir}/srctl %{buildroot}/usr/local/bin/
+# Deprecated alias for the pre-rename binary name (see #4260).
+ln -sfn srctl %{buildroot}/usr/local/bin/serviceradar-cli
 install -m 644 %{_sourcedir}/build/packaging/agent/systemd/serviceradar-agent.service %{buildroot}/lib/systemd/system/
 install -m 644 %{_sourcedir}/build/packaging/agent/config/agent.json %{buildroot}/etc/serviceradar/
 install -m 644 %{_sourcedir}/build/packaging/agent/config/checkers/sweep/sweep.json %{buildroot}/etc/serviceradar/checkers/sweep/
@@ -30,7 +32,8 @@ install -m 644 %{_sourcedir}/build/packaging/agent/config/checkers/sweep/sweep.j
 %files
 %attr(0755, root, root) /usr/local/bin/serviceradar-agent
 %attr(4750, root, serviceradar) /usr/local/bin/serviceradar-agent-updater
-%attr(0755, root, root) /usr/local/bin/serviceradar-cli
+%attr(0755, root, root) /usr/local/bin/srctl
+/usr/local/bin/serviceradar-cli
 %config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/agent.json
 %config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/checkers/sweep/sweep.json
 %attr(0644, root, root) /lib/systemd/system/serviceradar-agent.service

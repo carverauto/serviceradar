@@ -13,11 +13,3 @@ go_binary(
     embed = [":cli_lib"],
     visibility = ["//visibility:public"],
 )
-
-# Deprecated alias for the pre-rename target label. Remove after the
-# serviceradar-cli compatibility symlink window closes (see #4260).
-alias(
-    name = "cli",
-    actual = ":srctl",
-    visibility = ["//visibility:public"],
-)

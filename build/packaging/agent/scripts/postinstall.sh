@@ -110,5 +110,5 @@ if [ -f /etc/serviceradar/agent.json ] && \
         exit 1
     }
 else
-    echo "Skipping serviceradar-agent start: enrollment assets not found. Run serviceradar-cli enroll, then: systemctl restart serviceradar-agent"
+    echo "Skipping serviceradar-agent start: enrollment assets not found. Run srctl enroll, then: systemctl restart serviceradar-agent"
 fi

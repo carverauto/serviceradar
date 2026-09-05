@@ -118,6 +118,7 @@ type CmdConfig struct {
 	AuthCommand   string
 	AuthInstance  string
 	AuthScope     string
+	AuthPassword  string
 	AuthNoBrowser bool
 }
 

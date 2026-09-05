@@ -20,6 +20,7 @@ Usage:
   srctl auth login [options]
   srctl auth status [options]
   srctl auth logout [options]
+  srctl auth bcrypt-gen [options]
 
 Commands:
   (default)        Generate bcrypt hash from password
@@ -32,6 +33,7 @@ Commands:
   auth login       Authenticate via device-code flow (RFC 8628) and store the JWT
   auth status      Show stored logins without revealing tokens
   auth logout      Remove a stored login
+  auth bcrypt-gen  Generate a bcrypt hash for the admin password
   edge package create  Issue a new onboarding package and emit the structured token
   edge package list    List onboarding packages with optional filters
   edge package show    Display detailed information for a package
@@ -205,6 +207,9 @@ Options for auth status:
 
 Options for auth logout:
   --instance string      Only remove the credential for this instance
+
+Options for auth bcrypt-gen:
+  --password string      Password to hash
 
 Examples:
   # Authenticate via device-code flow and store the JWT

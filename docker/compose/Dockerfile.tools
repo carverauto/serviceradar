@@ -17,8 +17,7 @@ ARG BUILD_ID=docker
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -ldflags "-X github.com/carverauto/serviceradar/go/pkg/version.version=${VERSION} -X github.com/carverauto/serviceradar/go/pkg/version.buildID=${BUILD_ID}" \
     -o /usr/local/bin/srctl \
-    ./go/cmd/cli \
-    && ln -s srctl /usr/local/bin/serviceradar-cli
+    ./go/cmd/cli
 
 # Stage 2: Final tools image
 FROM ubuntu:22.04
@@ -69,8 +68,8 @@ RUN go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest && \
 
 # Copy srctl from builder stage (plus deprecated serviceradar-cli symlink)
 COPY --from=builder /usr/local/bin/srctl /usr/local/bin/srctl
-COPY --from=builder /usr/local/bin/serviceradar-cli /usr/local/bin/serviceradar-cli
-RUN chmod +x /usr/local/bin/srctl
+RUN chmod +x /usr/local/bin/srctl \
+    && ln -s srctl /usr/local/bin/serviceradar-cli
 
 # Bundle a default NATS context setup script for local debugging
 RUN mkdir -p /etc/serviceradar/nats

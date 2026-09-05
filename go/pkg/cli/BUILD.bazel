@@ -45,5 +45,6 @@ go_test(
         "@com_github_nats_io_jwt_v2//:jwt",
         "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_nats_io_nats_server_v2//server",
+        "@org_golang_x_crypto//bcrypt",
     ],
 )

@@ -36,10 +36,10 @@ password in `core.json`. Bcrypt cost defaults to `12`.
 srctl mypassword
 
 # Hash a password read from stdin
-echo mypassword | serviceradar
+echo mypassword | srctl
 
 # Launch the interactive TUI (no args, attached terminal)
-serviceradar
+srctl
 ```
 
 When input is piped or an argument is supplied, the CLI runs non-interactively
@@ -279,6 +279,10 @@ srctl auth logout --instance https://serviceradar.example.com
 | `login` | Run the device-code flow and store the JWT. |
 | `status` | Show instance, user, and timestamps for stored logins. |
 | `logout` | Remove a stored login. |
+| `bcrypt-gen` | Print a bcrypt hash of `--password` (used by the Helm secret generator). |
+
+`--instance` must be an absolute `http(s)` URL and is stored verbatim (minus
+trailing slashes), so the key matches the one the JS CLI writes.
 
 `login` accepts `--scope` (default `dashboard.publish`) and `--no-browser`.
 `status` and `logout` accept an optional `--instance` filter; without it,

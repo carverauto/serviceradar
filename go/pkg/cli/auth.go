@@ -54,9 +54,10 @@ func sortedKeys(instances map[string]authCredentialEntry) []string {
 // `%APPDATA%\serviceradar\credentials.json` on Windows) so both CLIs share logins.
 
 const (
-	authCommandLogin  = "login"
-	authCommandStatus = "status"
-	authCommandLogout = "logout"
+	authCommandLogin     = "login"
+	authCommandStatus    = "status"
+	authCommandLogout    = "logout"
+	authCommandBcryptGen = "bcrypt-gen"
 
 	// authClientID is the registered client identifier the server allowlists.
 	// It stays "serviceradar-cli" after the binary rename to srctl: deployed
@@ -131,6 +132,8 @@ func (AuthHandler) Parse(args []string, cfg *CmdConfig) error {
 		return parseAuthLoginFlags(args[1:], cfg)
 	case authCommandStatus, authCommandLogout:
 		return parseAuthFilterFlags(action, args[1:], cfg)
+	case authCommandBcryptGen:
+		return parseAuthBcryptGenFlags(args[1:], cfg)
 	default:
 		return fmt.Errorf("%w: %s", errAuthUnknownAction, action)
 	}
@@ -166,6 +169,21 @@ func parseAuthFilterFlags(action string, args []string, cfg *CmdConfig) error {
 	return nil
 }
 
+// parseAuthBcryptGenFlags parses `auth bcrypt-gen --password <pw>`, the
+// invocation the Helm secret-generator hook uses to mint the admin hash.
+func parseAuthBcryptGenFlags(args []string, cfg *CmdConfig) error {
+	fs := flag.NewFlagSet("auth bcrypt-gen", flag.ExitOnError)
+	password := fs.String("password", "", "Password to hash")
+
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("parsing auth bcrypt-gen flags: %w", err)
+	}
+
+	cfg.AuthPassword = *password
+
+	return nil
+}
+
 // RunAuthCommand dispatches `srctl auth ...` invocations.
 func RunAuthCommand(cfg *CmdConfig) error {
 	switch cfg.AuthCommand {
@@ -175,6 +193,8 @@ func RunAuthCommand(cfg *CmdConfig) error {
 		return RunAuthStatus(cfg)
 	case authCommandLogout:
 		return RunAuthLogout(cfg)
+	case authCommandBcryptGen:
+		return RunAuthBcryptGen(cfg)
 	default:
 		return fmt.Errorf("%w: %s", errAuthUnknownAction, cfg.AuthCommand)
 	}
@@ -186,7 +206,7 @@ func RunAuthLogin(cfg *CmdConfig) error {
 	if instance == "" {
 		return errAuthInstanceRequired
 	}
-	if !strings.HasPrefix(instance, "http://") && !strings.HasPrefix(instance, "https://") {
+	if !isHTTPURL(instance) {
 		return fmt.Errorf("%w: %s", errAuthInstanceURL, instance)
 	}
 
@@ -220,6 +240,16 @@ func RunAuthLogout(cfg *CmdConfig) error {
 	return writeAuthLogout(os.Stdout, authFilter(cfg))
 }
 
+// RunAuthBcryptGen prints a bcrypt hash of --password. It backs the
+// `auth bcrypt-gen --password <pw>` call the Helm secret-generator hook makes.
+func RunAuthBcryptGen(cfg *CmdConfig) error {
+	if cfg.AuthPassword == "" {
+		return errAuthPasswordRequired
+	}
+
+	return RunBcryptNonInteractive([]string{cfg.AuthPassword})
+}
+
 // authFilter normalises the optional --instance filter. Empty stays empty
 // (list/remove across all stored logins); only an explicit value is
 // canonicalised into a store key.
@@ -246,16 +276,23 @@ func writeAuthStatus(writer io.Writer, filter string) error {
 		return out.err
 	}
 
+	matched := false
+
 	for _, url := range sortedKeys(store.Instances) {
 		if filter != "" && filter != url {
 			continue
 		}
 
+		matched = true
 		entry := store.Instances[url]
 		out.printf("Instance: %s\n", url)
 		out.printf("  user:        %s\n", defaultIfEmpty(entry.User, "(unknown)"))
 		out.printf("  obtained_at: %s\n", defaultIfEmpty(entry.ObtainedAt, "(unknown)"))
 		out.printf("  expires_at:  %s\n", defaultIfEmpty(entry.ExpiresAt, "(no expiry recorded)"))
+	}
+
+	if !matched {
+		out.printf("No credential stored for %s\n", filter)
 	}
 
 	return out.err
@@ -301,11 +338,17 @@ func writeAuthLogout(writer io.Writer, filter string) error {
 	return out.err
 }
 
-// normalizeAuthInstance canonicalises the store key: the shared normaliser
-// plus trailing-slash stripping so `https://host/` and `https://host` share
-// one entry (matching the JS CLI).
+// normalizeAuthInstance canonicalises the store key exactly as the JS CLI's
+// normalizeInstanceUrl does: trim, then strip trailing slashes. No scheme is
+// invented, so a scheme-less value stays scheme-less and RunAuthLogin rejects
+// it rather than storing a key the JS CLI could never look up.
 func normalizeAuthInstance(raw string) string {
-	return strings.TrimRight(normaliseCoreURL(raw), "/")
+	return strings.TrimRight(strings.TrimSpace(raw), "/")
+}
+
+// isHTTPURL reports whether raw is an absolute http(s) URL.
+func isHTTPURL(raw string) bool {
+	return strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://")
 }
 
 func formatAuthUserSuffix(user string) string {
@@ -367,6 +410,10 @@ func runDeviceCodeFlow(client *http.Client, instance, scope string, openBrowser 
 
 	if device.DeviceCode == "" || verificationURI == "" {
 		return authCredentialEntry{}, fmt.Errorf("%w: device-code response missing fields", errAuthFlowFailed)
+	}
+
+	if !isHTTPURL(verificationURI) {
+		return authCredentialEntry{}, fmt.Errorf("%w: verification_uri is not an http(s) URL", errAuthFlowFailed)
 	}
 
 	interval := time.Duration(max(device.Interval, 1)) * time.Second
@@ -675,26 +722,40 @@ func writeCredentialStore(store authCredentialStore) error {
 	}
 
 	data = append(data, '\n')
-	path := credentialsPath()
 
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, authFilePerms)
+	return writeCredentialFileAtomically(credentialsPath(), data)
+}
+
+// writeCredentialFileAtomically writes via a sibling temp file and renames it
+// over the target, so an interrupted write leaves the previous store intact
+// instead of truncated JSON that readCredentialStore would treat as empty.
+func writeCredentialFileAtomically(path string, data []byte) error {
+	temp, err := os.CreateTemp(filepath.Dir(path), authCredentialsFileName+".*.tmp")
 	if err != nil {
 		return fmt.Errorf("write credential store: %w", err)
 	}
 
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
+	tempPath := temp.Name()
 
-		return fmt.Errorf("write credential store: %w", err)
-	}
+	defer func() {
+		_ = temp.Close()
+		_ = os.Remove(tempPath)
+	}()
 
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("write credential store: %w", err)
-	}
-
-	// Re-chmod: the open mode is ignored when the file already exists.
-	if err := os.Chmod(path, authFilePerms); err != nil {
+	if err := temp.Chmod(authFilePerms); err != nil {
 		return fmt.Errorf("secure credential store: %w", err)
+	}
+
+	if _, err := temp.Write(data); err != nil {
+		return fmt.Errorf("write credential store: %w", err)
+	}
+
+	if err := temp.Close(); err != nil {
+		return fmt.Errorf("write credential store: %w", err)
+	}
+
+	if err := os.Rename(tempPath, path); err != nil {
+		return fmt.Errorf("write credential store: %w", err)
 	}
 
 	return nil
@@ -728,7 +789,7 @@ func ensureSafeCredentialDir(dir string) error {
 }
 
 func upsertStoredCredential(instance string, entry authCredentialEntry) error {
-	url := strings.TrimRight(strings.TrimSpace(instance), "/")
+	url := normalizeAuthInstance(instance)
 	if url == "" {
 		return errAuthInstanceRequired
 	}
@@ -744,7 +805,7 @@ func upsertStoredCredential(instance string, entry authCredentialEntry) error {
 }
 
 func deleteStoredCredential(instance string) (bool, error) {
-	url := strings.TrimRight(strings.TrimSpace(instance), "/")
+	url := normalizeAuthInstance(instance)
 	if url == "" {
 		return false, errAuthInstanceRequired
 	}

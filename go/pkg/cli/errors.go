@@ -81,6 +81,7 @@ var (
 	errCredentialNotDir         = errors.New("credential path is not a directory")
 	errCredentialDirUnsafe      = errors.New("credential directory is group- or world-writable")
 	errAuthInstanceRequired     = errors.New("auth instance is required")
+	errAuthPasswordRequired     = errors.New("auth bcrypt-gen requires --password")
 	errAuthInstanceURL          = errors.New("auth instance must be an absolute http(s) URL")
 	errAuthFlowFailed           = errors.New("device-code login failed")
 	errAuthDenied               = errors.New("device-code login denied")
