@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -99,6 +100,7 @@ type pluginHostAuthorityEnvelopeBinding struct {
 	AssignmentPolicyVersion     uint64                `json:"assignment_policy_version"`
 	AssignmentPolicyFingerprint string                `json:"assignment_policy_fingerprint"`
 	SSHHostKeyPolicy            string                `json:"ssh_host_key_policy,omitempty"`
+	CABundlePEM                 string                `json:"ca_bundle_pem,omitempty"`
 	CredentialBroker            credentialBrokerGrant `json:"credential_broker"`
 	TargetIDs                   map[string]string     `json:"target_ids,omitempty"`
 }
@@ -112,6 +114,7 @@ type pluginHostAuthorityBinding struct {
 	assignmentPolicyVersion     uint64
 	assignmentPolicyFingerprint string
 	sshHostKeyPolicy            string
+	caBundlePEM                 string
 	credentialBroker            credentialBrokerGrant
 	targetIDs                   map[string]string
 }
@@ -125,6 +128,7 @@ type pluginHostAuthorityStableBinding struct {
 	AssignmentPolicyVersion     uint64                `json:"assignment_policy_version"`
 	AssignmentPolicyFingerprint string                `json:"assignment_policy_fingerprint"`
 	SSHHostKeyPolicy            string                `json:"ssh_host_key_policy,omitempty"`
+	CABundlePEM                 string                `json:"ca_bundle_pem,omitempty"`
 	CredentialBroker            credentialBrokerGrant `json:"credential_broker"`
 	TargetIDs                   map[string]string     `json:"target_ids,omitempty"`
 }
@@ -271,6 +275,9 @@ func validatePluginHostAuthorityBinding(
 	if !validProxmoxSSHHostBindingPolicy(pluginID, wire.SSHHostKeyPolicy, grant) {
 		return pluginHostAuthorityBinding{}, errPluginHostAuthorityMalformed
 	}
+	if !validPluginHostAuthorityCABundle(wire.CABundlePEM) {
+		return pluginHostAuthorityBinding{}, errPluginHostAuthorityMalformed
+	}
 
 	return pluginHostAuthorityBinding{
 		bindingID:                   wire.BindingID,
@@ -281,6 +288,7 @@ func validatePluginHostAuthorityBinding(
 		assignmentPolicyVersion:     wire.AssignmentPolicyVersion,
 		assignmentPolicyFingerprint: wire.AssignmentPolicyFingerprint,
 		sshHostKeyPolicy:            wire.SSHHostKeyPolicy,
+		caBundlePEM:                 wire.CABundlePEM,
 		credentialBroker:            grant,
 		targetIDs:                   targetIDs,
 	}, nil
@@ -686,6 +694,7 @@ func fingerprintPluginHostAuthority(bindings []pluginHostAuthorityBinding) strin
 			AssignmentPolicyVersion:     binding.assignmentPolicyVersion,
 			AssignmentPolicyFingerprint: binding.assignmentPolicyFingerprint,
 			SSHHostKeyPolicy:            binding.sshHostKeyPolicy,
+			CABundlePEM:                 binding.caBundlePEM,
 			CredentialBroker:            grant,
 			TargetIDs:                   cloneHostAuthorityStringMap(binding.targetIDs),
 		})
@@ -2165,4 +2174,40 @@ func parseStrictPositiveInt(value string) (int, bool) {
 
 func formatPluginHostAuthorityError(binding pluginHostAuthorityBinding) error {
 	return fmt.Errorf("%w for binding %q", errPluginHostAuthorityDenied, binding.bindingID)
+}
+
+// maxPluginHostAuthorityCABundleBytes bounds operator-supplied trust material.
+// A PVE cluster CA is a single ~2 KiB certificate; the ceiling is generous
+// enough for a short chain and small enough that a malformed binding cannot
+// make the agent parse an unbounded blob.
+const maxPluginHostAuthorityCABundleBytes = 64 << 10
+
+// validPluginHostAuthorityCABundle accepts an absent bundle and otherwise
+// requires PEM that decodes to at least one CERTIFICATE block. It deliberately
+// does not check expiry: the control plane rejects an expired bundle at save
+// time, and an agent that refused a binding here would fail closed on a clock
+// skew rather than surface a TLS error the operator can read.
+func validPluginHostAuthorityCABundle(bundle string) bool {
+	if bundle == "" {
+		return true
+	}
+	if len(bundle) > maxPluginHostAuthorityCABundleBytes {
+		return false
+	}
+
+	return pluginHostAuthorityCertPool(bundle) != nil
+}
+
+// pluginHostAuthorityCertPool builds a pool containing only the binding's own
+// trust material. It is deliberately NOT seeded from the system pool: a rule
+// that pins a private CA is asking for that anchor, and adding the public roots
+// back would silently accept any publicly-trusted certificate for the same
+// origin, which is weaker than what the operator configured.
+func pluginHostAuthorityCertPool(bundle string) *x509.CertPool {
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM([]byte(bundle)) {
+		return nil
+	}
+
+	return pool
 }

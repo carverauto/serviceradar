@@ -1189,6 +1189,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
               options={enum_options(@provider_tls_policies)}
               required
             />
+            <div :if={@show_tls_policy?} class="space-y-2 md:col-span-2">
+              <.input
+                field={@form[:ca_bundle_pem]}
+                type="textarea"
+                label="CA bundle (PEM)"
+                placeholder="-----BEGIN CERTIFICATE-----"
+              />
+              <p class="text-xs text-sr-muted">
+                Optional. Verify this rule's destinations against this anchor instead of the
+                system trust store, for an appliance with a private or self-signed certificate.
+                On Proxmox VE the cluster CA is <span class="font-mono">/etc/pve/pve-root-ca.pem</span>. Leave blank to use the
+                system trust store.
+              </p>
+              <.input
+                field={@form[:server_cert_fingerprint]}
+                label="Server certificate fingerprint"
+                placeholder="sha256:<64 hex characters>"
+              />
+              <p class="text-xs text-sr-muted">
+                Optional alternative to a bundle: pin the leaf certificate. Supply one form of
+                trust material or the other, not both.
+              </p>
+            </div>
             <.input
               :if={@show_ssh_policy?}
               field={@form[:ssh_host_key_policy]}
@@ -1654,6 +1677,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "priority" => form_string(form, :priority),
       "allowed_ports" => form_string(form, :allowed_ports),
       "tls_policy" => form_string(form, :tls_policy),
+      "ca_bundle_pem" => form_string(form, :ca_bundle_pem),
+      "server_cert_fingerprint" => form_string(form, :server_cert_fingerprint),
       "ssh_host_key_policy" => form_string(form, :ssh_host_key_policy),
       "auto_discovery_enabled" => form_string(form, :auto_discovery_enabled),
       "controller_host" => form_string(form, :controller_host),
@@ -1800,6 +1825,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          priority: priority,
          allowed_ports: allowed_ports,
          tls_policy: tls_policy,
+         ca_bundle_pem: blank_to_nil(params["ca_bundle_pem"]),
+         server_cert_fingerprint: blank_to_nil(params["server_cert_fingerprint"]),
          ssh_host_key_policy: ssh_policy,
          metadata: metadata
        }}
@@ -1970,6 +1997,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       "priority" => to_string(rule.priority),
       "allowed_ports" => Enum.join(rule.allowed_ports || [], ", "),
       "tls_policy" => to_string(rule.tls_policy),
+      "ca_bundle_pem" => rule.ca_bundle_pem || "",
+      "server_cert_fingerprint" => rule.server_cert_fingerprint || "",
       "ssh_host_key_policy" => to_string(rule.ssh_host_key_policy),
       "controller_host" => controller_host_from_metadata(rule.metadata),
       "credential_use_roles" => credential_policy_selectors(rule.metadata, "roles"),

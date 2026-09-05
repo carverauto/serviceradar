@@ -86,10 +86,16 @@ type sweepCapabilityStatus struct {
 	BannerGrab capabilityStatusPayload `json:"banner_grab"`
 }
 
+type remoteCaptureStatus struct {
+	Active       bool `json:"active"`
+	SessionCount int  `json:"session_count"`
+}
+
 type agentCapabilityStatusPayload struct {
 	Capabilities          []string                              `json:"capabilities"`
 	HostNetworkVisibility hostNetworkVisibilityCapabilityStatus `json:"host_network_visibility"`
 	Sweep                 sweepCapabilityStatus                 `json:"sweep"`
+	RemoteCapture         remoteCaptureStatus                   `json:"remote_capture"`
 	Sidecars              []*proto.SidecarStatus                `json:"sidecars,omitempty"`
 }
 
@@ -133,6 +139,7 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 		p.netprobeRunningAsRoot(),
 		corpusRevisions,
 		sweepBannerGrab,
+		p.netprobeActiveCaptureCount(),
 	)
 	return p.convertToGatewayStatus(resp, agentCapabilityServiceName, agentCapabilityServiceType)
 }
@@ -143,6 +150,7 @@ func buildAgentCapabilityStatusResponse(
 	runningAsRoot bool,
 	corpusRevisions agentnetprobe.CorpusRevisions,
 	sweepBannerGrab capabilityStatusPayload,
+	activeCaptureCount int,
 ) *proto.StatusResponse {
 	corpusRevisionPayload := &corpusRevisions
 	if corpusRevisions == (agentnetprobe.CorpusRevisions{}) {
@@ -161,6 +169,10 @@ func buildAgentCapabilityStatusResponse(
 		},
 		Sweep: sweepCapabilityStatus{
 			BannerGrab: sweepBannerGrab,
+		},
+		RemoteCapture: remoteCaptureStatus{
+			Active:       activeCaptureCount > 0,
+			SessionCount: activeCaptureCount,
 		},
 		Sidecars: sidecars,
 	})
@@ -249,6 +261,21 @@ func (p *PushLoop) netprobeCorpusRevisions() agentnetprobe.CorpusRevisions {
 	}
 
 	return netprobeSidecar.CorpusRevisions()
+}
+
+func (p *PushLoop) netprobeActiveCaptureCount() int {
+	if p == nil || p.server == nil {
+		return 0
+	}
+
+	p.server.mu.RLock()
+	netprobeSidecar := p.server.netprobeSidecar
+	p.server.mu.RUnlock()
+	if netprobeSidecar == nil {
+		return 0
+	}
+
+	return netprobeSidecar.ActiveCaptureCount()
 }
 
 func (p *PushLoop) sweepBannerGrabCapabilityStatus(

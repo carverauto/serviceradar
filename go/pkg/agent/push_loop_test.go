@@ -263,6 +263,7 @@ func TestBuildAgentCapabilityStatusResponseIncludesVisibilitySurfacesAndSidecars
 			RecogCorpusLoaded: true,
 		},
 		capabilityStatusPayload{Status: capabilityStatusAvailable},
+		2,
 	)
 
 	if !resp.GetAvailable() {
@@ -296,6 +297,9 @@ func TestBuildAgentCapabilityStatusResponseIncludesVisibilitySurfacesAndSidecars
 	if payload.Sweep.BannerGrab.Status != capabilityStatusAvailable || payload.Sweep.BannerGrab.Reason != "" {
 		t.Fatalf("banner grab capability = %#v, want available", payload.Sweep.BannerGrab)
 	}
+	if !payload.RemoteCapture.Active || payload.RemoteCapture.SessionCount != 2 {
+		t.Fatalf("remote capture status = %#v, want active with two sessions", payload.RemoteCapture)
+	}
 
 	if len(payload.Sidecars) != 1 || payload.Sidecars[0].GetName() != "netprobe" {
 		t.Fatalf("payload sidecars = %#v, want netprobe status", payload.Sidecars)
@@ -312,6 +316,7 @@ func TestBuildAgentCapabilityStatusResponseMarksFingerprintUnavailable(t *testin
 			Status: capabilityStatusUnavailable,
 			Reason: capabilityReasonNetprobeUnavailable,
 		},
+		0,
 	)
 
 	var payload agentCapabilityStatusPayload
@@ -429,6 +434,7 @@ func TestSweepBannerGrabCapabilityAdvertisementTransitionsUnavailableWhenNetprob
 		false,
 		loadedCorpus,
 		availableStatus,
+		0,
 	))
 
 	if availablePayload.Sweep.BannerGrab.Status != capabilityStatusAvailable {
@@ -446,6 +452,7 @@ func TestSweepBannerGrabCapabilityAdvertisementTransitionsUnavailableWhenNetprob
 		false,
 		loadedCorpus,
 		unavailableStatus,
+		0,
 	))
 
 	if unavailablePayload.Sweep.BannerGrab.Status != capabilityStatusUnavailable ||

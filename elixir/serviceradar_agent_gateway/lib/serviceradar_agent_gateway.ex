@@ -7,6 +7,7 @@ defmodule ServiceRadarAgentGateway do
     check: [apps: [:serviceradar_core]],
     deps: [
       Monitoring,
+      Remotecapture,
       Serviceradar.Agent.Addon.V1,
       Serviceradar.Agent.Netprobe.V1,
       Serviceradar.Metric.V1,

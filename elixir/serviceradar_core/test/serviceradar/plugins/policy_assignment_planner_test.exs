@@ -210,4 +210,99 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlannerTest do
     [%{"items" => items}] = assignment.params["inputs"]
     assert Enum.map(items, & &1["uid"]) == ["sr:device:1"]
   end
+
+  test "single_assignment collapses a chunked target set into one assignment" do
+    policy = %{
+      policy_id: "network-credential-rule:r1:inventory_sync",
+      policy_version: 1,
+      plugin_package_id: "pkg-netbox",
+      params_template: %{"base_url" => "https://netbox.example.com"}
+    }
+
+    rows =
+      Enum.map(1..250, fn index ->
+        %{
+          "uid" => "sr:device:#{String.pad_leading(to_string(index), 4, "0")}",
+          "ip" => "10.0.0.1"
+        }
+      end)
+
+    resolved_inputs = [
+      %{name: "targets", entity: "devices", query: "in:devices", rows: rows}
+    ]
+
+    opts = [
+      chunk_size: 100,
+      generated_at: "2026-08-28T00:00:00Z",
+      target_agent_uid: "agent-a"
+    ]
+
+    # Without the declaration this is the defect: one rule, one agent, one
+    # NetBox instance, three assignments -- three complete inventory syncs.
+    assert {:ok, %{assignments: chunked}} =
+             PolicyAssignmentPlanner.plan(policy, resolved_inputs, opts)
+
+    assert length(chunked) == 3
+
+    assert {:ok, %{assignments: [assignment], summary: summary}} =
+             PolicyAssignmentPlanner.plan(
+               policy,
+               resolved_inputs,
+               Keyword.put(opts, :single_assignment, true)
+             )
+
+    assert summary.generated_assignments == 1
+    assert :ok == PluginInputs.validate(assignment.params)
+    assert assignment.metadata["chunk_index"] == 0
+    assert assignment.metadata["chunk_total"] == 1
+
+    [%{"items" => items}] = assignment.params["inputs"]
+    assert length(items) == 250
+  end
+
+  test "single_assignment ignores a chunk_size that would otherwise split the plan" do
+    policy = %{
+      policy_id: "network-credential-rule:r1:inventory_sync",
+      policy_version: 1,
+      plugin_package_id: "pkg-netbox"
+    }
+
+    rows = Enum.map(1..25, &%{"uid" => "sr:device:#{&1}"})
+
+    resolved_inputs = [
+      %{name: "targets", entity: "devices", query: "in:devices", rows: rows}
+    ]
+
+    assert {:ok, %{assignments: [_only_one]}} =
+             PolicyAssignmentPlanner.plan(policy, resolved_inputs,
+               chunk_size: 5,
+               single_assignment: true,
+               generated_at: "2026-08-28T00:00:00Z",
+               target_agent_uid: "agent-a"
+             )
+  end
+
+  test "single_assignment fails loudly instead of splitting an oversized target set" do
+    policy = %{
+      policy_id: "network-credential-rule:r1:inventory_sync",
+      policy_version: 1,
+      plugin_package_id: "pkg-netbox"
+    }
+
+    rows = Enum.map(1..600, &%{"uid" => "sr:device:#{&1}"})
+
+    resolved_inputs = [
+      %{name: "targets", entity: "devices", query: "in:devices", rows: rows}
+    ]
+
+    assert {:error, [message]} =
+             PolicyAssignmentPlanner.plan(policy, resolved_inputs,
+               single_assignment: true,
+               generated_at: "2026-08-28T00:00:00Z",
+               target_agent_uid: "agent-a"
+             )
+
+    assert message =~ "600 targets"
+    assert message =~ "narrow the target query"
+  end
 end

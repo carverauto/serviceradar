@@ -2,8 +2,11 @@
 
 import csv
 import hashlib
+import os
 import re
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -238,23 +241,39 @@ def integration_benchmark_action() -> str:
     return named_action("IntegrationBenchmark")
 
 
-def database_lifecycle_shell(action: str) -> str:
+def literal_run_bodies(action: str) -> list[str]:
+    """Every literal (`|`) run block in an action, dedented to a runnable shell."""
     marker = "      - run: |\n"
-    starts = [match.end() for match in re.finditer(re.escape(marker), action)]
-    if len(starts) != 1:
-        raise AssertionError(
-            f"expected exactly one database lifecycle shell, found {len(starts)}"
-        )
+    bodies = []
+    for match in re.finditer(re.escape(marker), action):
+        body = []
+        for line in action[match.end() :].splitlines(keepends=True):
+            if line.strip() == "":
+                body.append(line)
+            elif line.startswith("          "):
+                body.append(line[10:])
+            else:
+                break
+        bodies.append("".join(body))
+    return bodies
 
-    body = []
-    for line in action[starts[0] :].splitlines(keepends=True):
-        if line.strip() == "":
-            body.append(line)
-        elif line.startswith("          "):
-            body.append(line[10:])
-        else:
-            break
-    return "".join(body)
+
+def sole_literal_run_body(action: str, marker: str, description: str) -> str:
+    """The one literal run block containing `marker`."""
+    matches = [body for body in literal_run_bodies(action) if marker in body]
+    if len(matches) != 1:
+        raise AssertionError(f"expected exactly one {description}, found {len(matches)}")
+    return matches[0]
+
+
+def database_lifecycle_shell(action: str) -> str:
+    """The measured database lifecycle shell: the `|` block owning cleanup().
+
+    Scoped by content, not by count: the godview acceptance path gate (#4165)
+    is also a literal `|` block, so "exactly one" no longer selects the
+    lifecycle. Only the lifecycle defines cleanup().
+    """
+    return sole_literal_run_body(action, "cleanup() {", "database lifecycle shell")
 
 
 def measured_database_lifecycle_shell(action: str) -> str:
@@ -493,6 +512,93 @@ def normalized_cpu_diagnostic_action(action: str) -> str:
 def declared_test_output_modes(action: str) -> tuple[str, ...]:
     """Every --test_output mode an action declares, in source order."""
     return tuple(re.findall(r"--test_output=(\S+)", action))
+
+
+def godview_gate_shell(action: str) -> str:
+    """The BazelCI path-gate shell guarding the browser acceptance run."""
+    return sole_literal_run_body(action, "godview gate:", "godview acceptance gate")
+
+
+def run_godview_gate(
+    changed: tuple[str, ...],
+    *,
+    origin_reachable: bool = True,
+    remote_tracking_ref: bool = False,
+) -> tuple[int, str, tuple[str, ...]]:
+    """Execute the real gate shell against a synthetic repository.
+
+    Builds an `origin` holding `staging`, forks a feature commit touching
+    `changed`, and runs the gate with a stub `bazel` on PATH. Returns the exit
+    status, the gate's output, and the bazel command lines it issued.
+
+    `remote_tracking_ref` defaults to False because the workflow runner clones
+    by SHA: refs/remotes/origin/staging is absent until the gate fetches it.
+    """
+    shell = godview_gate_shell(named_action("BazelCI"))
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp = Path(temp_dir)
+        env = {
+            **os.environ,
+            "HOME": str(temp),
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_AUTHOR_NAME": "gate probe",
+            "GIT_AUTHOR_EMAIL": "gate@example.com",
+            "GIT_COMMITTER_NAME": "gate probe",
+            "GIT_COMMITTER_EMAIL": "gate@example.com",
+        }
+
+        def git(cwd: Path, *args: str) -> None:
+            subprocess.run(
+                ("git", *args), cwd=cwd, env=env, check=True, capture_output=True
+            )
+
+        origin = temp / "origin"
+        origin.mkdir()
+        git(origin, "init", "--quiet", "--initial-branch=staging")
+        (origin / "README.md").write_text("seed\n", encoding="utf-8")
+        git(origin, "add", "README.md")
+        git(origin, "commit", "--quiet", "-m", "base")
+
+        work = temp / "work"
+        git(temp, "clone", "--quiet", str(origin), str(work))
+        git(work, "checkout", "--quiet", "-b", "feature")
+        for path in changed:
+            target = work / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("changed\n", encoding="utf-8")
+        git(work, "add", "--all")
+        git(work, "commit", "--quiet", "-m", "feature")
+
+        if not remote_tracking_ref:
+            git(work, "update-ref", "-d", "refs/remotes/origin/staging")
+        if not origin_reachable:
+            git(work, "remote", "remove", "origin")
+
+        bin_dir = temp / "bin"
+        bin_dir.mkdir()
+        invocations = temp / "bazel-invocations"
+        stub = bin_dir / "bazel"
+        stub.write_text(
+            f'#!/usr/bin/env bash\nprintf "%s\\n" "$*" >>"{invocations}"\n',
+            encoding="utf-8",
+        )
+        stub.chmod(0o755)
+
+        result = subprocess.run(
+            ["/bin/bash", "-c", shell],
+            cwd=work,
+            check=False,
+            capture_output=True,
+            text=True,
+            env={**env, "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}"},
+        )
+        recorded = (
+            tuple(invocations.read_text(encoding="utf-8").splitlines())
+            if invocations.exists()
+            else ()
+        )
+        return result.returncode, result.stdout + result.stderr, recorded
 
 
 def with_test_output_mode(action: str, index: int, mode: str) -> str:
@@ -911,6 +1017,8 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "//elixir/web-ng/test/playwright:god_view_elk_scene_acceptance "
         "--test_output=errors --nocache_test_results --flaky_test_attempts=1"
     )
+    # The same command as a stub `bazel` on PATH records it: argv without argv[0].
+    acceptance_invocation = playwright_acceptance.split(" ", 1)[1]
     heavy_provision = (
         'PROVISION_JSON="$(bazel run -c opt --config=ci '
         "--//build:enable_integration_tests --//build:run_id=$RUN_ID "
@@ -1226,6 +1334,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         synthetic_action = """  - name: "Synthetic"
     steps:
       - run: |
+          cleanup() { :; }
           case "$state" in
             pending) bazel test $PREFLIGHT_FLAGS //example:preflight ;;
           esac
@@ -1540,6 +1649,56 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertIn(f'"container-image": "{PLAYWRIGHT_EXECUTOR_IMAGE}"', target_source)
         self.assertIn('"no-local"', target_source)
         self.assertIn('"no-remote-cache"', target_source)
+
+    def test_godview_gate_runs_the_acceptance_for_an_in_area_change(self):
+        """#4165: a godview-area PR still pays for the browser run."""
+        for changed in (
+            "elixir/web-ng/test/playwright/god_view_elk_scene.playwright.js",
+            "elixir/web-ng/assets/js/lib/god_view/topology_overview_projection.js",
+            "elixir/web-ng/native/god_view_nif/src/lib.rs",
+            "buildbuddy.yaml",
+        ):
+            with self.subTest(changed=changed):
+                status, log, invocations = run_godview_gate(
+                    (changed, "rust/srql/src/main.rs")
+                )
+                self.assertEqual(0, status, log)
+                self.assertEqual((self.acceptance_invocation,), invocations)
+
+    def test_godview_gate_skips_the_acceptance_for_unrelated_changes(self):
+        """#4165: the browser run is the cost an unrelated PR must not pay.
+
+        The remote-tracking ref is absent by default, as it is on the runner:
+        a gate that does not fetch its own base cannot reach this arm at all.
+        """
+        for remote_tracking_ref in (False, True):
+            with self.subTest(remote_tracking_ref=remote_tracking_ref):
+                status, log, invocations = run_godview_gate(
+                    (
+                        "go/cmd/tools/ubuntu-feed-merge/main.go",
+                        "elixir/serviceradar_core/lib/serviceradar/foo.ex",
+                        "elixir/web-ng/lib/serviceradar_web_ng_web/live/other_live.ex",
+                        "elixir/web-ng/test/app_domain/topology/god_view_stream_test.exs",
+                        "rust/srql/src/main.rs",
+                        "helm/serviceradar/values.yaml",
+                        ".github/workflows/web-ng-lint.yml",
+                        "ci_heavy_gate_contract_test.py",
+                    ),
+                    remote_tracking_ref=remote_tracking_ref,
+                )
+                self.assertEqual(0, status, log)
+                self.assertEqual((), invocations)
+                self.assertIn("skipping acceptance", log)
+
+    def test_godview_gate_fails_open_when_the_base_cannot_be_resolved(self):
+        """A gate that cannot see the diff runs, never skips."""
+        status, log, invocations = run_godview_gate(
+            ("rust/srql/src/main.rs",), origin_reachable=False
+        )
+
+        self.assertEqual(0, status, log)
+        self.assertEqual((self.acceptance_invocation,), invocations)
+        self.assertIn("fail-open", log)
 
     def test_large_ingestion_gate_has_exact_independent_trigger(self):
         action = named_action("LargeIngestionGate")

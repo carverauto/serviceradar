@@ -181,6 +181,14 @@ integrations:
               credential_rule_id:
                 $source: rule
                 field: id
+              # Operator-supplied trust anchor. Proxmox inventory mandates
+              # tls_policy verify against an IP-literal origin, which a PVE
+              # node's cluster-CA certificate satisfies only once that CA is
+              # pinned. Host-side only: stripped before the guest sees params.
+              ca_bundle_pem:
+                $source: rule
+                field: ca_bundle_pem
+                omit_if_blank: true
           - purpose: console_access
             plugin_id: proxmox-console
             auth_methods:
@@ -211,6 +219,14 @@ integrations:
               credential_rule_id:
                 $source: rule
                 field: id
+              # Operator-supplied trust anchor. Proxmox inventory mandates
+              # tls_policy verify against an IP-literal origin, which a PVE
+              # node's cluster-CA certificate satisfies only once that CA is
+              # pinned. Host-side only: stripped before the guest sees params.
+              ca_bundle_pem:
+                $source: rule
+                field: ca_bundle_pem
+                omit_if_blank: true
               api_token_secret_ref:
                 $source: secret_ref
           - purpose: console_access
@@ -244,5 +260,13 @@ integrations:
               credential_rule_id:
                 $source: rule
                 field: id
+              # Operator-supplied trust anchor. Proxmox inventory mandates
+              # tls_policy verify against an IP-literal origin, which a PVE
+              # node's cluster-CA certificate satisfies only once that CA is
+              # pinned. Host-side only: stripped before the guest sees params.
+              ca_bundle_pem:
+                $source: rule
+                field: ca_bundle_pem
+                omit_if_blank: true
               credential_secret:
                 $source: secret_ref

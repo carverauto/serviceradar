@@ -62,6 +62,35 @@ device availability record.
 - **AND** the operator SHALL be able to tell that the displayed availability does
   not represent every group targeting that device
 
+#### Scenario: Restricted scanner profiles are masked, not dropped
+- **GIVEN** a sweep group whose scanner profile is flagged `admin_only`
+- **AND** a user holding only `networks.sweeps.view`
+- **WHEN** that user queries the overlap entity
+- **THEN** the row SHALL still be reported, because "this group declared the
+  device and never swept it" is the diagnostic the entity exists to raise and is
+  equally the operator's business whichever profile stands behind it
+- **AND** the scanner profile name and profile id SHALL be reported as null,
+  because `admin_only` is a row-level read restriction that the profile entity
+  already enforces and a view joining the same table SHALL NOT bypass it
+
+#### Scenario: Declared-but-unobserved rows are reachable by default
+- **GIVEN** a result set mixing observed rows with declared-but-unobserved rows,
+  whose last-seen timestamp is null by construction
+- **WHEN** an operator queries the overlap entity without an explicit sort
+- **THEN** the declared-but-unobserved rows SHALL be ordered ahead of the
+  observed rows, so they are not buried behind a prefix longer than the maximum
+  cursor offset
+- **AND** every default query surface built over this entity SHALL leave that
+  ordering in place rather than substituting a single-column sort
+
+#### Scenario: A time window is refused rather than ignored
+- **GIVEN** a query against the overlap entity carrying a time window
+- **WHEN** the query is compiled
+- **THEN** it SHALL be rejected
+- **AND** the window SHALL NOT be silently discarded, because the only timestamp
+  available to bind it to is null on exactly the declared-but-unobserved rows the
+  entity exists to surface
+
 ### Requirement: Compiled sweep config exposure excludes credentials
 
 SRQL SHALL expose the effective compiled sweep configuration delivered to an

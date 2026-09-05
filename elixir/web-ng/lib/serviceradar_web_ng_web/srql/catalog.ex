@@ -480,6 +480,44 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       filter_fields: ["device_uid", "ip", "agent_id", "sweep_group_id"],
       downsample: false
     },
+    # Declared-vs-observed diagnostic view (issue 4167, task 4): finds a sweep
+    # group that was told to target a device but produced no coverage rows
+    # for it (`relationship = "declared_not_observed"`).
+    %{
+      id: "device_sweep_overlap",
+      label: "Sweep Declared vs Observed",
+      route: "/devices",
+      default_time: "",
+      # Deliberately blank. `declared_not_observed` rows carry a NULL
+      # `last_seen_at` by construction -- never observed is what makes them the
+      # alert -- so the Rust query defaults to a compound sort that lifts them
+      # ahead of the ordinary rows. An explicit `sort:` from the caller replaces
+      # that default entirely, and naming a field here would make the visual
+      # builder emit exactly such a token on every query it builds, burying the
+      # alerts behind a prefix that at this view's scale exceeds
+      # `max_cursor_offset` and so cannot even be paged past.
+      default_sort_field: "",
+      default_sort_dir: "desc",
+      default_filter_field: "device_uid",
+      filter_fields: [
+        "device_uid",
+        "ip",
+        "sweep_group_id",
+        "agent_id",
+        "relationship",
+        "declared",
+        "observed"
+      ],
+      boolean_fields: ["declared", "observed"],
+      known_values: %{
+        "relationship" => [
+          "declared_and_observed",
+          "declared_not_observed",
+          "observed_not_declared"
+        ]
+      },
+      downsample: false
+    },
     %{
       id: "events",
       label: "Events",
@@ -2123,6 +2161,24 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   # catalog record per entity. Without this, opening a legacy query in the
   # visual builder silently falls back to the generic timestamp-sorted shape.
   @entity_aliases %{
+    # Sweep diagnostics (issue 4167). Every alias here is one the SRQL parser
+    # already accepts (`rust/srql/src/parser/entity.rs`) and `EntityAccess`
+    # already gates. Without the mapping, `entity/1` falls through to the
+    # synthesized fallback below, which hands the visual builder
+    # `default_sort_field: "timestamp"` and an empty filter allowlist -- so the
+    # builder emits `sort:timestamp:desc` against entities that have no
+    # `timestamp` column and the query is rejected downstream.
+    "sweep_group" => "sweep_groups",
+    "sweeps" => "sweep_groups",
+    "sweep_profile" => "sweep_profiles",
+    "scanner_profiles" => "sweep_profiles",
+    "scanner_profile" => "sweep_profiles",
+    "sweep_execution" => "sweep_executions",
+    "sweep_group_executions" => "sweep_executions",
+    "sweep_result" => "sweep_results",
+    "sweep_host_results" => "sweep_results",
+    "sweep_coverage_daily" => "sweep_coverage",
+    "sweep_overlap" => "device_sweep_overlap",
     "vulnerability_advisory" => "vulnerability_advisories",
     "advisories" => "vulnerability_advisories",
     "cves" => "vulnerability_advisories",

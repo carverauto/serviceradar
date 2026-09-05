@@ -11,7 +11,7 @@ defmodule ServiceRadar.Credentials.CredentialParameterTemplate do
 
   @source_key "$source"
   @sources ~w(grant secret_ref public_username rule metadata metadata_first)
-  @rule_fields ~w(id auth_method tls_policy ssh_host_key_policy)
+  @rule_fields ~w(id auth_method tls_policy ssh_host_key_policy ca_bundle_pem server_cert_fingerprint)
   @value_types ~w(string integer boolean)
   @normalizers ~w(hostname)
   @max_depth 8
@@ -338,6 +338,10 @@ defmodule ServiceRadar.Credentials.CredentialParameterTemplate do
   defp rule_field_keys("auth_method"), do: [:auth_method, "auth_method"]
   defp rule_field_keys("tls_policy"), do: [:tls_policy, "tls_policy"]
   defp rule_field_keys("ssh_host_key_policy"), do: [:ssh_host_key_policy, "ssh_host_key_policy"]
+  defp rule_field_keys("ca_bundle_pem"), do: [:ca_bundle_pem, "ca_bundle_pem"]
+
+  defp rule_field_keys("server_cert_fingerprint"),
+    do: [:server_cert_fingerprint, "server_cert_fingerprint"]
 
   defp require_member(value, allowed, path) do
     if value in allowed, do: :ok, else: {:error, "#{path} contains an unsupported value"}

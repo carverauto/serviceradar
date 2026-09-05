@@ -22,6 +22,7 @@ mod cpu_metrics;
 mod dashboard_service_views;
 mod dashboards;
 mod device_graph;
+mod device_sweep_overlap;
 mod devices;
 mod disk_metrics;
 mod downsample;

@@ -953,3 +953,40 @@ fn sweep_coverage_example_device_uid_and_ip() {
         "expected default day desc ordering, got: {sql}"
     );
 }
+
+#[test]
+fn device_sweep_overlap_example_declared_not_observed() {
+    let query = "in:device_sweep_overlap relationship:declared_not_observed limit:10";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::DeviceSweepOverlap));
+    let (sql, binds) = device_sweep_overlap::to_sql_and_params(&plan)
+        .expect("should build device_sweep_overlap SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from platform.device_sweep_overlap as overlap"),
+        "expected query against the view, got: {sql}"
+    );
+    assert!(
+        lower.contains("overlap.relationship = $1"),
+        "expected relationship filter as the first bind, got: {sql}"
+    );
+    // The alert rows carry no last_seen_at, so the default sort surfaces them
+    // ahead of recency rather than behind every ordinary row.
+    assert!(
+        lower.contains(
+            "order by (overlap.relationship = 'declared_not_observed') desc, \
+             overlap.last_seen_at desc nulls last"
+        ),
+        "expected alert-first default ordering, got: {sql}"
+    );
+    assert!(!sql.contains('?'), "no literal '?' should survive rewrite: {sql}");
+    // relationship filter, then LIMIT, then OFFSET.
+    assert_eq!(binds.len(), 3);
+}
+
+#[test]
+fn sweep_overlap_alias_resolves_to_device_sweep_overlap() {
+    let plan = plan_for("in:sweep_overlap limit:1");
+    assert!(matches!(plan.entity, Entity::DeviceSweepOverlap));
+}
