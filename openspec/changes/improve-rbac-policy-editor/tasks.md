@@ -98,8 +98,10 @@ transaction, migration, or concurrency behavior; that guarded evidence remains p
 
 - [ ] 6.1 Apply migrations with `mix serviceradar.db.migrate` and run policy/concurrency coverage
       through the guarded Bazel database-test lifecycle using only synthetic fixtures.
-- [ ] 6.2 Run focused Bazel tests during each red/green loop, then the canonical full remote unit
+- [x] 6.2 Run focused Bazel tests during each red/green loop, then the canonical full remote unit
       suite with `make test`.
+      Evidence: `make test` at `4038b43f64` passed all 214 targets (24 executed, 190 cached),
+      exit 0; invocation `fb3ee81b-2f92-4fa3-973e-44cdcc1a2f76`.
 - [ ] 6.3 Run repository-required Elixir formatting/quality checks for both affected applications
       and confirm their actual output is clean.
 - [x] 6.4 Validate `improve-rbac-policy-editor`, `add-dashboard-creator`, and
