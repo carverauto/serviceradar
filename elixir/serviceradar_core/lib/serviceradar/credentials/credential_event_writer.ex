@@ -29,6 +29,9 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
       config :serviceradar_core, :credential_resolution_audit_success_events, true
 
   The flag defaults to `false`.
+
+  For broker grant event visibility and history, see "Broker grant logs and
+  history" in `docs/docs/credentials.md`.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -82,11 +85,27 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
     not routine_resolution_success?(outcome) or success_events_enabled?()
   end
 
-  @doc "Write a broker grant lifecycle event."
+  @doc """
+  Write a broker grant lifecycle record.
+
+  See "Broker grant logs and history" in `docs/docs/credentials.md` for the
+  event-emission policy.
+  """
   def write_broker_grant_lifecycle(grant, action) do
-    grant
-    |> broker_grant_lifecycle_event_attrs(action)
-    |> record_event()
+    attrs = broker_grant_lifecycle_event_attrs(grant, action)
+
+    if emit_grant_lifecycle_event?(action) do
+      record_event(attrs)
+    else
+      log_grant_lifecycle_debug(attrs)
+      :ok
+    end
+  end
+
+  @doc false
+  # Unknown actions fail closed to an event, never silently suppressed.
+  def emit_grant_lifecycle_event?(action) do
+    not routine_grant_lifecycle?(action)
   end
 
   def provider_lifecycle_event_attrs(provider, action) do
@@ -295,6 +314,15 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
       :ok
   end
 
+  defp log_grant_lifecycle_debug(attrs) do
+    Logger.debug(attrs.message,
+      log_name: attrs.log_name,
+      event_family: Map.get(attrs.unmapped, "event_family"),
+      action: Map.get(attrs.unmapped, "action"),
+      credential_broker_grant_id: Map.get(attrs.unmapped, "credential_broker_grant_id")
+    )
+  end
+
   defp severity_for_provider_action(action) when action in [:record_test_unavailable],
     do: OCSF.severity_medium()
 
@@ -317,6 +345,9 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
   # non-actionable outcomes suppressed from `ocsf_events` by default.
   defp routine_resolution_success?(outcome) when outcome in [:success, :cache_hit], do: true
   defp routine_resolution_success?(_outcome), do: false
+
+  defp routine_grant_lifecycle?(action) when action in [:issue, :activate, :consume], do: true
+  defp routine_grant_lifecycle?(_action), do: false
 
   defp success_events_enabled? do
     Application.get_env(:serviceradar_core, :credential_resolution_audit_success_events, false) ==
@@ -348,12 +379,7 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
     end
   end
 
-  # Routine, successful credential activity (secret resolution success/cache
-  # hit, normal grant issuance/lifecycle) is high-frequency and pure noise at
-  # info level, so log it at debug. The OCSF severity stays informational (the
-  # correct classification) while only the emitted log level is lowered.
-  # Failures, denials, revocations, and expiries carry a higher severity, so
-  # they keep their severity-derived level (info/warning+) and stay visible.
+  # This tags retained OCSF records; emission is decided by the write functions.
   defp routine_log_level(severity_id) do
     if severity_id <= OCSF.severity_informational() do
       "debug"

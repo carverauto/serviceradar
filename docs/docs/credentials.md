@@ -67,6 +67,18 @@ Not every provider takes a rule. A provider's descriptor declares
 | VulnCheck | No | **Settings -> Security -> Vulnerability Feeds**, per feed |
 | SNMP | No | **Settings -> SNMP Profiles**, per profile or target |
 
+## Broker grant logs and history
+
+Routine broker grant transitions (`issue`, `activate`, and `consume`) produce
+debug logs only; they do not create new `ocsf_events` rows or appear as new
+events in the observability UI. Enable debug logging when diagnosing these
+transitions. Denial, revocation, and expiry continue to produce OCSF events.
+
+Grant history remains recorded separately through AshPaperTrail in
+`credential_broker_grant_versions`. This change does not remove previously
+stored events. The `credential_resolution_audit_success_events` setting controls
+secret-resolution events, not broker grant lifecycle logging.
+
 ## Providers come from packages, not from the UI
 
 The provider list, the auth methods, the credential fields, the purposes, and the
