@@ -164,7 +164,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
         []
       )
 
-    assert amname == "spgist"
+    assert amname == "gist"
   end
 
   test "oui csv refresh promotes snapshot on success and keeps last-known-good on failure" do
