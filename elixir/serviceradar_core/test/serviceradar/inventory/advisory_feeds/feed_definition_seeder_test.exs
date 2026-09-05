@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
-  use ServiceRadar.DataCase, async: true
+  use ServiceRadar.DataCase, async: false
   use Oban.Testing, repo: ServiceRadar.Repo, prefix: "platform"
 
   alias ServiceRadar.Credentials.NetworkCredentialSecret
@@ -88,6 +88,48 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
     assert updated.last_message == "loaded 5 advisories"
   end
 
+  test "mark_status merges successful generation metadata into durable definition metadata", %{
+    actor: actor
+  } do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    definition = fetch(actor, "vulncheck", "vulncheck-kev")
+
+    {:ok, _with_durable_metadata} =
+      definition
+      |> Ash.Changeset.for_update(
+        :update,
+        %{
+          metadata: %{
+            "source" => "core-scheduled",
+            "credential_storage" => "network_credential_secret",
+            "generation" => 7
+          }
+        },
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    assert {:ok, updated} =
+             FeedWorker.mark_status(
+               "vulncheck-kev",
+               %{
+                 last_status: "success",
+                 metadata: %{"generation" => 42, "source_objects_seen" => 5}
+               },
+               actor
+             )
+
+    assert updated.last_status == "success"
+
+    assert updated.metadata == %{
+             "source" => "core-scheduled",
+             "credential_storage" => "network_credential_secret",
+             "generation" => 42,
+             "source_objects_seen" => 5
+           }
+  end
+
   test "run_now enqueues the mapped FeedWorker feed and marks running", %{actor: actor} do
     assert :ok = FeedDefinitionSeeder.seed_defaults()
 
@@ -104,6 +146,30 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
     assert_enqueued(worker: FeedWorker, args: %{feed: "vulncheck-kev"}, prefix: "platform")
   end
 
+  test "run_now can approve one snapshot contraction for the enqueued job", %{actor: actor} do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    definition = fetch(actor, "vulncheck", "vulncheck-kev")
+
+    assert {:ok, ran} =
+             definition
+             |> Ash.Changeset.for_update(
+               :run_now,
+               %{accept_snapshot_contraction: true},
+               actor: actor
+             )
+             |> Ash.update(actor: actor)
+
+    assert ran.last_status == "running"
+
+    assert_enqueued(
+      worker: FeedWorker,
+      args: %{feed: "vulncheck-kev", accept_snapshot_contraction: true},
+      max_attempts: 1,
+      prefix: "platform"
+    )
+  end
+
   test "Config.refresh_seconds reads the feed-def row as primary source", %{actor: actor} do
     assert :ok = FeedDefinitionSeeder.seed_defaults()
 
@@ -118,6 +184,118 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
       |> Ash.update(actor: actor)
 
     assert Config.refresh_seconds("cisa-kev") == 7_200
+  end
+
+  test "Config.source reads operator URL and options from the feed definition first", %{
+    actor: actor
+  } do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+    ubuntu = fetch(actor, "ubuntu", "ubuntu-osv-vex")
+
+    {:ok, _edited} =
+      ubuntu
+      |> Ash.Changeset.for_update(
+        :update,
+        %{
+          url: "https://mirror.example/osv.tar.xz",
+          options: %{"vex_url" => "https://mirror.example/vex.tar.xz"}
+        },
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    assert Config.source("ubuntu-osv-vex") == %{
+             url: "https://mirror.example/osv.tar.xz",
+             options: %{"vex_url" => "https://mirror.example/vex.tar.xz"}
+           }
+  end
+
+  test "Ubuntu DB source wins over app source and invalid DB options fail closed", %{actor: actor} do
+    previous = Application.get_env(:serviceradar_core, :advisory_feeds)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:serviceradar_core, :advisory_feeds, previous),
+        else: Application.delete_env(:serviceradar_core, :advisory_feeds)
+    end)
+
+    Application.put_env(:serviceradar_core, :advisory_feeds,
+      advisory_feed_sources: %{
+        "ubuntu-osv-vex" => %{
+          url: "https://app.example/osv.tar.xz",
+          options: %{"vex_url" => "https://app.example/vex.tar.xz"}
+        }
+      }
+    )
+
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+    ubuntu = fetch(actor, "ubuntu", "ubuntu-osv-vex")
+
+    {:ok, ubuntu} =
+      ubuntu
+      |> Ash.Changeset.for_update(
+        :update,
+        %{
+          url: "https://db.example/osv.tar.xz",
+          options: %{"vex_url" => "https://db.example/vex.tar.xz"}
+        },
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    assert %{
+             url: "https://db.example/osv.tar.xz",
+             options: %{"vex_url" => "https://db.example/vex.tar.xz"}
+           } = Config.source("ubuntu-osv-vex")
+
+    {:ok, ubuntu} =
+      ubuntu
+      |> Ash.Changeset.for_update(:update, %{options: %{"unknown" => true}}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert {:error, :invalid_source_config} = Config.source("ubuntu-osv-vex")
+
+    {:ok, _ubuntu} =
+      ubuntu
+      |> Ash.Changeset.for_update(:update, %{options: %{"vex_url" => 123}}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert {:error, :invalid_source_config} = Config.source("ubuntu-osv-vex")
+  end
+
+  test "blank Ubuntu DB URL falls through and credential-free scheduling and run_now enqueue", %{
+    actor: actor
+  } do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+    ubuntu = fetch(actor, "ubuntu", "ubuntu-osv-vex")
+
+    refute ubuntu.enabled
+    assert ubuntu.credential_ref in [nil, ""]
+
+    {:ok, ubuntu} =
+      ubuntu
+      |> Ash.Changeset.for_update(:update, %{url: nil, enabled: true}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert Config.source("ubuntu-osv-vex").url =~ "security-metadata.canonical.com"
+
+    {:ok, ubuntu} =
+      ubuntu
+      |> Ash.Changeset.for_update(:update, %{url: "   "}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    assert Config.source("ubuntu-osv-vex").url =~ "security-metadata.canonical.com"
+
+    assert {:ok, :scheduled} = FeedWorker.ensure_scheduled()
+    assert_enqueued(worker: FeedWorker, args: %{feed: "ubuntu-osv-vex"}, prefix: "platform")
+
+    assert {:ok, ran} =
+             ubuntu
+             |> Ash.Changeset.for_update(:run_now, %{}, actor: actor)
+             |> Ash.update(actor: actor)
+
+    assert ran.last_status == "running"
+    assert_enqueued(worker: FeedWorker, args: %{feed: "ubuntu-osv-vex"}, prefix: "platform")
   end
 
   test "Config.vulncheck_token reads the feed-def credential_ref as primary source", %{

@@ -2,7 +2,7 @@ use super::BindParam;
 use crate::error::{Result, ServiceError};
 use diesel::pg::Pg;
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
-use diesel::sql_types::{Array, BigInt, Bool, Float8, Text, Timestamptz};
+use diesel::sql_types::{Array, BigInt, Bool, Date, Float8, Text, Timestamptz};
 use tracing::error;
 
 pub(crate) fn max_dollar_placeholder(sql: &str) -> usize {
@@ -182,6 +182,12 @@ pub(crate) fn bind_sql_param<'a>(
             Ok(query.bind::<Timestamptz, _>(timestamp))
         }
         BindParam::Uuid(value) => Ok(query.bind::<diesel::sql_types::Uuid, _>(value)),
+        BindParam::Date(value) => {
+            let date = chrono::NaiveDate::parse_from_str(&value, "%Y-%m-%d").map_err(|err| {
+                ServiceError::Internal(anyhow::anyhow!("invalid date bind {value:?}: {err}"))
+            })?;
+            Ok(query.bind::<Date, _>(date))
+        }
     }
 }
 

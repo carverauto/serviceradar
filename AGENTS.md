@@ -361,6 +361,20 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
   is slow and against a remote instance has failed outright. Pass `--no-baseline` only when you
   deliberately want the full replay. Service startup has always baselined; this task is the same
   code path (`ServiceRadar.Repo.SchemaBootstrap`).
+
+  **The baseline does NOT work for a database that already carries TimescaleDB hypertables or
+  AGE graphs, which is every real one.** It is a `pg_dump --schema-only`, and this schema does
+  not round-trip: the dump contains 177 references into `_timescaledb_internal`
+  (`_compressed_hypertable_45`, `_direct_view_23` -- names carrying the SOURCE database's OIDs)
+  and 42 statements reproducing AGE's per-graph storage. Replaying those is not just privileged,
+  it is wrong: `create_hypertable()` and `create_graph()` register objects in catalogs that plain
+  DDL never touches, so the result holds graph tables `ag_catalog.ag_graph` has no row for. See
+  `rust/integration-db/src/template.rs`, which states the non-round-trip property directly.
+  The fixture lifecycle therefore REPLAYS on an empty database
+  (`elixir/serviceradar_core/test/db/migrate_db_test.exs`) -- one slow run per template rebuild,
+  paid by trunk, after which every run applies only what is pending. Do not reintroduce
+  baselining there. `ServiceRadar.Cluster.StartupMigrations` still baselines a fresh deployment
+  and has the same latent problem; that path is not yet fixed.
 - Bazel images: `bazel run //docker/images:<target>_push`. A worktree without
   `.bazelrc.remote` is not on RBE — copy the gitignored rc files first (Hard Rules).
 - First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins`. Bazel fetches the pinned TinyGo toolchain automatically; local `oras` is still required for publish/inspect workflows. `make push_all` is the container-image path; `make push_all_release` adds the Wasm publish/sign/verify path for release-style runs.
@@ -1052,8 +1066,34 @@ the shared CNPG/AGE fixture. There is deliberately no orchestration script: invo
 Bazel lifecycle in order as the caller:
 
 ```text
-sweep -> prepare template -> migrate if pending -> provision -> test -> teardown
+sweep -> provision base -> migrate run if pending -> provision lanes -> test -> teardown
 ```
+
+**You cannot run `//elixir/serviceradar_core:migrate_template` from a branch, and should not
+try.** `sr_core_template` is shared by every run on the fixture and only ratchets forward, so
+migrating it from a branch checkout writes that branch's unmerged migrations into the schema
+every other branch clones -- and every branch whose checkout lacks them is then refused. That is
+not hypothetical: one branch left seven behind and every other pull request went red on a step
+unrelated to its own diff. The template is advanced by the trunk lifecycle alone
+(`LargeIngestionGate`, push to `staging`).
+
+The three targets that write it -- `//elixir/serviceradar_core:migrate_template`,
+`//rust/integration-db:prepare_template` and `//rust/integration-db:reset_template` -- now
+**refuse** without `--//build:template_authority=true`, which is the caller declaring "this
+checkout is trunk". Only `LargeIngestionGate` passes it, and
+`//:ci_heavy_gate_contract_test` pins that. Do not pass it to get past a refusal: the flag is a
+statement about the checkout, not a way to unblock a step, and a branch that sets it reproduces
+the original outage exactly. It fails closed -- an absent or empty marker is a refusal -- so
+adding the flag to a target that does not declare `//build:template_authority_file` changes
+nothing.
+
+A branch's own migrations go to its **run base**: `//rust/integration-db:provision_base` seeds
+`sr_core_test_<run>` from the template, `//elixir/serviceradar_core:migrate_run` brings that one
+database up to the checkout, and the lane databases are cloned from it. If `provision_base`
+reports the template AHEAD of the checkout it does not fail -- it builds the base from nothing,
+says so, and leaves the shared template alone. `bazel run //rust/integration-db:reset_template`
+is the deliberate recovery when the template has diverged from trunk; the trunk lifecycle runs it
+automatically in that case.
 
 For one shard, pair `//rust/integration-db:provision_db_sN` with
 `//elixir/serviceradar_core:integration_tests_sN`. CI uses the unsuffixed provision target and

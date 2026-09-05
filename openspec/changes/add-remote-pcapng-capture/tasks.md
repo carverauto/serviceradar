@@ -119,9 +119,30 @@ The packet path. No IPC surface yet -- provable on its own.
   Enhanced Packet Blocks carrying the ring's `tp_sec`/`tp_nsec`. (22.4)
 - [x] 1.6 Record frame direction from `PACKET_OUTGOING` so a session can
   request ingress, egress or both.
-- [ ] 1.7 Enforce `duration_s` and `byte_cap`; emit a terminal
-  `PcapngBlock` with `final = true` and the termination reason on either
-  cap or on graceful stop. (22.5)
+- [x] 1.7 `capture::session::CaptureSession` enforces `duration_s` and
+  `byte_cap` and produces the terminal block's contents. Caps are checked
+  BEFORE encoding, so a session never emits a block that carries it past a
+  limit the operator set, and a cap that has already fired wins over a later
+  `client_cancel` -- reporting the disconnect would misattribute why the
+  capture stopped.
+
+  The clock is a PARAMETER, not read inside: `offer` takes elapsed time. A
+  duration cap tested against a real clock either sleeps for the cap (slow,
+  and flaky under load -- this repo has a p99 test that fails at load average
+  130) or shrinks the cap until the assertion proves nothing. Passing elapsed
+  in makes "at the cap" and "one millisecond short" exact, and both are
+  asserted.
+
+  A closed session stays DRAINABLE rather than terminating instantly: frames
+  the kernel already counted can sit in a partially filled block until
+  `tp_retire_blk_tov`, so emitting the terminal block immediately truncates
+  the capture with nothing erroring. `Termination.complete` cross-checks our
+  own EPB count against the kernel's `tp_packets - tp_drops`; a mismatch is
+  data loss neither counter shows alone.
+
+  Tests verified to FAIL on mutation, not merely to pass: changing the
+  duration comparison from `>=` to `>` breaks 2, and dropping the count
+  cross-check breaks 1.
 - [x] 1.8 Poll `PACKET_STATISTICS` for `tp_drops`; expose it as a
   netprobe metric and carry it in the terminal block. (`design.md` D7)
 - [x] 1.9 Unit tests: the compiler accepts every documented form and
@@ -138,49 +159,147 @@ The packet path. No IPC surface yet -- provable on its own.
   packets as libpcap's own compilation of the same string, over a fixture
   pcap. This is the only real check that the subset means what tcpdump
   means.
-- [ ] 1.12 Force a ring-full condition; assert `tp_drops` is non-zero and
-  the terminal block reports it.
-- [ ] 1.13 Measure capture cost: sustained packets/second and CPU at a
-  realistic rate, recorded in this change.
+- [x] 1.12 Ring-full behaviour verified on a real host, not simulated.
+  A deliberately tiny ring (one 4 KiB block, two frames) under a 20k-datagram
+  flood: `Stats { captured: 19, dropped: 79981, malformed: 0 }`, and
+  `is_complete()` false. The assertion that matters is the completeness flag,
+  not the drop count -- a small ring under load will always drop; the failure
+  being guarded is dropping SILENTLY, which is what happens if anything else
+  reads `PACKET_STATISTICS` and takes the drops out of the session's total.
+- [x] 1.13 Capture cost measured on 192.168.1.62 (Ubuntu 24.04, kernel 6.8,
+  16 cores) at load average 0.18, with the default ring geometry:
+
+      frames=800000  elapsed=5.00s  pps=159,995  18.3 MiB/s
+      cpu=1.42s (~28% of one core)  1.8 CPU-seconds per million packets
+      Stats { captured: 800000, dropped: 0, malformed: 0 }
+
+  Zero drops at 160k pps is the result that matters: the default geometry
+  sustains that rate on loopback without loss, so the AF_XDP fast path
+  considered in design.md D1 has no case to answer yet.
+
+  Note on the frame count: a 200k-datagram flood yields 800k frames because
+  loopback delivers each frame twice (PACKET_HOST and PACKET_OUTGOING) AND
+  nothing listens on the target port, so each datagram also produces an ICMP
+  port-unreachable. Real frames through the ring either way, but the 4x is
+  not what it appears.
+
+  Deliberately printed rather than asserted against a threshold: a pps or CPU
+  bound hard-coded here would be one machine at one load, and this repository
+  already has a p99 assertion that fails at load average 130 for reasons
+  unrelated to the code under test.
 
 ## S2. netprobe capture session RPC
 
-- [ ] 2.1 Activate `CaptureSessions(StartRemoteCapture) returns (stream
-  PcapngBlock)` on the netprobe IPC surface, driving the S1 session.
-  (22.1)
-- [ ] 2.2 Validate the request against `capture_interfaces`; reject
-  anything not allowlisted, plus `any` and wildcards, reusing
-  `validate_interface` (`rust/netprobe/src/config.rs:119`). (22.2)
-- [ ] 2.3 Reject uncompilable filters with the structured error from 1.3
-  before the session starts. (22.3, corrected: no `pcap` crate)
-- [ ] 2.4 Concurrent-session cap of exactly 1 per netprobe instance;
-  reject overlapping requests distinguishably. (22.6)
-- [ ] 2.5 On agent UDS disconnect mid-session, terminate and free the
-  socket and ring within 5 s. (22.7)
-- [ ] 2.6 Implement `SO_PEERCRED` on the netprobe UDS. Sidecar task 3.2
-  is HALF DONE -- mode 0600 landed and `SO_PEERCRED` never did, which
-  makes file permissions the entire authorization story for a socket that
-  can now start packet captures.
-- [ ] 2.7 Refuse an unattributed capture: a request arriving without a
-  core-issued session id and actor is rejected, so a capture cannot be
-  started by anything that bypassed the control plane -- including
-  something local to the host holding the UDS. (`design.md` D8.7)
-- [ ] 2.8 Log session start and stop to the journal with session id,
-  actor, interface and filter, so the captured host retains evidence even
-  if the control plane's records are altered. (`design.md` D8.6)
-- [ ] 2.9 Tests: allowlist denial, filter-compile failure, duration cap,
-  byte cap, mid-session UDS close, concurrent-session rejection,
-  unattributed-request refusal, and the journal lines for start and stop.
-  (22.8)
+- [x] 2.1 Activated `StartRemoteCapture` on the netprobe IPC surface. The
+  header comes back on the REQUEST's sequence number, so a client learns
+  its request succeeded and gets the pcapng section header in one round
+  trip; every later block is unsolicited at sequence 0. The capture runs
+  on a dedicated OS thread, because the ring poll is a blocking syscall
+  and running it on the async runtime would stall every other IPC client
+  behind one quiet interface. (22.1)
+- [x] 2.2 Validated against `capture_interfaces` via `validate_interface`,
+  which rejects `any` and wildcards BEFORE consulting the allowlist -- so
+  an operator who put `any` in the config still cannot capture on every
+  interface at once. (22.2)
+- [x] 2.3 Uncompilable filters rejected before the session starts, with
+  the structured error from 1.3. A precompiled program is validated too:
+  a `jt` of 300 is refused rather than truncated to 44 by an `as u8`,
+  which would produce a valid program jumping somewhere the client never
+  asked for. (22.3, corrected: no `pcap` crate)
+- [x] 2.4 Concurrent-session cap of exactly 1 per instance, deliberately
+  coarser than `CaptureHandles::take`'s per-interface exclusion. The
+  refusal names the busy interface, because "try again" is not an
+  operator action. (22.6)
+- [x] 2.5 UDS disconnect frees the socket and ring. **Measured on a real
+  host, on a SILENT interface** -- a teardown that only works when the
+  next packet arrives is the bug, and a busy loopback hides it:
+  **112 ms and 360 ms** across runs, against a 5 s budget. Bounded by the
+  poll interval rather than by traffic.
+- [x] 2.6 **CORRECTED while implementing.** The task's premise was wrong
+  in both halves. Mode 0600 had NOT landed on this socket: it landed on
+  the AddonService socket, and that file's own comment named this one as
+  the gap. Measured, not inferred -- a test asserting 0600 against a
+  freshly bound server printed `left: 493`, which is 0o755, the umask
+  default. That is now fixed and pinned by a test.
+
+  `SO_PEERCRED` is implemented but deliberately NOT an authorization
+  check, and making it one would be theatre: the socket is 0600 owned by
+  netprobe's runtime user, so the only uids that can reach it are that
+  user and root, and root defeats a uid allowlist with one `setuid`
+  before `connect`. It would reject nothing 0600 does not, while breaking
+  a `sudo` dev loop invisibly. The credentials are recorded as EVIDENCE
+  -- verified on a real host: `pid=4129609 uid=0 gid=0`. What actually
+  stops a capture from outside the control plane is 2.7.
+- [x] 2.7 An unattributed request is refused, and refused FIRST -- before
+  the interface, the filter or the snaplen -- so a request that bypassed
+  the control plane is rejected for that reason rather than for whichever
+  other field also happens to be wrong. Whitespace does not count as
+  attribution: `" "` would satisfy a bare emptiness check and produce an
+  audit record that says nothing while looking attributed.
+  (`design.md` D8.7)
+- [x] 2.8 Session start and stop go to the journal with session id,
+  actor, interface, snaplen, filter size and caps, plus a warning naming
+  the drop count when a capture is incomplete -- which an operator
+  reading the pcapng in Wireshark cannot otherwise see. Refusals are
+  logged too, since a refusal is exactly the event worth seeing when
+  someone is probing what this netprobe will capture. (`design.md` D8.6)
+- [x] 2.9 Tests. Unit: 17 for request validation, 9 for the capture loop,
+  8 for the session lifecycle, 4 over the real IPC socket. Live, on a
+  Linux host with `CAP_NET_RAW`
+  (`rust/netprobe/tests/live_capture_ipc.rs`, `manual` + `#[ignore]`
+  because RBE executors have no `CAP_NET_RAW`): the stream is written to
+  a file and read by **capinfos and tshark**, not by this crate's encoder
+  in reverse -- 4 packets, every one `ip.proto == 1`, so the ICMP filter
+  let nothing else through. The journal lines are asserted through a
+  capturing logger rather than eyeballed, because a format string that
+  drops the actor still compiles, still logs, and still reads correctly.
+
+  Mutation-checked rather than assumed green: compiling against the wire
+  snaplen instead of the resolved one breaks 1 test, dropping the
+  session-id check breaks 1, removing the drain grace breaks 2, and
+  draining after a cap breaks 2.
+
+**Two bugs found by writing the tests, both silent in production.**
+
+1. **A released capture descriptor could not be armed again.**
+   `Ring::into_socket` unmapped the ring but never freed it, and
+   `setsockopt(PACKET_VERSION)` refuses to run against a socket that
+   still has one. The SECOND capture on an interface failed with a bare
+   `EBUSY` from a call that has nothing obviously to do with rings, on a
+   descriptor that had been handed back "cleanly" -- and since a
+   descriptor is opened once while privileged and cannot be reopened,
+   that interface was finished for the life of the process while the
+   first capture looked perfect. `into_socket` now frees the ring with a
+   zeroed `tpacket_req3`, after the `munmap` (the kernel refuses while it
+   is still mapped), and `a_released_descriptor_can_be_armed_again`
+   covers it end to end. The `EBUSY` message now names the cause.
+
+2. **A failed ring activation leaked the concurrency slot.** `SlotClaim`
+   was a marker with no `Drop`, and the slot was released only by
+   `SessionGuard`, which is not created until activation succeeds. Every
+   later capture would have been refused as "already running" against a
+   session that never started.
 
 ## S3. Agent to agent-gateway transport
 
 Modelled on the camera relay (`design.md` D4).
 
-- [ ] 3.1 Add a `RemotePacketCapture` gRPC service to the agent to
-  agent-gateway proto: `Stream(StartRemoteCaptureSession) returns (stream
-  RemotePacketCaptureFrame)`, the frame a oneof of `PcapngBlock` and
-  `SessionStateChanged`. (23.1, 27.1)
+- [x] 3.1 **CORRECTED while implementing.** The task specified a
+  SERVER-streaming RPC. That points the data the wrong way: the gateway is
+  the gRPC server and the agent is the client ("communication flows UP only
+  (agent to gateway); the gateway never connects back to agents"), so
+  server-streaming would have had the gateway streaming pcapng to the agent.
+  Client-streaming carries the bytes correctly but gives the server no
+  channel to speak on until the client finishes, which cannot meet 3.6's
+  1-second cancel -- a capture matching nothing produces no messages to
+  piggyback on, and that is the session most likely to need stopping.
+
+  What landed is `proto/remote_capture.proto`: a BIDIRECTIONAL
+  `RemotePacketCaptureService.StreamCapture`, modelled on
+  `DesktopMediaService.StreamDesktopMedia`, which already uses this shape for
+  the same reasons. pcapng flows client to server; credit and cancellation
+  flow server to client on their own channel. Spec delta corrected to match.
+  (23.1, 27.1)
 - [ ] 3.2 Prove the RPC multiplexes onto the existing mTLS HTTP/2
   connection: assert no second TCP or TLS session is opened. (23.2)
 - [ ] 3.3 Implement `go/pkg/agent/netprobe/capture.go`: receive the gRPC

@@ -59,6 +59,7 @@ mod runtime_config;
 #[allow(dead_code)]
 mod satori;
 mod server;
+mod uds;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -70,6 +71,7 @@ use clap::{Parser, ValueEnum};
 use tokio::sync::{broadcast, watch};
 
 use crate::{
+    capture::service::{AfPacketActivator, CaptureService},
     config::Config,
     external_flow::SharedExternalFlowMatcher,
     lifecycle::SystemStartupOps,
@@ -323,6 +325,16 @@ async fn main() -> Result<()> {
         });
     }
 
+    // The descriptors opened above, now shared with the IPC surface that hands
+    // them to capture sessions. `_capture_handles` moves in here: the Arc is
+    // what keeps them open for the life of the process from this point on.
+    let capture_service = _capture_handles.map(|handles| {
+        Arc::new(CaptureService::new(
+            Arc::new(Mutex::new(handles)),
+            AfPacketActivator::default(),
+        ))
+    });
+
     let mut ipc_task = tokio::spawn(
         IpcServer::new(
             args.socket,
@@ -333,6 +345,7 @@ async fn main() -> Result<()> {
             external_flow_matcher,
             runtime_config,
             metrics,
+            capture_service,
         )
         .run(shutdown_rx),
     );

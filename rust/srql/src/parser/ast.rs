@@ -77,8 +77,13 @@ pub enum Entity {
     IdentityEvidenceEdges,
     VulnerabilityAdvisories,
     AdvisoryCoordinates,
-    EndpointVulnerabilityMatches,
+    EndpointVulnerabilityAssessments,
     ThreatIntelMatches,
+    SweepGroups,
+    SweepProfiles,
+    SweepExecutions,
+    SweepResults,
+    SweepCoverage,
 }
 
 #[derive(Debug, Clone, Serialize)]

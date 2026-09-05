@@ -11,14 +11,17 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
   one record at a time off disk and handing it here.
   """
 
-  alias ServiceRadar.Inventory.AdvisoryFeeds.Cpe
   alias ServiceRadar.Inventory.AdvisoryFeeds.Cwes
-  alias ServiceRadar.Inventory.AdvisoryFeeds.VersionRange
+  alias ServiceRadar.Inventory.AdvisoryFeeds.NvdApplicability
 
   @provider "nvd"
 
+  @doc "Version of the normalized NVD content written by this parser."
+  @spec normalization_version() :: pos_integer()
+  def normalization_version, do: NvdApplicability.expression_version()
+
   @doc """
-  Map one NVD 2.0 `{"cve" => ...}` element to `%{advisory: map, coordinates: [map]}`.
+  Map one NVD 2.0 `{"cve" => ...}` element to the loader record contract.
 
   Returns `:skip` when the record has no usable CVE id.
   """
@@ -29,7 +32,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
 
     case cve["id"] do
       cve_id when is_binary(cve_id) and cve_id != "" ->
-        coordinates = configurations_coordinates(cve)
+        {:ok, normalized} = NvdApplicability.normalize(Map.get(cve, "configurations", []))
 
         advisory = %{
           provider: provider,
@@ -47,11 +50,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
           kev: false,
           exploit_available: false,
           references: references(cve),
-          metadata: %{"cwes" => Cwes.from_nvd_cve(cve)},
+          metadata: %{
+            "cwes" => Cwes.from_nvd_cve(cve),
+            "normalization_version" => normalized.expression_version
+          },
           raw: record
         }
 
-        {:ok, %{advisory: advisory, coordinates: coordinates}}
+        {:ok, %{advisory: advisory, coordinates: normalized.coordinates, assertions: []}}
 
       _ ->
         :skip
@@ -59,57 +65,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
   end
 
   def parse_record(_record, _opts), do: :skip
-
-  defp configurations_coordinates(cve) do
-    cve
-    |> Map.get("configurations", [])
-    |> List.wrap()
-    |> Enum.flat_map(fn config ->
-      config
-      |> Map.get("nodes", [])
-      |> List.wrap()
-      |> Enum.flat_map(&node_coordinates/1)
-    end)
-    # Identity is CPE + version window. matchCriteriaId and inclusivity flags
-    # can differ on otherwise identical NVD cpeMatch rows; those extras must
-    # not survive or the coordinate upsert collides.
-    |> Enum.uniq_by(&{&1.value, &1.version_start, &1.version_end})
-  end
-
-  defp node_coordinates(node) when is_map(node) do
-    node
-    |> Map.get("cpeMatch", [])
-    |> List.wrap()
-    |> Enum.filter(&vulnerable?/1)
-    |> Enum.map(&cpe_match_coordinate/1)
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp node_coordinates(_), do: []
-
-  defp vulnerable?(%{"vulnerable" => false}), do: false
-  defp vulnerable?(_), do: true
-
-  defp cpe_match_coordinate(%{"criteria" => criteria} = match) when is_binary(criteria) do
-    components = Cpe.parse_components(criteria)
-    bounds = VersionRange.from_cpe_match(match)
-
-    %{
-      coordinate_type: "cpe",
-      value: criteria,
-      cpe_part: components.part,
-      cpe_vendor: components.vendor,
-      cpe_product: components.product,
-      cpe_version: components.version,
-      version_start: bounds.version_start,
-      version_start_inclusive: bounds.version_start_inclusive,
-      version_end: bounds.version_end,
-      version_end_inclusive: bounds.version_end_inclusive,
-      metadata: %{"match_criteria_id" => match["matchCriteriaId"]}
-    }
-  end
-
-  defp cpe_match_coordinate(_), do: nil
 
   defp english_description(cve) do
     cve

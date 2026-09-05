@@ -29,7 +29,9 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       endpoint_software_package package_catalog package_catalogs
       vulnerability_advisories vulnerability_advisory advisories cves
       advisory_coordinates advisory_cpes cpe_coordinates
-      endpoint_vulnerability_matches vulnerability_matches cve_matches advisory_matches
+      endpoint_vulnerability_assessments endpoint_vulnerability_assessment
+      package_vulnerabilities endpoint_vulnerability_matches vulnerability_matches
+      cve_matches advisory_matches
       device_graph devicegraph graph graph_cypher graphcypher cypher
       field_survey_sessions fieldsurvey_sessions survey_sessions
       field_survey_rasters fieldsurvey_rasters survey_coverage_rasters survey_rasters
@@ -98,7 +100,14 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       attributed_flows attributed_flow flow_attributions flow_attribution
       threat_intel_matches threat_intel_match ioc_matches ioc_match
     ),
-    "observability.alerts.view" => ~w(alerts alert)
+    "observability.alerts.view" => ~w(alerts alert),
+    "networks.sweeps.view" => ~w(
+      sweep_groups sweep_group sweeps
+      sweep_profiles sweep_profile scanner_profiles scanner_profile
+      sweep_executions sweep_execution sweep_group_executions
+      sweep_results sweep_result sweep_host_results
+      sweep_coverage sweep_coverage_daily
+    )
   }
 
   @entity_permissions (for {permission, entities} <- @permission_entities,
@@ -160,23 +169,49 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
     end
   end
 
+  # Mirrors rust/srql/src/parser.rs, which tokenizes on whitespace, lowercases
+  # each token's key before matching it against "in", and assigns
+  # `entity = Some(parse_entity(...))` unconditionally on every `in` token it
+  # sees -- so the LAST `in:` token in the raw string is what the compiler
+  # actually executes, regardless of case. The gate must resolve the same
+  # token or it authorizes an entity different from the one that runs.
   @spec extract_entity(String.t()) :: String.t()
   def extract_entity(query) when is_binary(query) do
-    query = String.trim(query)
+    query
+    |> String.trim()
+    |> String.split(~r/[\s|]+/, trim: true)
+    |> Enum.reduce(nil, fn token, acc ->
+      case String.split(token, ":", parts: 2) do
+        [key, entity] when entity != "" ->
+          if String.downcase(key) == "in" do
+            normalize_entity(entity)
+          else
+            acc
+          end
 
-    case Regex.run(~r/^in:(\S+)/, query) do
-      [_, entity] ->
-        entity
-        |> String.trim("\"")
-        |> String.trim("'")
-        |> String.downcase()
-
-      nil ->
-        query
-        |> String.split(~r/[\s|]/, parts: 2)
-        |> List.first()
-        |> to_string()
-        |> String.downcase()
+        _ ->
+          acc
+      end
+    end)
+    |> case do
+      nil -> fallback_entity(query)
+      entity -> entity
     end
+  end
+
+  defp normalize_entity(entity) do
+    entity
+    |> String.trim("\"")
+    |> String.trim("'")
+    |> String.downcase()
+  end
+
+  defp fallback_entity(query) do
+    query
+    |> String.trim()
+    |> String.split(~r/[\s|]/, parts: 2)
+    |> List.first()
+    |> to_string()
+    |> String.downcase()
   end
 end

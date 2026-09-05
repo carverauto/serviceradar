@@ -91,8 +91,8 @@ dependencies:
     specifier: ^0.52.2
     version: 0.52.2
   phoenix:
-    specifier: ^1.8.5
-    version: 1.8.5
+    specifier: ^1.8.9
+    version: 1.8.9
   phoenix_html:
     specifier: ^4.3.0
     version: 4.3.0
@@ -4489,8 +4489,8 @@ packages:
       resolve-protobuf-schema: 2.1.0
     dev: false
 
-  /phoenix@1.8.5:
-    resolution: {integrity: sha512-Oj5nlRV/NKXkjBx8uMgCMmgMf1twd/B2qOcO30cHLH1PCGR8149o4T1lRIaqN4nq2KQJAeMqPiLdh1Asd0wQFg==}
+  /phoenix@1.8.9:
+    resolution: {integrity: sha512-/2qzAZB3P2s08fFAYaG65lqaNFmVXUSlXdY4/JDdDKIC81y2cFWkPwI8gycy4VLpv197JwZ5PpBf3VhoG32yGA==}
     dev: false
 
   /phoenix_html@4.3.0:

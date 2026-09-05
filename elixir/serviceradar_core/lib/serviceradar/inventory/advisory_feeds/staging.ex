@@ -15,8 +15,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
   Oban timeouts kill the worker with `:kill`, so `after` cleanup does not run.
   Combined with a new run id per attempt and local-path ignoring PVC size,
   leftover nist-nvd2 extracts filled a demo node (~255 GiB). Always keep at
-  most one nist-nvd2 run dir, reap the rest on every scheduler tick, and refuse
-  to download when the staging tree is over budget.
+  most one executing run dir for the large nist-nvd2 and Ubuntu feeds, reap the
+  rest on every scheduler tick, and refuse downloads when staging is over budget.
   """
 
   require Logger
@@ -91,17 +91,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
     keep = Keyword.get(opts, :keep, 1)
     feed_dir = Path.join(dir, feed_key)
 
-    run_dirs =
-      case File.ls(feed_dir) do
-        {:ok, run_ids} ->
-          run_ids
-          |> Enum.map(&Path.join(feed_dir, &1))
-          |> Enum.filter(&File.dir?/1)
-          |> Enum.sort_by(&mtime/1, :desc)
-
-        _ ->
-          []
-      end
+    run_dirs = newest_run_dirs(feed_dir)
 
     extras = Enum.drop(run_dirs, max(keep, 0))
 
@@ -150,7 +140,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
 
   @doc """
   Reap orphaned per-run directories older than `max_age_seconds` across all feeds.
-  Always prunes nist-nvd2 down to `nist_keep` newest dirs first.
+  Always prunes nist-nvd2 and Ubuntu down to their executing-aware keep counts first.
   Safe to call on startup; never raises.
   """
   @spec reap_orphans(keyword()) :: {:ok, non_neg_integer()}
@@ -160,23 +150,39 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
     now = Keyword.get(opts, :now, System.system_time(:second))
     nist_keep = Keyword.get(opts, :nist_keep, 1)
 
-    {:ok, pruned} = prune_feed("nist-nvd2", root: dir, keep: nist_keep)
+    ubuntu_keep = Keyword.get(opts, :ubuntu_keep, 1)
+    {:ok, nist_pruned} = prune_feed("nist-nvd2", root: dir, keep: nist_keep)
+    {:ok, ubuntu_pruned} = prune_feed("ubuntu-osv-vex", root: dir, keep: ubuntu_keep)
+
+    protected =
+      [{"nist-nvd2", nist_keep}, {"ubuntu-osv-vex", ubuntu_keep}]
+      |> Enum.flat_map(fn {feed_key, keep} ->
+        dir
+        |> Path.join(feed_key)
+        |> newest_run_dirs()
+        |> Enum.take(max(keep, 0))
+      end)
+      |> MapSet.new()
 
     reaped =
       dir
       |> run_dirs()
       |> Enum.count(fn run_dir ->
-        case age_seconds(run_dir, now) do
-          age when age > max_age ->
-            File.rm_rf(run_dir)
-            true
+        if MapSet.member?(protected, run_dir) do
+          false
+        else
+          case age_seconds(run_dir, now) do
+            age when age > max_age ->
+              File.rm_rf(run_dir)
+              true
 
-          _ ->
-            false
+            _ ->
+              false
+          end
         end
       end)
 
-    {:ok, pruned + reaped}
+    {:ok, nist_pruned + ubuntu_pruned + reaped}
   rescue
     error ->
       Logger.warning("advisory_feeds: orphan reap failed: #{inspect(error)}")
@@ -194,6 +200,19 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Staging do
             _ -> []
           end
         end)
+
+      _ ->
+        []
+    end
+  end
+
+  defp newest_run_dirs(feed_dir) do
+    case File.ls(feed_dir) do
+      {:ok, run_ids} ->
+        run_ids
+        |> Enum.map(&Path.join(feed_dir, &1))
+        |> Enum.filter(&File.dir?/1)
+        |> Enum.sort_by(&mtime/1, :desc)
 
       _ ->
         []

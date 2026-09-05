@@ -8,9 +8,55 @@
 # database. This one points the MIGRATOR at the template that per-run database is cloned
 # from, so the 368 migrations are applied once and every later run gets them as a file copy.
 #
+# LOADED BY //elixir/serviceradar_core:migrate_template ONLY, and that target is invoked from
+# the trunk lifecycle alone. The template is shared by every run on the fixture and only
+# ratchets forward, so advancing it from a branch checkout writes that branch's unmerged
+# migrations into state every other branch reads -- which is how one branch's seven migrations
+# came to refuse a clone to every branch that lacked them. A branch applies its own migrations
+# to its own run base through :migrate_run and test/db/integration_env.exs instead.
+#
 # Keep the name in step with `TEMPLATE_DATABASE` in rust/integration-db/src/template.rs. The
 # two must agree exactly or the migrator advances a database nothing clones.
 template_database = "sr_core_template"
+
+# "Invoked from the trunk lifecycle alone" is checked here rather than assumed.
+#
+# Being named from one action in buildbuddy.yaml is a convention, and this migrator is the
+# single step that actually performs the ratchet -- so it is the step that has to refuse. It is
+# also reachable by hand: this crate's lifecycle is documented as runnable from a workstation
+# against the same shared CNPG fixture CI uses, so a work-in-progress migration on a developer's
+# machine could advance the fixture for everyone, from a machine no reviewer would think to look
+# at.
+#
+# `--//build:template_authority=true` is the caller declaring "this checkout is trunk". Read
+# from the SAME declared build input //rust/integration-db reads, staged where every
+# `ex_unit_test` input is staged -- see the comment in test/db/integration_env.exs for why that
+# path needs no repository name, and why there is no environment override.
+#
+# Fails CLOSED, exactly as `db::is_template_authority` does: an absent file, an empty one (what
+# an unset flag writes) or a mangled one all mean "not trunk", and the migration is refused
+# rather than pointed somewhere else. A caller that reached for :migrate_template meant the
+# template; silently migrating something else is how a run reports success for work it did not
+# do.
+authority_relative = "build/template_authority_file.txt"
+
+authority_tmpdir =
+  System.get_env("TEST_TMPDIR") ||
+    raise "TEST_TMPDIR unset: #{authority_relative} is staged by Bazel"
+
+authority_path = Path.join(authority_tmpdir, authority_relative)
+
+template_authority? =
+  File.exists?(authority_path) and String.trim(File.read!(authority_path)) == "trunk"
+
+if not template_authority? do
+  raise """
+  //elixir/serviceradar_core:migrate_template writes the SHARED template #{template_database}, \
+  which only a trunk checkout may do; pass --//build:template_authority=true if this checkout \
+  IS trunk. A branch applies its own migrations to its own run base instead: \
+  //rust/integration-db:provision_base, then //elixir/serviceradar_core:migrate_run.
+  """
+end
 
 # WHAT THIS REPLACED, and why it is not simply a smaller edit.
 #

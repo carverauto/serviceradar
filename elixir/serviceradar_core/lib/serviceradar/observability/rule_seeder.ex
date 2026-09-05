@@ -361,17 +361,32 @@ defmodule ServiceRadar.Observability.RuleSeeder do
       %{
         name: "endpoint_inventory_vulnerability",
         managed: true,
-        template_version: 1,
+        template_version: 2,
         description:
-          "Raise one active vulnerability incident per canonical endpoint device from endpoint inventory findings.",
+          "Raise one active vulnerability incident per endpoint package and CVE only when distro-aware adjudication confirms the installed package is affected, and clear it when that assessment resolves.",
         priority: 45,
         enabled: true,
         signal: :event,
         match: %{
-          "subject_prefix" => "signals.analytics.inventory",
-          "attribute_equals" => %{"signal_type" => "inventory"}
+          "subject_prefix" => "signals.analytics.inventory.vulnerability_assessment",
+          "attribute_equals" => %{
+            "signal_type" => "inventory",
+            "event_type" => "vulnerability_assessment",
+            "assessment_status" => "active",
+            "assessment" => "confirmed",
+            "disposition" => "affected",
+            "finding_status" => "open"
+          },
+          "recovery" => %{
+            "subject_prefix" => "signals.analytics.inventory.vulnerability_assessment",
+            "attribute_equals" => %{
+              "signal_type" => "inventory",
+              "event_type" => "vulnerability_assessment",
+              "finding_status" => "resolved"
+            }
+          }
         },
-        group_by: ["device"],
+        group_by: ["device", "package.identity_key", "cve_id"],
         threshold: 1,
         window_seconds: 300,
         bucket_seconds: 60,

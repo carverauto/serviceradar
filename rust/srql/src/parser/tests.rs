@@ -218,15 +218,27 @@ fn parses_advisory_entity_aliases() {
         ("advisory_cpes", Entity::AdvisoryCoordinates),
         ("cpe_coordinates", Entity::AdvisoryCoordinates),
         (
+            "endpoint_vulnerability_assessments",
+            Entity::EndpointVulnerabilityAssessments,
+        ),
+        (
+            "endpoint_vulnerability_assessment",
+            Entity::EndpointVulnerabilityAssessments,
+        ),
+        (
+            "package_vulnerabilities",
+            Entity::EndpointVulnerabilityAssessments,
+        ),
+        (
             "endpoint_vulnerability_matches",
-            Entity::EndpointVulnerabilityMatches,
+            Entity::EndpointVulnerabilityAssessments,
         ),
         (
             "vulnerability_matches",
-            Entity::EndpointVulnerabilityMatches,
+            Entity::EndpointVulnerabilityAssessments,
         ),
-        ("cve_matches", Entity::EndpointVulnerabilityMatches),
-        ("advisory_matches", Entity::EndpointVulnerabilityMatches),
+        ("cve_matches", Entity::EndpointVulnerabilityAssessments),
+        ("advisory_matches", Entity::EndpointVulnerabilityAssessments),
     ];
     for (raw, expected) in cases {
         let ast = parse(&format!("in:{raw} limit:1")).unwrap();
@@ -258,6 +270,69 @@ fn parses_merge_audit_chain_and_evidence_seed_tokens() {
         crate::parser::Entity::IdentityEvidenceEdges
     ));
     assert_eq!(ast.filters[0].field, "device");
+}
+
+#[test]
+fn promotes_vulnerability_assessment_text_wildcards_to_like() {
+    for field in [
+        "device_uid",
+        "device_id",
+        "agent_id",
+        "cve",
+        "cve_id",
+        "advisory_id",
+        "provider",
+        "feed_key",
+        "status",
+        "assessment",
+        "disposition",
+        "authority",
+        "applicability_reason",
+        "freshness",
+        "source_scope",
+        "package_identity_key",
+        "package_type",
+        "package_manager",
+        "ecosystem",
+        "package_namespace",
+        "namespace",
+        "package_release",
+        "release",
+        "distro",
+        "package_name",
+        "name",
+        "package_version",
+        "installed_version",
+        "version",
+        "package_purl",
+        "purl",
+        "purl_canonical",
+        "source_package",
+        "source_version",
+        "binary_package",
+        "architecture",
+        "version_scheme",
+        "fixed_version",
+        "severity",
+        "coordinate_type",
+        "coordinate_value",
+        "cpe",
+        "cpes",
+        "confidence",
+        "due_date",
+        "ransomware_use",
+    ] {
+        let query = format!("in:endpoint_vulnerability_assessments {field}:%needle%");
+        let ast = parse(&query).unwrap();
+
+        assert!(
+            matches!(ast.filters[0].op, FilterOp::Like),
+            "{field} must preserve contains/wildcard semantics: {query}"
+        );
+    }
+
+    let ast = parse("in:endpoint_vulnerability_assessments !package_name:%needle%").unwrap();
+    assert!(matches!(ast.filters[0].op, FilterOp::NotLike));
 }
 
 #[test]
@@ -423,6 +498,70 @@ fn parses_endpoint_inventory_scan_entity_aliases() {
             ast.entity,
             Entity::EndpointInventoryScans,
             "entity alias {raw}"
+        );
+    }
+}
+
+#[test]
+fn parses_sweep_groups_aliases() {
+    for alias in ["sweep_groups", "sweep_group", "sweeps"] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepGroups),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
+fn parses_sweep_profiles_aliases() {
+    for alias in [
+        "sweep_profiles",
+        "sweep_profile",
+        "scanner_profiles",
+        "scanner_profile",
+    ] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepProfiles),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
+fn parses_sweep_executions_aliases() {
+    for alias in [
+        "sweep_executions",
+        "sweep_execution",
+        "sweep_group_executions",
+    ] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepExecutions),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
+fn parses_sweep_results_aliases() {
+    for alias in ["sweep_results", "sweep_result", "sweep_host_results"] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepResults),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
+fn parses_sweep_coverage_aliases() {
+    for alias in ["sweep_coverage", "sweep_coverage_daily"] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::SweepCoverage),
+            "alias {alias} failed"
         );
     }
 }

@@ -5,68 +5,89 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryMatchGroupsTest do
 
   @moduletag :db_free
 
-  test "groups matches by package and collapses the same CVE across feeds" do
-    matches = [
-      match("m1", "sudo", "CVE-2025-32463", "cisa", "cisa-kev",
-        kev: true,
-        endpoint_package_ref: "pkg-sudo"
-      ),
-      match("m2", "sudo", "CVE-2025-32463", "vulncheck", "vulncheck-kev",
-        kev: true,
-        endpoint_package_ref: "pkg-sudo"
-      ),
-      match("m3", "sudo", "CVE-2021-3156", "cisa", "cisa-kev",
-        kev: true,
-        endpoint_package_ref: "pkg-sudo"
-      ),
-      match("m4", "openssl", "CVE-2014-0160", "cisa", "cisa-kev",
-        kev: true,
-        endpoint_package_ref: "pkg-openssl"
-      ),
-      match("m5", "openssl", "CVE-2014-0160", "vulncheck", "vulncheck-kev",
-        kev: true,
-        endpoint_package_ref: "pkg-openssl"
-      )
+  test "groups assessments by package without ranking a raw provider as authority" do
+    assessments = [
+      assessment("assessment-starling-a", "pkg-starling", "starling-fetch", "CVE-2099-4101"),
+      assessment("assessment-starling-b", "pkg-starling", "starling-fetch", "CVE-2099-4102"),
+      assessment("assessment-moonbeam", "pkg-moonbeam", "moonbeam", "CVE-2099-4201")
     ]
 
-    groups = EndpointInventoryMatchGroups.group(matches)
+    raw_matches = [
+      raw_match("raw-starling-cisa", "pkg-starling", "CVE-2099-4101", "cisa", "cisa-kev"),
+      raw_match("raw-starling-nvd", "pkg-starling", "CVE-2099-4101", "nvd", "nist-nvd2")
+    ]
 
-    assert groups |> Enum.map(& &1.package_name) |> Enum.sort() == ["openssl", "sudo"]
+    groups = EndpointInventoryMatchGroups.group(assessments, raw_matches)
 
-    sudo = Enum.find(groups, &(&1.package_name == "sudo"))
-    assert sudo.advisory_count == 2
-    assert sudo.cve_ids == ["CVE-2025-32463", "CVE-2021-3156"]
-    assert Enum.map(sudo.sources, & &1.provider) == ["cisa", "vulncheck"]
+    assert groups |> Enum.map(& &1.package_name) |> Enum.sort() == ["moonbeam", "starling-fetch"]
 
-    openssl = Enum.find(groups, &(&1.package_name == "openssl"))
-    assert openssl.advisory_count == 1
-    assert Enum.map(hd(openssl.advisories).feeds, & &1.provider) == ["cisa", "vulncheck"]
+    starling = Enum.find(groups, &(&1.package_name == "starling-fetch"))
+    assert starling.advisory_count == 2
+    assert starling.cve_ids == ["CVE-2099-4102", "CVE-2099-4101"]
+    assert Enum.map(starling.sources, & &1.provider) == ["ubuntu", "cisa", "nvd"]
+
+    first = Enum.find(starling.advisories, &(&1.cve_id == "CVE-2099-4101"))
+    assert first.primary.authority == "ubuntu:USN-2099-4101-1"
+    assert first.primary.provider == "ubuntu"
+    assert Enum.map(first.feeds, & &1.provider) == ["ubuntu", "cisa", "nvd"]
   end
 
-  test "finds a group by package key or by a member match id" do
-    matches = [
-      match("m1", "sudo", "CVE-2025-32463", "cisa", "cisa-kev", endpoint_package_ref: "pkg-sudo")
-    ]
+  test "finds a group by package key, assessment id, or supporting raw match id" do
+    assessment =
+      assessment(
+        "assessment-quartz",
+        "pkg-quartz",
+        "quartz",
+        "CVE-2099-4301"
+      )
 
-    [group] = EndpointInventoryMatchGroups.group(matches)
+    raw = raw_match("raw-quartz-nvd", "pkg-quartz", "CVE-2099-4301", "nvd", "nist-nvd2")
+    [group] = EndpointInventoryMatchGroups.group([assessment], [raw])
 
     assert EndpointInventoryMatchGroups.find([group], group.id).id == group.id
-    assert EndpointInventoryMatchGroups.find([group], "m1").id == group.id
+    assert EndpointInventoryMatchGroups.find([group], "assessment-quartz").id == group.id
+    assert EndpointInventoryMatchGroups.find([group], "raw-quartz-nvd").id == group.id
     assert EndpointInventoryMatchGroups.find([group], "missing") == nil
   end
 
-  defp match(id, name, cve, provider, feed_key, opts) do
+  defp assessment(id, package_ref, name, cve) do
     %{
       id: id,
+      endpoint_package_ref: package_ref,
+      cve_id: cve,
+      advisory_id: cve,
+      status: "active",
+      assessment: "confirmed",
+      disposition: "affected",
+      authority: "ubuntu:USN-#{String.trim_leading(cve, "CVE-")}-1",
+      applicability_reason: "exact distro package range",
+      freshness: "fresh",
+      provider: "ubuntu",
+      feed_key: "ubuntu-usn",
+      package_name: name,
+      package_manager: "dpkg",
+      package_release: "fixture-series",
+      installed_version: "3.2.1-1ubuntu99.7",
+      fixed_version: "3.2.1-1ubuntu99.8",
+      severity: "high",
+      cvss_score: 7.5,
+      kev: false,
+      exploit_available: false,
+      supporting_match_ids: []
+    }
+  end
+
+  defp raw_match(id, package_ref, cve, provider, feed_key) do
+    %{
+      id: id,
+      endpoint_package_ref: package_ref,
       cve_id: cve,
       advisory_id: cve,
       provider: provider,
       feed_key: feed_key,
-      kev: Keyword.get(opts, :kev, false),
-      exploit_available: Keyword.get(opts, :exploit_available, false),
-      endpoint_package_ref: Keyword.get(opts, :endpoint_package_ref),
-      evidence: %{"package" => %{"name" => name, "version" => "1.0", "package_manager" => "dpkg"}},
-      version_evidence: %{"installed_version" => "1.0"}
+      kev: provider == "cisa",
+      exploit_available: provider == "cisa",
+      metadata: %{}
     }
   end
 end

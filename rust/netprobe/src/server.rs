@@ -11,12 +11,13 @@ use anyhow::{Context, Result};
 use tokio::{
     net::{UnixListener, UnixStream},
     sync::mpsc::error::{TryRecvError, TrySendError},
-    sync::{Mutex, broadcast, watch},
+    sync::{Mutex, broadcast, mpsc, watch},
     time::{Instant, timeout},
 };
 
 use crate::{
     capabilities,
+    capture::service::{AfPacketActivator, BlockSender, CaptureService, StartedSession},
     event_queue::{EventReceiver, EventSender},
     external_flow::{ExternalFlowIngest, SharedExternalFlowMatcher},
     fingerprint::{
@@ -29,11 +30,21 @@ use crate::{
     metrics::Metrics,
     proto::netprobe::{
         ConfigAck, DeviceCensusSnapshot, ErrorFrame, ExternalFlowAck, ExternalFlowRecord,
-        FlowAttributionEvent, FlowAttributionEventBatch, MdnsSnapshot, NetprobeFrame, PingAck,
-        netprobe_frame,
+        FlowAttributionEvent, FlowAttributionEventBatch, MdnsSnapshot, NetprobeFrame, PcapngBlock,
+        PingAck, StartRemoteCapture, netprobe_frame,
     },
     runtime_config::RuntimeConfig,
 };
+
+/// How many encoded pcapng blocks may sit between the capture thread and the
+/// socket writer.
+///
+/// Bounded on purpose, and the backpressure is the point: a slow client makes
+/// the capture thread wait, the ring fills, and the kernel's drop counter
+/// records it -- which the terminal block reports as an incomplete capture.
+/// Dropping blocks instead would corrupt the pcapng stream silently, because a
+/// reader has no way to tell that a block is missing from the middle of a file.
+const CAPTURE_BLOCK_QUEUE: usize = 64;
 
 const FLOW_ATTRIBUTION_IPC_BATCH_MAX: usize = 256;
 // NetFlow correlation is delayed by exporter flush cadence, so sub-second IPC
@@ -51,6 +62,11 @@ pub struct IpcServer {
     external_flow_matcher: SharedExternalFlowMatcher,
     runtime_config: RuntimeConfig,
     metrics: Metrics,
+    /// `None` when netprobe holds no pre-opened capture descriptors, which is
+    /// the normal state with an empty `capture_interfaces`. A capture request
+    /// is then refused with a reason naming that, rather than failing deeper
+    /// with something an operator has to decode.
+    capture: Option<Arc<CaptureService<AfPacketActivator>>>,
 }
 
 impl IpcServer {
@@ -64,9 +80,11 @@ impl IpcServer {
         external_flow_matcher: SharedExternalFlowMatcher,
         runtime_config: RuntimeConfig,
         metrics: Metrics,
+        capture: Option<Arc<CaptureService<AfPacketActivator>>>,
     ) -> Self {
         Self {
             socket_path: socket_path.into(),
+            capture,
             active_client: Arc::new(AtomicBool::new(false)),
             flow_attribution_events,
             flow_attribution_rx: Arc::new(Mutex::new(flow_attribution_rx)),
@@ -82,6 +100,10 @@ impl IpcServer {
         prepare_socket(&self.socket_path)?;
         let listener = UnixListener::bind(&self.socket_path)
             .with_context(|| format!("failed to bind {}", self.socket_path.display()))?;
+        // Applied after bind, because the socket does not exist before it.
+        // Until this landed the mode was whatever the umask produced -- 0755
+        // under the usual 022, which is connectable by every local account.
+        crate::uds::restrict_to_owner(&self.socket_path, "the netprobe IPC socket")?;
 
         loop {
             tokio::select! {
@@ -92,6 +114,7 @@ impl IpcServer {
                 }
                 accepted = listener.accept() => {
                     let (stream, _) = accepted?;
+                    let peer = crate::uds::peer_credentials(&stream);
                     if self.active_client.swap(true, Ordering::SeqCst) {
                         tokio::spawn(async move {
                             let _ = reject_concurrent_client(stream).await;
@@ -107,6 +130,19 @@ impl IpcServer {
                     let external_flow_matcher = self.external_flow_matcher.clone();
                     let runtime_config = self.runtime_config.clone();
                     let metrics = self.metrics.clone();
+                    let capture = self.capture.clone();
+                    match peer {
+                        // Evidence, not authorization -- see
+                        // `crate::uds::PeerCredentials`. Logged at connect so
+                        // the journal on a captured host can say which local
+                        // process held the socket, independently of anything
+                        // the control plane records.
+                        Some(peer) => log::info!("netprobe IPC client connected: {peer}"),
+                        None => log::info!(
+                            "netprobe IPC client connected: peer credentials unavailable"
+                        ),
+                    }
+
                     tokio::spawn(async move {
                         let _guard = ActiveClientGuard(active_client);
                         let result = handle_client(
@@ -118,6 +154,7 @@ impl IpcServer {
                             external_flow_matcher,
                             runtime_config,
                             metrics,
+                            capture,
                         )
                         .await;
                         if let Err(err) = result {
@@ -174,9 +211,19 @@ async fn handle_client(
     external_flows: SharedExternalFlowMatcher,
     runtime_config: RuntimeConfig,
     metrics: Metrics,
+    capture: Option<Arc<CaptureService<AfPacketActivator>>>,
 ) -> Result<()> {
     let (mut reader, mut writer) = stream.into_split();
     let mut encode_buffer = Vec::new();
+
+    // Always present, even with no capture service, so the select below has one
+    // shape. An idle receiver costs a channel; an `Option` in a `select!` arm
+    // costs a guard on every branch and a way to get it wrong.
+    let (capture_tx, mut capture_blocks) = mpsc::channel::<PcapngBlock>(CAPTURE_BLOCK_QUEUE);
+    // Holding this is what keeps the session alive: dropping it cancels, so a
+    // client that disconnects tears the capture down without a separate path
+    // that has to remember to.
+    let mut active_capture: Option<StartedSession> = None;
 
     loop {
         tokio::select! {
@@ -184,6 +231,17 @@ async fn handle_client(
                 let Some(frame) = frame? else {
                     return Ok(());
                 };
+                if let Some(netprobe_frame::Payload::StartRemoteCapture(request)) = frame.payload {
+                    let response = start_capture(
+                        capture.as_deref(),
+                        &capture_tx,
+                        &mut active_capture,
+                        frame.sequence,
+                        request,
+                    );
+                    write_reused_frame(&mut writer, &response, &mut encode_buffer, &metrics).await?;
+                    continue;
+                }
                 if let Some(response) = response_for_frame(
                     frame,
                     &runtime_config,
@@ -192,6 +250,25 @@ async fn handle_client(
                     &flow_attribution_tx,
                 ).await? {
                     write_reused_frame(&mut writer, &response, &mut encode_buffer, &metrics).await?;
+                }
+            }
+            block = capture_blocks.recv() => {
+                let Some(block) = block else {
+                    // Only reachable if every sender is gone, which cannot
+                    // happen while `capture_tx` is alive in this scope.
+                    return Ok(());
+                };
+                let terminal = block.r#final;
+                let frame = NetprobeFrame {
+                    sequence: 0,
+                    payload: Some(netprobe_frame::Payload::PcapngBlock(block)),
+                };
+                write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
+                if terminal {
+                    // Released here rather than left to the client, so the
+                    // interface is available again the moment the session ends
+                    // instead of when its client happens to disconnect.
+                    active_capture = None;
                 }
             }
             event = recv_event(&flow_attribution_events) => {
@@ -421,6 +498,89 @@ fn census_max_payload_len() -> usize {
     MAX_FRAME_SIZE.saturating_sub(ENVELOPE_WORST_CASE)
 }
 
+/// Start a capture, or say why not.
+///
+/// Returns the frame to send back: the pcapng header carried on the request's
+/// own sequence number, so a client learns its request succeeded and gets the
+/// section header in one round trip, or an `ErrorFrame` with a stable code.
+/// Every subsequent block is unsolicited, at sequence 0.
+fn start_capture(
+    capture: Option<&CaptureService<AfPacketActivator>>,
+    blocks: &mpsc::Sender<PcapngBlock>,
+    active: &mut Option<StartedSession>,
+    sequence: u64,
+    request: StartRemoteCapture,
+) -> NetprobeFrame {
+    let Some(service) = capture else {
+        return capture_error_frame(
+            sequence,
+            "capture_unavailable",
+            "this netprobe holds no pre-opened capture descriptors; set capture_interfaces and restart it".to_string(),
+        );
+    };
+
+    // Checked here as well as in the service because this client already has a
+    // session: the service's own cap would refuse it, but with a message about
+    // some other session rather than about the one the client is already
+    // running.
+    if let Some(running) = active.as_ref() {
+        return capture_error_frame(
+            sequence,
+            "capture_session_active",
+            format!(
+                "this connection is already running capture session {}; one session at a time",
+                running.session_id
+            ),
+        );
+    }
+
+    match service.start(&request, CaptureBlockSink(blocks.clone())) {
+        Ok(started) => {
+            let header = PcapngBlock {
+                session_id: started.session_id.clone(),
+                bytes: started.header.bytes.clone(),
+                ..Default::default()
+            };
+            *active = Some(started);
+            NetprobeFrame {
+                sequence,
+                payload: Some(netprobe_frame::Payload::PcapngBlock(header)),
+            }
+        }
+        Err(err) => {
+            // Logged on the host as well as answered on the wire (design.md
+            // D8.6): a refusal is exactly the event an operator wants to see
+            // when someone is probing what this netprobe will capture.
+            log::warn!("capture session {} refused: {err:#}", request.session_id);
+            capture_error_frame(sequence, err.code(), format!("{err}"))
+        }
+    }
+}
+
+fn capture_error_frame(sequence: u64, code: &str, message: String) -> NetprobeFrame {
+    NetprobeFrame {
+        sequence,
+        payload: Some(netprobe_frame::Payload::Error(ErrorFrame {
+            code: code.to_string(),
+            message,
+        })),
+    }
+}
+
+/// Carries encoded blocks from the capture thread to this client's writer.
+///
+/// `blocking_send` rather than `try_send`: the capture thread is a plain OS
+/// thread, so blocking it is safe, and blocking is the correct response to a
+/// slow client. Dropping a block instead would leave a hole in the middle of a
+/// pcapng file that no reader can detect.
+struct CaptureBlockSink(mpsc::Sender<PcapngBlock>);
+
+impl BlockSender for CaptureBlockSink {
+    fn send(&mut self, block: PcapngBlock) -> bool {
+        self.0.blocking_send(block).is_ok()
+    }
+}
+
 async fn response_for_frame(
     frame: NetprobeFrame,
     runtime_config: &RuntimeConfig,
@@ -574,7 +734,10 @@ mod tests {
         sync::{broadcast, watch},
     };
 
-    use super::{IpcServer, ingest_external_flow_record};
+    use super::{
+        AfPacketActivator, CaptureService, ErrorFrame, IpcServer, StartRemoteCapture,
+        ingest_external_flow_record,
+    };
     use crate::external_flow::SharedExternalFlowMatcher;
     use crate::{
         config::Config,
@@ -609,6 +772,7 @@ mod tests {
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
+            None,
         );
         let task = tokio::spawn(server.run(shutdown_rx));
 
@@ -668,6 +832,7 @@ mod tests {
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
+            None,
         );
         let task = tokio::spawn(server.run(shutdown_rx));
 
@@ -704,6 +869,7 @@ mod tests {
             matcher,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
+            None,
         );
         let task = tokio::spawn(server.run(shutdown_rx));
 
@@ -742,6 +908,7 @@ mod tests {
             matcher.clone(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
+            None,
         );
         let task = tokio::spawn(server.run(shutdown_rx));
 
@@ -815,6 +982,7 @@ mod tests {
             matcher,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
+            None,
         );
         let task = tokio::spawn(server.run(shutdown_rx));
 
@@ -871,6 +1039,7 @@ mod tests {
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
+            None,
         );
         let task = tokio::spawn(server.run(shutdown_rx));
 
@@ -923,6 +1092,7 @@ mod tests {
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
+            None,
         );
         let task = tokio::spawn(server.run(shutdown_rx));
 
@@ -1030,6 +1200,7 @@ mod tests {
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
+            None,
         );
         let task = tokio::spawn(server.run(shutdown_rx));
 
@@ -1073,6 +1244,7 @@ mod tests {
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
+            None,
         );
         let task = tokio::spawn(server.run(shutdown_rx));
 
@@ -1104,6 +1276,181 @@ mod tests {
 
         shutdown_tx.send(true).unwrap();
         task.await.unwrap().unwrap();
+    }
+
+    /// The legacy IPC socket carries capture control, so its mode is the whole
+    /// local access control on it -- and until this test existed it was
+    /// whatever the umask happened to be.
+    ///
+    /// Pinned rather than trusted: a socket left at the default 0755 is
+    /// connectable by every local account, and nothing about that is visible
+    /// at runtime. `addon_service.rs` already pins its own socket this way and
+    /// its comment names this one as the gap.
+    #[tokio::test]
+    async fn the_ipc_socket_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
+        let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(
+            &socket,
+            flow_tx,
+            flow_rx,
+            census_tx,
+            mdns_tx,
+            test_external_flow_matcher(),
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+            None,
+        );
+        let task = tokio::spawn(server.run(shutdown_rx));
+        wait_for_socket(&socket).await;
+
+        let mode = std::fs::metadata(&socket).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "the IPC socket must not be reachable by other local accounts"
+        );
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    /// A capture service holding no descriptors.
+    ///
+    /// Buildable anywhere, including hosts with no AF_PACKET, because an empty
+    /// allowlist opens nothing. That is enough to exercise every refusal that
+    /// happens before a descriptor is touched -- which is all of them that an
+    /// operator can trigger by sending a bad request.
+    fn empty_capture_service() -> Arc<CaptureService<AfPacketActivator>> {
+        let handles = crate::capture::open_allowlisted_interfaces(
+            &Config::default(),
+            &crate::capture::AfPacketOpener,
+        )
+        .expect("an empty allowlist opens no sockets");
+        Arc::new(CaptureService::new(
+            Arc::new(std::sync::Mutex::new(handles)),
+            AfPacketActivator::default(),
+        ))
+    }
+
+    fn capture_request() -> StartRemoteCapture {
+        StartRemoteCapture {
+            session_id: "01JQ0000000000000000000000".to_string(),
+            actor: "operator@example.com".to_string(),
+            interfaces: vec!["eth0".to_string()],
+            filter: Some(
+                crate::proto::netprobe::start_remote_capture::Filter::FilterExpression(
+                    "tcp port 22".to_string(),
+                ),
+            ),
+            ..Default::default()
+        }
+    }
+
+    /// Drives one `StartRemoteCapture` over a real socket and returns the reply.
+    async fn capture_reply(
+        capture: Option<Arc<CaptureService<AfPacketActivator>>>,
+        request: StartRemoteCapture,
+    ) -> NetprobeFrame {
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
+        let (census_tx, _) = broadcast::channel(16);
+        let (mdns_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(
+            &socket,
+            flow_tx,
+            flow_rx,
+            census_tx,
+            mdns_tx,
+            test_external_flow_matcher(),
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+            capture,
+        );
+        let task = tokio::spawn(server.run(shutdown_rx));
+        wait_for_socket(&socket).await;
+
+        let mut client = UnixStream::connect(&socket).await.unwrap();
+        write_frame(
+            &mut client,
+            &NetprobeFrame {
+                sequence: 77,
+                payload: Some(netprobe_frame::Payload::StartRemoteCapture(request)),
+            },
+        )
+        .await
+        .unwrap();
+        let response = read_frame(&mut client).await.unwrap().unwrap();
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+        response
+    }
+
+    fn expect_capture_error(frame: &NetprobeFrame) -> &ErrorFrame {
+        match frame.payload.as_ref() {
+            Some(netprobe_frame::Payload::Error(err)) => err,
+            other => panic!("expected an ErrorFrame, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_capture_request_is_answered_rather_than_dropped() {
+        // The arm exists in the proto but nothing routed it until now. A frame
+        // that reaches no handler produces no reply at all, and a client
+        // waiting on one hangs instead of failing.
+        let response = capture_reply(Some(empty_capture_service()), capture_request()).await;
+        assert_eq!(
+            response.sequence, 77,
+            "the reply carries the request's sequence so a client can correlate it"
+        );
+        expect_capture_error(&response);
+    }
+
+    #[tokio::test]
+    async fn a_capture_on_an_interface_that_is_not_allowlisted_is_refused() {
+        let response = capture_reply(Some(empty_capture_service()), capture_request()).await;
+        let error = expect_capture_error(&response);
+        assert_eq!(error.code, "capture_interface_denied");
+        assert!(
+            error.message.contains("eth0"),
+            "the refusal names the interface: {}",
+            error.message
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unattributed_capture_request_is_refused_over_ipc() {
+        // design.md D8.7. Checked before the interface, so a request that
+        // bypassed the control plane is refused for that reason rather than
+        // for whatever else is also wrong with it.
+        let mut request = capture_request();
+        request.session_id = String::new();
+        let response = capture_reply(Some(empty_capture_service()), request).await;
+        assert_eq!(expect_capture_error(&response).code, "capture_unattributed");
+    }
+
+    #[tokio::test]
+    async fn a_netprobe_with_no_capture_descriptors_says_so() {
+        // The common misconfiguration: `capture_interfaces` was never set, so
+        // nothing was opened during the privileged phase. Without this the
+        // failure surfaces as an allowlist denial, which sends an operator to
+        // edit a list that is not the problem.
+        let response = capture_reply(None, capture_request()).await;
+        let error = expect_capture_error(&response);
+        assert_eq!(error.code, "capture_unavailable");
+        assert!(
+            error.message.contains("restart"),
+            "the message must say a restart is needed, since descriptors open only while privileged: {}",
+            error.message
+        );
     }
 
     async fn wait_for_socket(socket: &std::path::Path) {

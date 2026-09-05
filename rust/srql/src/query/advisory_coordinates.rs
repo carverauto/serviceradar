@@ -1,9 +1,9 @@
 //! SRQL `in:advisory_coordinates` / `in:advisory_cpes` / `in:cpe_coordinates`.
 
 use super::advisory::{
-    BuiltSql, bool_condition, execute_json, has_filter, is_selective_coordinate_query,
-    numeric_condition, order_sql, parse_count_stats, reject_downsample_and_rollup, stats_select,
-    text_condition, time_clause, to_sql_and_params as finish_sql, uuid_condition,
+    bool_condition, execute_json, has_filter, is_selective_coordinate_query, numeric_condition,
+    order_sql, parse_count_stats, reject_downsample_and_rollup, stats_order_sql, stats_select,
+    text_condition, time_clause, to_sql_and_params as finish_sql, uuid_condition, BuiltSql,
 };
 use super::{BindParam, QueryPlan};
 use crate::{
@@ -73,6 +73,7 @@ fn build_sql(plan: &QueryPlan) -> Result<BuiltSql> {
 
     if let Some(stats) = stats {
         let groups = resolve_stats_groups(&stats.group_fields)?;
+        let stats_order = stats_order_sql(&groups);
         let group_sql = if groups.is_empty() {
             String::new()
         } else {
@@ -89,19 +90,22 @@ fn build_sql(plan: &QueryPlan) -> Result<BuiltSql> {
         binds.push(BindParam::Int(plan.offset));
         return Ok(BuiltSql {
             sql: format!(
-                "{}{from_sql}{where_sql}{group_sql} ORDER BY COUNT(*) DESC LIMIT ? OFFSET ?",
+                "{}{from_sql}{where_sql}{group_sql}{stats_order} LIMIT ? OFFSET ?",
                 stats_select(&stats.alias, &groups)
             ),
             binds,
         });
     }
 
-    let order = order_sql(
-        &plan.order,
-        "c.cpe_vendor ASC NULLS LAST, c.cpe_product ASC NULLS LAST, c.value ASC",
-        order_column,
-        ENTITY,
-    )?;
+    let order = format!(
+        "{}, c.id ASC",
+        order_sql(
+            &plan.order,
+            "c.cpe_vendor ASC NULLS LAST, c.cpe_product ASC NULLS LAST, c.value ASC",
+            order_column,
+            ENTITY,
+        )?
+    );
     binds.push(BindParam::Int(plan.limit));
     binds.push(BindParam::Int(plan.offset));
     Ok(BuiltSql {
@@ -179,11 +183,9 @@ mod tests {
         assert!(sql.contains("a.cve_id = $"));
         assert!(sql.contains("c.coordinate_type = $"));
         assert!(sql.contains("version_start") || sql.contains("to_jsonb(c)"));
-        assert!(
-            binds
-                .iter()
-                .any(|bind| matches!(bind, BindParam::Text(value) if value == "CVE-2024-1234"))
-        );
+        assert!(binds
+            .iter()
+            .any(|bind| matches!(bind, BindParam::Text(value) if value == "CVE-2024-1234")));
     }
 
     #[test]
@@ -203,6 +205,21 @@ mod tests {
     }
 
     #[test]
+    fn row_orders_end_with_coordinate_id_for_stable_pagination() {
+        let (default_sql, _) =
+            to_sql_and_params(&plan_for_query("in:advisory_coordinates")).expect("sql");
+        assert!(default_sql.contains(
+            "ORDER BY c.cpe_vendor ASC NULLS LAST, c.cpe_product ASC NULLS LAST, c.value ASC, c.id ASC LIMIT"
+        ));
+
+        let (explicit_sql, _) = to_sql_and_params(&plan_for_query(
+            "in:advisory_coordinates sort:cvss_score:desc",
+        ))
+        .expect("sql");
+        assert!(explicit_sql.contains("ORDER BY a.cvss_score DESC NULLS LAST, c.id ASC LIMIT"));
+    }
+
+    #[test]
     fn unbounded_stats_are_rejected() {
         let plan = plan_for_query("in:advisory_coordinates stats:count() as n by cpe_vendor");
         let err = to_sql_and_params(&plan).unwrap_err();
@@ -215,10 +232,13 @@ mod tests {
     #[test]
     fn selective_stats_are_allowed() {
         let plan = plan_for_query(
-            "in:advisory_coordinates cpe_vendor:nginx cpe_product:nginx stats:count() as n by cve_id",
+            "in:advisory_coordinates cpe_vendor:nginx cpe_product:nginx stats:count() as n by cpe_vendor,cpe_product",
         );
         let (sql, _) = to_sql_and_params(&plan).expect("sql");
-        assert!(sql.contains("GROUP BY a.cve_id"));
+        assert!(sql.contains("GROUP BY c.cpe_vendor, c.cpe_product"));
+        assert!(sql.contains(
+            "ORDER BY COUNT(*) DESC, c.cpe_vendor ASC NULLS LAST, c.cpe_product ASC NULLS LAST LIMIT"
+        ));
         assert!(sql.contains("c.cpe_vendor = $"));
         assert!(sql.contains("c.cpe_product = $"));
     }

@@ -2,15 +2,20 @@
  * Copyright (c) "2026" . Marvin Hansen All Rights Reserved.
  */
 
-//! Provisions the per-run integration database, as a physical copy of the template.
+//! Provisions the per-lane integration databases, as physical copies of the run base.
 //!
-//! Replaces `scripts/reset-test-db.sh`. Runs after
-//! `//rust/integration-db:prepare_template` (and, when migrations are pending,
-//! `//elixir/serviceradar_core:migrate_template`), and before the suite itself.
+//! Replaces `scripts/reset-test-db.sh`. Runs after `//rust/integration-db:provision_base`
+//! (and, when migrations are pending, `//elixir/serviceradar_core:migrate_run`), and before
+//! the suite itself.
 //!
 //! This step used to create an empty database and install extensions into it, leaving the
-//! 368 migrations to run per run. It now clones a template that already holds them, so the
+//! 368 migrations to run per run. It now clones a base that already holds them, so the
 //! schema arrives as a file copy and the BEAM is off the critical path entirely.
+//!
+//! The source used to be the shared template directly. It is the run base now, because a
+//! branch's own migrations must be applied somewhere -- and applying them to the shared
+//! template left them visible to every other branch, which wedged CI for everyone whose
+//! checkout lacked them. See `src/template.rs`.
 //!
 //! # How this test functions
 //!
@@ -79,50 +84,44 @@ fn provisions_the_integration_database() {
 }
 
 async fn run() -> anyhow::Result<()> {
+    // The RUN BASE, not the shared template. //rust/integration-db:provision_base seeded it and
+    // //elixir/serviceradar_core:migrate_run brought it up to this checkout; the lanes are
+    // physical copies of it. The shared template is never a source here, which is what keeps a
+    // branch's unmerged migrations out of state every other branch reads.
     let database = db::database_name()?;
     // The suite connects as this role, so it must own the database outright -- Ash creates
     // and drops tables during migrations. Derived from the DSN; see `db::database_owner`.
     let owner = db::database_owner()?;
 
-    // Fail loudly rather than cloning a template that is behind the migrations on disk: the
+    // Fail loudly rather than cloning a base that does not match the migrations on disk: the
     // suite would then run against a schema that does not match the code under test, and the
-    // failures would point anywhere but here.
-    let pending = db::template::pending_versions(&db::template::migrations_dir()).await?;
-    if !pending.is_empty() {
-        anyhow::bail!(
-            "template {} is behind by {} migration(s), starting at {}; run \
-             //elixir/serviceradar_core:migrate_template first",
-            db::template::TEMPLATE_DATABASE,
-            pending.len(),
-            pending[0]
-        );
-    }
+    // failures would point anywhere but here. Both directions, and both are broken invariants
+    // by this point -- provision_base and migrate_run run immediately before this step.
+    let drift =
+        db::template::migration_drift_of(&database, &db::template::migrations_dir()).await?;
+    db::template::ensure_current(&database, &drift)?;
 
     // One database per selected shard. The suite runs as parallel Bazel targets and Ecto's SQL
     // sandbox does not isolate across OS processes, so sharing one database deadlocks. Shard
     // names arrive through the target environment from //build:integration_shards.bzl, which
     // the Elixir side reads as SERVICERADAR_TEST_DB_SHARD -- both derive the same names from it.
     //
-    // No args means the unsharded database, which keeps the target usable by hand.
+    // No shards means the suite runs against the base itself, which keeps the target usable by
+    // hand. There is nothing to clone in that case: provision_base already built it.
     let shards = shards()?;
 
     if shards.is_empty() {
-        println!(
-            "cloning {database} from {} (owner {owner})",
-            db::template::TEMPLATE_DATABASE
-        );
-        db::template::clone_from_template(&database, &owner).await?;
+        println!("no shards selected; the suite runs against the run base {database} directly");
     } else {
         println!(
-            "cloning {} shard database(s) from {} (owner {owner})",
+            "cloning {} shard database(s) from run base {database} (owner {owner})",
             shards.len(),
-            db::template::TEMPLATE_DATABASE
         );
 
         for shard in &shards {
             let name = db::shard_database_name(shard)?;
             println!("  {name}");
-            db::template::clone_from_template(&name, &owner).await?;
+            db::template::clone_database(&database, &name, &owner).await?;
         }
     }
 

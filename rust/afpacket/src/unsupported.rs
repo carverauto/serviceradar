@@ -34,12 +34,20 @@ impl Socket {
         unreachable!("a Socket cannot be constructed off Linux")
     }
 
+    /// Mirrors the Linux signature exactly, including handing the descriptor
+    /// back in the error. A shim whose whole purpose is "callers compile off
+    /// Linux" fails at that the moment its signature differs, and the
+    /// difference shows up as a confusing type error in the caller rather than
+    /// here.
     pub fn activate(
         self,
         _config: RingConfig,
         _filter: &[(u16, u8, u8, u32)],
-    ) -> Result<Ring, Error> {
-        Err(Error::Unsupported)
+    ) -> Result<Ring, ActivateError> {
+        Err(ActivateError {
+            socket: self,
+            error: Error::Unsupported,
+        })
     }
 }
 
@@ -78,6 +86,10 @@ impl Ring {
 
     pub fn refresh_stats(&mut self) -> Result<Stats, Error> {
         Err(Error::Unsupported)
+    }
+
+    pub fn wait(&self, _timeout: std::time::Duration) -> bool {
+        unreachable!("a Ring cannot be constructed off Linux")
     }
 
     pub fn drain_block<F>(&mut self, _visit: F) -> Option<usize>

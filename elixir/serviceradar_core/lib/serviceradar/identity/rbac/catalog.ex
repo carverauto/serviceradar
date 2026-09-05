@@ -1076,6 +1076,16 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
       label: "Network Ops",
       permissions: [
         %{
+          key: "networks.sweeps.view",
+          section: "networks",
+          resource: "networks.sweeps",
+          action: "view",
+          label: "View sweep diagnostics",
+          description:
+            "View sweep group configuration, execution history, and per-host sweep results",
+          default_roles: @all_roles
+        },
+        %{
           key: "networks.sweeps.run",
           section: "networks",
           resource: "networks.sweeps",

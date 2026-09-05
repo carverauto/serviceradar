@@ -77,6 +77,41 @@ the next run. `blocked_component_devices` lists the device uids of each componen
 it declined to merge; seed `in:identity_evidence_edges device:` with one of them
 to see why.
 
+## Sweep diagnostics
+
+Declared sweep configuration plus its execution/result history. Requires
+`networks.sweeps.view`. `in:sweep_results` is pruned at a 7-day retention
+default -- an empty result on an older window means "outside the retention
+window", not "no sweep activity"; query `in:sweep_coverage` for the daily
+rollup, which survives much longer.
+
+```
+in:sweep_groups partition:default enabled:true
+in:sweep_profiles name:%rids%
+in:sweep_results device_id:<device-uid> time:last_24h sort:inserted_at:desc
+in:sweep_results time:last_7d
+in:sweep_coverage device_uid:<device-uid> time:last_90d sort:day:desc
+in:sweep_executions sweep_group_id:<uuid> sort:started_at:desc
+```
+
+- `in:sweep_groups partition:default enabled:true` -- which sweep groups are
+  enabled in a given partition, and what they are configured to scan.
+- `in:sweep_profiles name:%rids%` -- find a scan profile (ports, timing,
+  banner-grab settings) by name. Profiles flagged `admin_only` are excluded
+  from this entity for every role, and `admin_only` is not an accepted filter
+  field -- a profile absent here may still exist and be in use, so treat it as
+  "restricted", not "no such profile".
+- `in:sweep_results device_id:<device-uid> time:last_24h sort:inserted_at:desc`
+  -- what did the last 24h of sweeps find for one device (open ports,
+  reachability, per-host errors)?
+- `in:sweep_results time:last_7d` -- every per-host sweep result within the
+  retention window, across all devices.
+- `in:sweep_coverage device_uid:<device-uid> time:last_90d sort:day:desc` --
+  the daily coverage rollup for one device beyond the 7-day result window: how
+  often it was scanned and available, day by day.
+- `in:sweep_executions sweep_group_id:<uuid> sort:started_at:desc` -- the run
+  history of one sweep group: status, duration, and host counts per run.
+
 ## Events and logs
 
 ```
@@ -177,24 +212,32 @@ in:otel_metrics is_slow:true time:last_1h sort:timestamp:desc
 in:traces status_code:2 time:last_1h sort:timestamp:desc
 ```
 
-## Advisories, CPEs, and vulnerability matches
+## Advisories, CPEs, and vulnerability assessments
 
-Catalog and matcher tables, not OCSF occurrence rows.
+Catalog and assessment tables, not OCSF occurrence rows.
 
 ```
 in:cves cve:CVE-2024-1234
 in:advisories kev:true cvss_score:>=9.0 sort:cvss_score:desc
 in:advisory_coordinates cve:CVE-2024-1234 coordinate_type:cpe
 in:advisory_cpes cpe_vendor:nginx cpe_product:nginx
-in:cve_matches kev:true sort:cvss_score:desc
+in:cve_matches status:active assessment:confirmed disposition:affected kev:true sort:cvss_score:desc
 in:cve_matches cve:CVE-2024-1234
+in:cve_matches assessment:candidate
+in:cve_matches status:resolved
+in:cve_matches stats:count() as audit_rows
+in:cve_matches status:active assessment:confirmed disposition:affected stats:count() as exposed
 in:devices kev:true
 in:endpoint_packages cve:CVE-2024-1234 current:true
 ```
 
-`in:cves` is the NVD/KEV catalog. `in:cve_matches` is which of *our* devices
-the matcher marked affected. `in:security_findings cve:` is the OCSF event
-stream (occurrences), not the catalog. Installed software CPEs stay on
+`in:cves` is the NVD/KEV catalog. `in:cve_matches` is an alias for stable
+device/package/CVE assessments. Row browsing includes confirmed, candidate, and
+resolved states unless filtered; no active-only predicate is implicit. An
+unqualified `stats:count()` counts persisted audit/state rows, not exposures.
+Only `status:active assessment:confirmed disposition:affected` rows or counts
+are actionable. `in:security_findings cve:` is the OCSF event stream
+(occurrences), not the catalog. Installed software CPEs stay on
 `in:endpoint_packages cpe:` / `rollup_stats:current_cpe_counts`. Do not use
 `in:cpes`. Version-range evaluation is not done in SRQL; query matches for
 exposure, coordinates for catalog evidence.

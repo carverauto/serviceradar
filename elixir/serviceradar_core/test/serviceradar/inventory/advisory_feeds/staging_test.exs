@@ -84,4 +84,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StagingTest do
     refute File.exists?(older.run_dir)
     assert File.exists?(newer.run_dir)
   end
+
+  test "reap_orphans never age-reaps the executing Ubuntu run it was told to keep", %{root: root} do
+    {:ok, executing} = Staging.prepare_run("ubuntu-osv-vex", "executing", root)
+    now = System.system_time(:second)
+    File.touch!(executing.run_dir, now - 3 * 60 * 60)
+
+    assert {:ok, 0} =
+             Staging.reap_orphans(
+               root: root,
+               now: now,
+               max_age_seconds: 2 * 60 * 60,
+               ubuntu_keep: 1
+             )
+
+    assert File.exists?(executing.run_dir)
+  end
 end

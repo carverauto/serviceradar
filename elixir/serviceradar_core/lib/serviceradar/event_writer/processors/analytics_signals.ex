@@ -14,10 +14,12 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Automation.Northbound.EventHandlerRunner
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
+  alias ServiceRadar.Inventory.EndpointVulnerabilityAssessment
   alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
   alias ServiceRadar.Observability.AnomalyDispositionReporter
   alias ServiceRadar.Observability.BmpSettingsRuntime
@@ -40,10 +42,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   @ocsf_detection_finding_class_uid 2004
   @ocsf_findings_category_uid 2
   @ocsf_vulnerability_finding_type_uid 200_201
+  @ocsf_vulnerability_finding_update_type_uid 200_202
+  @ocsf_vulnerability_finding_close_type_uid 200_203
   @ocsf_detection_finding_type_uid 200_401
   @ocsf_create_activity_id 1
   @structured_series_key_pattern ~r/^v\d+[:|]/
   @legacy_anomaly_class1008_env "SERVICERADAR_ANOMALY_LEGACY_CLASS1008"
+  @inventory_vulnerability_lifecycle_lock_prefix "serviceradar:inventory-vulnerability-lifecycle:"
   # Anomaly lifecycle states that represent a CONFIRMED-open anomaly (surface the
   # finding) versus its resolution (surface the clear so downstream alert state
   # machines can close it). Every other anomaly.state value (pending_anomaly, clean,
@@ -135,6 +140,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       bulk_ocsf_count = insert_rows(table_name(), bulk_ocsf_rows)
       recorded_ocsf_events = record_ocsf_events(ash_ocsf_rows)
 
+      dispatch_northbound_inventory_transitions(recorded_ocsf_events)
       enqueue_alert_evaluation(bulk_ocsf_rows, bulk_ocsf_count)
       enqueue_alert_evaluation(recorded_ocsf_events, length(recorded_ocsf_events))
 
@@ -234,12 +240,19 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       )
     end)
 
-    {causal_rows, insert_only_rows} = Enum.split_with(valid_rows, &causal_prediction_row?/1)
+    {inventory_vulnerability_rows, other_rows} =
+      Enum.split_with(valid_rows, &inventory_vulnerability_lifecycle_row?/1)
+
+    {causal_rows, insert_only_rows} = Enum.split_with(other_rows, &causal_prediction_row?/1)
 
     insert_only_rows = record_insert_only_ocsf_events(insert_only_rows)
+
+    inventory_vulnerability_rows =
+      record_inventory_vulnerability_ocsf_events(inventory_vulnerability_rows)
+
     causal_rows = record_causal_prediction_ocsf_events(causal_rows)
 
-    insert_only_rows ++ causal_rows
+    insert_only_rows ++ inventory_vulnerability_rows ++ causal_rows
   end
 
   defp record_insert_only_ocsf_events([]), do: []
@@ -261,6 +274,173 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     |> Enum.filter(&MapSet.member?(inserted_keys, ocsf_event_conflict_key(&1)))
     |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
   end
+
+  defp record_inventory_vulnerability_ocsf_events([]), do: []
+
+  defp record_inventory_vulnerability_ocsf_events(rows) when is_list(rows) do
+    rows = dedupe_rows_by_conflict_key(rows, &ocsf_event_id_key/1)
+
+    # Transition detection reads the prior row before replacing it. Serialize that
+    # read/write pair by stable event identity so concurrent redeliveries cannot
+    # both observe the same prior state and publish the same transition.
+    {:ok, transition_rows} =
+      ServiceRadar.Repo.transaction(fn ->
+        acquire_inventory_vulnerability_lifecycle_locks(rows)
+        record_inventory_vulnerability_ocsf_events_locked(rows)
+      end)
+
+    transition_rows
+  end
+
+  defp record_inventory_vulnerability_ocsf_events_locked(rows) do
+    existing = existing_inventory_vulnerability_lifecycle(rows)
+
+    aligned_rows =
+      rows
+      |> Enum.filter(&persist_inventory_vulnerability_lifecycle?(&1, existing))
+      |> Enum.map(&prepare_inventory_vulnerability_lifecycle(&1, existing))
+
+    transition_keys =
+      aligned_rows
+      |> Enum.filter(&inventory_vulnerability_transition?(&1, existing))
+      |> MapSet.new(&ocsf_event_conflict_key/1)
+
+    {_count, upserted_rows} =
+      BulkInsert.insert_all(table_name(), aligned_rows,
+        on_conflict: {:replace, @ocsf_event_replace_fields},
+        conflict_target: @ocsf_event_conflict_target,
+        returning: @ocsf_event_conflict_target
+      )
+
+    upserted_keys = MapSet.new(Enum.map(upserted_rows, &ocsf_event_conflict_key/1))
+
+    aligned_rows
+    |> Enum.filter(fn row ->
+      key = ocsf_event_conflict_key(row)
+      MapSet.member?(transition_keys, key) and MapSet.member?(upserted_keys, key)
+    end)
+    |> dedupe_rows_by_conflict_key(&ocsf_event_conflict_key/1)
+  end
+
+  defp acquire_inventory_vulnerability_lifecycle_locks(rows) do
+    rows
+    |> Enum.map(&ocsf_event_id_key/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    # A batch can carry more than one assessment. A stable acquisition order
+    # prevents two overlapping batches from deadlocking each other.
+    |> Enum.sort()
+    |> Enum.each(fn event_id ->
+      ServiceRadar.Repo.query!(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [@inventory_vulnerability_lifecycle_lock_prefix <> event_id]
+      )
+    end)
+  end
+
+  defp existing_inventory_vulnerability_lifecycle(rows) do
+    ids =
+      rows
+      |> Enum.map(&ocsf_event_id_key/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+      |> Enum.map(&uuid_to_binary/1)
+      |> Enum.reject(&is_nil/1)
+
+    if ids == [] do
+      %{}
+    else
+      sql = """
+      SELECT DISTINCT ON (id) id::text, time, status
+      FROM platform.ocsf_events
+      WHERE id = ANY($1::uuid[])
+      ORDER BY id, time ASC
+      """
+
+      %{rows: result_rows} = ServiceRadar.Repo.query!(sql, [ids])
+
+      Map.new(result_rows, fn [id, time, status] ->
+        {uuid_conflict_value(id), %{time: normalize_existing_time(time), status: status}}
+      end)
+    end
+  end
+
+  defp inventory_vulnerability_transition?(row, existing) do
+    new_status = vulnerability_lifecycle_status(Map.get(row, :status))
+
+    case Map.get(existing, ocsf_event_id_key(row)) do
+      nil -> new_status == :open
+      %{status: old_status} -> vulnerability_lifecycle_status(old_status) != new_status
+    end
+  end
+
+  defp persist_inventory_vulnerability_lifecycle?(row, existing) do
+    new_status = vulnerability_lifecycle_status(Map.get(row, :status))
+
+    case Map.get(existing, ocsf_event_id_key(row)) do
+      nil ->
+        new_status == :open
+
+      %{status: old_status} ->
+        old_status = vulnerability_lifecycle_status(old_status)
+        not (old_status == :resolved and new_status == :resolved)
+    end
+  end
+
+  defp prepare_inventory_vulnerability_lifecycle(row, existing) do
+    existing_row = Map.get(existing, ocsf_event_id_key(row))
+
+    row =
+      case existing_row do
+        %{time: %DateTime{} = time} -> %{row | time: time}
+        _ -> row
+      end
+
+    case {existing_row, vulnerability_lifecycle_status(Map.get(row, :status))} do
+      {nil, :open} ->
+        %{
+          row
+          | activity_id: 1,
+            activity_name: "Create",
+            type_uid: @ocsf_vulnerability_finding_type_uid
+        }
+
+      {_existing, :open} ->
+        %{
+          row
+          | activity_id: 2,
+            activity_name: "Update",
+            type_uid: @ocsf_vulnerability_finding_update_type_uid
+        }
+
+      {_existing, :resolved} ->
+        %{
+          row
+          | activity_id: 3,
+            activity_name: "Close",
+            type_uid: @ocsf_vulnerability_finding_close_type_uid
+        }
+
+      _ ->
+        row
+    end
+  end
+
+  defp vulnerability_lifecycle_status(status) when is_binary(status) do
+    case normalize_event_type(status) do
+      value when value in ["open", "active"] -> :open
+      value when value in ["resolved", "closed", "fixed", "not_affected"] -> :resolved
+      value -> value
+    end
+  end
+
+  defp vulnerability_lifecycle_status(status), do: status
+
+  defp normalize_existing_time(%DateTime{} = time), do: time
+
+  defp normalize_existing_time(%NaiveDateTime{} = time), do: DateTime.from_naive!(time, "Etc/UTC")
+
+  defp normalize_existing_time(time), do: time
 
   defp record_causal_prediction_ocsf_events([]), do: []
 
@@ -446,6 +626,51 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     |> Enum.map(&Map.fetch!(latest_by_key, &1))
   end
 
+  defp dispatch_northbound_inventory_transitions(ocsf_rows) when is_list(ocsf_rows) do
+    ocsf_rows
+    |> Enum.filter(&inventory_vulnerability_lifecycle_row?/1)
+    |> Enum.each(&dispatch_northbound_inventory_transition/1)
+  end
+
+  defp dispatch_northbound_inventory_transition(row) do
+    event = alert_evaluation_row(row)
+
+    case northbound_event_handler_runner().handle_event(event) do
+      {:ok, _results} ->
+        :ok
+
+      result ->
+        Logger.warning("Failed to run northbound event handlers for inventory transition",
+          event_id: Map.get(event, :id),
+          reason: inspect(result)
+        )
+    end
+  rescue
+    exception ->
+      Logger.warning("Failed to run northbound event handlers for inventory transition",
+        event_id: ocsf_event_id_key(row),
+        reason: Exception.format(:error, exception, __STACKTRACE__)
+      )
+
+      :ok
+  catch
+    kind, reason ->
+      Logger.warning("Failed to run northbound event handlers for inventory transition",
+        event_id: ocsf_event_id_key(row),
+        reason: Exception.format(kind, reason, __STACKTRACE__)
+      )
+
+      :ok
+  end
+
+  defp northbound_event_handler_runner do
+    Application.get_env(
+      :serviceradar_core,
+      :northbound_event_handler_runner,
+      EventHandlerRunner
+    )
+  end
+
   defp enqueue_alert_evaluation(_ocsf_rows, inserted_count)
        when not is_integer(inserted_count) or inserted_count <= 0,
        do: :ok
@@ -482,6 +707,11 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp inventory_vulnerability_finding_row?(_row), do: false
+
+  defp inventory_vulnerability_lifecycle_row?(row) do
+    inventory_vulnerability_finding_row?(row) and
+      row_value(row, "event_type") == "vulnerability_assessment"
+  end
 
   defp causal_prediction_row?(%{class_uid: @ocsf_detection_finding_class_uid} = row) do
     signal_type = row_value(row, "signal_type")
@@ -913,44 +1143,76 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp build_inventory_vulnerability_finding_row(normalized, payload, raw_data, metadata) do
-    case payload_device_uid(payload) do
-      nil ->
-        nil
+    with true <- inventory_assessment_finding_allowed?(payload),
+         device_uid when is_binary(device_uid) <- payload_device_uid(payload) do
+      severity_id = normalized["severity_id"] || 0
+      {activity_id, activity_name, type_uid} = inventory_vulnerability_activity(payload)
 
-      device_uid ->
-        severity_id = normalized["severity_id"] || 0
+      %{
+        id: Ecto.UUID.dump!(normalized["event_identity"]),
+        time: normalized["event_time"],
+        class_uid: @ocsf_vulnerability_finding_class_uid,
+        category_uid: @ocsf_findings_category_uid,
+        type_uid: type_uid,
+        activity_id: activity_id,
+        activity_name: activity_name,
+        severity_id: severity_id,
+        severity: severity_name(severity_id),
+        message: inventory_vulnerability_message(payload),
+        status_id: nil,
+        status: payload["status"] || payload["finding_status"] || "open",
+        status_code: nil,
+        status_detail: payload["status_detail"] || payload["transition_reason"],
+        metadata: inventory_vulnerability_metadata(normalized, payload),
+        observables: [],
+        trace_id: nil,
+        span_id: nil,
+        actor: %{},
+        device: %{"uid" => device_uid},
+        src_endpoint: %{},
+        dst_endpoint: %{},
+        log_name: metadata[:subject],
+        log_provider: payload["provider"] || payload["source"] || "endpoint_inventory",
+        log_level: payload["level"],
+        log_version: payload["version"] || @schema_version,
+        unmapped: payload,
+        raw_data: normalize_raw_data(raw_data),
+        created_at: DateTime.utc_now()
+      }
+    else
+      _ -> nil
+    end
+  end
 
-        %{
-          id: Ecto.UUID.dump!(normalized["event_identity"]),
-          time: normalized["event_time"],
-          class_uid: @ocsf_vulnerability_finding_class_uid,
-          category_uid: @ocsf_findings_category_uid,
-          type_uid: @ocsf_vulnerability_finding_type_uid,
-          activity_id: @ocsf_create_activity_id,
-          activity_name: "Create",
-          severity_id: severity_id,
-          severity: severity_name(severity_id),
-          message: inventory_vulnerability_message(payload),
-          status_id: nil,
-          status: payload["status"] || payload["finding_status"] || "open",
-          status_code: nil,
-          status_detail: payload["status_detail"],
-          metadata: inventory_vulnerability_metadata(normalized, payload),
-          observables: [],
-          trace_id: nil,
-          span_id: nil,
-          actor: %{},
-          device: %{"uid" => device_uid},
-          src_endpoint: %{},
-          dst_endpoint: %{},
-          log_name: metadata[:subject],
-          log_provider: payload["provider"] || payload["source"] || "endpoint_inventory",
-          log_level: payload["level"],
-          log_version: payload["version"] || @schema_version,
-          unmapped: payload,
-          raw_data: normalize_raw_data(raw_data),
-          created_at: DateTime.utc_now()
-        }
+  defp inventory_assessment_finding_allowed?(payload) do
+    if normalize_event_type(payload["event_type"] || payload["eventType"]) ==
+         "vulnerability_assessment" do
+      case normalize_event_type(payload["status"] || payload["finding_status"]) do
+        status when status in ["resolved", "closed"] ->
+          true
+
+        status when status in ["open", "active"] ->
+          EndpointVulnerabilityAssessment.actionable?(%{
+            status: payload["assessment_status"],
+            assessment: payload["assessment"],
+            disposition: payload["disposition"]
+          })
+
+        _ ->
+          false
+      end
+    else
+      true
+    end
+  end
+
+  defp inventory_vulnerability_activity(payload) do
+    case normalize_event_type(payload["status"] || payload["finding_status"]) do
+      status when status in ["resolved", "closed"] ->
+        {3, "Close", @ocsf_vulnerability_finding_close_type_uid}
+
+      _ ->
+        {@ocsf_create_activity_id, "Create", @ocsf_vulnerability_finding_type_uid}
     end
   end
 
@@ -1676,7 +1938,13 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     |> Map.put("vulnerability_finding", %{
       "cve" => vulnerability_id(payload),
       "cvss_score" => cvss_score(payload),
-      "package" => package_context(payload)
+      "package" => package_context(payload),
+      "assessment_ref" => payload["assessment_ref"],
+      "assessment" => payload["assessment"],
+      "disposition" => payload["disposition"],
+      "authority" => payload["authority"],
+      "freshness" => payload["freshness"],
+      "transition_reason" => payload["transition_reason"]
     })
   end
 

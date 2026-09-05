@@ -140,7 +140,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntimeTest do
 
     assert socket.assigns.show_endpoint_inventory_package_modal == true
     assert socket.assigns.endpoint_inventory_selected_package.id == "pkg-1"
-    assert socket.assigns.endpoint_inventory_selected_package_matches == []
+    assert socket.assigns.endpoint_inventory_selected_package_assessment_details.assessments == []
   end
 
   test "ignores open request for an unknown package id" do
@@ -164,24 +164,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntimeTest do
         &(&1
           |> Map.put(:show_endpoint_inventory_package_modal, true)
           |> Map.put(:endpoint_inventory_selected_package, %{id: "pkg-1"})
-          |> Map.put(:endpoint_inventory_selected_package_matches, [%{id: "match-1"}]))
+          |> Map.put(:endpoint_inventory_selected_package_assessment_details, %{
+            assessments: [%{id: "assessment-1"}],
+            supporting_matches: [],
+            supporting_matches_total: 0,
+            supporting_matches_truncated?: false
+          }))
       )
       |> EndpointInventoryRuntime.close_package_detail()
 
     assert socket.assigns.show_endpoint_inventory_package_modal == false
     assert socket.assigns.endpoint_inventory_selected_package == nil
-    assert socket.assigns.endpoint_inventory_selected_package_matches == []
+    assert socket.assigns.endpoint_inventory_selected_package_assessment_details.assessments == []
   end
 
-  test "opens the match detail modal from a loaded vulnerability row" do
-    match = %{
-      id: "match-1",
-      cve_id: "CVE-2025-32463",
-      advisory_id: "CVE-2025-32463",
-      provider: "cisa",
-      feed_key: "cisa-kev",
+  test "opens the match detail modal from a loaded assessment row" do
+    assessment = %{
+      id: "assessment-starling",
+      cve_id: "CVE-2099-4101",
+      advisory_id: "CVE-2099-4101",
+      status: "active",
+      assessment: "confirmed",
+      disposition: "affected",
+      authority: "ubuntu:USN-2099-4101-1",
+      applicability_reason: "exact synthetic distro package range",
+      freshness: "fresh",
+      provider: "ubuntu",
+      feed_key: "ubuntu-usn",
       kev: true,
-      evidence: %{"package" => %{"name" => "sudo", "version" => "1.9.15p5"}}
+      package_name: "starling-fetch",
+      package_manager: "dpkg",
+      installed_version: "3.2.1-1ubuntu99.7",
+      supporting_match_ids: []
     }
 
     socket =
@@ -189,23 +203,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntimeTest do
       |> EndpointInventoryRuntime.assign_defaults()
       |> Map.update!(
         :assigns,
-        &Map.put(&1, :endpoint_inventory_vulnerability_matches, [match])
+        &Map.put(&1, :endpoint_inventory_vulnerability_assessments, %{
+          confirmed: %{rows: [assessment], total: 1},
+          candidates: %{rows: [], total: 0},
+          history: %{rows: [], total: 0}
+        })
       )
-      |> EndpointInventoryRuntime.open_match_detail("match-1")
+      |> EndpointInventoryRuntime.open_match_detail("assessment-starling")
 
     assert socket.assigns.show_endpoint_inventory_match_modal == true
     group = socket.assigns.endpoint_inventory_selected_match_group
-    assert group.package_name == "sudo"
-    assert Enum.map(group.advisories, & &1.cve_id) == ["CVE-2025-32463"]
+    assert group.package_name == "starling-fetch"
+    assert Enum.map(group.advisories, & &1.cve_id) == ["CVE-2099-4101"]
   end
 
-  test "ignores open request for an unknown match id" do
+  test "ignores open request for an unknown assessment id" do
     socket =
       socket()
       |> EndpointInventoryRuntime.assign_defaults()
       |> Map.update!(
         :assigns,
-        &Map.put(&1, :endpoint_inventory_vulnerability_matches, [%{id: "match-1"}])
+        &Map.put(&1, :endpoint_inventory_vulnerability_assessments, %{
+          confirmed: %{rows: [%{id: "assessment-quartz", package_name: "quartz"}], total: 1},
+          candidates: %{rows: [], total: 0},
+          history: %{rows: [], total: 0}
+        })
       )
       |> EndpointInventoryRuntime.open_match_detail("missing")
 

@@ -905,4 +905,146 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    /// Sweep group definitions: which devices a group targets, on what
+    /// schedule, and via which agent(s) (issue 4167).
+    sweep_groups (id) {
+        id -> Uuid,
+        name -> Text,
+        description -> Nullable<Text>,
+        partition -> Text,
+        agent_id -> Nullable<Text>,
+        agent_ids -> Array<Text>,
+        enabled -> Bool,
+        interval -> Text,
+        schedule_type -> Text,
+        cron_expression -> Nullable<Text>,
+        static_targets -> Array<Text>,
+        ports -> Nullable<Array<Int8>>,
+        sweep_modes -> Nullable<Array<Text>>,
+        emit_availability_events -> Bool,
+        last_run_at -> Nullable<Timestamptz>,
+        profile_id -> Nullable<Uuid>,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        target_query -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    /// Sweep scan profiles: port lists, timing, and banner-grab settings
+    /// applied to sweep groups (issue 4167).
+    ///
+    /// The raw `banner_grab` jsonb column (timeouts, concurrency, rate
+    /// limits, queue sizes, per-protocol ports) is deliberately NOT declared
+    /// here. Only `enabled`/`protocols` carry diagnostic value, and omission
+    /// from this `table!` block is this crate's real withholding mechanism —
+    /// see `query/sweep_profiles.rs::select_tuple`, which selects the two
+    /// narrowed fields as SQL expressions instead of the bare column, so the
+    /// narrowing happens once, in SQL, and is visible on every consumer path
+    /// (issue 4167 review finding 2).
+    sweep_profiles (id) {
+        id -> Uuid,
+        name -> Text,
+        description -> Nullable<Text>,
+        ports -> Array<Int8>,
+        sweep_modes -> Array<Text>,
+        concurrency -> Int8,
+        timeout -> Text,
+        icmp_settings -> Jsonb,
+        tcp_settings -> Jsonb,
+        admin_only -> Bool,
+        enabled -> Bool,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    /// Individual runs of a sweep group: status, timing, and result counts
+    /// for a single scheduled or ad-hoc sweep execution (issue 4167).
+    sweep_group_executions (id) {
+        id -> Uuid,
+        status -> Text,
+        started_at -> Nullable<Timestamptz>,
+        completed_at -> Nullable<Timestamptz>,
+        duration_ms -> Nullable<Int8>,
+        hosts_total -> Nullable<Int8>,
+        hosts_available -> Nullable<Int8>,
+        hosts_failed -> Nullable<Int8>,
+        error_message -> Nullable<Text>,
+        agent_id -> Nullable<Text>,
+        config_version -> Nullable<Text>,
+        sweep_group_id -> Uuid,
+        scanner_metrics -> Jsonb,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        banner_grab_summary -> Jsonb,
+    }
+}
+
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    /// Per-host results from a sweep execution: reachability, open vs.
+    /// scanned ports, and the requested-vs-observed sweep modes record
+    /// (issue 4167).
+    sweep_host_results (id) {
+        id -> Uuid,
+        ip -> Text,
+        hostname -> Nullable<Text>,
+        status -> Text,
+        response_time_ms -> Nullable<Int8>,
+        sweep_modes_results -> Jsonb,
+        open_ports -> Array<Int8>,
+        error_message -> Nullable<Text>,
+        execution_id -> Uuid,
+        device_id -> Nullable<Text>,
+        inserted_at -> Timestamptz,
+        scanned_ports -> Array<Int8>,
+        agent_id -> Nullable<Text>,
+        sweep_group_id -> Nullable<Uuid>,
+    }
+}
+
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    /// Daily rollup of sweep coverage per device/IP: how many times a host
+    /// was scanned, its port coverage, and requested-vs-observed sweep
+    /// modes for that day (issue 4167).
+    sweep_coverage_daily (id) {
+        id -> Uuid,
+        day -> Date,
+        device_uid -> Nullable<Text>,
+        ip -> Text,
+        sweep_group_id -> Nullable<Uuid>,
+        agent_id -> Nullable<Text>,
+        execution_count -> Int8,
+        available_count -> Int8,
+        unavailable_count -> Int8,
+        error_count -> Int8,
+        first_seen_at -> Timestamptz,
+        last_seen_at -> Timestamptz,
+        scanned_ports -> Array<Int8>,
+        open_ports -> Array<Int8>,
+        modes_requested -> Array<Text>,
+        modes_observed -> Array<Text>,
+        last_status -> Nullable<Text>,
+        last_response_time_ms -> Nullable<Int8>,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
 diesel::allow_tables_to_appear_in_same_query!(device_identifiers, ocsf_devices);

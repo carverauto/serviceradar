@@ -19,8 +19,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
   incremental decoder (Jaxon) or a `jq -c` NDJSON pre-split here without touching
   callers — they consume the `Stream` this module returns.
 
-  All readers return a `Stream` of `{:ok, record}` so the caller can chunk and
-  bulk-load without holding the whole feed.
+  Readers return a stream of `{:ok, record}` or an explicit `{:error, reason}`.
+  A caller can therefore reject an incomplete snapshot instead of silently
+  promoting the subset that happened to be readable.
   """
 
   require Logger
@@ -31,9 +32,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
   """
   @spec stream_nvd_shards(Path.t()) :: Enumerable.t()
   def stream_nvd_shards(dir) do
-    dir
-    |> shard_paths()
-    |> Stream.flat_map(&stream_shard/1)
+    case shard_paths(dir) do
+      {:ok, paths} -> Stream.flat_map(paths, &stream_shard/1)
+      {:error, reason} -> [{:error, {:read_error, dir, reason}}]
+    end
   end
 
   @doc """
@@ -47,7 +49,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
   def stream_json_file(path, opts \\ []) do
     case read_json(path) do
       {:ok, decoded} -> records_from(decoded, opts)
-      {:error, reason} -> raise "failed to decode #{path}: #{inspect(reason)}"
+      {:error, reason} -> [{:error, classify_error(path, reason)}]
     end
   end
 
@@ -59,7 +61,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
   def records_from_binary(binary, opts \\ []) do
     case Jason.decode(binary) do
       {:ok, decoded} -> records_from(decoded, opts)
-      {:error, reason} -> raise "failed to decode binary: #{inspect(reason)}"
+      {:error, reason} -> [{:error, {:parse_error, "binary", reason}}]
     end
   end
 
@@ -79,36 +81,39 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
   defp shard_paths(dir) do
     case File.ls(dir) do
       {:ok, names} ->
-        names
-        |> Enum.filter(&(String.ends_with?(&1, ".json.gz") or String.ends_with?(&1, ".json")))
-        |> Enum.sort()
-        |> Enum.map(&Path.join(dir, &1))
+        paths =
+          names
+          |> Enum.filter(&(String.ends_with?(&1, ".json.gz") or String.ends_with?(&1, ".json")))
+          |> Enum.sort()
+          |> Enum.map(&Path.join(dir, &1))
+
+        {:ok, paths}
 
       {:error, reason} ->
         Logger.warning("advisory_feeds: cannot list shard dir #{dir}: #{inspect(reason)}")
-        []
+        {:error, reason}
     end
   end
 
   defp stream_shard(path) do
     case File.read(path) do
       {:ok, binary} ->
-        records =
-          if String.ends_with?(path, ".gz") do
-            records_from_gzip(binary)
-          else
-            binary |> Jason.decode!() |> Map.get("vulnerabilities", []) |> List.wrap()
-          end
+        try do
+          decoded =
+            if String.ends_with?(path, ".gz") do
+              binary |> :zlib.gunzip() |> Jason.decode!()
+            else
+              Jason.decode!(binary)
+            end
 
-        Enum.map(records, &{:ok, &1})
+          records_from(decoded, records_key: "vulnerabilities")
+        rescue
+          error -> [{:error, {:parse_error, path, Exception.message(error)}}]
+        end
 
       {:error, reason} ->
-        # Listing the dir and reading each shard is not atomic. A mid-run
-        # cleanup (or a sibling core replica sharing the RWO volume) can
-        # unlink a shard after File.ls/1. Skip it instead of crashing the
-        # whole nist-nvd2 job.
-        Logger.warning("advisory_feeds: skip shard #{path}: #{inspect(reason)}")
-        []
+        Logger.warning("advisory_feeds: unreadable shard #{path}: #{inspect(reason)}")
+        [{:error, {:read_error, path, reason}}]
     end
   end
 
@@ -129,13 +134,16 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.StreamReader do
       is_map(decoded) ->
         key = Keyword.get(opts, :records_key, "vulnerabilities")
 
-        decoded
-        |> Map.get(key, [])
-        |> List.wrap()
-        |> Stream.map(&{:ok, &1})
+        case Map.fetch(decoded, key) do
+          {:ok, records} when is_list(records) -> Stream.map(records, &{:ok, &1})
+          _ -> [{:error, {:invalid_records, key}}]
+        end
 
       true ->
-        []
+        [{:error, {:invalid_records, Keyword.get(opts, :records_key, "vulnerabilities")}}]
     end
   end
+
+  defp classify_error(path, %Jason.DecodeError{} = reason), do: {:parse_error, path, reason}
+  defp classify_error(path, reason), do: {:read_error, path, reason}
 end

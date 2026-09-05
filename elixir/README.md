@@ -50,7 +50,7 @@ bazel build //elixir/serviceradar_core:erlang_app   # just one app
 | --- | --- | --- |
 | `elixir/datasvc` | `erlang_app` | gRPC data service |
 | `elixir/serviceradar_srql` | `erlang_app` | Wraps the `srql_nif` Rust NIF |
-| `elixir/serviceradar_core` | `erlang_app`, `unit_tests`, `integration_tests_async`, `integration_tests_serial_0..serial_6`, `migrate_template`, `migrations` | The big one; ~2700 unit + ~1570 integration tests |
+| `elixir/serviceradar_core` | `erlang_app`, `unit_tests`, `integration_tests_async`, `integration_tests_serial_0..serial_6`, `migrate_run`, `migrate_template`, `migrations` | The big one; ~2700 unit + ~1570 integration tests |
 | `elixir/serviceradar_agent_gateway` | `erlang_app`, `unit_tests`, `release_tar` | |
 | `elixir/web-ng` | `erlang_app`, `unit_tests`, `deps_cache`, `precommit`, `release_tar` | Phoenix; see `elixir/web-ng/AGENTS.md` |
 | `elixir/serviceradar_core_elx` | `release_tar` | Release wrapper, no `mix_app` |
@@ -376,9 +376,9 @@ Bazel deliberately does not order tests, so sequencing is the caller's job:
 
 ```
 //rust/integration-db:sweep_stale_dbs     drop leaked databases from previous runs
-//rust/integration-db:prepare_template    create the template if absent; report if it is behind
-//elixir/serviceradar_core:migrate_template   only when behind; the only step that needs the BEAM
-//rust/integration-db:provision_db_async  clone the async lane database from the template
+//rust/integration-db:provision_base      seed sr_core_test_<run> from the template; report if it is behind
+//elixir/serviceradar_core:migrate_run    only when behind; the only step that needs the BEAM
+//rust/integration-db:provision_db_async  clone the async lane database from the run base
 //elixir/serviceradar_core:integration_tests_async
 //rust/integration-db:provision_db_serial_0..serial_6
 //elixir/serviceradar_core:integration_tests_serial_0..serial_6
@@ -388,10 +388,48 @@ Bazel deliberately does not order tests, so sequencing is the caller's job:
 Pair a provision and test target with the exact same suffix. These targets are for disposable
 `srql-fixtures` clones only; never substitute demo or production.
 
-`migrate_template` is the only piece that must run on the BEAM, because the migrations are
+The migrator is the only piece that must run on the BEAM, because the migrations are
 `use Ecto.Migration` modules and only `Ecto.Migrator` can apply them. Everything else --
 creating databases, extensions, AGE graphs, sweeping, teardown -- is Rust, which starts in
 0.1s where the BEAM target costs 30-45s before it does anything.
+
+#### The template is a cache of trunk's schema, and only trunk writes it
+
+`sr_core_template` is shared by every run on the fixture and only ratchets forward, so a run
+that migrates it changes what every later run clones. That write belongs to trunk alone, and
+lives in one place: the `LargeIngestionGate` action, which triggers on a push to `staging`, runs
+`//rust/integration-db:prepare_template` and then `//elixir/serviceradar_core:migrate_template`.
+
+It is the only action that may, and that is enforced by the targets rather than by where they
+are named. All three template writers -- those two plus `//rust/integration-db:reset_template` --
+refuse unless the caller passes `--//build:template_authority=true`, the checkout declaring
+itself to be trunk. `LargeIngestionGate` passes it; `//:ci_heavy_gate_contract_test` fails if
+any other action does. The decision reaches Rust and Elixir as the same staged file
+(`//build:template_authority_file`), for the reason the run id does: several invocations must
+agree, and ambient environment lets them differ. It fails closed -- an absent, empty or mangled
+marker is a refusal -- so the worst a mistake costs is a loud stop.
+
+Every other lifecycle -- BazelCI included, and BazelCI only ever runs on a branch -- applies its
+own migrations to its **run base** instead. `provision_base` seeds `sr_core_test_<run>` from the
+template, `migrate_run` brings that one database up to the checkout, and the lane databases are
+cloned from it. A branch's migrations therefore never become visible to another branch.
+
+That split is a fix, not a preference. While every action shared one destination, a branch with
+seven unmerged migrations advanced the template, and from then on every branch whose checkout
+lacked them was refused a clone -- correctly, since it would otherwise have run against a future
+schema, but the branch that paid was never the branch that caused it.
+
+Two consequences worth knowing:
+
+- If `provision_base` reports the template **AHEAD** of your checkout, it does not fail. It
+  builds the run base from nothing and says so; the run costs a full schema build and the shared
+  template is left untouched. A cache that cannot be used is a cache miss, not an outage.
+- `bazel run //rust/integration-db:reset_template` drops the template so the next trunk run
+  rebuilds it, and needs `--//build:template_authority=true` from a trunk checkout. The trunk
+  lifecycle already does this automatically when `prepare_template` reports it ahead, which is
+  the only context where "ahead of this checkout" and "ahead of the schema of record" mean the
+  same thing. Do not add the flag on a branch to make a refusal go away -- it is a statement
+  about the checkout, and a branch that sets it recreates the outage this split fixed.
 
 ### Tags
 
@@ -639,8 +677,9 @@ Profiling does not change lane membership. Update an audited disposition only wh
 isolation semantics change; controlled BuildBuddy cohorts remain acceptance evidence.
 
 **4. If you added a migration**, nothing special: migrations are append-only and
-`Ecto.Migrator` tracks what it applied, so `prepare_template` notices the template is behind
-and `migrate_template` advances it by exactly that migration.
+`Ecto.Migrator` tracks what it applied, so `provision_base` notices the run base is behind and
+`migrate_run` advances it by exactly that migration. Your migration reaches the shared template
+only once it is on `staging`, applied there by the trunk lifecycle.
 
 Two rules for migrations that this tier enforces the hard way:
 
@@ -769,7 +808,7 @@ On Apple Silicon the image is `linux/amd64` and runs under emulation; Docker pri
 warning, which is expected.
 
 Then create the owner role. A fresh `initdb` has only `postgres`, and
-`//rust/integration-db:{prepare_template,provision_db_async,provision_db_serial_0..serial_6}`
+`//rust/integration-db:{provision_base,provision_db_async,provision_db_serial_0..serial_6}`
 create every database owned by the
 **user in `SRQL_TEST_DATABASE_URL`** -- `serviceradar` for the DSN below:
 
@@ -872,7 +911,9 @@ reads Rust sources.
 | `40P01 deadlock_detected` across integration groups | Two lanes sharing a database. Check the matching `provision_db_async` or `provision_db_serial_*` target ran first. |
 | Integration suite green having run zero tests | Fixture URL absent, so `test_helper` took the no-database branch. The `manual` tag exists to prevent this. |
 | `42501 must be owner of schema platform` | Admin DSN has no password; see [Running things locally](#running-things-locally). |
-| `template ... is behind by N migration(s)` | Run `//elixir/serviceradar_core:migrate_template`. |
+| `run base ... does not match this checkout` | The migrate step did not run. Run `//elixir/serviceradar_core:migrate_run` before `provision_db`. |
+| `template ... is AHEAD of this checkout` | Not fatal: `provision_base` builds the base from nothing instead. If the named versions are on `staging`, rebase. If they are on no landed branch, `bazel run //rust/integration-db:reset_template` from a trunk checkout. |
+| `writes the SHARED template sr_core_template, which only a trunk checkout may do` | Working as intended on a branch. Use the run base: `//rust/integration-db:provision_base`, then `//elixir/serviceradar_core:migrate_run`. Do not pass `--//build:template_authority=true` to get past it. |
 | `the application :X has a different value set for key :Y during runtime compared to compile time` | A Hex dependency read `Y` with `compile_env` and was compiled without it. Add it to `HEX_COMPILE_ENV_CONFIG` in `//build:hex_compile_env.bzl`. Never `validate_compile_env: false` -- see [Compile-time config a dependency reads](#compile-time-config-a-dependency-reads). |
 | `undefined function config/2` while compiling a Hex package | That package's `config/config.exs` exists but is empty, so nothing imported `Config`. `mix_app` handles this; if you see it, the guard regressed. |
 | `function config/2 imported from both Config and Mix.Config` | That package uses the deprecated `use Mix.Config`. Same guard, other direction. |
