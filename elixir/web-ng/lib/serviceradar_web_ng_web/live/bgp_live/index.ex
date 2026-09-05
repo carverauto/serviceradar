@@ -33,6 +33,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
     {:ok,
      socket
      |> assign(:page_title, "BGP Routing")
+     |> assign(:bgp_live?, false)
      |> assign(:srql, %{enabled: false, page_path: "/observability/bgp"})}
   end
 
@@ -43,6 +44,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
     source_protocol = Map.get(params, "source_protocol")
     selected_as = parse_int(Map.get(params, "as"))
     selected_community = parse_int(Map.get(params, "community"))
+    live? = next_bgp_live_state(socket, params)
 
     socket =
       socket
@@ -50,15 +52,50 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
       |> assign(:source_protocol, source_protocol)
       |> assign(:selected_as, selected_as)
       |> assign(:selected_community, selected_community)
+      |> assign(:bgp_live?, live?)
+      |> assign(:bgp_params, tracked_bgp_params(params))
+      |> assign(:_bgp_loaded, true)
       |> load_bgp_statistics()
 
     {:noreply, socket}
   end
 
+  # Live tailing survives only while the operator stays on the same filter set:
+  # any filter navigation turns the tail off.
+  defp next_bgp_live_state(socket, params) do
+    if Map.get(socket.assigns, :_bgp_loaded, false) and
+         tracked_bgp_params(params) != Map.get(socket.assigns, :bgp_params, %{}) do
+      false
+    else
+      Map.get(socket.assigns, :bgp_live?, false)
+    end
+  end
+
+  defp tracked_bgp_params(params) when is_map(params) do
+    Map.take(params, ["time_range", "source_protocol", "as", "community"])
+  end
+
+  defp tracked_bgp_params(_), do: %{}
+
   @impl true
   def handle_info({:bgp_observation, _action, _observation_id, _metadata}, socket) do
-    # Refresh data when new BGP observations arrive
-    {:noreply, load_bgp_statistics(socket)}
+    # Refresh on new BGP observations only while live tailing is on.
+    {:noreply,
+     if(Map.get(socket.assigns, :bgp_live?, false),
+       do: load_bgp_statistics(socket),
+       else: socket
+     )}
+  end
+
+  @impl true
+  def handle_event("toggle_bgp_live", _params, socket) do
+    socket = assign(socket, :bgp_live?, !Map.get(socket.assigns, :bgp_live?, false))
+
+    {:noreply,
+     if(Map.get(socket.assigns, :bgp_live?, false),
+       do: load_bgp_statistics(socket),
+       else: socket
+     )}
   end
 
   @impl true
@@ -178,7 +215,14 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
           </div>
 
           <!-- Filters -->
-          <div class="flex gap-3">
+          <div class="flex items-center gap-3">
+            <.live_toggle_button
+              id="bgp-live-toggle"
+              toggle_event="toggle_bgp_live"
+              live?={@bgp_live?}
+              start_title="Start live BGP refresh"
+              pause_title="Pause live BGP refresh"
+            />
             <!-- Time Range Selector -->
             <select
               phx-change="change_time_range"
@@ -305,6 +349,38 @@ defmodule ServiceRadarWebNGWeb.BGPLive.Index do
         <% end %>
       </div>
     </Layouts.app>
+    """
+  end
+
+  # Live on/off toggle matching the observability logs live-feed pattern.
+  attr(:id, :string, required: true)
+  attr(:toggle_event, :string, required: true)
+  attr(:live?, :boolean, default: false)
+  attr(:start_title, :string, required: true)
+  attr(:pause_title, :string, required: true)
+
+  defp live_toggle_button(assigns) do
+    assigns =
+      assigns
+      |> assign(:toggle_title, if(assigns.live?, do: assigns.pause_title, else: assigns.start_title))
+      |> assign(:toggle_badge_variant, if(assigns.live?, do: "success", else: "ghost"))
+      |> assign(:toggle_variant, if(assigns.live?, do: "primary", else: "outline"))
+
+    ~H"""
+    <.ui_button
+      id={@id}
+      phx-click={@toggle_event}
+      variant={@toggle_variant}
+      size="xs"
+      active={@live?}
+      class="rounded-full gap-2"
+      title={@toggle_title}
+    >
+      <span class="text-xs font-medium">Live</span>
+      <.ui_badge id={"#{@id}-status"} size="xs" variant={@toggle_badge_variant}>
+        {if @live?, do: "On", else: "Off"}
+      </.ui_badge>
+    </.ui_button>
     """
   end
 

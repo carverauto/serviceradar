@@ -70,6 +70,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.OtlpAttributes
   alias ServiceRadar.EventWriter.SignalTelemetry
+  alias ServiceRadar.Observability.OtelPubSub
 
   require Logger
 
@@ -137,6 +138,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
       )
 
     SignalTelemetry.emit(:traces, :written, count)
+    OtelPubSub.broadcast_traces(%{count: count})
     {:ok, count}
   end
 

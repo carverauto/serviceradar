@@ -4,25 +4,35 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadar.Observability.CausalPubSub
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   @default_limit 50
   @max_limit 200
+  @refresh_debounce_ms 5_000
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, CausalPubSub.topic())
+    end
+
     {:ok,
      socket
      |> assign(:page_title, "BMP Events")
      |> assign(:bmp_events, [])
      |> assign(:limit, @default_limit)
      |> assign(:summary, empty_summary())
+     |> assign(:bmp_live?, false)
+     |> assign(:current_params, %{})
      |> stream(:bmp_events, [], dom_id: &bmp_event_dom_id/1)
      |> SRQLPage.init("bmp_events", default_limit: @default_limit)}
   end
 
   @impl true
   def handle_params(params, uri, socket) do
+    live? = next_bmp_live_state(socket, params)
+
     socket = SRQLPage.load_list(socket, params, uri, :bmp_events, default_limit: @default_limit, max_limit: @max_limit)
 
     summary = compute_summary(socket.assigns.bmp_events)
@@ -30,8 +40,27 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
     {:noreply,
      socket
      |> stream(:bmp_events, socket.assigns.bmp_events, reset: true, dom_id: &bmp_event_dom_id/1)
-     |> assign(:summary, summary)}
+     |> assign(:summary, summary)
+     |> assign(:bmp_live?, live?)
+     |> assign(:current_params, params)}
   end
+
+  # Live tailing survives only on the head of the same result set: a cursor
+  # (or paged position) means the operator navigated, so the tail turns off.
+  defp next_bmp_live_state(socket, params) do
+    cond do
+      has_cursor_param?(params) -> false
+      Map.get(socket.assigns, :pagination_page, 1) > 1 -> false
+      true -> Map.get(socket.assigns, :bmp_live?, false)
+    end
+  end
+
+  defp has_cursor_param?(params) when is_map(params) do
+    value = Map.get(params, "cursor")
+    is_binary(value) and String.trim(value) != ""
+  end
+
+  defp has_cursor_param?(_), do: false
 
   @impl true
   def handle_event("srql_change", params, socket) do
@@ -72,11 +101,16 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
 
   def handle_event("srql_paginate", params, socket) do
     socket =
-      SRQLPage.handle_event(socket, "srql_paginate", params,
-        list_assign_key: :bmp_events,
-        default_limit: @default_limit,
-        max_limit: @max_limit
-      )
+      socket
+      # Paging is session position — drop live tailing.
+      |> assign(:bmp_live?, false)
+      |> then(fn sock ->
+        SRQLPage.handle_event(sock, "srql_paginate", params,
+          list_assign_key: :bmp_events,
+          default_limit: @default_limit,
+          max_limit: @max_limit
+        )
+      end)
 
     summary = compute_summary(socket.assigns.bmp_events)
 
@@ -84,6 +118,73 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
      socket
      |> stream(:bmp_events, socket.assigns.bmp_events, reset: true, dom_id: &bmp_event_dom_id/1)
      |> assign(:summary, summary)}
+  end
+
+  def handle_event("toggle_bmp_live", _params, socket) do
+    socket = assign(socket, :bmp_live?, !Map.get(socket.assigns, :bmp_live?, false))
+
+    {:noreply,
+     if(Map.get(socket.assigns, :bmp_live?, false),
+       do: refresh_bmp_head(socket),
+       else: socket
+     )}
+  end
+
+  @impl true
+  def handle_info({:causal_signal_ingested, _event}, socket) do
+    # Causal signal batches carry BMP routing rows, so an ingest pulse can
+    # surface newly arrived BMP events — but only while live tailing is on.
+    {:noreply, maybe_schedule_live_refresh(socket)}
+  end
+
+  @impl true
+  def handle_info({:debounced_refresh}, socket) do
+    socket = assign(socket, :_refresh_timer, nil)
+    {:noreply, maybe_refresh_head(socket)}
+  end
+
+  defp maybe_schedule_live_refresh(socket) do
+    if Map.get(socket.assigns, :bmp_live?, false) and
+         is_nil(Map.get(socket.assigns, :_refresh_timer)) do
+      timer = Process.send_after(self(), {:debounced_refresh}, @refresh_debounce_ms)
+      assign(socket, :_refresh_timer, timer)
+    else
+      socket
+    end
+  end
+
+  defp maybe_refresh_head(socket) do
+    if Map.get(socket.assigns, :bmp_live?, false) do
+      refresh_bmp_head(socket)
+    else
+      socket
+    end
+  end
+
+  # Live refresh reuses the active query and drops cursor/page position so the
+  # tail returns to the head of the result set.
+  defp refresh_bmp_head(socket) do
+    query = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query, "")
+
+    params =
+      socket.assigns
+      |> Map.get(:current_params, %{})
+      |> Map.put("q", query)
+      |> Map.drop(["limit", "cursor", "page"])
+
+    uri = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:page_path, "/observability/bmp")
+
+    socket =
+      SRQLPage.load_list(socket, params, uri, :bmp_events,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+
+    summary = compute_summary(socket.assigns.bmp_events)
+
+    socket
+    |> stream(:bmp_events, socket.assigns.bmp_events, reset: true, dom_id: &bmp_event_dom_id/1)
+    |> assign(:summary, summary)
   end
 
   @impl true
@@ -114,9 +215,25 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
 
         <.ui_panel>
           <:header>
-            <div class="text-sm font-semibold tracking-tight text-sr-ink">BMP Stream</div>
-            <div class="text-xs text-sr-muted tabular-nums">
-              {length(@bmp_events)} row{if length(@bmp_events) == 1, do: "", else: "s"}
+            <div class="min-w-0">
+              <div class="text-sm font-semibold tracking-tight text-sr-ink">BMP Stream</div>
+              <div class="text-xs leading-relaxed text-sr-muted">
+                {if @bmp_live?,
+                  do: "Streaming newest BMP routing updates.",
+                  else: "Newest BMP routing events first."}
+              </div>
+            </div>
+            <div class="flex flex-wrap items-center justify-end gap-2">
+              <div class="text-xs text-sr-muted tabular-nums">
+                {length(@bmp_events)} row{if length(@bmp_events) == 1, do: "", else: "s"}
+              </div>
+              <.live_toggle_button
+                id="bmp-live-toggle"
+                toggle_event="toggle_bmp_live"
+                live?={@bmp_live?}
+                start_title="Start live BMP streaming"
+                pause_title="Pause live BMP streaming"
+              />
             </div>
           </:header>
 
@@ -192,6 +309,38 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
       style={:compact}
       fallback="—"
     />
+    """
+  end
+
+  # Live on/off toggle matching the observability logs live-feed pattern.
+  attr(:id, :string, required: true)
+  attr(:toggle_event, :string, required: true)
+  attr(:live?, :boolean, default: false)
+  attr(:start_title, :string, required: true)
+  attr(:pause_title, :string, required: true)
+
+  defp live_toggle_button(assigns) do
+    assigns =
+      assigns
+      |> assign(:toggle_title, if(assigns.live?, do: assigns.pause_title, else: assigns.start_title))
+      |> assign(:toggle_badge_variant, if(assigns.live?, do: "success", else: "ghost"))
+      |> assign(:toggle_variant, if(assigns.live?, do: "primary", else: "outline"))
+
+    ~H"""
+    <.ui_button
+      id={@id}
+      phx-click={@toggle_event}
+      variant={@toggle_variant}
+      size="xs"
+      active={@live?}
+      class="rounded-full gap-2"
+      title={@toggle_title}
+    >
+      <span class="text-xs font-medium">Live</span>
+      <.ui_badge id={"#{@id}-status"} size="xs" variant={@toggle_badge_variant}>
+        {if @live?, do: "On", else: "Off"}
+      </.ui_badge>
+    </.ui_button>
     """
   end
 

@@ -69,6 +69,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.OtlpAttributes
   alias ServiceRadar.EventWriter.SignalTelemetry
+  alias ServiceRadar.Observability.OtelPubSub
   alias Serviceradar.Metric.V1.MetricBatch, as: ServiceRadarMetricBatch
 
   require Logger
@@ -93,6 +94,8 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
 
     SignalTelemetry.emit(:metrics, :written, sample_count)
     SignalTelemetry.emit(:metric_points, :written, point_count)
+
+    OtelPubSub.broadcast_metrics(%{count: sample_count + point_count})
 
     {:ok, sample_count + point_count}
   rescue
