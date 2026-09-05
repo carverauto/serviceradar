@@ -41,7 +41,10 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
   } do
     user = user!(actor, marker)
     base = profile!(actor, marker, ["devices.view", "services.update"])
-    group_profile = profile!(actor, marker, ["services.update", "alerts.acknowledge"])
+
+    group_profile =
+      profile!(actor, marker, ["services.update", "observability.alerts.manage"])
+
     duplicate_profile = profile!(actor, marker, ["devices.view"])
     group = group!(actor, marker, group_profile.id)
     duplicate_group = group!(actor, marker, duplicate_profile.id)
@@ -56,7 +59,7 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
              RBAC.effective_authority(user, actor)
 
     assert permissions ==
-             MapSet.new(["devices.view", "services.update", "alerts.acknowledge"])
+             MapSet.new(["devices.view", "services.update", "observability.alerts.manage"])
 
     assert Enum.map(profile_versions, & &1.id) ==
              Enum.sort([base.id, group_profile.id, duplicate_profile.id])
@@ -90,14 +93,14 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
   } do
     user = user!(actor, marker)
     base = profile!(actor, marker, ["devices.view"])
-    group_profile = profile!(actor, marker, ["alerts.acknowledge"])
+    group_profile = profile!(actor, marker, ["observability.alerts.manage"])
     group = group!(actor, marker, group_profile.id)
 
     {:ok, user} = User.update_role_profile(user, %{role_profile_id: base.id}, actor: actor)
     membership = membership!(actor, user.id, group.id)
 
     assert RBAC.permissions_for_user(user, actor: actor) ==
-             MapSet.new(["devices.view", "alerts.acknowledge"])
+             MapSet.new(["devices.view", "observability.alerts.manage"])
 
     assert :ok =
              membership
@@ -117,7 +120,7 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
   } do
     user = user!(actor, marker)
     base = profile!(actor, marker, ["devices.view"])
-    group_profile = profile!(actor, marker, ["alerts.acknowledge"])
+    group_profile = profile!(actor, marker, ["observability.alerts.manage"])
     group = group!(actor, marker, group_profile.id)
 
     {:ok, user} = User.update_role_profile(user, %{role_profile_id: base.id}, actor: actor)
@@ -127,7 +130,7 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
     Process.put({:rbac_permissions, user.id}, stale)
 
     assert RBAC.permissions_for_user(user, actor: actor) ==
-             MapSet.new(["devices.view", "alerts.acknowledge"])
+             MapSet.new(["devices.view", "observability.alerts.manage"])
   end
 
   test "invalidating shared cache refreshes resolution in a supervised resolver process", %{
@@ -170,8 +173,10 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
     assert_receive {:resolved, before_revoke}
     assert MapSet.member?(before_revoke, "services.update")
 
+    group_id = Ecto.UUID.dump!(group.id)
+
     Repo.update_all(
-      from(g in "user_groups", prefix: "platform", where: g.id == ^group.id),
+      from(g in "user_groups", prefix: "platform", where: g.id == ^group_id),
       set: [role_profile_id: nil]
     )
 

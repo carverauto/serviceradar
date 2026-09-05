@@ -157,6 +157,7 @@ defmodule ServiceRadar.Identity.RoleProfilePolicy do
 
   defp group_member_ids(groups) do
     group_ids = Enum.map(groups, & &1.id)
+    group_id_params = Enum.map(group_ids, &Ecto.UUID.dump!/1)
 
     placeholders =
       group_ids
@@ -169,7 +170,7 @@ defmodule ServiceRadar.Identity.RoleProfilePolicy do
     WHERE group_id IN (#{placeholders})
     """
 
-    case Repo.query(query, group_ids) do
+    case Repo.query(query, group_id_params) do
       {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, fn [user_id] -> user_id end)}
       {:error, _reason} = error -> error
     end

@@ -216,7 +216,12 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
              RoleProfilePolicy.delete(context.scope, profile.id, effect_opts(self()))
 
     assert deleted_id == profile.id
-    assert {:ok, nil} = Ash.get(RoleProfile, profile.id, actor: context.system)
+
+    assert {:ok, nil} =
+             Ash.get(RoleProfile, profile.id,
+               actor: context.system,
+               not_found_error?: false
+             )
 
     assert {:ok, %{role_profile_id: nil, role_profile_source: :manual}} =
              User.get_by_id(direct_user.id, actor: context.system)
@@ -286,7 +291,12 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
              |> Ash.update(actor: context.system)
 
     assert Exception.message(update_error) =~ "privilege mutation boundary"
-    assert {:error, destroy_error} = Ash.destroy(profile, actor: context.system)
+
+    assert {:error, destroy_error} =
+             profile
+             |> Ash.Changeset.for_destroy(:destroy, %{})
+             |> Ash.destroy(actor: context.system)
+
     assert Exception.message(destroy_error) =~ "privilege mutation boundary"
 
     assert {:error, user_clear_error} =
@@ -356,6 +366,7 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
   end
 
   test "the seeder updates a changed built-in profile through the trusted action", context do
+    assert :ok = RoleProfileSeeder.seed()
     assert {:ok, viewer} = RoleProfile.get_by_system_name("viewer", actor: context.system)
     original = Map.take(viewer, [:name, :description, :permissions])
 
@@ -384,13 +395,15 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
     group = group!(context.system, context.marker)
     opts = effect_opts(self())
 
+    group_id = Ecto.UUID.dump!(group.id)
+
     result =
       PrivilegeMutationEffects.run(
         context.scope,
         ["settings.rbac.manage", "identity.user_groups.manage"],
         fn _actor ->
           Repo.update_all(
-            from(g in "user_groups", prefix: "platform", where: g.id == ^group.id),
+            from(g in "user_groups", prefix: "platform", where: g.id == ^group_id),
             set: [description: "must roll back"]
           )
 
@@ -453,7 +466,13 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
     assert_receive {:invalidate, second}
     assert MapSet.new([first, second]) == MapSet.new([member_a.id, member_b.id])
     refute_receive {:invalidate, _}
-    assert {:ok, nil} = Ash.get(UserGroup, group.id, actor: context.system)
+
+    assert {:ok, nil} =
+             Ash.get(UserGroup, group.id,
+               actor: context.system,
+               not_found_error?: false
+             )
+
     assert memberships_for(member_a.id, context.system) == []
     assert_receive {:audit, audit}
     assert audit[:action] == :delete
@@ -496,7 +515,12 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
              |> Ash.update(actor: context.system)
 
     assert Exception.message(assign_error) =~ "privilege mutation boundary"
-    assert {:error, destroy_error} = Ash.destroy(group, actor: context.system)
+
+    assert {:error, destroy_error} =
+             group
+             |> Ash.Changeset.for_destroy(:destroy, %{})
+             |> Ash.destroy(actor: context.system)
+
     assert Exception.message(destroy_error) =~ "privilege mutation boundary"
     assert {:ok, persisted} = Ash.get(UserGroup, group.id, actor: context.system)
     assert is_nil(persisted.role_profile_id)
@@ -515,7 +539,12 @@ defmodule ServiceRadar.Identity.PrivilegeMutationBoundariesDbTest do
     assert memberships_for(member.id, context.system) == []
 
     membership = manual_membership!(context.system, group.id, member.id)
-    assert {:error, destroy_error} = Ash.destroy(membership, actor: context.system)
+
+    assert {:error, destroy_error} =
+             membership
+             |> Ash.Changeset.for_destroy(:destroy, %{})
+             |> Ash.destroy(actor: context.system)
+
     assert Exception.message(destroy_error) =~ "privilege mutation boundary"
 
     assert [%UserGroupMembership{id: membership_id}] =
