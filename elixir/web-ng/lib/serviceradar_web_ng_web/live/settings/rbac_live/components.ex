@@ -235,6 +235,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLive.Components do
       <div id={@stream_id} phx-update="stream" class="divide-y divide-sr-line">
         <div
           :if={not @state.loading? and is_nil(@state.error)}
+          id={"#{@stream_id}-empty"}
           class="hidden only:block px-4 py-6 text-sm text-sr-muted"
         >
           No manageable dashboards found.

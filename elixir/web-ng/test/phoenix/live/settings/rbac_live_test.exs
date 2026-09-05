@@ -193,13 +193,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
       group_profile_tokens(live_view, fixture.group.name, fixture.target_profile.name)
 
     live_view
-    |> form("#rbac-group-profile-form-#{group_token}", %{
+    |> element("#rbac-group-profile-form-#{group_token}")
+    |> render_change(%{
       "group-token" => group_token,
       "profile-token" => profile_token,
       "group-id" => "browser-forged-group",
       "profile-id" => "browser-forged-profile"
     })
-    |> render_change()
 
     _html = render_async(live_view, @async_timeout)
 
