@@ -25,10 +25,18 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   leading-key range: pruning the previous snapshot empties whole pages that the
   next rotation never descends into and so cannot refill.
 
-  This rebuild reclaims the pages the `snapshot_id`-leading btrees and the GiST
-  index have already leaked, and leading with `cidr` keeps the same CIDR from
-  consecutive snapshots adjacent so vacuumed holes stay reusable; the writer emits
-  rows in that order. No access method changes.
+  This rebuild reclaims the pages the two `snapshot_id`-leading btrees have already
+  leaked, and leading with `cidr` keeps the same CIDR from consecutive snapshots
+  adjacent so vacuumed holes stay reusable; the writer emits rows in that order.
+  No access method changes.
+
+  `netflow_provider_cidrs_cidr_idx` is rebuilt as well, and at 3020 MiB it is the
+  largest single reclaim here, but that is containment and not a fix. It is keyed on
+  `cidr` alone, so the leading-key mechanism above does not describe it: consecutive
+  snapshots have always written the same key set into it. What does bloat it was not
+  determined -- the deleted-page counts above come from `pgstatindex`, which reads
+  btree only, which is why the GiST row carries none. Whether the new write order
+  slows its regrowth is therefore unknown, and this reclaim may prove to be one-time.
 
   `netflow_provider_cidrs_snapshot_provider_idx` keeps `(snapshot_id, provider)`
   because snapshot pruning deletes by `snapshot_id`, so it is rebuilt with the same
