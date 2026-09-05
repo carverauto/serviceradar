@@ -98,6 +98,7 @@ func TestStartCaptureReturnsTheHeaderAndStreamsBlocksInOrder(t *testing.T) {
 	stream, header, err := client.StartCapture(ctx, startRequest(testSessionID))
 	require.NoError(t, err)
 	require.NotNil(t, stream)
+	assert.Equal(t, 1, client.ActiveCaptureCount())
 	assert.Equal(t, []byte("SHB+IDB"), header.GetBytes(),
 		"the header comes back as the RESPONSE, so a caller can send it before any packet")
 
@@ -127,6 +128,7 @@ func TestStartCaptureReturnsTheHeaderAndStreamsBlocksInOrder(t *testing.T) {
 	require.NotNil(t, terminal)
 	assert.True(t, terminal.GetFinal())
 	assert.Equal(t, uint64(3), terminal.GetPacketsCaptured())
+	assert.Equal(t, 0, client.ActiveCaptureCount())
 
 	// The terminal block is the last thing on the stream, and the end is
 	// reported cleanly rather than as an error.

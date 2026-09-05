@@ -300,8 +300,11 @@ Modelled on the camera relay (`design.md` D4).
   the same reasons. pcapng flows client to server; credit and cancellation
   flow server to client on their own channel. Spec delta corrected to match.
   (23.1, 27.1)
-- [ ] 3.2 Prove the RPC multiplexes onto the existing mTLS HTTP/2
-  connection: assert no second TCP or TLS session is opened. (23.2)
+- [x] 3.2 Prove the RPC multiplexes onto the existing mTLS HTTP/2
+  connection: assert no second TCP or TLS session is opened. The
+  `GatewayClient` capture-client factory test asserts the generated service
+  receives the exact managed `grpc.ClientConn`; the capture path contains no
+  dial or TLS setup. (23.2)
 - [x] 3.3 **CORRECTED while implementing**, in two ways. The file split:
   routing a block to its session and pumping a session onto the gateway
   are different concerns with different failure modes, so this landed as
@@ -322,7 +325,7 @@ Modelled on the camera relay (`design.md` D4).
   arm applies backpressure for `CaptureBlockTimeout` and then ENDS the
   session rather than dropping. Block bytes are copied from the netprobe
   frame into `CaptureBlock` untouched; no hop re-encodes. (23.3)
-- [ ] 3.4 Add the gateway-side server and forwarder, mirroring
+- [x] 3.4 Add the gateway-side server and forwarder, mirroring
   `camera_media_server.ex` and `camera_media_forwarder.ex`: one
   `:rpc.call` into core-elx on session open with `:nodedown` retry, then
   stream to the returned ingress pid over ERTS.
@@ -359,8 +362,10 @@ Modelled on the camera relay (`design.md` D4).
   ack. A cancel that arrives while the send loop is waiting for credit
   therefore unwinds with `context.Canceled`, which is the cancel working
   and is reported as `CLIENT_CANCEL`, not as a transport fault. (23.5)
-- [ ] 3.7 Surface an active-capture indicator in the agent status
-  response. (23.6)
+- [x] 3.7 Surface an active-capture indicator in the agent status
+  response. The capability payload reports only `active` and `session_count`;
+  it omits session IDs, filters, and actor data, and follows the netprobe
+  client's registered-session lifecycle. (23.6)
 - [ ] 3.8 **FOUND while implementing 3.6, and deliberately left open.**
   3.6 as written says cancellation reaches *netprobe*; the agent hop meets
   that budget, but the last hop does not exist yet. netprobe has NO
