@@ -121,9 +121,18 @@ defmodule ServiceRadar.Edge.LaneTransportRuntime do
 
       # Registered from init/1 so the generation is live before the supervisor reports started,
       # and therefore before anything can publish on it.
-      {:ok, generation} = PublisherPool.register_transport(accountant, self())
+      case PublisherPool.register_transport(accountant, self()) do
+        {:ok, generation} ->
+          {:ok, %{lane: lane, accountant: accountant, generation: generation}}
 
-      {:ok, %{lane: lane, accountant: accountant, generation: generation}}
+        # A REFUSAL, not a crash to be pattern-matched into a `badmatch`. The accountant bounds how
+        # many generations it will track, so refusing is a legitimate answer and the supervisor is
+        # the right thing to receive it: stopping here retries this generation under the restart
+        # intensity, and if the condition persists the whole transport subtree gives up rather than
+        # advertising send capability the accountant will not admit against.
+        {:error, reason} ->
+          {:stop, {:transport_registration_refused, reason}}
+      end
     end
 
     @doc "This generation's reference, for tests and observability."
