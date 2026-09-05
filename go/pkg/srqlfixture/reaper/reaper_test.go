@@ -28,6 +28,8 @@ import (
 	"time"
 )
 
+const protectedReason = "protected"
+
 func TestTemplateGenerationNamespaceIsProtected(t *testing.T) {
 	t.Parallel()
 
@@ -47,7 +49,7 @@ func TestTemplateGenerationNamespaceIsProtected(t *testing.T) {
 			if !IsProtected(name) {
 				t.Fatalf("reserved name %q is not protected", name)
 			}
-			if drop, reason := ShouldDrop(Database{Name: name, Age: 48 * time.Hour}, DefaultMaxAge); drop || reason != "protected" {
+			if drop, reason := ShouldDrop(Database{Name: name, Age: 48 * time.Hour}, DefaultMaxAge); drop || reason != protectedReason {
 				t.Fatalf("reserved name %q: drop=%v reason=%q", name, drop, reason)
 			}
 			if stmt, err := DropStatement(name); stmt != "" || !errors.Is(err, ErrProtected) {
@@ -94,7 +96,7 @@ func TestShouldDropProtectsTheFixture(t *testing.T) {
 			t.Fatalf("protected database %q was marked droppable (%s)", name, reason)
 		}
 
-		if reason != "protected" {
+		if reason != protectedReason {
 			t.Fatalf("protected database %q: got reason %q", name, reason)
 		}
 	}

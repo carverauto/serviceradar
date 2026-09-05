@@ -25,7 +25,10 @@ actions:
           umask 077
           export SERVICERADAR_ENV=ci
           export BAZEL_PROFILE=ci
-          RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+          # An explicit dispatch may recover its own interrupted synthetic run.
+          # Rust revalidates identity and refuses live connections before rebuild.
+          RUN_ID="${SCHEMA_TEMPLATE_QUALIFICATION_RUN_ID:-$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')}"
+          [[ "$RUN_ID" =~ ^[a-z0-9]{8,32}$ ]] || { echo "Invalid qualification run ID" >&2; exit 1; }
           export RUN_ID
           SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-template-qualification.XXXXXX")"
           export SERVICERADAR_FIXTURE_ENV_FILE

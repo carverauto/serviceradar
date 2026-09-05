@@ -208,6 +208,18 @@ singleton target.
 
 ## Qualification and rollout gate
 
+The manual `SchemaTemplateQualification` action normally generates a fresh run ID.
+To recover an interrupted synthetic run, dispatch that action with the explicit
+`SCHEMA_TEMPLATE_QUALIFICATION_RUN_ID` environment value from its prior log, only
+after confirming that run has ended. The normal registry identity, ownership lock,
+and no-active-connections checks still apply; this is not permission to reuse
+another run's databases. Recovery is appropriate while the first synthetic
+generation is still `building`; a run that published it needs separate scoped
+cleanup rather than replaying the fresh-run assertion. Never commit a captured
+run ID to the workflow. Check fixture Timescale worker capacity before dispatch:
+the regression must observe a scheduler, and a worker-limit refusal is a failed
+prerequisite, not permission to skip that assertion or raise cluster limits.
+
 Before changing workflow callers, verify the deployed reaper excludes generation
 databases and protects their registry ownership. Run guarded, in-cluster checks for
 cold full replay, warm reuse without migrator startup, concurrent divergent

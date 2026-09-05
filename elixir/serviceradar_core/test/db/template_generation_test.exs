@@ -403,6 +403,7 @@ end
 
 defmodule ServiceRadar.DB.TemplateGenerationEnvironmentTest do
   use ExUnit.Case, async: false
+
   alias ServiceRadar.DB.TemplateGeneration
 
   setup do

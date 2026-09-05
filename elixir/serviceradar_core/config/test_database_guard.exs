@@ -7,7 +7,7 @@ defmodule ServiceRadar.DB.TestDatabaseGuard do
 
   @doc false
   def authorize_template_lifecycle!(database \\ "sr_core_template") do
-    unless database == "sr_core_template" or Regex.match?(~r/\Asr_tpl_[0-9a-f]{48}\z/, database) do
+    if !(database == "sr_core_template" or Regex.match?(~r/\Asr_tpl_[0-9a-f]{48}\z/, database)) do
       raise ArgumentError, "invalid template generation database"
     end
 

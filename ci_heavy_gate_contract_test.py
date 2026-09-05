@@ -558,6 +558,22 @@ def cpu_diagnostic_input_hash() -> str:
     return digest.hexdigest()
 
 
+class SchemaTemplateQualificationContractTest(unittest.TestCase):
+    def test_recovery_run_id_is_explicit_validated_and_shared_by_all_steps(self):
+        action = named_action("SchemaTemplateQualification")
+        self.assertIn("triggers: {}", action)
+        self.assertIn('pool: "workflows"', action)
+        self.assertIn('${SCHEMA_TEMPLATE_QUALIFICATION_RUN_ID:-$(od ', action)
+        guard = '[[ "$RUN_ID" =~ ^[a-z0-9]{8,32}$ ]] ||'
+        self.assertIn(guard, action)
+        self.assertLess(action.index(guard), action.index("//:buildbuddy_setup_fixture_env"))
+        self.assertIn("--//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env", action)
+        self.assertIn("--//build:run_id=$RUN_ID --test_env=SERVICERADAR_ENV=ci", action)
+        self.assertIn("--strategy=TestRunner=local", action)
+        self.assertIn("--noremote_upload_local_results", action)
+        self.assertIn("//rust/integration-db:generation_lifecycle_test", action)
+
+
 class IntegrationBenchmarkContractTest(unittest.TestCase):
     def setUp(self):
         self.action = integration_benchmark_action()

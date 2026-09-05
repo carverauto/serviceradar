@@ -42,8 +42,8 @@ defmodule ServiceRadar.DB.TemplateGeneration do
     timeout = policy["lock_timeout_seconds"] * 1_000
     config = normalize_repo_config!(Repo.config())
 
-    unless config[:database] == manifest["database"] and
-             config[:migration_repo] in [nil, Repo] and is_nil(Process.whereis(Repo)) do
+    if !(config[:database] == manifest["database"] and
+           config[:migration_repo] in [nil, Repo] and is_nil(Process.whereis(Repo))) do
       raise "template builder requires a stopped Repo configured for the exact candidate"
     end
 
@@ -79,37 +79,37 @@ defmodule ServiceRadar.DB.TemplateGeneration do
           "migration_versions" => versions
         } = manifest
       ) do
-    unless Map.keys(manifest) --
-             [
-               "version",
-               "digest",
-               "database",
-               "inputs",
-               "migration_versions",
-               "covered_migrations"
-             ] == [] and valid_digest?(digest) and
-             database == "sr_tpl_" <> binary_part(digest, 0, 48) and
-             is_list(inputs) and inputs != [] and Enum.all?(inputs, &valid_input?/1) and
-             is_list(versions) and versions != [] and
-             Enum.all?(versions, &(is_integer(&1) and &1 > 0 and &1 <= 9_223_372_036_854_775_807)) do
+    if !(Map.keys(manifest) --
+           [
+             "version",
+             "digest",
+             "database",
+             "inputs",
+             "migration_versions",
+             "covered_migrations"
+           ] == [] and valid_digest?(digest) and
+           database == "sr_tpl_" <> binary_part(digest, 0, 48) and
+           is_list(inputs) and inputs != [] and Enum.all?(inputs, &valid_input?/1) and
+           is_list(versions) and versions != [] and
+           Enum.all?(versions, &(is_integer(&1) and &1 > 0 and &1 <= 9_223_372_036_854_775_807))) do
       raise ArgumentError, "invalid schema template manifest"
     end
 
     paths = Enum.map(inputs, & &1["path"])
 
-    unless paths == Enum.sort(Enum.uniq(paths)) and versions == Enum.sort(Enum.uniq(versions)) do
+    if !(paths == Enum.sort(Enum.uniq(paths)) and versions == Enum.sort(Enum.uniq(versions))) do
       raise ArgumentError,
             "schema template paths and migration versions must be sorted and unique"
     end
 
     expected = input_digest(inputs, "serviceradar.schema-template.v1\0")
 
-    unless expected == digest,
+    if expected != digest,
       do: raise(ArgumentError, "schema template manifest digest mismatch")
 
     migrations = Enum.flat_map(inputs, &migration_input/1)
 
-    unless Enum.sort(Enum.map(migrations, &elem(&1, 0))) == versions,
+    if Enum.sort(Enum.map(migrations, &elem(&1, 0))) != versions,
       do: raise(ArgumentError, "schema template migration versions disagree with input paths")
 
     validate_covered!(manifest["covered_migrations"], migrations)
@@ -120,8 +120,8 @@ defmodule ServiceRadar.DB.TemplateGeneration do
 
   @doc "Rejects ambient schema overrides without exposing their values."
   def validate_environment!(environment \\ System.get_env()) do
-    unless environment["MIX_ENV"] == "test" and
-             environment["SERVICERADAR_MIGRATION_ONLY"] in [nil, "", "true"] do
+    if !(environment["MIX_ENV"] == "test" and
+           environment["SERVICERADAR_MIGRATION_ONLY"] in [nil, "", "true"]) do
       raise ArgumentError,
             "template replay requires MIX_ENV=test and migration-only unset or true"
     end
@@ -144,7 +144,7 @@ defmodule ServiceRadar.DB.TemplateGeneration do
 
   @doc "The signed second key of the generation advisory lock."
   def lock_key(digest) do
-    unless valid_digest?(digest), do: raise(ArgumentError, "invalid schema template digest")
+    if !valid_digest?(digest), do: raise(ArgumentError, "invalid schema template digest")
     <<key::signed-big-32, _::binary>> = Base.decode16!(digest, case: :lower)
     key
   end
@@ -186,10 +186,10 @@ defmodule ServiceRadar.DB.TemplateGeneration do
        when is_integer(through) and through > 0 do
     inputs = for {version, input} <- migrations, version <= through, do: input
 
-    unless valid_digest?(digest) and
-             digest ==
-               input_digest(inputs, "serviceradar.schema-template.covered-migrations.v1\0"),
-           do: raise(ArgumentError, "schema template covered migration digest mismatch")
+    if !(valid_digest?(digest) and
+           digest ==
+             input_digest(inputs, "serviceradar.schema-template.covered-migrations.v1\0")),
+       do: raise(ArgumentError, "schema template covered migration digest mismatch")
   end
 
   defp validate_covered!(_, _),
@@ -200,12 +200,10 @@ defmodule ServiceRadar.DB.TemplateGeneration do
     fields =
       ~w(max_generations max_concurrent_builders max_total_bytes retention_seconds lease_seconds lock_timeout_seconds)
 
-    unless policy["version"] === 1 and policy["construction_mode"] == "full_replay" and
-             Enum.sort(Map.keys(policy)) == Enum.sort(["version", "construction_mode" | fields]) and
-             Enum.all?(fields, fn name ->
-               value = policy[name]
-               is_integer(value) and value > 0 and value <= 2_147_483_647 * 1024
-             end) and policy["max_concurrent_builders"] <= policy["max_generations"] do
+    if !(policy["version"] === 1 and policy["construction_mode"] == "full_replay" and
+           Enum.sort(Map.keys(policy)) == Enum.sort(["version", "construction_mode" | fields]) and
+           Enum.all?(fields, &valid_policy_bound?(policy[&1])) and
+           policy["max_concurrent_builders"] <= policy["max_generations"]) do
       raise ArgumentError, "invalid schema template construction policy"
     end
 
@@ -214,7 +212,11 @@ defmodule ServiceRadar.DB.TemplateGeneration do
 
   def validate_policy!(_), do: raise(ArgumentError, "invalid schema template construction policy")
 
+  defp valid_policy_bound?(value),
+    do: is_integer(value) and value > 0 and value <= 2_147_483_647 * 1024
+
   @doc false
+  # Replace parser errors and their argument-bearing stack frames: URLs contain secrets.
   def normalize_repo_config!(config) do
     case config[:url] do
       nil ->
@@ -222,13 +224,13 @@ defmodule ServiceRadar.DB.TemplateGeneration do
 
       url when is_binary(url) ->
         uri = URI.parse(url)
-        pairs = URI.query_decoder(uri.query || "") |> Enum.to_list()
+        pairs = (uri.query || "") |> URI.query_decoder() |> Enum.to_list()
 
-        unless uri.scheme in ["postgres", "postgresql"] and is_binary(uri.host) and
-                 uri.host != "" and is_binary(uri.path) and is_binary(uri.userinfo) and
-                 is_nil(uri.fragment) and Regex.match?(~r/\A\/[^\/]+\z/, uri.path) and
-                 Enum.all?(pairs, &(&1 in [{"sslmode", "verify-full"}, {"ssl", "true"}])) and
-                 length(pairs) == length(Enum.uniq_by(pairs, &elem(&1, 0))) do
+        if !(uri.scheme in ["postgres", "postgresql"] and is_binary(uri.host) and
+               uri.host != "" and is_binary(uri.path) and is_binary(uri.userinfo) and
+               is_nil(uri.fragment) and Regex.match?(~r/\A\/[^\/]+\z/, uri.path) and
+               Enum.all?(pairs, &(&1 in [{"sslmode", "verify-full"}, {"ssl", "true"}])) and
+               length(pairs) == length(Enum.uniq_by(pairs, &elem(&1, 0)))) do
           raise ArgumentError, "invalid template Repo URL"
         end
 
@@ -243,27 +245,29 @@ defmodule ServiceRadar.DB.TemplateGeneration do
         )
     end
   rescue
+    # credo:disable-for-next-line Credo.Check.Warning.RaiseInsideRescue
     _ -> raise ArgumentError, "invalid template Repo connection configuration"
   end
 
   @doc false
+  # Preserve the sanitized error boundary, not a parser stack containing a credential URL.
   def admin_options!(url, config) do
     # Do not use URL query options as Postgrex settings: they can override TLS,
     # database, or the dedicated pool. All errors deliberately omit the DSN.
     uri = URI.parse(url)
     ssl = config[:ssl]
-    query = URI.query_decoder(uri.query || "") |> Enum.to_list()
+    query = (uri.query || "") |> URI.query_decoder() |> Enum.to_list()
 
-    unless uri.scheme in ["postgres", "postgresql"] and uri.path == "/postgres" and
-             is_binary(uri.host) and uri.host != "" and is_binary(uri.userinfo) and
-             is_nil(uri.fragment) and
-             Enum.all?(query, &(&1 in [{"sslmode", "verify-full"}, {"ssl", "true"}])) and
-             length(query) == length(Enum.uniq_by(query, &elem(&1, 0))) and
-             is_list(ssl) and Keyword.keyword?(ssl) and ssl[:verify] == :verify_peer and
-             ssl[:server_name_indication] not in [nil, false, :disable, [], ""] and
-             (ssl[:cacerts] not in [nil, []] or
-                (is_binary(ssl[:cacertfile]) and ssl[:cacertfile] != "")) and
-             uri.host == config[:hostname] and (uri.port || 5432) == (config[:port] || 5432) do
+    if !(uri.scheme in ["postgres", "postgresql"] and uri.path == "/postgres" and
+           is_binary(uri.host) and uri.host != "" and is_binary(uri.userinfo) and
+           is_nil(uri.fragment) and
+           Enum.all?(query, &(&1 in [{"sslmode", "verify-full"}, {"ssl", "true"}])) and
+           length(query) == length(Enum.uniq_by(query, &elem(&1, 0))) and
+           is_list(ssl) and Keyword.keyword?(ssl) and ssl[:verify] == :verify_peer and
+           ssl[:server_name_indication] not in [nil, false, :disable, [], ""] and
+           (ssl[:cacerts] not in [nil, []] or
+              (is_binary(ssl[:cacertfile]) and ssl[:cacertfile] != "")) and
+           uri.host == config[:hostname] and (uri.port || 5432) == (config[:port] || 5432)) do
       raise ArgumentError,
             "template admin connection requires the configured fixture endpoint and verified TLS"
     end
@@ -288,6 +292,7 @@ defmodule ServiceRadar.DB.TemplateGeneration do
         raise ArgumentError, "template admin connection requires typed credentials"
     end
   rescue
+    # credo:disable-for-next-line Credo.Check.Warning.RaiseInsideRescue
     _ -> raise ArgumentError, "invalid template administrator connection configuration"
   end
 
@@ -301,9 +306,9 @@ defmodule ServiceRadar.DB.TemplateGeneration do
       timeout + 5_000
     )
 
-    unless query!(admin, "SELECT version FROM sr_template_registry.metadata WHERE singleton", []).rows ==
-             [[1]],
-           do: raise("unsupported schema template registry version")
+    if query!(admin, "SELECT version FROM sr_template_registry.metadata WHERE singleton", []).rows !=
+         [[1]],
+       do: raise("unsupported schema template registry version")
 
     row =
       query!(
@@ -317,14 +322,14 @@ defmodule ServiceRadar.DB.TemplateGeneration do
 
     case row.rows do
       [[stored, database, token, state, major, extensions]] ->
-        unless JSON.decode!(stored) == manifest and database == manifest["database"] and
-                 is_integer(token) and token > 0,
-               do: raise("template registry identity mismatch; run prepare_generation")
+        if !(JSON.decode!(stored) == manifest and database == manifest["database"] and
+               is_integer(token) and token > 0),
+           do: raise("template registry identity mismatch; run prepare_generation")
 
         [[actual_major]] =
           query!(admin, "SELECT current_setting('server_version_num')::integer / 10000", []).rows
 
-        unless actual_major == major, do: raise("template PostgreSQL major version mismatch")
+        if actual_major != major, do: raise("template PostgreSQL major version mismatch")
         required = extension_versions!(extensions)
 
         available =
@@ -334,15 +339,15 @@ defmodule ServiceRadar.DB.TemplateGeneration do
             [@extensions]
           ).rows
 
-        unless Map.new(available, fn [name, version] -> {name, version} end) == required,
+        if Map.new(available, fn [name, version] -> {name, version} end) != required,
           do: raise("template fixture extension compatibility changed; run prepare_generation")
 
         case state do
           "ready" ->
-            unless query!(admin, "SELECT datallowconn FROM pg_database WHERE datname = $1", [
-                     database
-                   ]).rows == [[false]],
-                   do: raise("ready template is missing or still allows connections")
+            if query!(admin, "SELECT datallowconn FROM pg_database WHERE datname = $1", [
+                 database
+               ]).rows != [[false]],
+               do: raise("ready template is missing or still allows connections")
 
             :ready
 
@@ -361,13 +366,13 @@ defmodule ServiceRadar.DB.TemplateGeneration do
   defp build!(admin, manifest, stored, previous_token, extensions, policy, timeout, opts) do
     # A cancelled initializer can leave its server-side statement/backend alive
     # after losing the administrative session lock. Do not overlap that work.
-    unless query!(
-             admin,
-             """
-             SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = $1)
-             """,
-             [manifest["database"]]
-           ).rows == [[true]] do
+    if query!(
+         admin,
+         """
+         SELECT NOT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = $1)
+         """,
+         [manifest["database"]]
+       ).rows != [[true]] do
       raise "template candidate still has active connections; wait and run prepare_generation"
     end
 
@@ -397,7 +402,7 @@ defmodule ServiceRadar.DB.TemplateGeneration do
         validate_environment!()
         [[database]] = sql!(repo, "SELECT current_database()", []).rows
 
-        unless database == manifest["database"],
+        if database != manifest["database"],
           do: raise("Repo connected to the wrong candidate")
 
         # The cold-tier export-role migration gates cluster-wide CREATE/ALTER
@@ -413,7 +418,7 @@ defmodule ServiceRadar.DB.TemplateGeneration do
         |> Map.fetch!(:rows)
         |> validate_migration_role!()
 
-        unless ledger!(repo) == [],
+        if ledger!(repo) != [],
           do: raise("partial template replay refused; run prepare_generation to rebuild")
 
         verify_extensions!(repo, extensions)
@@ -425,14 +430,14 @@ defmodule ServiceRadar.DB.TemplateGeneration do
           log_migrator_sql: false
         )
 
-        unless ledger!(repo) == manifest["migration_versions"],
+        if ledger!(repo) != manifest["migration_versions"],
           do: raise("template migration ledger mismatch")
 
         verify_extensions!(repo, extensions)
         :verified
       end)
 
-    unless match?({:ok, :verified, _}, result) and is_nil(Process.whereis(Repo)),
+    if !(match?({:ok, :verified, _}, result) and is_nil(Process.whereis(Repo))),
       do: raise("template migration failed or Repo did not stop")
 
     # The Timescale control function requires admin rights. Keep migration replay
@@ -442,7 +447,7 @@ defmodule ServiceRadar.DB.TemplateGeneration do
     {:ok, candidate} = Postgrex.start_link(Keyword.put(opts, :database, manifest["database"]))
 
     try do
-      unless query!(candidate, "SELECT current_database()", []).rows == [[manifest["database"]]],
+      if query!(candidate, "SELECT current_database()", []).rows != [[manifest["database"]]],
         do: raise("worker shutdown connected to wrong candidate")
 
       query!(
@@ -484,7 +489,7 @@ defmodule ServiceRadar.DB.TemplateGeneration do
         [policy["max_total_bytes"]]
       ).rows
 
-    unless within_budget,
+    if !within_budget,
       do: raise("template storage capacity exceeded; generation remains unpublished")
 
     # ALLOW_CONNECTIONS prevents new clients but does not drain existing clients
@@ -509,7 +514,7 @@ defmodule ServiceRadar.DB.TemplateGeneration do
         [manifest["digest"], stored, manifest["database"], token]
       )
 
-    unless result.num_rows == 1, do: raise("template publication rejected by ownership fence")
+    if result.num_rows != 1, do: raise("template publication rejected by ownership fence")
     :ready
   end
 
@@ -598,16 +603,16 @@ defmodule ServiceRadar.DB.TemplateGeneration do
     installed = Map.new(actual, fn [name, version] -> {name, version} end)
     required = extension_versions!(expected)
 
-    unless Enum.all?(required, fn {name, version} -> installed[name] == version end),
+    if !Enum.all?(required, fn {name, version} -> installed[name] == version end),
       do: raise("template extension versions mismatch")
   end
 
   defp extension_versions!(encoded) do
     versions = JSON.decode!(encoded)
 
-    unless is_map(versions) and Enum.sort(Map.keys(versions)) == @extensions and
-             Enum.all?(versions, fn {_name, version} -> is_binary(version) and version != "" end),
-           do: raise("invalid template extension compatibility snapshot")
+    if !(is_map(versions) and Enum.sort(Map.keys(versions)) == @extensions and
+           Enum.all?(versions, fn {_name, version} -> is_binary(version) and version != "" end)),
+       do: raise("invalid template extension compatibility snapshot")
 
     versions
   end
