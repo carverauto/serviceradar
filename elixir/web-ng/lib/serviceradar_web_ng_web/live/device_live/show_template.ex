@@ -189,7 +189,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.ocsf_info_section
                 :if={is_map(@device_row)}
                 device_row={@device_row}
-                vulnerability_matches={@endpoint_inventory_vulnerability_matches}
+                vulnerability_assessments={@endpoint_inventory_vulnerability_assessments}
               />
 
               <.discovery_sources_section
@@ -362,7 +362,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               package_page_size={@endpoint_inventory_package_page_size}
               stored_package_count={@endpoint_inventory_stored_package_count}
               artifacts={@endpoint_inventory_artifacts}
-              vulnerability_matches={@endpoint_inventory_vulnerability_matches}
+              vulnerability_assessments={@endpoint_inventory_vulnerability_assessments}
               cpe_catalog_current={@endpoint_inventory_cpe_catalog_current}
               error={@endpoint_inventory_error}
               loading={@endpoint_inventory_loading}
@@ -523,7 +523,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
       <.endpoint_inventory_package_modal
         show={@show_endpoint_inventory_package_modal}
         package={@endpoint_inventory_selected_package}
-        matches={@endpoint_inventory_selected_package_matches}
+        assessment_details={@endpoint_inventory_selected_package_assessment_details}
         cpe_catalog_current={@endpoint_inventory_cpe_catalog_current}
         timezone={@current_scope.user.timezone || "Etc/UTC"}
       />

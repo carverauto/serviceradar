@@ -163,10 +163,13 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "advisory_coordinates" | "advisory_cpes" | "cpe_coordinates" => {
             Ok(Entity::AdvisoryCoordinates)
         }
-        "endpoint_vulnerability_matches"
+        "endpoint_vulnerability_assessments"
+        | "endpoint_vulnerability_assessment"
+        | "package_vulnerabilities"
+        | "endpoint_vulnerability_matches"
         | "vulnerability_matches"
         | "cve_matches"
-        | "advisory_matches" => Ok(Entity::EndpointVulnerabilityMatches),
+        | "advisory_matches" => Ok(Entity::EndpointVulnerabilityAssessments),
         "sweep_groups" | "sweep_group" | "sweeps" => Ok(Entity::SweepGroups),
         "sweep_profiles" | "sweep_profile" | "scanner_profiles" | "scanner_profile" => {
             Ok(Entity::SweepProfiles)

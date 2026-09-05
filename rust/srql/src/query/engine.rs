@@ -1,5 +1,4 @@
 use super::{
-    PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse,
     addon_fleet, addon_statuses, advisory_coordinates, agents, alerts, bmp_events,
     build_query_plan, capacity_forecasts, composite_results, cpu_metrics, dashboard_service_views,
     dashboards, device_graph, devices, disk_metrics, downsample, endpoint_inventory_scans,
@@ -9,6 +8,7 @@ use super::{
     public_endpoints, services, source_fact_disagreements, sweep_coverage, sweep_executions,
     sweep_groups, sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics,
     trace_summaries, traces, translate_request, virtualization, vulnerability_advisories, wifi_map,
+    PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse,
 };
 use crate::{
     config::AppConfig,
@@ -168,7 +168,7 @@ impl QueryEngine {
                 Entity::AdvisoryCoordinates => {
                     advisory_coordinates::execute(&mut conn, &plan).await?
                 }
-                Entity::EndpointVulnerabilityMatches => {
+                Entity::EndpointVulnerabilityAssessments => {
                     endpoint_vulnerability_matches::execute(&mut conn, &plan).await?
                 }
             }

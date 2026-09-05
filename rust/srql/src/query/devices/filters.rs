@@ -54,7 +54,8 @@ use diesel::sql_types::{Array, Bool, Text};
 /// boolean, never NULL), so wrapping it in `NOT (...)` produces the exact
 /// complement. It binds no user input — every literal is hard-coded — so it
 /// contributes zero placeholders to the query.
-pub(in crate::query::devices) const AWX_MANAGED_PREDICATE: &str = "(metadata -> 'awx' ->> 'host_id' IS NOT NULL \
+pub(in crate::query::devices) const AWX_MANAGED_PREDICATE: &str =
+    "(metadata -> 'awx' ->> 'host_id' IS NOT NULL \
      OR metadata -> 'awx' ->> 'controller_id' IS NOT NULL \
      OR COALESCE(discovery_sources, ARRAY[]::text[]) && ARRAY['awx', 'ansible']::text[])";
 
@@ -343,8 +344,9 @@ fn apply_device_match_cve_filter<'a>(
     query: DeviceQuery<'a>,
     filter: &Filter,
 ) -> Result<DeviceQuery<'a>> {
-    let prefix = "EXISTS (SELECT 1 FROM endpoint_vulnerability_matches m \
-         WHERE m.device_uid = ocsf_devices.uid AND m.status = 'active' AND ";
+    let prefix = "EXISTS (SELECT 1 FROM endpoint_vulnerability_assessments a \
+         WHERE a.device_uid = ocsf_devices.uid AND a.status = 'active' \
+         AND a.assessment = 'confirmed' AND a.disposition = 'affected' AND ";
     match filter.op {
         FilterOp::Eq | FilterOp::NotEq | FilterOp::In | FilterOp::NotIn => {
             let values = crate::query::advisory::cve_eq_values(filter)?;
@@ -352,7 +354,7 @@ fn apply_device_match_cve_filter<'a>(
                 return Ok(query);
             }
             let expr = sql::<Bool>(prefix)
-                .sql("m.cve_id = ANY(")
+                .sql("a.cve_id = ANY(")
                 .bind::<Array<Text>, _>(values)
                 .sql("))");
             Ok(if matches!(filter.op, FilterOp::NotEq | FilterOp::NotIn) {
@@ -364,7 +366,7 @@ fn apply_device_match_cve_filter<'a>(
         FilterOp::Like | FilterOp::NotLike => {
             let value = filter.value.as_scalar()?.to_string();
             let expr = sql::<Bool>(prefix)
-                .sql("m.cve_id ILIKE ")
+                .sql("a.cve_id ILIKE ")
                 .bind::<Text, _>(value)
                 .sql(")");
             Ok(if matches!(filter.op, FilterOp::NotLike) {
@@ -395,8 +397,9 @@ fn apply_device_match_kev_filter<'a>(
         want
     };
     let expr = sql::<Bool>(
-        "EXISTS (SELECT 1 FROM endpoint_vulnerability_matches m \
-         WHERE m.device_uid = ocsf_devices.uid AND m.status = 'active' AND m.kev = ",
+        "EXISTS (SELECT 1 FROM endpoint_vulnerability_assessments a \
+         WHERE a.device_uid = ocsf_devices.uid AND a.status = 'active' \
+         AND a.assessment = 'confirmed' AND a.disposition = 'affected' AND a.kev = ",
     )
     .bind::<Bool, _>(true)
     .sql(")");

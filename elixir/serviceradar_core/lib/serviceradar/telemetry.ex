@@ -338,6 +338,9 @@ defmodule ServiceRadar.Telemetry do
     admission_event = [:serviceradar, :admission_lane, :admission]
     execution_event = [:serviceradar, :admission_lane, :execution]
     completion_event = [:serviceradar, :admission_lane, :completion]
+    duration_buckets_ms = [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000]
+    event_count_buckets = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1_000]
+    payload_buckets_bytes = [256, 1_024, 4_096, 16_384, 65_536, 262_144, 1_048_576, 4_194_304]
 
     [
       last_value("serviceradar.admission_lane.pending.count",
@@ -363,27 +366,32 @@ defmodule ServiceRadar.Telemetry do
       distribution("serviceradar.admission_lane.admission.wait.milliseconds",
         event_name: admission_event,
         measurement: :wait_ms,
-        tags: [:lane]
+        tags: [:lane],
+        reporter_options: [buckets: duration_buckets_ms]
       ),
       distribution("serviceradar.admission_lane.execution.duration.milliseconds",
         event_name: execution_event,
         measurement: :duration_ms,
-        tags: [:lane, :result]
+        tags: [:lane, :result],
+        reporter_options: [buckets: duration_buckets_ms]
       ),
       distribution("serviceradar.admission_lane.execution.event.count",
         event_name: execution_event,
         measurement: :event_count,
-        tags: [:lane, :result]
+        tags: [:lane, :result],
+        reporter_options: [buckets: event_count_buckets]
       ),
       distribution("serviceradar.admission_lane.acknowledgement.milliseconds",
         event_name: completion_event,
         measurement: :acknowledgement_ms,
-        tags: [:lane, :result]
+        tags: [:lane, :result],
+        reporter_options: [buckets: duration_buckets_ms]
       ),
       distribution("serviceradar.admission_lane.payload.bytes",
         event_name: completion_event,
         measurement: :payload_bytes,
-        tags: [:lane, :result]
+        tags: [:lane, :result],
+        reporter_options: [buckets: payload_buckets_bytes]
       ),
       counter("serviceradar.admission_lane.rejected.count",
         event_name: [:serviceradar, :admission_lane, :rejected],

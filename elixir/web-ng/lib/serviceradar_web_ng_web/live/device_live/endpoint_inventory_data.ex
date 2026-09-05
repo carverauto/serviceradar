@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
   alias ServiceRadar.Inventory.EndpointInventoryArtifact
   alias ServiceRadar.Inventory.EndpointInventoryPackage
   alias ServiceRadar.Inventory.EndpointInventoryScan
+  alias ServiceRadar.Inventory.EndpointVulnerabilityAssessment
   alias ServiceRadar.Inventory.EndpointVulnerabilityMatch
   alias ServiceRadar.Inventory.VulnerabilityAdvisory
 
@@ -13,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
   require Logger
 
   @scan_limit 8
+  @assessment_limit 50
   @match_limit 50
   @default_page_size 100
   @max_page_size 500
@@ -26,10 +28,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
          latest_scan = List.first(scans),
          {:ok, package_page} <- read_current_packages(scope, device_uid, package_opts),
          {:ok, artifacts} <- read_artifacts(scope, latest_scan) do
-      vulnerability_matches =
-        scope
-        |> read_vulnerability_matches_optional(device_uid)
-        |> enrich_matches(scope)
+      vulnerability_assessments = read_assessment_pages(scope, device_uid)
 
       stored_package_count = read_stored_package_count(scope, device_uid)
 
@@ -43,10 +42,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
         package_filters_active: package_page.filters_active,
         stored_package_count: stored_package_count,
         artifacts: artifacts,
-        vulnerability_matches: vulnerability_matches,
+        vulnerability_assessments: vulnerability_assessments,
         cpe_catalog_current: CvePriority.cpe_catalog_current?(),
         error: nil,
-        has_inventory: scans != [] or package_page.packages != [] or vulnerability_matches != []
+        has_inventory:
+          scans != [] or package_page.packages != [] or
+            assessment_total(vulnerability_assessments) > 0
       }
     else
       {:error, reason} ->
@@ -87,22 +88,54 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
   def load_packages(_scope, _device_uid, _package_opts), do: :error
 
   @doc """
-  Loads every vulnerability match (any status) for a single endpoint package on a
-  device, with the advisory relationship preloaded so the package-detail modal can
-  link out to references. Returns a list (empty when no matches or on failure).
+  Loads every persisted assessment state for one package plus a separately
+  bounded set of supporting raw matches/advisories. Raw rows enrich the modal;
+  they never determine applicability or multiply assessment rows.
   """
   def load_package_vulnerabilities(scope, device_uid, endpoint_package_ref)
       when is_binary(device_uid) and is_binary(endpoint_package_ref) do
     if device_uid == "" or endpoint_package_ref == "" do
-      []
+      empty_package_assessment_details()
     else
-      scope
-      |> read_package_vulnerabilities(device_uid, endpoint_package_ref)
-      |> enrich_matches(scope)
+      assessments = read_package_assessments(scope, device_uid, endpoint_package_ref)
+      {supporting_matches, supporting_total} = read_package_supporting_matches(scope, device_uid, endpoint_package_ref)
+
+      %{
+        assessments: assessments,
+        supporting_matches: enrich_matches(supporting_matches, scope),
+        supporting_matches_total: supporting_total,
+        supporting_matches_truncated?: supporting_total > length(supporting_matches)
+      }
     end
   end
 
-  def load_package_vulnerabilities(_scope, _device_uid, _endpoint_package_ref), do: []
+  def load_package_vulnerabilities(_scope, _device_uid, _endpoint_package_ref), do: empty_package_assessment_details()
+
+  @doc "Loads bounded raw match/advisory enrichment for the supplied assessments."
+  def load_supporting_matches(scope, assessments) when is_list(assessments) do
+    assessments
+    |> Enum.group_by(&field(&1, :endpoint_package_ref))
+    |> Enum.flat_map(fn
+      {package_ref, rows} when not is_nil(package_ref) ->
+        device_uid = rows |> List.first() |> field(:device_uid)
+
+        case {device_uid, to_string(package_ref)} do
+          {uid, ref} when is_binary(uid) and uid != "" and ref != "" ->
+            {matches, _total} = read_package_supporting_matches(scope, uid, ref)
+            matches
+
+          _ ->
+            []
+        end
+
+      _ ->
+        []
+    end)
+    |> Enum.uniq_by(&(&1 |> field(:id) |> to_string()))
+    |> enrich_matches(scope)
+  end
+
+  def load_supporting_matches(_scope, _assessments), do: []
 
   @doc """
   Loads the advisory relationship onto a match so the match-detail modal can
@@ -155,25 +188,55 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
 
   def apply_nvd_metrics(match, _metrics_by_cve), do: match
 
-  defp read_package_vulnerabilities(scope, device_uid, endpoint_package_ref) do
-    EndpointVulnerabilityMatch
+  defp read_package_assessments(scope, device_uid, endpoint_package_ref) do
+    EndpointVulnerabilityAssessment
     |> Ash.Query.for_read(
-      :current_by_device_and_package,
+      :by_device_and_package,
       %{device_uid: device_uid, endpoint_package_ref: endpoint_package_ref},
       scope: scope
     )
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, assessments} ->
+        assessments
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to load package vulnerability assessments for #{device_uid}/#{endpoint_package_ref}: #{inspect(reason)}"
+        )
+
+        []
+    end
+  end
+
+  defp read_package_supporting_matches(scope, device_uid, endpoint_package_ref) do
+    query =
+      Ash.Query.for_read(
+        EndpointVulnerabilityMatch,
+        :current_by_device_and_package,
+        %{device_uid: device_uid, endpoint_package_ref: endpoint_package_ref},
+        scope: scope
+      )
+
+    total =
+      case Ash.count(query, scope: scope) do
+        {:ok, count} -> count
+        _ -> 0
+      end
+
+    query
     |> Ash.Query.limit(@match_limit)
     |> Ash.read(scope: scope)
     |> case do
       {:ok, matches} ->
-        matches
+        {matches, total}
 
       {:error, reason} ->
         Logger.warning(
-          "Failed to load package vulnerabilities for #{device_uid}/#{endpoint_package_ref}: #{inspect(reason)}"
+          "Failed to load supporting vulnerability matches for #{device_uid}/#{endpoint_package_ref}: #{inspect(reason)}"
         )
 
-        []
+        {[], total}
     end
   end
 
@@ -188,7 +251,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
       package_filters_active: false,
       stored_package_count: 0,
       artifacts: [],
-      vulnerability_matches: [],
+      vulnerability_assessments: empty_assessment_pages(),
       cpe_catalog_current: true,
       error: nil,
       has_inventory: false
@@ -281,23 +344,59 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
 
   defp clean(_value), do: nil
 
-  defp read_vulnerability_matches(scope, device_uid) do
-    EndpointVulnerabilityMatch
-    |> Ash.Query.for_read(:current_by_device, %{device_uid: device_uid}, scope: scope)
-    |> Ash.Query.limit(@match_limit)
-    |> Ash.read(scope: scope)
+  @doc false
+  def empty_assessment_pages do
+    %{
+      confirmed: empty_assessment_page(),
+      candidates: empty_assessment_page(),
+      history: empty_assessment_page()
+    }
   end
 
-  defp read_vulnerability_matches_optional(scope, device_uid) do
-    case read_vulnerability_matches(scope, device_uid) do
-      {:ok, matches} ->
-        matches
+  defp empty_package_assessment_details do
+    %{
+      assessments: [],
+      supporting_matches: [],
+      supporting_matches_total: 0,
+      supporting_matches_truncated?: false
+    }
+  end
 
+  defp read_assessment_pages(scope, device_uid) do
+    %{
+      confirmed: read_assessment_page(scope, device_uid, :actionable_by_device),
+      candidates: read_assessment_page(scope, device_uid, :candidates_by_device),
+      history: read_assessment_page(scope, device_uid, :history_by_device)
+    }
+  end
+
+  defp read_assessment_page(scope, device_uid, action) do
+    query = Ash.Query.for_read(EndpointVulnerabilityAssessment, action, %{device_uid: device_uid}, scope: scope)
+
+    with {:ok, total} <- Ash.count(query, scope: scope),
+         {:ok, rows} <- query |> Ash.Query.limit(@assessment_limit) |> Ash.read(scope: scope) do
+      %{
+        rows: rows,
+        total: total,
+        limit: @assessment_limit,
+        truncated?: total > length(rows)
+      }
+    else
       {:error, reason} ->
-        Logger.warning("Failed to load endpoint vulnerability matches for #{device_uid}: #{inspect(reason)}")
+        Logger.warning("Failed to load endpoint vulnerability assessment #{action} for #{device_uid}: #{inspect(reason)}")
 
-        []
+        empty_assessment_page()
     end
+  end
+
+  defp empty_assessment_page do
+    %{rows: [], total: 0, limit: @assessment_limit, truncated?: false}
+  end
+
+  defp assessment_total(pages) do
+    pages
+    |> Map.values()
+    |> Enum.sum_by(&(field(&1, :total) || 0))
   end
 
   defp read_artifacts(_scope, nil), do: {:ok, []}

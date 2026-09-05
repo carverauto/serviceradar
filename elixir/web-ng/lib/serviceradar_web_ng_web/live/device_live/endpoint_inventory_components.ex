@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   attr(:package_page_size, :integer, default: 100)
   attr(:stored_package_count, :integer, default: 0)
   attr(:artifacts, :list, default: [])
-  attr(:vulnerability_matches, :list, default: [])
+  attr(:vulnerability_assessments, :any, default: %{})
   attr(:cpe_catalog_current, :boolean, default: true)
   attr(:error, :string, default: nil)
   attr(:loading, :boolean, default: false)
@@ -381,7 +381,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         </div>
 
         <div class="space-y-4">
-          <.vulnerability_matches_section matches={@vulnerability_matches} loading={@loading} />
+          <.vulnerability_assessments_sections
+            assessment_pages={@vulnerability_assessments}
+            loading={@loading}
+            timezone={@timezone}
+          />
 
           <div class="overflow-hidden rounded border border-sr-line">
             <div class="border-b border-sr-line bg-sr-subtle/30 p-3">
@@ -523,21 +527,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   attr(:show, :boolean, default: false)
   attr(:package, :any, default: nil)
-  attr(:matches, :list, default: [])
+  attr(:assessment_details, :map, default: %{})
   attr(:cpe_catalog_current, :boolean, default: true)
   attr(:timezone, :string, default: "Etc/UTC")
 
   @doc """
   Detail modal for a single Current Packages row. Renders the full package
-  coordinate plus any vulnerability matches scoped to this device + package.
+  coordinate plus every assessment state scoped to this device + package.
   """
   def endpoint_inventory_package_modal(assigns) do
-    findings = EndpointInventoryFindings.group(assigns.matches || [])
+    details = assigns.assessment_details || %{}
+
+    findings =
+      EndpointInventoryFindings.partition(
+        field(details, :assessments) || [],
+        field(details, :supporting_matches) || []
+      )
+
+    sections = assessment_sections(findings)
+    finding_count = sections |> Enum.flat_map(& &1.findings) |> length()
 
     assigns =
       assigns
-      |> assign(:findings, findings)
-      |> assign(:match_count, length(findings))
+      |> assign(:assessment_sections, sections)
+      |> assign(:finding_count, finding_count)
 
     ~H"""
     <div
@@ -609,11 +622,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         <div class="mt-4">
           <div class="mb-2 flex items-center justify-between gap-2">
             <h4 class="text-xs font-semibold uppercase text-sr-muted">
-              Vulnerability Details
+              Vulnerability Assessments
             </h4>
-            <.ui_badge :if={@match_count > 0} size="sm" variant="error">
-              {@match_count} {if @match_count == 1, do: "CVE", else: "CVEs"}
-            </.ui_badge>
+            <div :if={@finding_count > 0} class="flex flex-wrap gap-1">
+              <.ui_badge
+                :for={section <- @assessment_sections}
+                :if={section.total > 0}
+                size="sm"
+                variant={section.variant}
+              >
+                {section.total} {section.short_label}
+              </.ui_badge>
+            </div>
           </div>
 
           <.ui_alert
@@ -622,19 +642,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             class="mb-3"
             data-testid="cpe-catalog-notice"
           >
-            CPE catalog is not current. These findings are name matches, not version-accurate
-            NVD CPE hits.
+            CPE catalog is not current. Supporting NVD coordinate evidence may be incomplete;
+            applicability below remains the persisted assessment decision.
           </.ui_alert>
 
           <div
-            :if={@match_count == 0}
+            :if={@finding_count == 0}
             class="rounded border border-sr-line bg-sr-subtle/40 px-3 py-4 text-center text-sm text-sr-muted"
           >
-            No known vulnerabilities for this package.
+            No vulnerability assessments for this package.
           </div>
 
-          <div :if={@match_count > 0} class="space-y-3">
-            <.cve_finding_card :for={finding <- @findings} finding={finding} />
+          <div :if={@finding_count > 0} class="space-y-4">
+            <section :for={section <- @assessment_sections} :if={section.findings != []}>
+              <div class="mb-2 flex items-center justify-between gap-2">
+                <h5 class="text-xs font-semibold text-sr-ink">{section.title}</h5>
+                <span class="text-xs text-sr-muted">{section.total}</span>
+              </div>
+              <div class="space-y-3">
+                <.cve_finding_card :for={finding <- section.findings} finding={finding} />
+              </div>
+            </section>
           </div>
         </div>
       </div>
@@ -672,7 +700,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         kev_due: kev_due_date(advisory),
         kev_ransomware: kev_ransomware(advisory),
         kev_product: kev_vendor_product(advisory),
-        match_note: match_confidence_note(primary),
+        match_note: assessment_explanation(primary),
         source_label: source_label(group && group.sources)
       )
 
@@ -723,8 +751,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         <.ui_badge :if={field(@match, :exploit_available)} size="sm" variant="warning">
           Exploit
         </.ui_badge>
-        <.ui_badge size="sm" variant={match_status_class(field(@match, :status))}>
-          {String.capitalize(to_string(field(@match, :status) || "unknown"))}
+        <.ui_badge size="sm" variant={assessment_state_variant(@match)}>
+          {assessment_state_label(@match)}
         </.ui_badge>
         <span class="ml-auto font-mono text-xs text-sr-muted">
           CVSS {cvss_display(field(@match, :cvss_score))}
@@ -781,13 +809,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             <.detail_row label="Package" value={@group.package_name} />
             <.detail_row label="Installed" value={@group.installed_version} mono />
             <.detail_row label="Fixed version" value={fixed_versions_display(@group)} mono />
+            <.detail_row label="Authority" value={field(@match, :authority)} mono />
+            <.detail_row label="Applicability" value={assessment_state_label(@match)} />
+            <.detail_row label="Distro / release" value={distro_release(@match)} mono />
+            <.detail_row label="Freshness" value={freshness_label(@match)} />
+            <.detail_row label="Decision reason" value={assessment_reason(@match)} />
             <.detail_row :if={@kev_product} label="KEV product" value={@kev_product} />
             <.detail_row label="Coordinate" value={match_coordinate(@match)} mono />
-            <.detail_row
-              label="Confidence"
-              value={String.capitalize(to_string(@group.confidence || "unknown"))}
-            />
-            <.detail_row label="Source" value={@source_label} mono />
+            <.detail_row label="Supporting feeds" value={@source_label} mono />
+            <.detail_row label="Authority as of" mono>
+              <.user_time
+                id={"endpoint-inventory-assessment-#{record_dom_id(@match, "assessment")}-authority-as-of"}
+                value={field(@match, :authority_as_of)}
+                timezone={@timezone}
+                style={:full}
+                fallback={timestamp_fallback(field(@match, :authority_as_of))}
+              />
+            </.detail_row>
             <.detail_row
               :if={advisory_cvss_vector(@advisory) || match_cvss_vector(@match)}
               label="CVSS vector"
@@ -879,8 +917,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           <.ui_badge :if={field(@match, :exploit_available)} size="sm" variant="warning">
             Exploit
           </.ui_badge>
-          <.ui_badge size="sm" variant={match_status_class(field(@match, :status))}>
-            {String.capitalize(to_string(field(@match, :status) || "unknown"))}
+          <.ui_badge size="sm" variant={assessment_state_variant(@match)}>
+            {assessment_state_label(@match)}
           </.ui_badge>
           <.ui_badge :for={feed <- @feeds} size="xs" variant="ghost">
             {feed.provider}{feed_suffix(feed.feed_key)}
@@ -937,22 +975,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           <span class="font-mono">{vulnerability_installed_version(@match)}</span>
         </div>
         <div>
-          <span class="text-sr-muted">Fixed Version:</span>
-          <span class="font-mono">{empty_dash(field(@match, :fixed_version))}</span>
+          <span class="text-sr-muted">Fixed version:</span>
+          <span class="font-mono">{empty_dash(authoritative_fixed_version(@match))}</span>
         </div>
         <div>
           <span class="text-sr-muted">Coordinate:</span>
           <span class="font-mono">{match_coordinate(@match)}</span>
         </div>
         <div>
-          <span class="text-sr-muted">Source:</span>
+          <span class="text-sr-muted">Authority:</span>
           <span class="font-mono">
-            {field(@match, :provider)}{feed_suffix(field(@match, :feed_key))}
+            {empty_dash(field(@match, :authority))}
           </span>
         </div>
         <div>
-          <span class="text-sr-muted">Confidence:</span>
-          <span>{String.capitalize(to_string(field(@match, :confidence) || "unknown"))}</span>
+          <span class="text-sr-muted">Freshness:</span>
+          <span>{freshness_label(@match)}</span>
+        </div>
+        <div class="sm:col-span-2">
+          <span class="text-sr-muted">Decision reason:</span>
+          <span>{assessment_reason(@match)}</span>
         </div>
         <div :if={advisory_cvss_vector(@advisory)}>
           <span class="text-sr-muted">CVSS vector:</span>
@@ -1015,11 +1057,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           <.ui_badge :if={field(@finding, :exploit_available)} size="sm" variant="warning">
             Exploit
           </.ui_badge>
-          <.ui_badge :if={field(@finding, :name_match_only?)} size="sm" variant="ghost">
-            Name match
-          </.ui_badge>
-          <.ui_badge size="sm" variant={match_status_class(field(@finding, :status))}>
-            {String.capitalize(to_string(field(@finding, :status) || "unknown"))}
+          <.ui_badge size="sm" variant={assessment_state_variant(@finding)}>
+            {assessment_state_label(@finding)}
           </.ui_badge>
         </div>
         <span class="font-mono text-xs text-sr-muted">
@@ -1051,13 +1090,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       </p>
 
       <div class="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
-        <div>
-          <span class="text-sr-muted">Fixed Version:</span>
-          <span class="font-mono">{empty_dash(field(@finding, :fixed_version))}</span>
+        <div :if={authoritative_fixed_version(@finding)}>
+          <span class="text-sr-muted">Fixed version:</span>
+          <span class="font-mono">{authoritative_fixed_version(@finding)}</span>
         </div>
         <div>
-          <span class="text-sr-muted">Evidence:</span>
-          <span class="font-mono">{match_coordinate(@finding)}</span>
+          <span class="text-sr-muted">Installed:</span>
+          <span class="font-mono">{empty_dash(field(@finding, :installed_version))}</span>
         </div>
         <div :if={field(@finding, :due_date)}>
           <span class="text-sr-muted">CISA due:</span>
@@ -1068,14 +1107,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           <span class="font-mono">{format_epss(field(@finding, :epss_score))}</span>
         </div>
         <div>
-          <span class="text-sr-muted">Source:</span>
+          <span class="text-sr-muted">Authority:</span>
           <span class="font-mono">
-            {field(@finding, :provider)}{feed_suffix(field(@finding, :feed_key))}
+            {empty_dash(field(@finding, :authority))}
           </span>
         </div>
         <div>
-          <span class="text-sr-muted">Confidence:</span>
-          <span>{String.capitalize(to_string(field(@finding, :confidence) || "unknown"))}</span>
+          <span class="text-sr-muted">Distro / release:</span>
+          <span class="font-mono">{distro_release(@finding)}</span>
+        </div>
+        <div>
+          <span class="text-sr-muted">Freshness:</span>
+          <span>{freshness_label(@finding)}</span>
+        </div>
+        <div class="sm:col-span-2">
+          <span class="text-sr-muted">Decision reason:</span>
+          <span>{assessment_reason(@finding)}</span>
+        </div>
+        <div :if={unknown_terms_label(@finding)} class="sm:col-span-2">
+          <span class="text-sr-muted">Unknown environment:</span>
+          <span class="font-mono">{unknown_terms_label(@finding)}</span>
         </div>
       </div>
 
@@ -1132,30 +1183,65 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
     """
   end
 
-  attr(:matches, :list, default: [])
+  attr(:assessment_pages, :any, default: %{})
   attr(:loading, :boolean, default: false)
+  attr(:timezone, :string, default: "Etc/UTC")
 
-  defp vulnerability_matches_section(assigns) do
-    findings = EndpointInventoryFindings.group(assigns.matches || [])
+  defp vulnerability_assessments_sections(assigns) do
+    sections = assessment_sections(assigns.assessment_pages || %{})
+    confirmed = Enum.find(sections, &(&1.key == :confirmed))
 
     assigns =
       assigns
-      |> assign(:findings, findings)
-      |> assign(:match_count, length(findings))
+      |> assign(:assessment_sections, sections)
+      |> assign(:confirmed_total, confirmed.total)
 
     ~H"""
-    <div class="overflow-hidden rounded border border-sr-line">
+    <div class="space-y-4" data-testid="vulnerability-assessment-sections">
+      <div class="flex flex-wrap items-center gap-2 px-1 text-xs text-sr-muted">
+        <span>{@confirmed_total} confirmed</span>
+        <span
+          :for={section <- @assessment_sections}
+          :if={section.key != :confirmed and section.total > 0}
+        >
+          · {section.total} {section.short_label}
+        </span>
+      </div>
+
+      <.vulnerability_assessment_section
+        :for={section <- @assessment_sections}
+        :if={section.key == :confirmed or section.total > 0}
+        section={section}
+        loading={@loading}
+        timezone={@timezone}
+      />
+    </div>
+    """
+  end
+
+  attr(:section, :map, required: true)
+  attr(:loading, :boolean, default: false)
+  attr(:timezone, :string, default: "Etc/UTC")
+
+  defp vulnerability_assessment_section(assigns) do
+    ~H"""
+    <section
+      class="overflow-hidden rounded border border-sr-line"
+      data-section={@section.key}
+      data-testid={"vulnerability-section-#{@section.key}"}
+    >
       <div class="border-b border-sr-line bg-sr-subtle/30 p-3">
         <div class="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
           <div>
-            <h3 class="text-xs font-semibold uppercase text-sr-muted">
-              Vulnerability Matches
-            </h3>
+            <h3 class="text-xs font-semibold uppercase text-sr-muted">{@section.title}</h3>
             <p class="text-xs text-sr-muted">
-              {@match_count} active package CVEs from central feeds
+              {@section.total} {@section.short_label}
+              <span :if={@section.truncated?}>· showing first {length(@section.findings)}</span>
             </p>
           </div>
-          <.ui_badge :if={@match_count > 0} size="sm" variant="error">Actionable</.ui_badge>
+          <.ui_badge :if={@section.total > 0} size="sm" variant={@section.variant}>
+            {@section.badge}
+          </.ui_badge>
         </div>
       </div>
 
@@ -1165,29 +1251,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             <th>Priority</th>
             <th>Advisory</th>
             <th>Package</th>
-            <th>Fix</th>
-            <th>Source</th>
+            <th>Applicability</th>
+            <th>Versions</th>
+            <th>Freshness</th>
           </tr>
         </thead>
         <tbody>
-          <tr :if={@loading and @match_count == 0}>
-            <td colspan="5" class="py-6 text-center text-sm text-sr-muted">
-              Loading vulnerability matches…
+          <tr :if={@loading and @section.key == :confirmed and @section.total == 0}>
+            <td colspan="6" class="py-6 text-center text-sm text-sr-muted">
+              Loading vulnerability assessments…
             </td>
           </tr>
-          <tr :if={not @loading and @match_count == 0}>
-            <td colspan="5" class="py-6 text-center text-sm text-sr-muted">
-              No active vulnerability matches have been produced for this device.
+          <tr :if={not @loading and @section.key == :confirmed and @section.total == 0}>
+            <td colspan="6" class="py-6 text-center text-sm text-sr-muted">
+              No confirmed vulnerabilities.
             </td>
           </tr>
           <tr
-            :for={finding <- @findings}
+            :for={finding <- @section.findings}
             class="cursor-pointer hover"
             phx-click="endpoint_inventory_open_match"
             phx-value-id={field(finding, :id)}
             data-testid="cve-finding"
+            data-assessment-id={field(finding, :id)}
             data-cve={field(finding, :cve_id)}
-            title="View advisory details"
+            title="View assessment details"
           >
             <td>
               <div class="flex flex-wrap gap-1">
@@ -1198,52 +1286,51 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                 <.ui_badge :if={field(finding, :exploit_available)} size="xs" variant="warning">
                   Exploit
                 </.ui_badge>
-                <.ui_badge :if={field(finding, :name_match_only?)} size="xs" variant="ghost">
-                  Name match
-                </.ui_badge>
               </div>
               <div class="mt-1 font-mono text-[0.65rem] text-sr-muted">
                 CVSS {empty_dash(field(finding, :cvss_score))}
-                <span :if={field(finding, :epss_score)}>
-                  · EPSS {format_epss(field(finding, :epss_score))}
-                </span>
-              </div>
-              <div :if={(field(finding, :cwes) || []) != []} class="mt-1 flex flex-wrap gap-1">
-                <.ui_badge
-                  :for={cwe <- Enum.take(field(finding, :cwes) || [], 3)}
-                  size="xs"
-                  variant="outline"
-                >
-                  {cwe}
-                </.ui_badge>
               </div>
             </td>
             <td>
               <div class="font-medium">{field(finding, :cve_id) || field(finding, :advisory_id)}</div>
-              <div :if={field(finding, :due_date)} class="mt-1 text-xs text-sr-muted">
-                Due {field(finding, :due_date)}
-              </div>
-              <div class="mt-1 text-xs text-sr-muted">
-                {String.capitalize(to_string(field(finding, :confidence) || "unknown"))} confidence
-              </div>
+              <.ui_badge size="xs" variant={assessment_state_variant(finding)} class="mt-1">
+                {assessment_state_label(finding)}
+              </.ui_badge>
             </td>
-            <td class="max-w-56">
+            <td class="max-w-48">
               <div class="truncate font-medium">{vulnerability_package_name(finding)}</div>
-              <div class="truncate font-mono text-xs text-sr-muted">
-                {vulnerability_installed_version(finding)}
+              <div class="truncate font-mono text-xs text-sr-muted">{distro_release(finding)}</div>
+            </td>
+            <td class="max-w-56 text-xs">
+              <div class="font-mono">{empty_dash(field(finding, :authority))}</div>
+              <div class="mt-1 line-clamp-2 text-sr-muted">{assessment_reason(finding)}</div>
+              <div
+                :if={unknown_terms_label(finding)}
+                class="mt-1 line-clamp-2 font-mono text-sr-muted"
+              >
+                Unknown environment: {unknown_terms_label(finding)}
               </div>
             </td>
-            <td class="font-mono text-xs">{empty_dash(field(finding, :fixed_version))}</td>
-            <td>
-              <div class="font-mono text-xs">{field(finding, :provider)}</div>
-              <div class="font-mono text-[0.65rem] text-sr-muted">
-                {field(finding, :feed_key)}
+            <td class="text-xs">
+              <div class="font-mono">{empty_dash(field(finding, :installed_version))}</div>
+              <div :if={authoritative_fixed_version(finding)} class="mt-1 font-mono text-sr-muted">
+                fix {authoritative_fixed_version(finding)}
               </div>
+            </td>
+            <td class="text-xs">
+              <div>{freshness_label(finding)}</div>
+              <.user_time
+                id={"endpoint-inventory-assessment-#{record_dom_id(finding, "assessment")}-authority-table"}
+                value={field(finding, :authority_as_of)}
+                timezone={@timezone}
+                style={:compact}
+                fallback={timestamp_fallback(field(finding, :authority_as_of))}
+              />
             </td>
           </tr>
         </tbody>
       </table>
-    </div>
+    </section>
     """
   end
 
@@ -1684,6 +1771,156 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   defp risk_class(_level, score) when is_integer(score) and score >= 50, do: "sr-sev-high"
   defp risk_class(_level, _score), do: "sr-sev-unknown"
 
+  defp assessment_sections(partitions) do
+    Enum.map(
+      [
+        %{
+          key: :confirmed,
+          title: "Confirmed vulnerabilities",
+          short_label: "confirmed",
+          badge: "Actionable",
+          variant: "error"
+        },
+        %{
+          key: :candidates,
+          title: "Unverified candidates",
+          short_label: "candidates",
+          badge: "Review",
+          variant: "outline"
+        },
+        %{key: :history, title: "History", short_label: "historical", badge: "Resolved", variant: "ghost"}
+      ],
+      fn definition ->
+        page = field(partitions, definition.key) || %{}
+        rows = assessment_page_rows(page)
+
+        findings =
+          if Enum.all?(rows, &(not is_nil(field(&1, :state_label)))),
+            do: rows,
+            else: EndpointInventoryFindings.group(rows)
+
+        total = field(page, :total) || length(findings)
+
+        Map.merge(definition, %{
+          findings: findings,
+          total: total,
+          truncated?: field(page, :truncated?) == true or total > length(findings)
+        })
+      end
+    )
+  end
+
+  defp assessment_page_rows(rows) when is_list(rows), do: rows
+  defp assessment_page_rows(%{} = page), do: field(page, :rows) || []
+  defp assessment_page_rows(_page), do: []
+
+  defp assessment_state_label(assessment) do
+    field(assessment, :state_label) ||
+      cond do
+        actionable_assessment?(assessment) ->
+          "Confirmed affected"
+
+        field(assessment, :status) == "resolved" ->
+          "Resolved · #{humanize_assessment_value(field(assessment, :disposition))}"
+
+        field(assessment, :assessment) == "candidate" ->
+          "Unverified candidate"
+
+        true ->
+          "Needs review"
+      end
+  end
+
+  defp assessment_state_variant(assessment) do
+    cond do
+      actionable_assessment?(assessment) -> "error"
+      field(assessment, :status) == "resolved" -> "ghost"
+      true -> "outline"
+    end
+  end
+
+  defp actionable_assessment?(assessment) do
+    field(assessment, :status) == "active" and
+      field(assessment, :assessment) == "confirmed" and
+      field(assessment, :disposition) == "affected"
+  end
+
+  defp assessment_reason(assessment) do
+    value =
+      if field(assessment, :status) == "resolved" do
+        field(assessment, :transition_reason) || field(assessment, :applicability_reason)
+      else
+        field(assessment, :applicability_reason)
+      end
+
+    value || "No decision reason recorded"
+  end
+
+  defp assessment_explanation(nil), do: nil
+
+  defp assessment_explanation(assessment) do
+    case unknown_terms_label(assessment) do
+      nil -> assessment_reason(assessment)
+      terms -> "#{assessment_reason(assessment)}. Unknown environment: #{terms}"
+    end
+  end
+
+  defp freshness_label(assessment) do
+    assessment
+    |> field(:freshness)
+    |> case do
+      nil -> "Unknown"
+      value -> value |> to_string() |> String.capitalize()
+    end
+  end
+
+  defp distro_release(assessment) do
+    [field(assessment, :package_namespace), field(assessment, :package_release)]
+    |> Enum.reject(&blank?/1)
+    |> Enum.join(" / ")
+    |> empty_dash()
+  end
+
+  defp authoritative_fixed_version(assessment) do
+    fixed_version = field(assessment, :fixed_version)
+
+    if not blank?(fixed_version) and
+         (actionable_assessment?(assessment) or
+            (field(assessment, :status) == "resolved" and
+               field(assessment, :assessment) == "confirmed")) do
+      fixed_version
+    end
+  end
+
+  defp unknown_terms_label(assessment) do
+    assessment
+    |> field(:unknown_terms)
+    |> List.wrap()
+    |> Enum.map(&unknown_term_label/1)
+    |> Enum.reject(&blank?/1)
+    |> Enum.join(", ")
+    |> case do
+      "" -> nil
+      label -> label
+    end
+  end
+
+  defp unknown_term_label(term) when is_binary(term), do: term
+
+  defp unknown_term_label(%{} = term) do
+    field(term, :criteria) || field(term, :cpe) || field(term, :reason) || inspect(term)
+  end
+
+  defp unknown_term_label(term), do: to_string(term)
+
+  defp humanize_assessment_value(nil), do: "unknown"
+
+  defp humanize_assessment_value(value) do
+    value
+    |> to_string()
+    |> String.replace("_", " ")
+  end
+
   defp vulnerability_severity(match) do
     match
     |> field(:severity)
@@ -1777,22 +2014,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   defp vulnerability_severity_class(_value), do: "ghost"
 
   defp vulnerability_package_name(match) do
-    match
-    |> vulnerability_package()
-    |> field(:name)
-    |> empty_dash()
+    name =
+      field(match, :package_name) ||
+        match
+        |> vulnerability_package()
+        |> field(:name)
+
+    empty_dash(name)
   end
 
   defp vulnerability_installed_version(match) do
     version =
-      match
-      |> field(:version_evidence)
-      |> field(:installed_version)
+      field(match, :installed_version) ||
+        match
+        |> field(:version_evidence)
+        |> field(:installed_version)
 
     package_manager =
-      match
-      |> vulnerability_package()
-      |> field(:package_manager)
+      field(match, :package_manager) ||
+        match
+        |> vulnerability_package()
+        |> field(:package_manager)
 
     [package_manager, version]
     |> Enum.reject(&blank?/1)
@@ -1831,7 +2073,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp match_coordinate(match) do
     type = field(match, :coordinate_type)
-    value = field(match, :coordinate_value)
+    value = field(match, :coordinate_value) || field(match, :package_purl)
 
     [type, value]
     |> Enum.reject(&blank?/1)
@@ -1841,17 +2083,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       coordinate -> coordinate
     end
   end
-
-  defp match_status_class(status) when is_binary(status) do
-    case String.downcase(status) do
-      "active" -> "error"
-      "resolved" -> "success"
-      "suppressed" -> "ghost"
-      _ -> "ghost"
-    end
-  end
-
-  defp match_status_class(_status), do: "ghost"
 
   defp feed_suffix(nil), do: ""
   defp feed_suffix(""), do: ""
@@ -2005,37 +2236,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           nil
       end
     end)
-  end
-
-  defp match_confidence_note(nil), do: nil
-
-  defp match_confidence_note(match) do
-    confidence =
-      match
-      |> field(:confidence)
-      |> case do
-        nil -> ""
-        value -> value |> to_string() |> String.downcase()
-      end
-
-    type =
-      match
-      |> field(:coordinate_type)
-      |> case do
-        nil -> ""
-        value -> value |> to_string() |> String.downcase()
-      end
-
-    cond do
-      confidence == "low" and type in ["vendor_product", "name"] ->
-        "Low-confidence name match. CISA KEV catalogs vendor/product names, not exact versions or CPEs. Confirm the installed package is the affected product before treating this as a confirmed exposure."
-
-      confidence == "low" ->
-        "Low-confidence match. Review the coordinate and installed version before acting."
-
-      true ->
-        nil
-    end
   end
 
   defp canonical_advisory_links(match) do

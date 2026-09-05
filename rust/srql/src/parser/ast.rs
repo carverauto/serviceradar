@@ -77,7 +77,7 @@ pub enum Entity {
     IdentityEvidenceEdges,
     VulnerabilityAdvisories,
     AdvisoryCoordinates,
-    EndpointVulnerabilityMatches,
+    EndpointVulnerabilityAssessments,
     ThreatIntelMatches,
     SweepGroups,
     SweepProfiles,

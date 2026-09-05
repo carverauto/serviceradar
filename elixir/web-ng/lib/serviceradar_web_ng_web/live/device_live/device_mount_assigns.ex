@@ -38,11 +38,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:endpoint_inventory_package_page_size, EndpointInventoryData.default_page_size())
     |> assign(:endpoint_inventory_stored_package_count, 0)
     |> assign(:endpoint_inventory_artifacts, [])
-    |> assign(:endpoint_inventory_vulnerability_matches, [])
+    |> assign(:endpoint_inventory_vulnerability_assessments, EndpointInventoryData.empty_assessment_pages())
     |> assign(:endpoint_inventory_cpe_catalog_current, true)
     |> assign(:show_endpoint_inventory_package_modal, false)
     |> assign(:endpoint_inventory_selected_package, nil)
-    |> assign(:endpoint_inventory_selected_package_matches, [])
+    |> assign(:endpoint_inventory_selected_package_assessment_details, %{
+      assessments: [],
+      supporting_matches: [],
+      supporting_matches_total: 0,
+      supporting_matches_truncated?: false
+    })
     |> assign(:show_endpoint_inventory_match_modal, false)
     |> assign(:endpoint_inventory_selected_match_group, nil)
     |> assign(:endpoint_inventory_error, nil)

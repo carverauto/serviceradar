@@ -109,7 +109,13 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
              EntityAccess.permission_for_entity("advisory_coordinates")
 
     assert EntityAccess.permission_for_entity("cve_matches") ==
-             EntityAccess.permission_for_entity("endpoint_vulnerability_matches")
+             EntityAccess.permission_for_entity("endpoint_vulnerability_assessments")
+
+    assert EntityAccess.permission_for_entity("endpoint_vulnerability_matches") ==
+             EntityAccess.permission_for_entity("endpoint_vulnerability_assessments")
+
+    assert EntityAccess.permission_for_entity("package_vulnerabilities") ==
+             EntityAccess.permission_for_entity("endpoint_vulnerability_assessments")
 
     assert {:ok, "devices.view"} = EntityAccess.permission_for_entity("cves")
     assert {:ok, "devices.view"} = EntityAccess.permission_for_entity("advisory_cpes")
