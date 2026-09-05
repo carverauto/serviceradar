@@ -81,15 +81,24 @@ defmodule ServiceRadar.Edge.PublishWindow do
 
   ## WHAT THIS STILL DOES NOT BOUND
 
-  RESTART OVERLAP -- task 3.3's other closure criterion, and still OPEN. A replacement
-  `PublisherPool` starts with its full grant while requests admitted under the previous accounting
-  may still be in flight on the previous transport. Nothing here reconstructs those charges, so a
-  lane can briefly exceed its grant across a restart. `LaneSupervisor`'s `:one_for_all` narrows
-  that interval; it does not close it, because supervisor restarts are ordered but not
-  instantaneous.
+  RESTART OVERLAP is CLOSED, and this section previously said otherwise. It described a
+  replacement `PublisherPool` starting with its full grant while requests admitted under the
+  previous accounting were still in flight -- but the lane no longer restarts that way. The
+  accountant is now STABLE and the transport REPLACEABLE under `LaneSupervisor`'s `:rest_for_one`,
+  accountant first, so a replacement transport inherits the credits the previous generation
+  consumed. `fence_generation/2` ends the dead generation's attempts and keeps their charges.
 
-  That same gap is what would otherwise free a reservation whose owner died mid-request. Until it
-  is closed, such a reservation stays charged for the life of the pool.
+  OWNER DEATH is the part that remains open, and it is a DIFFERENT gap rather than the remainder
+  of that one. Fencing fires on the death of a transport GENERATION, not of an owner, so an owner
+  that dies while its transport stays healthy leaves a reservation charged with no attempt against
+  it and no retry admissible for that publication. That is deliberate -- owner death is not
+  evidence the record went unpublished, per "owner death is not termination" above -- but the
+  retention is real. Bounding it needs evidence that the specific REQUEST terminated, which is
+  task 3.5's correlation work and not a supervision change.
+
+  CONCURRENCY is the other part. The restart invariant above is proven against the SERIAL
+  publisher that exists today, and an invariant exercised only serially is not an invariant under
+  concurrency. Task 3.3's asynchronous pipeline is what must also hold it.
 
   ## WHOSE OBLIGATION THIS IS
 

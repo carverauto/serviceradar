@@ -254,11 +254,15 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
       # or on a different stream, is not deduplicated there. The proposal names database
       # idempotency as the backstop for exactly that.
       #
-      # This also does NOT close the hole underneath it. A replacement pool starts with its full
-      # grant while this publish may still be broker-ambiguous, so the lane can briefly exceed its
-      # bound. That is TASK 3.3's hard-window obligation, not 3.4's or 3.5's, and correlation
-      # alone would not fence it -- the absence of a PubAck cannot tell "never sent" from "in
-      # flight" or "acked, ack lost". See PublishWindow's "what this does not yet bound".
+      # WHICH failure this can now be has narrowed. A replacement pool no longer starts with a
+      # full grant: the accountant is stable across transport restarts, so the case where the
+      # ledger vanished under a live publish is gone. What reaches here is a SUPERSEDED
+      # reservation, or an accountant that itself died -- and under :rest_for_one that terminates
+      # the transport too, so the request could not have been completing on it either.
+      #
+      # Still not closed, and not by this branch: an owner that dies mid-request, whose
+      # reservation stays charged (task 3.5's correlation work). See PublishWindow's "what this
+      # still does not bound".
       {:error, reason} ->
         Logger.warning("publish could not be accounted for: #{inspect(reason)}")
         {:error, :systemic}
