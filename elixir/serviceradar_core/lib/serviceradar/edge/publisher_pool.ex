@@ -66,11 +66,19 @@ defmodule ServiceRadar.Edge.PublisherPool do
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublishWindow
 
+  require Logger
+
   # Read at COMPILE time so the values can still appear in guards. ONE list, owned by
   # PublisherLane, because a second copy here would let the pools and the connections drift:
   # a lane with a pool and no connection publishes nowhere, and a connection with no pool is
   # unbounded capacity nothing accounts for.
   @classes PublisherLane.lanes()
+
+  # The spec's retention bound: "at most one accepting and one draining generation". DRAINING is a
+  # generation this accountant still knows about but whose registrar is gone -- normally for only
+  # as long as its :DOWN sits in the mailbox. Two is therefore the steady-state overlap, and a
+  # THIRD is not a busier lane, it is a lost :DOWN or a registrar that outlived its subtree.
+  @max_generations 2
 
   # How long a caller waits for the pool before revoking its admission. Deliberately explicit --
   # the GenServer default is invisible, and this value is what the cancellation protocol is built
@@ -185,6 +193,52 @@ defmodule ServiceRadar.Edge.PublisherPool do
   @doc "The frames whose PubAck deadline has passed. Reports only."
   def expired(pool), do: GenServer.call(pool, :expired)
 
+  @doc """
+  Registers a transport generation and returns its reference.
+
+  Called by the lane's transport runtime once its connection is up. Until one is registered this
+  accountant is CLOSED: `admit/4` returns `{:error, :no_transport}` rather than handing out
+  credits against transport that does not exist.
+
+  That is the fail-closed half of the restart contract. This process outlives transport restarts
+  ON PURPOSE -- that is what stops a replacement from reopening the full grant -- but the
+  converse must not hold: if this process is itself replaced, its ledger is empty, and an empty
+  ledger that accepts admissions is exactly the over-admission defect wearing a different hat. So
+  a fresh accountant refuses everything until a transport registers, which under `:rest_for_one`
+  cannot happen until the previous transport subtree has been terminated.
+
+  The generation is a reference, not a counter: a counter restarted with this process, so a stale
+  generation would compare equal to a fresh one and fencing the old would fence the new.
+
+  ## Registration is a BOUNDED transition, and can be refused
+
+  Three refusals, each closing a state the previous unconditional `Map.put` could reach:
+
+    * `:dead_registrar` -- the registering process is already gone. Admitting it would make a dead
+      generation `accepting`, and the `:DOWN` already in flight would then close the lane.
+    * `:generation_limit` -- `@max_generations` live generations are already known. Dead ones are
+      reaped first, so this is never tripped by an undelivered `:DOWN`; reaching it means a
+      registrar outlived the subtree it stands for.
+    * a repeat for a process already registered returns its EXISTING generation rather than
+      minting a second. One registrar is one generation for its whole lifetime.
+
+  The caller is a supervised child (`LaneTransportRuntime.Registrar`), so a refusal stops that
+  child and the generation is retried under the supervisor's restart intensity -- rather than
+  being admitted past the bound, or looping here.
+  """
+  @spec register_transport(GenServer.server(), pid()) ::
+          {:ok, PublishWindow.generation()} | {:error, :dead_registrar | :generation_limit}
+  def register_transport(pool, transport_pid) when is_pid(transport_pid),
+    do: GenServer.call(pool, {:register_transport, transport_pid})
+
+  @doc """
+  The generations this accountant knows, and which one is accepting.
+
+  Exposed so the spec's bound can be asserted rather than assumed: at most one accepting and one
+  draining generation at a time.
+  """
+  def generations(pool), do: GenServer.call(pool, :generations)
+
   @doc "This class's current capacity, for tests and observability."
   def capacity(pool), do: GenServer.call(pool, :capacity)
 
@@ -204,7 +258,22 @@ defmodule ServiceRadar.Edge.PublisherPool do
        # of in-flight admit calls, not by retries: an entry leaves on confirmation, revocation, or
        # the caller's death. It previously kept one entry per admission for the life of the
        # reservation, so a record retried a hundred times carried a hundred entries.
-       pending: %{}
+       pending: %{},
+       # The generation admissions are issued against, or nil when no transport is registered.
+       # nil is the STARTING state: a fresh accountant is closed until a transport registers.
+       #
+       # DERIVED, never independently assigned: every mutation of `transports` goes through
+       # `recompute_accepting/1`. It was previously set by hand at each site, and the two could
+       # then disagree -- a late registration from an already-dead registrar overwrote a NEWER
+       # accepting generation, and the dead one's :DOWN set this to nil while the live generation
+       # sat in `transports` with no registrar that would ever re-register. The lane stayed closed
+       # for the life of the pool. Deriving it makes that disagreement unrepresentable.
+       accepting: nil,
+       # generation ref => %{pid, monitor, registered_at}. Bounded by @max_generations, which is
+       # the spec's "at most one accepting and one draining generation" -- enforced in
+       # `handle_call({:register_transport, _}, ...)`, not merely asserted in generations/1.
+       # `registered_at` is what makes "the newest live generation" well defined.
+       transports: %{}
      }}
   end
 
@@ -213,10 +282,62 @@ defmodule ServiceRadar.Edge.PublisherPool do
     # The deadline is stamped HERE, not by the caller before the call. Stamped earlier, the time a
     # caller spent queued for this GenServer was silently deducted from the PubAck interval that
     # the deadline is supposed to measure -- so a contended pool shortened every ack window.
-    case deadline(ack_timeout_ms) do
-      {:ok, deadline_at} -> admit_reply(state, {attempt_ref, caller}, key, bytes, deadline_at)
-      :error -> {:reply, {:error, :deadline}, state}
+    # CLOSED until a transport registers. Admitting here would charge credits against transport
+    # that does not exist, and on a fresh accountant would do it from an empty ledger.
+    if state.accepting == nil do
+      {:reply, {:error, :no_transport}, state}
+    else
+      case deadline(ack_timeout_ms) do
+        {:ok, deadline_at} -> admit_reply(state, {attempt_ref, caller}, key, bytes, deadline_at)
+        :error -> {:reply, {:error, :deadline}, state}
+      end
     end
+  end
+
+  def handle_call({:register_transport, pid}, _from, state) do
+    # REAP FIRST. A generation whose registrar has already died is draining only until its :DOWN
+    # is processed, and that message may still be behind this call in the mailbox. Reaping here
+    # means the bound below is measured against generations that are actually LIVE, so a
+    # replacement is never refused merely because the VM has not delivered a notification yet.
+    #
+    # Reaping does the same thing the :DOWN would: fence the generation's attempts, keep their
+    # reservations charged. It is idempotent with the :DOWN that follows, which then finds nothing.
+    state = reap_dead_generations(state)
+
+    cond do
+      # A registrar that is already dead is not send capability, and accepting it is actively
+      # harmful rather than merely useless: it would become `accepting`, and the :DOWN already on
+      # its way would close the lane again. Refusing is also what makes `accepting` safe to
+      # derive -- every generation in `transports` was alive when it was admitted.
+      not Process.alive?(pid) ->
+        {:reply, {:error, :dead_registrar}, state}
+
+      # IDEMPOTENT for the same process. A registrar registers once, from `init/1`, so a repeat is
+      # a retry or a duplicate rather than a second generation -- and minting a second reference
+      # for one lifetime would consume the bound with a generation no death will ever clear.
+      (existing = generation_of(state, pid)) != nil ->
+        {:reply, {:ok, existing}, state}
+
+      # THE BOUND. Refusing is deliberate, and the refusal reaches a supervisor rather than a
+      # publisher: `LaneTransportRuntime.Registrar` stops on it, so the generation is retried
+      # under the supervisor's restart intensity instead of being admitted past the bound. The
+      # alternative -- evicting the oldest to make room -- would silently unmonitor a generation
+      # that may still hold in-flight attempts, which is the accounting this module exists to keep.
+      map_size(state.transports) >= @max_generations ->
+        {:reply, {:error, :generation_limit}, state}
+
+      true ->
+        register_generation(state, pid)
+    end
+  end
+
+  def handle_call(:generations, _from, state) do
+    {:reply,
+     %{
+       accepting: state.accepting,
+       known: Map.keys(state.transports),
+       live: PublishWindow.live_generations(state.window)
+     }, state}
   end
 
   # `from` is the OWNER, and it is taken from the message rather than from the request body so a
@@ -250,7 +371,8 @@ defmodule ServiceRadar.Edge.PublisherPool do
   def handle_call(:expired, _from, state) do
     # The pool reads its OWN clock: the same one that stamped the deadlines. Taking `now` from a
     # caller let `expired(pool, nil)` raise inside the GenServer, killing the pool and, under
-    # :one_for_all, restarting the whole lane -- a refusable input crashing the transport.
+    # :rest_for_one, terminating and restarting the transport beneath it -- a refusable input
+    # taking down the lane's send capability.
     {:reply, PublishWindow.expired(state.window, System.monotonic_time(:millisecond)), state}
   end
 
@@ -267,6 +389,55 @@ defmodule ServiceRadar.Edge.PublisherPool do
        outstanding_frames: PublishWindow.outstanding_frames(state.window),
        outstanding_bytes: PublishWindow.outstanding_bytes(state.window)
      }, state}
+  end
+
+  defp register_generation(state, pid) do
+    generation = make_ref()
+
+    entry = %{
+      pid: pid,
+      monitor: Process.monitor(pid),
+      # Monotonic and node-unique, for the same reason attempt tokens are: it orders generations
+      # so `recompute_accepting/1` can name the NEWEST one without a counter that would restart
+      # with this process.
+      registered_at: System.unique_integer([:monotonic, :positive])
+    }
+
+    {:reply, {:ok, generation},
+     recompute_accepting(%{state | transports: Map.put(state.transports, generation, entry)})}
+  end
+
+  defp generation_of(state, pid) do
+    Enum.find_value(state.transports, fn {generation, t} ->
+      if t.pid === pid, do: generation
+    end)
+  end
+
+  # `accepting` is the NEWEST generation still known. Derived rather than assigned, so it cannot
+  # name a generation that is not in `transports`, and cannot be nil while a live one remains --
+  # the two shapes of the wedge this replaced.
+  defp recompute_accepting(state) do
+    accepting =
+      state.transports
+      |> Enum.max_by(fn {_generation, t} -> t.registered_at end, fn -> nil end)
+      |> case do
+        {generation, _t} -> generation
+        nil -> nil
+      end
+
+    %{state | accepting: accepting}
+  end
+
+  # Every generation whose registrar is gone, fenced exactly as its :DOWN would fence it.
+  defp reap_dead_generations(state) do
+    state.transports
+    |> Enum.reject(fn {_generation, t} -> Process.alive?(t.pid) end)
+    |> Enum.reduce(state, fn {generation, t}, acc ->
+      # Flushed, because the :DOWN for a generation already fenced has nothing left to do and
+      # would otherwise fall through to `caller_down/2` and scan `pending` for no reason.
+      Process.demonitor(t.monitor, [:flush])
+      fence(acc, generation)
+    end)
   end
 
   @impl true
@@ -295,7 +466,18 @@ defmodule ServiceRadar.Edge.PublisherPool do
   end
 
   @impl true
-  def handle_info({:DOWN, monitor, :process, _pid, _reason}, state) do
+  def handle_info({:DOWN, monitor, :process, _pid, _reason} = down, state) do
+    # TWO kinds of monitor land here and they authorise OPPOSITE things, so they are dispatched
+    # by which map the monitor belongs to rather than by anything in the message.
+    case Enum.find(state.transports, fn {_gen, t} -> t.monitor === monitor end) do
+      {generation, _t} -> {:noreply, fence(state, generation)}
+      nil -> caller_down(down, state)
+    end
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
+
+  defp caller_down({:DOWN, monitor, :process, _pid, _reason}, state) do
     # Only ever a PENDING admission: the monitor is dropped the moment the handoff is confirmed.
     # A caller dying before it received its reservation cannot have published, so revoking is
     # authorised here in a way that caller death in general is NOT.
@@ -305,7 +487,31 @@ defmodule ServiceRadar.Edge.PublisherPool do
     end
   end
 
-  def handle_info(_message, state), do: {:noreply, state}
+  # A transport generation is gone. Its attempts can no longer be completed on it, so they END --
+  # but their reservations stay CHARGED, because transport death says nothing about whether the
+  # bytes reached the broker. See PublishWindow.fence_generation/2.
+  defp fence(state, generation) do
+    {:ok, window, fenced} = PublishWindow.fence_generation(state.window, generation)
+
+    if fenced > 0 do
+      Logger.info(
+        "edge publisher lane #{state.class}: transport generation ended with #{fenced} " <>
+          "attempt(s) in flight; their reservations stay charged and may be retried without " <>
+          "consuming another credit"
+      )
+    end
+
+    # NOT `accepting: nil`. Closing outright was wrong whenever another generation was still
+    # known: it left a live registrar in `transports` that would never register again, so the lane
+    # stayed closed with send capability it refused to use. Re-deriving falls back to the newest
+    # generation that remains, and to nil only when none does -- which is the fail-closed state
+    # the fresh accountant already starts in.
+    recompute_accepting(%{
+      state
+      | window: window,
+        transports: Map.delete(state.transports, generation)
+    })
+  end
 
   defp admit_reply(state, {attempt_ref, caller}, key, bytes, deadline_at) do
     # WHICH KIND of admission this is decides what revoking it must do. A first admission CREATED
@@ -315,7 +521,7 @@ defmodule ServiceRadar.Edge.PublisherPool do
     # reservation and let the lane publish past its grant.
     kind = if PublishWindow.outstanding?(state.window, key), do: :rearmed, else: :created
 
-    case PublishWindow.admit(state.window, key, bytes, deadline_at, caller) do
+    case PublishWindow.admit(state.window, key, bytes, deadline_at, caller, state.accepting) do
       {:ok, window, {_key, token} = reservation} ->
         pending = %{key: key, token: token, kind: kind, monitor: Process.monitor(caller)}
 

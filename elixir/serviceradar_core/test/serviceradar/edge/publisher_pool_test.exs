@@ -28,6 +28,14 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
         name: nil
       )
 
+    # A lane is CLOSED until a transport registers, so every pool a test uses needs one. The
+    # stand-in is a bare process: what the accountant binds to is its LIFETIME, not anything it
+    # can do -- generation death is the signal, and a real Gnat connection is not needed to
+    # produce it.
+    transport = spawn(fn -> Process.sleep(:infinity) end)
+    on_exit(fn -> Process.exit(transport, :kill) end)
+    {:ok, _generation} = PublisherPool.register_transport(pid, transport)
+
     pid
   end
 
@@ -324,6 +332,216 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
     else
       Process.sleep(10)
       eventually(fun, tries - 1)
+    end
+  end
+
+  describe "an accountant with no live transport is CLOSED" do
+    # These deliberately do NOT use pool/3, which registers a transport for you. The closed state
+    # is what pool/3 hides, and mutation testing is how that gap surfaced: the fail-closed guard
+    # could be deleted outright and every other test in this suite still passed.
+    defp bare_pool(frames \\ 2, bytes \\ 600) do
+      {:ok, pid} =
+        PublisherPool.start_link(
+          class: :bulk,
+          frame_credits: frames,
+          byte_credits: bytes,
+          name: nil
+        )
+
+      pid
+    end
+
+    defp live_transport(pool) do
+      transport = spawn(fn -> Process.sleep(:infinity) end)
+      on_exit(fn -> Process.exit(transport, :kill) end)
+      {:ok, generation} = PublisherPool.register_transport(pool, transport)
+      {transport, generation}
+    end
+
+    test "a FRESH accountant admits nothing until a transport registers" do
+      # The fail-closed half of the restart contract. A replaced accountant has an EMPTY ledger,
+      # and an empty ledger that accepts admissions is the over-admission defect wearing a
+      # different hat -- so it must refuse until send capability exists again.
+      p = bare_pool()
+
+      assert {:error, :no_transport} = PublisherPool.admit(p, k(1), 50, 60_000)
+      assert %{outstanding_frames: 0, outstanding_bytes: 0} = PublisherPool.capacity(p)
+
+      # NOT VACUOUS: the identical call succeeds once a transport registers, so the refusal is
+      # about the missing generation and not about the request.
+      {_transport, _gen} = live_transport(p)
+      assert {:ok, _res} = PublisherPool.admit(p, k(1), 50, 60_000)
+    end
+
+    test "a refusal for want of transport charges NOTHING" do
+      # A refusal that consumed a credit would be worse than admitting: the lane would bleed
+      # capacity every time it was closed, and never get it back.
+      p = bare_pool(1, 100)
+      before = PublisherPool.capacity(p)
+
+      assert {:error, :no_transport} = PublisherPool.admit(p, k(1), 50, 60_000)
+      assert {:error, :no_transport} = PublisherPool.admit(p, k(2), 50, 60_000)
+
+      assert PublisherPool.capacity(p) === before
+    end
+
+    test "when its transport DIES the accountant closes again" do
+      # The generation is gone, so there is nothing to publish on. Continuing to admit would
+      # charge credits against transport that cannot carry them -- and would do it while the
+      # replacement generation has not registered, so nothing could report the outcome either.
+      p = bare_pool(2, 600)
+      {transport, generation} = live_transport(p)
+
+      assert {:ok, _res} = PublisherPool.admit(p, k(1), 50, 60_000)
+      assert PublisherPool.generations(p).accepting === generation
+
+      Process.exit(transport, :kill)
+
+      assert eventually(fn -> PublisherPool.generations(p).accepting === nil end, 300),
+             "the accountant kept accepting on a dead generation"
+
+      assert {:error, :no_transport} = PublisherPool.admit(p, k(2), 50, 60_000)
+
+      # AND the charge from before the death survived: generation death ends the ATTEMPT, never
+      # the reservation, because it is no evidence about whether the bytes reached the broker.
+      assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
+    end
+
+    test "a REPLACEMENT transport re-opens it, on the remaining capacity" do
+      p = bare_pool(2, 600)
+      {transport, first_gen} = live_transport(p)
+
+      assert {:ok, _res} = PublisherPool.admit(p, k(1), 50, 60_000)
+      Process.exit(transport, :kill)
+      assert eventually(fn -> PublisherPool.generations(p).accepting === nil end, 300)
+
+      {_replacement, second_gen} = live_transport(p)
+      refute second_gen === first_gen
+
+      # Open again -- but with ONE frame, not two: the fenced reservation is still charged.
+      assert %{outstanding_frames: 1, available_frames: 1} = PublisherPool.capacity(p)
+      assert {:ok, _res2} = PublisherPool.admit(p, k(2), 50, 60_000)
+      assert {:error, :frame_credits_exhausted} = PublisherPool.admit(p, k(3), 50, 60_000)
+    end
+  end
+
+  describe "registration is a bounded transition" do
+    # A transport that stays alive, so a generation registered against it does NOT drain. That is
+    # what makes the bound observable at all: the reaping step retires dead generations, so an
+    # over-count can only be produced by registrars that are genuinely still running.
+    defp held_transport do
+      transport = spawn(fn -> Process.sleep(:infinity) end)
+      on_exit(fn -> Process.exit(transport, :kill) end)
+      transport
+    end
+
+    defp open_pool do
+      {:ok, pid} =
+        PublisherPool.start_link(class: :bulk, frame_credits: 4, byte_credits: 900, name: nil)
+
+      pid
+    end
+
+    test "a THIRD live generation is refused, not absorbed" do
+      # The spec bounds retention at one accepting and one draining generation. Absorbing a third
+      # would grow `transports` without limit on a lane whose registrars stop dying, and each
+      # entry carries a monitor -- so the leak is of VM resources as well as of accuracy.
+      p = open_pool()
+
+      assert {:ok, first} = PublisherPool.register_transport(p, held_transport())
+      assert {:ok, second} = PublisherPool.register_transport(p, held_transport())
+      refute second === first
+
+      assert {:error, :generation_limit} = PublisherPool.register_transport(p, held_transport())
+
+      # AND the refusal did not disturb the lane: the newest generation is still accepting, both
+      # known generations are still known, and admissions still work.
+      assert %{accepting: ^second, known: known} = PublisherPool.generations(p)
+      assert length(known) == 2
+      assert {:ok, _res} = PublisherPool.admit(p, k(1), 50, 60_000)
+    end
+
+    test "an ALREADY-DEAD registrar is refused, and does not displace a live generation" do
+      # THE WEDGE this closes. Accepting it made the dead generation `accepting`; the :DOWN
+      # already in flight for it then set `accepting` to nil, while the live generation stayed in
+      # `transports` with no registrar that would ever register again. The lane was closed for the
+      # life of the pool, holding send capability it refused to use.
+      p = open_pool()
+      assert {:ok, live} = PublisherPool.register_transport(p, held_transport())
+
+      corpse = spawn(fn -> :ok end)
+      assert eventually(fn -> not Process.alive?(corpse) end, 300)
+
+      assert {:error, :dead_registrar} = PublisherPool.register_transport(p, corpse)
+
+      # The live generation is untouched, and STAYS untouched: nothing arrives later to close it.
+      assert %{accepting: ^live} = PublisherPool.generations(p)
+
+      refute eventually(fn -> PublisherPool.generations(p).accepting !== live end, 20),
+             "a refused dead registrar still closed the lane"
+
+      assert {:ok, _res} = PublisherPool.admit(p, k(1), 50, 60_000)
+    end
+
+    test "registering the SAME process twice returns one generation, not two" do
+      # A second reference for one lifetime would consume the bound with a generation no death can
+      # clear: only one :DOWN ever arrives for that process.
+      p = open_pool()
+      transport = held_transport()
+
+      assert {:ok, generation} = PublisherPool.register_transport(p, transport)
+      assert {:ok, ^generation} = PublisherPool.register_transport(p, transport)
+
+      assert %{accepting: ^generation, known: [^generation]} = PublisherPool.generations(p)
+    end
+
+    test "when the ACCEPTING generation dies the lane falls back to one that is still live" do
+      # The other shape of the wedge. Closing outright on any fence was wrong whenever another
+      # generation remained: that registrar has already registered -- registration happens once,
+      # from init/1 -- so nothing would ever re-open the lane, and it would sit closed beside send
+      # capability it refused to use.
+      p = open_pool()
+      older = held_transport()
+      newer = held_transport()
+
+      assert {:ok, older_gen} = PublisherPool.register_transport(p, older)
+      assert {:ok, newer_gen} = PublisherPool.register_transport(p, newer)
+      assert %{accepting: ^newer_gen} = PublisherPool.generations(p)
+
+      # Kill the ACCEPTING one, leaving the older one alive.
+      Process.exit(newer, :kill)
+
+      assert eventually(fn -> PublisherPool.generations(p).accepting === older_gen end, 300),
+             "the lane closed instead of falling back to the generation still alive"
+
+      assert Process.alive?(older)
+      assert {:ok, _res} = PublisherPool.admit(p, k(1), 50, 60_000)
+    end
+
+    test "a DEAD generation is reaped to make room, and its charge survives the reaping" do
+      # Reaping is why the bound is never tripped by an undelivered :DOWN. It must do exactly what
+      # the :DOWN does -- end the attempts, KEEP the reservations -- or a lane could recover its
+      # grant simply by restarting its transport twice quickly.
+      p = open_pool()
+      first = held_transport()
+      assert {:ok, _gen} = PublisherPool.register_transport(p, first)
+      assert {:ok, _res} = PublisherPool.admit(p, k(1), 50, 60_000)
+
+      second = held_transport()
+      assert {:ok, _gen2} = PublisherPool.register_transport(p, second)
+
+      # Kill BOTH, then register a third WITHOUT waiting for either :DOWN. Two dead generations
+      # are already at the bound, so this only succeeds if registration reaps them itself.
+      Process.exit(first, :kill)
+      Process.exit(second, :kill)
+      assert eventually(fn -> not Process.alive?(first) and not Process.alive?(second) end, 300)
+
+      assert {:ok, third} = PublisherPool.register_transport(p, held_transport())
+      assert %{accepting: ^third, known: [^third]} = PublisherPool.generations(p)
+
+      # The charge taken under the FIRST generation is still held: reaping fenced its attempt and
+      # kept its reservation, exactly as a :DOWN would.
+      assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
     end
   end
 end

@@ -878,12 +878,28 @@
   validation and prefix advancement). This task MAY NOT be checked until BOTH
   hold, each covered by a scenario under `ingestion-routing`'s "Backpressure and
   fairness are bounded at every hop":
-  (i) RESTART OVERLAP -- STILL OPEN. A lane restart MUST NOT reopen capacity that
-  an in-flight request still occupies, so old and replacement requests together
-  cannot exceed the grant. Eventual supervisor restart of a sibling does not
-  satisfy this: restarts are ordered but not instantaneous, and a request may
-  complete inside that interval. A replacement `PublisherPool` still starts with
-  an empty window and therefore its full grant.
+  (i) RESTART OVERLAP -- CLOSED for the restart invariant itself. The invariant is
+  proven against the SERIAL publisher that exists today; 3.3 stays unchecked
+  because the asynchronous pipeline it must also hold under is not built yet, and
+  an invariant only exercised serially is not an invariant under concurrency. A lane
+  restart MUST NOT reopen capacity that an in-flight request still occupies, so
+  old and replacement requests together cannot exceed the grant.
+  How it is discharged: the lane is split into a STABLE accountant and a
+  REPLACEABLE transport under `LaneSupervisor`'s `:rest_for_one`, accountant
+  FIRST. Transport death therefore cannot reach the ledger -- a replacement
+  inherits the credits the previous generation consumed rather than a fresh
+  grant. Each attempt records the transport `generation` it was issued on, and
+  when a generation dies `PublishWindow.fence_generation/2` ends its attempts
+  while KEEPING their reservations charged: generation death proves the request
+  cannot complete on that transport, and proves nothing about whether the bytes
+  reached the broker. Affected publications become idle-but-charged and may retry
+  on the charge they already hold. Only a validated resolving PubAck releases
+  credits.
+  The converse is fail-closed: a replaced accountant has an empty ledger, so
+  `:rest_for_one` terminates the transport subtree first, and the accountant
+  additionally starts CLOSED -- `admit` returns `:no_transport` until a new
+  generation registers, which cannot happen until the previous send capability is
+  gone.
   (ii) POST-HANDOFF FENCING -- CLOSED. Once a reservation is handed to a caller, a
   retry MUST NOT be admitted until the previous attempt is fenced by its REQUEST
   (owner, start, termination). A passed deadline or an absent PubAck is NOT
@@ -899,7 +915,15 @@
   and a sweep holding `{key, token}` cannot act on it -- the deadline is now
   observable but never authorising. Owner DEATH is deliberately NOT treated as
   termination, because a process can die after its request reached the socket;
-  that leaves a dead owner's reservation charged, which (i) is what will free.
+  that leaves a dead owner's reservation charged.
+  CORRECTION, now that (i) is implemented: an earlier version of this note said (i)
+  would free such a reservation. It does not. Fencing fires on the death of a
+  TRANSPORT GENERATION, not on the death of an owner, so an owner that dies while
+  its transport stays healthy still leaves its reservation charged with no attempt
+  against it. That is deliberate -- owner death is not evidence the record was not
+  published -- but it is a real retention gap and it remains OPEN. Bounding it needs
+  evidence that the specific request terminated, which is the correlation work in
+  3.5, not a supervision change here.
 - [ ] 3.4 Bounded-decode and verify the bounded binary record against the mTLS
   session, grant, registry, route, cost, size, and digest, but publish the exact
   `EdgeDeliveryFrameV1.record_bytes` unchanged to JetStream, never the delivery

@@ -371,18 +371,52 @@ before a hot producer exhausts shared capacity.
   unacknowledged record is overwritten
 
 #### Scenario: A publisher lane restarts with requests in flight
-- **GIVEN** a gateway publisher lane whose accounting and transport are restarted
-  together after a crash
-- **WHEN** a request admitted under the previous accounting is still in flight
-  through the previous transport
-- **THEN** the replacement accounting SHALL NOT reopen capacity that the in-flight
-  request still occupies, so the old and replacement requests together SHALL NOT
-  exceed the lane grant
-- **AND** eventual supervisor restart of the sibling SHALL NOT be treated as
+- **GIVEN** a gateway publisher lane whose transport is replaced while its
+  accounting survives
+- **WHEN** a request admitted under the previous transport generation is still in
+  flight through it
+- **THEN** transport replacement SHALL preserve every prior charge, so the
+  replacement transport publishes against the REMAINING lane capacity and never a
+  fresh grant, and the old and replacement requests together SHALL NOT exceed the
+  lane grant
+- **AND** eventual supervisor restart of a sibling SHALL NOT be treated as
   satisfying this: restarts are ordered but not instantaneous, and a request may
   complete inside that interval
+- **AND** death of a transport generation SHALL end the attempts issued on it but
+  SHALL NOT release their reservations, because generation death is evidence that
+  the request cannot be completed on that transport and is NOT evidence about
+  whether the record reached the broker
+- **AND** an affected publication SHALL become idle-but-charged, retryable on the
+  charge it already holds without consuming another credit
+- **AND** only a validated resolving PubAck SHALL release credits
+- **AND** a reply from a superseded generation SHALL NOT settle a newer attempt
 - **AND** a publication whose accounting did not survive SHALL NOT be reported
   durable
+
+#### Scenario: A publisher lane loses its accounting
+- **GIVEN** a gateway publisher lane whose accounting process is lost
+- **WHEN** replacement accounting would start with an empty ledger
+- **THEN** the lane SHALL fail closed: it SHALL NOT admit any publication until
+  the entire transport and request subtree of the previous accounting has been
+  fenced, and a fresh lane grant epoch has been established
+- **AND** automatically restarting the accounting in an OPEN state SHALL NOT be
+  treated as satisfying this, because an empty ledger beside live send capability
+  reproduces the over-admission it exists to prevent
+- **AND** retained generation metadata SHALL remain bounded by the granted frame
+  count, with at most one accepting and one draining generation
+- **AND** that bound SHALL be ENFORCED at registration rather than assumed:
+  registering a transport generation beyond it SHALL be refused, and the refusal
+  SHALL reach the registrar's supervisor rather than the publishing path, so the
+  generation is retried under a restart intensity instead of being admitted
+- **AND** a generation whose registrar is already dead SHALL be refused
+  registration, because accepting it would make a dead generation the accepting
+  one and its pending termination notice would then close a lane that has live
+  send capability
+- **AND** the accepting generation SHALL be DERIVED from the retained set rather
+  than tracked separately, so it can never name a generation that is not retained
+  nor be absent while a live one remains; when the accepting generation ends and
+  another live generation is still retained, the lane SHALL fall back to it
+  rather than close, because a registrar registers once and none would re-open it
 
 #### Scenario: A retry is offered while the previous attempt may still publish
 - **GIVEN** a publication whose reservation has been handed to a caller

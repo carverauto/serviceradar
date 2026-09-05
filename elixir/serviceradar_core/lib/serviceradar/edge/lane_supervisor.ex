@@ -2,7 +2,7 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   @moduledoc """
   One traffic lane as a single restart unit: its NATS connection and its `PublisherPool`.
 
-  ## Why `:one_for_all`, and why they must not be siblings
+  ## Why the accountant is STABLE and the transport REPLACEABLE
 
   They were `:one_for_one` siblings under one supervisor, which quietly relaxed the bound the pool
   exists to enforce. `PublisherPool.init/1` builds an EMPTY window, so restarting only the pool
@@ -11,42 +11,45 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   past the grant, and the original caller, holding the dead pool's pid, exits inside its own
   `settle/3` after receiving a durable PubAck.
 
-  Accounting and in-flight request ownership therefore share a restart boundary: under
-  `:one_for_all`, a crash in either child restarts both. That narrows the window in which the two
-  can disagree. It does not eliminate it -- see below.
+  `:one_for_all` was the first answer and it was the wrong one. It made the two share a restart
+  boundary, which NARROWED the interval in which they could disagree without closing it --
+  supervisor restarts are ordered but not instantaneous, so a publisher holding the OLD connection
+  could still complete a request while the replacement pool started with its full grant. It was
+  also wrong in the other direction: it emptied the ledger on every transport blip.
 
-  ## This is NOT an atomic fence, and must not be read as one
+  The ledger is now something a restart CANNOT empty. `:rest_for_one` with the accountant FIRST
+  gives the two directions their different answers -- see `init/1`, where the ordering argument is
+  made against the code it governs.
 
-  Stated because an earlier version of this text overstated it. Supervisor restarts are eventual,
-  not atomic: between a pool crashing and the supervisor terminating its sibling, a publisher
-  holding the OLD connection can still complete a request. The replacement pool then starts with
-  its full grant while that publish is still broker-ambiguous, so the lane can briefly exceed its
-  bound.
+  ## What that closes, and what it does not
 
-  What is closed today is the reporting: `JetStreamPublisher` refuses to report a publish durable
-  when the accounting that authorised it did not survive: it returns a RETRYABLE error instead of
-  reporting the record delivered. Nothing at this layer republishes -- there is no production
-  caller -- so what is established is only the RETURN VALUE. Withholding progress for that
-  source sequence is the future caller's obligation; nothing here advances or withholds it.
+  CLOSED: transient over-admission across a transport restart. A replacement transport inherits
+  the credits the previous generation consumed rather than a fresh grant, and
+  `PublishWindow.fence_generation/2` ends the dead generation's attempts while KEEPING their
+  reservations charged -- because generation death proves the request cannot complete on that
+  transport and proves nothing about whether the bytes reached the broker.
 
-  What is NOT closed is the transient over-admission itself, and that obligation belongs to TASK
-  3.3, which requires the hard window. It is not 3.4's (exact-byte and memory binding) nor 3.5's
-  (outcome-specific PubAck validation and prefix advancement). Correlation may assist recovery,
-  but it cannot by itself fence this: no PubAck cannot distinguish "never sent" from "in flight"
-  or "acked but the ack was lost". Fencing on the request -- owner, start, termination -- is what
-  3.3's publisher pipeline still needs.
+  ALSO CLOSED, and separately: the reporting. `JetStreamPublisher` refuses to report a publish
+  durable when the accounting that authorised it did not survive -- it returns a RETRYABLE error
+  instead of reporting the record delivered. Nothing at this layer republishes; there is no
+  production caller, so what is established is only the RETURN VALUE. Withholding progress for
+  that source sequence is the future caller's obligation.
 
-  The conservative direction is to lose an in-flight publish rather than orphan its accounting:
-  the publish is reported as retryable rather than durable, leaving the decision about progress to
-  the caller. Reconstructing reservations for requests whose replies may still arrive would need to
-  know whether those requests completed, which nothing here can determine.
+  NOT CLOSED: an owner that dies mid-request. Fencing fires on the death of a transport
+  GENERATION, not of an owner, so such a reservation stays charged with no attempt against it.
+  That is deliberate -- owner death is not evidence the record went unpublished -- and bounding it
+  needs evidence that the specific REQUEST terminated, which is task 3.5's correlation work.
+
+  NOT CLOSED EITHER: this holds against the SERIAL publisher that exists today. An invariant
+  exercised only serially is not an invariant under concurrency, and 3.3's asynchronous pipeline
+  is what must also hold it.
 
   ## What this does NOT cover: an ordinary reconnect
 
   Stated because the first version of this text implied otherwise. The supervised child is
   `Gnat.ConnectionSupervisor`, the RECONNECT MANAGER -- not the transport socket it owns. A normal
-  NATS reconnect replaces the inner connection and the wrapper never exits, so `:one_for_all` does
-  not fire and the pool is NOT restarted.
+  NATS reconnect replaces the inner connection and the wrapper never exits, so no generation ends,
+  nothing is restarted, and the pool is untouched.
 
   That is the behaviour we want, and it is deliberate rather than incidental. A reconnect does not
   make the records go away: their reservations should stay charged, because each one is still owed
@@ -62,9 +65,8 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
 
   use Supervisor
 
-  alias ServiceRadar.Edge.PublisherLane
+  alias ServiceRadar.Edge.LaneTransportRuntime
   alias ServiceRadar.Edge.PublisherPool
-  alias ServiceRadar.NATS.Supervisor, as: NATSSupervisor
 
   def start_link(opts) do
     lane = Keyword.fetch!(opts, :lane)
@@ -75,10 +77,14 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
   def via(lane), do: :"edge_publisher_lane_#{lane}"
 
   @doc """
-  This lane's two children, connection first.
+  This lane's two children, ACCOUNTANT FIRST.
 
-  Public so the pairing and the ORDER can be asserted without a NATS server: the transport has to
-  exist before the window admits anything against it.
+  The order is the invariant, not a style choice, because `:rest_for_one` derives its behaviour
+  from it: children after the accountant are torn down when it dies, and children before it are
+  not. Accountant first therefore means transport death leaves the ledger alone, while accountant
+  death fences the transport before a fresh, empty ledger can exist.
+
+  Public so both the inventory and that order can be asserted without a NATS server.
   """
   def child_specs(opts) do
     lane = Keyword.fetch!(opts, :lane)
@@ -86,17 +92,38 @@ defmodule ServiceRadar.Edge.LaneSupervisor do
     backoff = Keyword.fetch!(opts, :backoff_period)
     credits = Keyword.fetch!(opts, :credits)
 
-    NATSSupervisor.child_specs([PublisherLane.connection_name(lane)], settings, backoff) ++
-      [
-        Supervisor.child_spec(
-          {PublisherPool, [class: lane, name: PublisherPool.via(lane)] ++ credits},
-          id: PublisherPool.via(lane)
-        )
-      ]
+    [
+      Supervisor.child_spec(
+        {PublisherPool, [class: lane, name: PublisherPool.via(lane)] ++ credits},
+        id: PublisherPool.via(lane)
+      ),
+      Supervisor.child_spec(
+        {LaneTransportRuntime,
+         lane: lane,
+         connection_settings: settings,
+         backoff_period: backoff,
+         accountant: PublisherPool.via(lane)},
+        id: LaneTransportRuntime.via(lane)
+      )
+    ]
   end
 
   @impl true
   def init(opts) do
-    Supervisor.init(child_specs(opts), strategy: :one_for_all)
+    # :rest_for_one, and the direction matters in both senses:
+    #
+    #   transport dies    -> the accountant is BEFORE it, so it is untouched. Every charge
+    #                        survives, and the replacement transport inherits the remaining
+    #                        capacity instead of a fresh grant. That is the restart invariant.
+    #   accountant dies   -> the transport is AFTER it, so it is terminated before the accountant
+    #                        restarts. A fresh accountant has an empty ledger, and an empty ledger
+    #                        with live send capability is the over-admission defect again; the
+    #                        accountant additionally starts CLOSED, so it admits nothing until a
+    #                        new generation registers.
+    #
+    # :one_for_all would have been wrong in the first direction (it would restart the accountant
+    # on every transport blip, emptying the ledger); :one_for_one wrong in the second (an
+    # accountant could restart empty alongside a live transport).
+    Supervisor.init(child_specs(opts), strategy: :rest_for_one)
   end
 end

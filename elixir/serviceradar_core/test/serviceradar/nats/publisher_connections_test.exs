@@ -12,6 +12,7 @@ defmodule ServiceRadar.NATS.PublisherConnectionsTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Edge.LaneSupervisor
+  alias ServiceRadar.Edge.LaneTransportRuntime
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublisherSupervisor
   alias ServiceRadar.NATS.Connection
@@ -52,22 +53,35 @@ defmodule ServiceRadar.NATS.PublisherConnectionsTest do
                Enum.map(PublisherLane.lanes(), &LaneSupervisor.via/1)
     end
 
-    test "each unit holds that lane's connection AND that lane's window" do
-      # The pairing is the point: neither can exist without the other, because one list builds
-      # both. Their order and restart strategy are asserted in LaneSupervisorTest.
+    test "each unit holds that lane's window AND, one level down, that lane's connection" do
+      # The pairing is still the point -- one list builds both -- but they are no longer siblings.
+      # The accountant must OUTLIVE the transport, so the connection moved inside the lane's
+      # transport runtime and the two now sit at different depths. Order and strategy are
+      # asserted in LaneSupervisorTest; this is about the inventory.
       for lane <- PublisherLane.lanes() do
-        ids =
-          [
-            lane: lane,
-            connection_settings: %{host: "127.0.0.1", port: 4222},
-            backoff_period: 1_000,
-            credits: [frame_credits: 1, byte_credits: 1]
-          ]
-          |> LaneSupervisor.child_specs()
+        lane_opts = [
+          lane: lane,
+          connection_settings: %{host: "127.0.0.1", port: 4222},
+          backoff_period: 1_000,
+          credits: [frame_credits: 1, byte_credits: 1]
+        ]
+
+        lane_ids = lane_opts |> LaneSupervisor.child_specs() |> Enum.map(& &1.id)
+
+        assert ServiceRadar.Edge.PublisherPool.via(lane) in lane_ids
+        assert LaneTransportRuntime.via(lane) in lane_ids
+
+        # The connection is NOT a sibling of the window any more, and that is the change: a
+        # transport restart must not reach the ledger.
+        refute PublisherLane.connection_name(lane) in lane_ids
+
+        transport_ids =
+          lane_opts
+          |> Keyword.delete(:credits)
+          |> LaneTransportRuntime.child_specs()
           |> Enum.map(& &1.id)
 
-        assert PublisherLane.connection_name(lane) in ids
-        assert ServiceRadar.Edge.PublisherPool.via(lane) in ids
+        assert PublisherLane.connection_name(lane) in transport_ids
       end
     end
 
