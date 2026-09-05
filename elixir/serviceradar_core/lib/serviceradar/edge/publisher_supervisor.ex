@@ -12,8 +12,13 @@ defmodule ServiceRadar.Edge.PublisherSupervisor do
   true of the gateway and false everywhere else.
 
   Starting both from one supervisor makes the pairing structural: a lane cannot have a socket
-  without a window, or a window without a socket, because the same list builds both. Connections
-  are started BEFORE pools so a lane's transport exists before anything admits against it.
+  without a window, or a window without a socket, because the same list builds both.
+
+  Within a lane the order is now the OPPOSITE of what this said: `LaneSupervisor` starts the
+  ACCOUNTANT first and the transport after it, because `:rest_for_one` derives the restart
+  asymmetry from that order. Nothing admits against a transport that does not exist regardless --
+  the accountant starts CLOSED and only opens when a transport registers -- so the ordering
+  argument this text used to make was never the thing that held.
 
   ## The ownership boundary, stated exactly
 
