@@ -50,6 +50,7 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Observability.AlertPubSub
   alias ServiceRadar.Observability.EventTitle
 
   require Logger
@@ -424,17 +425,25 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
 
   # Writing the row is the whole job: the row IS the notification request. See
   # the "Notification" section of the moduledoc for why nothing is enqueued here.
+  # The PubSub pulse below is not a notification: like the other *_pubsub
+  # broadcasters it only tells LiveViews that the alerts list changed so a live
+  # tail can refresh. D8 still reserves originating incident notifications for
+  # `AlertLifecycle`.
   defp create_alert(attrs, opts) do
     # DB connection's search_path determines the schema
     actor = Keyword.get(opts, :actor) || SystemActor.system(:alert_generator)
 
     # Create the alert in the database
-    with {:error, error} <-
-           Alert
-           |> Ash.Changeset.for_create(:trigger, attrs, actor: actor)
-           |> Ash.create() do
-      Logger.error("Failed to create alert: #{inspect(error)}")
-      {:error, error}
+    case Alert
+         |> Ash.Changeset.for_create(:trigger, attrs, actor: actor)
+         |> Ash.create() do
+      {:ok, %Alert{id: id} = alert} ->
+        AlertPubSub.broadcast_alert_created(%{id: id})
+        {:ok, alert}
+
+      {:error, error} ->
+        Logger.error("Failed to create alert: #{inspect(error)}")
+        {:error, error}
     end
   end
 

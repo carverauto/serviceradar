@@ -325,6 +325,9 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
       |> assign(:toggle_title, if(assigns.live?, do: assigns.pause_title, else: assigns.start_title))
       |> assign(:toggle_badge_variant, if(assigns.live?, do: "success", else: "ghost"))
       |> assign(:toggle_variant, if(assigns.live?, do: "primary", else: "outline"))
+      # The badge id drops the button's "-toggle" suffix so `id="bmp-live-toggle"`
+      # renders badge `id="bmp-live-status"`, matching the established convention.
+      |> assign(:toggle_badge_id, String.replace_suffix(assigns.id, "-toggle", "-status"))
 
     ~H"""
     <.ui_button
@@ -337,7 +340,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
       title={@toggle_title}
     >
       <span class="text-xs font-medium">Live</span>
-      <.ui_badge id={"#{@id}-status"} size="xs" variant={@toggle_badge_variant}>
+      <.ui_badge id={@toggle_badge_id} size="xs" variant={@toggle_badge_variant}>
         {if @live?, do: "On", else: "Off"}
       </.ui_badge>
     </.ui_button>

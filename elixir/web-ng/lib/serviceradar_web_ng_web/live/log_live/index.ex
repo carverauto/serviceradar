@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Observability.IpIpinfoCache
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.IpThreatIntelCache
+  alias ServiceRadar.Observability.AlertPubSub
   alias ServiceRadar.Observability.CausalPubSub
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
@@ -71,6 +72,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, FlowPubSub.topic())
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, OtelPubSub.topic())
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, CausalPubSub.topic())
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, AlertPubSub.topic())
     end
 
     {:ok,
@@ -1455,6 +1457,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   @impl true
+  def handle_info({:otel_trace_summaries_refreshed, _event}, socket) do
+    # Authoritative pulse for the traces tab: summaries changed, so a
+    # debounced head refresh reads fresh rows. Span ingest also requests a
+    # prompt summary refresh, so Live follows spans within seconds instead of
+    # waiting for the scheduled rollup.
+    {:noreply, maybe_schedule_tab_live_refresh(socket, "traces", :traces_live?)}
+  end
+
+  @impl true
   def handle_info({:otel_metrics_ingested, _event}, socket) do
     {:noreply, maybe_schedule_tab_live_refresh(socket, "metrics", :metrics_live?)}
   end
@@ -1462,6 +1473,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @impl true
   def handle_info({:causal_signal_ingested, _event}, socket) do
     # Causal signal batches evaluate alert rules, so they can raise alerts.
+    {:noreply, maybe_schedule_tab_live_refresh(socket, "alerts", :alerts_live?)}
+  end
+
+  @impl true
+  def handle_info({:alert_created, _event}, socket) do
+    # Authoritative pulse for the alerts tab: fired from AlertGenerator on
+    # every alert create, covering all creation paths (stateful engine, log
+    # promotion, trivy reports, service checks).
     {:noreply, maybe_schedule_tab_live_refresh(socket, "alerts", :alerts_live?)}
   end
 
@@ -3729,6 +3748,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:toggle_title, if(assigns.live?, do: assigns.pause_title, else: assigns.start_title))
       |> assign(:toggle_badge_variant, if(assigns.live?, do: "success", else: "ghost"))
       |> assign(:toggle_variant, if(assigns.live?, do: "primary", else: "outline"))
+      # The badge id drops the button's "-toggle" suffix so `id="logs-live-toggle"`
+      # renders badge `id="logs-live-status"`, matching the established convention.
+      |> assign(:toggle_badge_id, String.replace_suffix(assigns.id, "-toggle", "-status"))
 
     ~H"""
     <.ui_button
@@ -3741,7 +3763,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       title={@toggle_title}
     >
       <span class="text-xs font-medium">Live</span>
-      <.ui_badge id={"#{@id}-status"} size="xs" variant={@toggle_badge_variant}>
+      <.ui_badge id={@toggle_badge_id} size="xs" variant={@toggle_badge_variant}>
         {if @live?, do: "On", else: "Off"}
       </.ui_badge>
     </.ui_button>

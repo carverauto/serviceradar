@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.OtelPubSub do
 
   - `{:otel_traces_ingested, %{count: non_neg_integer()}}`
   - `{:otel_metrics_ingested, %{count: non_neg_integer()}}`
+  - `{:otel_trace_summaries_refreshed, %{count: non_neg_integer()}}`
   """
 
   @pubsub ServiceRadar.PubSub
@@ -40,6 +41,19 @@ defmodule ServiceRadar.Observability.OtelPubSub do
   end
 
   def broadcast_metrics(_), do: :ok
+
+  @doc """
+  Broadcast an OTel trace summary refresh event.
+
+  Fired by `ServiceRadar.Jobs.RefreshTraceSummariesWorker` when a refresh run
+  actually changes summary rows, so live tails can follow summary updates
+  instead of polling the summaries table on span ingest.
+  """
+  def broadcast_trace_summaries(%{count: count}) when is_integer(count) and count > 0 do
+    safe_broadcast(@topic, {:otel_trace_summaries_refreshed, %{count: count}})
+  end
+
+  def broadcast_trace_summaries(_), do: :ok
 
   defp safe_broadcast(topic, event) do
     case Process.whereis(@pubsub) do

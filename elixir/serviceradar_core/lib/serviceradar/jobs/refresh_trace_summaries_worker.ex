@@ -30,6 +30,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     unique: [period: :infinity, states: :incomplete]
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Observability.OtelPubSub
 
   require Logger
 
@@ -229,7 +230,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     watermark = read_watermark(now)
     window_start = DateTime.add(watermark, -@watermark_overlap_seconds, :second)
 
-    with :ok <- run_chunked_upsert(window_start, now),
+    with {:ok, changed} <- run_chunked_upsert(window_start, now),
          :ok <- advance_watermark(window_start, now),
          :ok <- cleanup_old_summaries() do
       Logger.info(
@@ -237,6 +238,10 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
         watermark: DateTime.to_iso8601(watermark),
         window_end: DateTime.to_iso8601(now)
       )
+
+      # Pulse live tails only when summaries actually changed, so a live
+      # traces tab follows summary updates instead of the refresh cadence.
+      OtelPubSub.broadcast_trace_summaries(%{count: changed})
 
       :ok
     end
@@ -264,9 +269,9 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   defp run_chunked_upsert(window_start, window_end) do
     window_start
     |> build_windows(window_end)
-    |> Enum.reduce_while(:ok, fn {chunk_start, chunk_end}, :ok ->
+    |> Enum.reduce_while({:ok, 0}, fn {chunk_start, chunk_end}, {:ok, total} ->
       case run_upsert(chunk_start, chunk_end) do
-        :ok -> {:cont, :ok}
+        {:ok, changed} -> {:cont, {:ok, total + changed}}
         error -> {:halt, error}
       end
     end)
@@ -294,19 +299,22 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
              [window_start, window_end, retention_days()],
              timeout: upsert_timeout_ms()
            ) do
+        {:ok, %{num_rows: changed}} when is_integer(changed) ->
+          {:ok, changed}
+
         {:ok, _result} ->
-          :ok
+          {:ok, 0}
 
         {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} ->
           Logger.debug("otel_trace_summaries or otel_traces table missing; skipping refresh")
-          :ok
+          {:ok, 0}
 
         {:error, error} ->
           Logger.error("Failed to upsert otel_trace_summaries: #{Exception.message(error)}")
           {:error, error}
       end
     else
-      :ok
+      {:ok, 0}
     end
   end
 

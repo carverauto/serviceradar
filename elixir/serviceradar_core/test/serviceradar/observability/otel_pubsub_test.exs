@@ -31,6 +31,13 @@ defmodule ServiceRadar.Observability.OtelPubSubTest do
     assert_receive {:otel_metrics_ingested, %{count: 7}}
   end
 
+  test "broadcast_trace_summaries/1 delivers the refresh event to topic subscribers" do
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, OtelPubSub.topic())
+
+    assert :ok = OtelPubSub.broadcast_trace_summaries(%{count: 4})
+    assert_receive {:otel_trace_summaries_refreshed, %{count: 4}}
+  end
+
   test "broadcasts ignore empty or invalid payloads without publishing" do
     Phoenix.PubSub.subscribe(ServiceRadar.PubSub, OtelPubSub.topic())
 
@@ -40,8 +47,12 @@ defmodule ServiceRadar.Observability.OtelPubSubTest do
     assert :ok = OtelPubSub.broadcast_metrics(%{count: 0})
     assert :ok = OtelPubSub.broadcast_metrics(%{})
     assert :ok = OtelPubSub.broadcast_metrics(nil)
+    assert :ok = OtelPubSub.broadcast_trace_summaries(%{count: 0})
+    assert :ok = OtelPubSub.broadcast_trace_summaries(%{})
+    assert :ok = OtelPubSub.broadcast_trace_summaries(nil)
 
     refute_received {:otel_traces_ingested, _}
     refute_received {:otel_metrics_ingested, _}
+    refute_received {:otel_trace_summaries_refreshed, _}
   end
 end

@@ -442,6 +442,39 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert drain_srql_calls() != []
   end
 
+  test "trace summary refreshes drive live mode, not just span ingest", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+
+    _ = drain_srql_calls()
+
+    lv
+    |> element("#traces-live-toggle")
+    |> render_click()
+
+    assert has_element?(lv, "#traces-live-status", "On")
+    assert drain_srql_calls() != []
+
+    send(lv.pid, {:otel_trace_summaries_refreshed, %{count: 2}})
+    send(lv.pid, {:debounced_refresh, "traces"})
+    render(lv)
+
+    assert drain_srql_calls() != []
+  end
+
+  test "trace summary refreshes stay quiet when live is off", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+
+    assert has_element?(lv, "#traces-live-status", "Off")
+    _ = drain_srql_calls()
+
+    send(lv.pid, {:otel_trace_summaries_refreshed, %{count: 2}})
+    send(lv.pid, {:debounced_refresh, "traces"})
+    render(lv)
+
+    assert drain_srql_calls() == []
+    assert has_element?(lv, "#traces-live-status", "Off")
+  end
+
   test "metrics default to non-live browsing", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/metrics")
 
@@ -514,6 +547,39 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     render(lv)
 
     assert [%{cursor: nil} | _] = drain_srql_calls()
+  end
+
+  test "alert creation drives live mode", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/alerts")
+
+    _ = drain_srql_calls()
+
+    lv
+    |> element("#alerts-live-toggle")
+    |> render_click()
+
+    assert has_element?(lv, "#alerts-live-status", "On")
+    assert [%{cursor: nil} | _] = drain_srql_calls()
+
+    send(lv.pid, {:alert_created, %{id: "alert-1"}})
+    send(lv.pid, {:debounced_refresh, "alerts"})
+    render(lv)
+
+    assert [%{cursor: nil} | _] = drain_srql_calls()
+  end
+
+  test "alert creation stays quiet when live is off", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/alerts")
+
+    assert has_element?(lv, "#alerts-live-status", "Off")
+    _ = drain_srql_calls()
+
+    send(lv.pid, {:alert_created, %{id: "alert-1"}})
+    send(lv.pid, {:debounced_refresh, "alerts"})
+    render(lv)
+
+    assert drain_srql_calls() == []
+    assert has_element?(lv, "#alerts-live-status", "Off")
   end
 
   test "netflows keep the shared observability shell visible", %{conn: conn} do
