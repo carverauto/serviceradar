@@ -3,11 +3,15 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   Reclaims the deleted pages `platform.netflow_provider_cidrs` has leaked, and
   reorders the primary key so snapshot rotation stops refilling them there.
 
-  Issue #4281 reports 2.4 MB per row. That figure could not be reproduced against
-  this table and the report does not name the query that produced it, so it stands
-  as an unreproduced report rather than a derivation. The leak underneath it is
-  measurable. Measured 2026-09-05, two retained snapshots of ~410k CIDRs each,
-  821,788 rows total:
+  Issue #4281 reports 2.4 MB per row. That is this relation over `n_live_tup`, not
+  a per-row encoding size: 8519 MiB divided by ~3,550 is 2.4 MiB, and ~3,550 is the
+  live-tuple estimate, not the 821,788 rows present. `n_live_tup` is a statistics
+  estimate that falls as each prune batch commits and is only recomputed by
+  VACUUM/ANALYZE, so mid-rotation it reads far below the true count; once it
+  catches up the same relation reads 10.6 KiB per row. Both figures divide the same
+  leaked index pages, so they are one defect seen at two moments of the rotation
+  cycle. Measured 2026-09-05, two retained snapshots of ~410k CIDRs each, 821,788
+  rows total:
 
       pg_relation_size         123 MiB  (82 MiB of tuples, avg 105 B per row)
       pkey                    5002 MiB  640,289 pages, 631,327 (98.6%) deleted

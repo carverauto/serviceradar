@@ -2,11 +2,11 @@ defmodule ServiceRadar.Observability.NetflowProviderCidrEncodingTest do
   @moduledoc """
   Provider CIDR rows must reach `insert_all` in primary-key order.
 
-  A provider CIDR row holds about 105 bytes; the per-row size an operator reads is
-  `relation size / row count`, and that relation is over 98% deleted btree pages
-  left behind by rotating snapshots under a `snapshot_id`-leading key. The primary
-  key now leads with `cidr`, which only stays compact across rotations if the writer
-  emits rows in that order.
+  A provider CIDR row holds about 105 bytes. The megabyte-per-row figure in issue
+  #4281 is this relation divided by `n_live_tup`, and the relation is over 98%
+  deleted btree pages left behind by rotating snapshots under a `snapshot_id`-leading
+  key. The primary key now leads with `cidr`, which only stays compact across
+  rotations if the writer emits rows in that order.
   """
 
   use ExUnit.Case, async: true
