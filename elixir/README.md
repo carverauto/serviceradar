@@ -683,7 +683,8 @@ only once it is on `staging`, applied there by the trunk lifecycle.
 
 Two rules for migrations that this tier enforces the hard way:
 
-- `CREATE INDEX CONCURRENTLY` needs **both** `@disable_ddl_transaction true` **and**
+- `CREATE INDEX CONCURRENTLY`, and any other `CONCURRENTLY` index statement such as
+  `REINDEX INDEX CONCURRENTLY`, needs **both** `@disable_ddl_transaction true` **and**
   `@disable_migration_lock true`. Without the second it deadlocks deterministically against
   Ecto's own migration lock -- and it will hang `mix ash.migrate` on a fresh database too.
 - Everything goes in the `platform` schema (`prefix: "platform"`). Never `public`.
