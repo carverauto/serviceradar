@@ -168,6 +168,29 @@ custom classes must fully style the input
 
 
 <!-- phoenix-gen-auth-start -->
+## SRQL catalog guidelines
+
+`lib/serviceradar_web_ng_web/srql/catalog.ex` is not documentation. The visual
+query builder reads it and emits SRQL tokens from it, so a wrong entry produces
+a wrong query rather than a wrong help string. Two failure modes, both silent:
+
+- **`Catalog.entity/1` never fails on an unknown id.** It falls through to a
+  synthesized entry with `default_sort_field: "timestamp"` and
+  `filter_fields: []`. An entity alias that the SRQL parser accepts and
+  `EntityAccess` gates but `@entity_aliases` does not map therefore reaches the
+  builder as a plausible-looking entity, and the builder emits
+  `sort:timestamp:desc` against a table with no `timestamp` column. Every alias
+  in `rust/srql/src/parser/entity.rs` needs a matching `@entity_aliases` entry;
+  nothing enforces this, so assert it in a test.
+- **`default_sort_field` overrides the Rust query's default, it does not
+  describe it.** `Builder.maybe_add_sort/3` emits a `sort:` token for whatever
+  the catalog names, and an explicit `sort:` replaces a per-entity compound
+  default entirely. When the Rust side has a compound default that is
+  load-bearing -- `device_sweep_overlap` lifting `declared_not_observed` rows
+  ahead of rows that would otherwise bury them past `max_cursor_offset`,
+  `vulnerability_advisories` ordering by `published_at` then `cve_id` -- leave
+  `default_sort_field` blank and say why in a comment.
+
 ## Authentication
 
 - **Always** handle authentication flow at the router level with proper redirects
