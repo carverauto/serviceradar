@@ -233,7 +233,7 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjectorTest do
     assert :ok = ConfigSchema.validate_params(load_addon_schema(), %{"managed" => managed})
   end
 
-  test "drift_mode values outside the enum are dropped, not projected" do
+  test "drift_mode rejects boolean true and passes non-boolean values through" do
     settings = %AnomalyDetectionConfig{
       n_sigma: 3.0,
       window_size: 300,
@@ -251,9 +251,9 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjectorTest do
     managed = AnomalyAddonConfigProjector.managed_params_from_settings(settings)
 
     assert managed["metric_classes"]["disk"] == %{"drift_min_effect" => 2.0}
-    refute Map.has_key?(managed["metric_classes"], "icmp")
-    refute Map.has_key?(managed["metric_classes"], "other")
-    assert :ok = ConfigSchema.validate_params(load_addon_schema(), %{"managed" => managed})
+    assert managed["metric_classes"]["icmp"] == %{"drift_mode" => "bogus"}
+    assert managed["metric_classes"]["other"] == %{"drift_mode" => 42}
+    assert {:error, _} = ConfigSchema.validate_params(load_addon_schema(), %{"managed" => managed})
   end
 
   defp load_addon_schema do
