@@ -33,11 +33,19 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   snapshots' worth, far more history than retention now keeps, so the pages are
   free and simply stay unused.
 
-  This migration reclaims that space once. It does not establish what drove each
-  file to its size, so whether any of them regrow is unsettled here -- including
-  the 3020 MiB GiST index, which is keyed on `cidr` alone and so was never
-  partitioned by snapshot at all. Watching the sizes across a few rotations is
-  follow-up work, not this change.
+  That history has a cause, and it is closed. The table and its daily refresh worker
+  landed together on 2026-02-28 (migration 20260228030000; the worker reschedules at
+  `@default_reschedule_seconds 24 * 3600`), but nothing pruned these snapshots until
+  `DatasetSnapshotPrune` arrived on 2026-08-14 with `keep_last: 1`. Inactive copies
+  accumulated across those 167 days of roughly daily rotation, and both btrees still
+  carry that peak: `snapshot/provider` sizes to 138 snapshots' worth of leaves on the
+  same basis as the primary key's 144, two indexes arriving there independently.
+
+  So a one-time reclaim is the remedy here, not a holding action. What stays open is
+  the GiST index: it is keyed on `cidr` alone, so it was never partitioned by
+  snapshot, and `pgstatindex` reads btree only, so nothing here shows whether it
+  reuses freed pages across rotations the way the btrees will. Watching its size
+  across a few rotations is follow-up work, not this change.
   """
 
   use Ecto.Migration
