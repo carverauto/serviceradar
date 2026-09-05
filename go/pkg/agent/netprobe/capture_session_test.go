@@ -217,7 +217,7 @@ func TestAStalledConsumerEndsItsSessionInsteadOfWedgingTheReadLoop(t *testing.T)
 	}
 
 	require.Error(t, stallErr, "the session must end with a reason, not hang")
-	assert.ErrorIs(t, stallErr, ErrCaptureConsumerStalled)
+	require.ErrorIs(t, stallErr, ErrCaptureConsumerStalled)
 
 	// And the read loop is still alive: a fresh request still gets answered.
 	probe.answerStart("01JQ0000000000000000000001")
@@ -268,7 +268,7 @@ func TestNetprobesRefusalIsSurfacedWithItsCode(t *testing.T) {
 
 	_, _, err := client.StartCapture(ctx, startRequest(testSessionID))
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrCaptureRejected)
+	require.ErrorIs(t, err, ErrCaptureRejected)
 	// The code and the offending value both survive: "denied" and "your filter
 	// does not compile" need different operator actions.
 	assert.Contains(t, err.Error(), "capture_interface_denied")
