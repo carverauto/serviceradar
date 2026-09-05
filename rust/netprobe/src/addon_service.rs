@@ -643,17 +643,17 @@ fn bind_socket(path: &Path) -> Result<UnixListener> {
 
 /// Owner-only. `AddonService` exposes `Configure` and `RunCommand`, so the socket
 /// must not be reachable by any local process that happens to share the runtime
-/// group -- which is what the legacy IPC socket allows today.
+/// group.
 ///
 /// THIS MODE IS THE WHOLE ACCESS CONTROL on this socket, so it is pinned by a
-/// test rather than left to a umask or a future refactor.
+/// test rather than left to a umask or a future refactor. The legacy IPC socket
+/// was the counterexample this comment used to name: it was left at the umask
+/// default until it grew capture control, and `crate::uds` now applies the same
+/// restriction to both.
 ///
-/// It is deliberately NOT paired with an `SO_PEERCRED` uid check, though the
-/// change proposal asked for one. Such a check would be a no-op here: 0600 owned
-/// by the runtime user already excludes every uid except that user and root, and
-/// root defeats a uid allowlist in one `setuid` before `connect`. It would also
-/// reject clients that work today -- a `sudo` dev loop, `sudo grpcurl -unix` for
-/// triage -- and reject them invisibly.
+/// It is deliberately NOT paired with an `SO_PEERCRED` uid check; the reasoning
+/// is in [`crate::uds::PeerCredentials`], which is where the credentials are
+/// read for the audit record instead.
 ///
 /// What the mode does NOT do is distinguish THE AGENT from any other process
 /// running as the same user, and on the shipped units those are the same user
@@ -669,36 +669,7 @@ fn restrict_socket_permissions_for_test(path: &Path) -> Result<()> {
 }
 
 fn restrict_socket_permissions(path: &Path) -> Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
-            .with_context(|| format!("failed to restrict {}", path.display()))?;
-
-        // Read it back. `set_permissions` can report success and not take effect
-        // -- some mounts ignore chmod entirely -- and this mode is the whole
-        // access control on a socket serving Configure and RunCommand. Refusing
-        // to serve is the right failure: an AddonService nobody can reach is a
-        // loud, fixable problem, while one reachable by the whole runtime group
-        // is a silent one.
-        let mode = std::fs::metadata(path)
-            .with_context(|| format!("failed to stat {}", path.display()))?
-            .permissions()
-            .mode()
-            & 0o777;
-
-        if mode != 0o600 {
-            anyhow::bail!(
-                "refusing to serve AddonService on {}: mode is {:o}, not 0600 -- \
-                 Configure and RunCommand would be reachable by other local processes",
-                path.display(),
-                mode
-            );
-        }
-    }
-
-    Ok(())
+    crate::uds::restrict_to_owner(path, "AddonService")
 }
 
 #[cfg(test)]

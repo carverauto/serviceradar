@@ -272,6 +272,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert has_element?(lv, "span", "service.version")
     end
 
+    test "shows collector target and error from log attributes", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+
+      log_id = "7c2f1a90-4b11-4d8e-9c3a-0b1c2d3e4f50"
+      insert_test_collector_error_log!(log_id)
+
+      {:ok, lv, html} = live(conn, ~p"/logs/#{log_id}")
+
+      assert has_element?(lv, "span", "Target")
+      assert html =~ "edge-switch-01"
+      assert html =~ "snmp: timeout waiting for response"
+      assert has_element?(lv, "span", "Error")
+      assert has_element?(lv, "span", "Resource Attributes")
+    end
+
     test "renders the collector-observed source IP", %{conn: conn} do
       user = operator_user_fixture()
       conn = log_in_user(conn, user)
@@ -452,6 +468,35 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
   # Test helper that mirrors the component's RBAC check
   defp can_create_rules?(%{user: %{role: role}}) when role in [:operator, :admin], do: true
   defp can_create_rules?(_), do: false
+
+  defp insert_test_collector_error_log!(log_id) when is_binary(log_id) do
+    {:ok, uuid} = Ecto.UUID.dump(log_id)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("logs", [
+      %{
+        timestamp: now,
+        observed_timestamp: now,
+        id: uuid,
+        severity_text: "ERROR",
+        severity_number: 17,
+        body: "Error collecting from target",
+        service_name: "serviceradar-agent",
+        scope_name: "agent",
+        attributes:
+          Jason.encode!(%{
+            "error" => "snmp: timeout waiting for response",
+            "target_name" => "edge-switch-01"
+          }),
+        resource_attributes:
+          Jason.encode!(%{
+            "service.name" => "serviceradar-agent",
+            "service.version" => "1.0.0"
+          }),
+        created_at: now
+      }
+    ])
+  end
 
   defp insert_test_log!(log_id) when is_binary(log_id) do
     {:ok, uuid} = Ecto.UUID.dump(log_id)

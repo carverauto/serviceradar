@@ -35,7 +35,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     |> assign(:endpoint_inventory_pending_command_ids, MapSet.new())
     |> assign(:show_endpoint_inventory_package_modal, false)
     |> assign(:endpoint_inventory_selected_package, nil)
-    |> assign(:endpoint_inventory_selected_package_matches, [])
+    |> assign(:endpoint_inventory_selected_package_assessment_details, empty_assessment_details())
     |> assign(:show_endpoint_inventory_match_modal, false)
     |> assign(:endpoint_inventory_selected_match_group, nil)
   end
@@ -235,7 +235,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
         socket
 
       package ->
-        matches =
+        assessment_details =
           EndpointInventoryData.load_package_vulnerabilities(
             Map.get(socket.assigns, :current_scope),
             socket.assigns[:device_uid],
@@ -244,7 +244,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
 
         socket
         |> assign(:endpoint_inventory_selected_package, package)
-        |> assign(:endpoint_inventory_selected_package_matches, matches)
+        |> assign(:endpoint_inventory_selected_package_assessment_details, assessment_details)
         |> assign(:show_endpoint_inventory_package_modal, true)
     end
   end
@@ -258,7 +258,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     socket
     |> assign(:show_endpoint_inventory_package_modal, false)
     |> assign(:endpoint_inventory_selected_package, nil)
-    |> assign(:endpoint_inventory_selected_package_matches, [])
+    |> assign(:endpoint_inventory_selected_package_assessment_details, empty_assessment_details())
   end
 
   @doc """
@@ -267,8 +267,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
   and reference URLs.
   """
   def open_match_detail(socket, group_id) when is_binary(group_id) do
-    matches = socket.assigns[:endpoint_inventory_vulnerability_matches] || []
-    groups = EndpointInventoryMatchGroups.group(matches)
+    assessments = assessment_rows(socket.assigns[:endpoint_inventory_vulnerability_assessments])
+    groups = EndpointInventoryMatchGroups.group(assessments)
 
     case EndpointInventoryMatchGroups.find(groups, group_id) do
       nil ->
@@ -277,19 +277,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
       group ->
         scope = Map.get(socket.assigns, :current_scope)
 
-        primaries =
-          group.advisories
-          |> Enum.map(& &1.primary)
-          |> Enum.map(&EndpointInventoryData.load_match_advisory(scope, &1))
-          |> EndpointInventoryData.enrich_matches(scope)
+        supporting_matches = EndpointInventoryData.load_supporting_matches(scope, group.assessments)
 
-        advisories =
-          group.advisories
-          |> Enum.zip(primaries)
-          |> Enum.map(fn {advisory, primary} -> %{advisory | primary: primary} end)
+        selected_group =
+          group.assessments
+          |> EndpointInventoryMatchGroups.group(supporting_matches)
+          |> List.first()
 
         socket
-        |> assign(:endpoint_inventory_selected_match_group, %{group | advisories: advisories})
+        |> assign(:endpoint_inventory_selected_match_group, selected_group)
         |> assign(:show_endpoint_inventory_match_modal, true)
     end
   end
@@ -315,6 +311,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     package
     |> field(:endpoint_package_ref)
     |> to_string_or_nil()
+  end
+
+  defp assessment_rows(%{} = pages) do
+    Enum.flat_map([:confirmed, :candidates, :history], fn key ->
+      pages
+      |> Map.get(key, Map.get(pages, to_string(key), %{}))
+      |> case do
+        %{rows: rows} when is_list(rows) -> rows
+        %{"rows" => rows} when is_list(rows) -> rows
+        rows when is_list(rows) -> rows
+        _ -> []
+      end
+    end)
+  end
+
+  defp assessment_rows(rows) when is_list(rows), do: rows
+  defp assessment_rows(_pages), do: []
+
+  defp empty_assessment_details do
+    %{
+      assessments: [],
+      supporting_matches: [],
+      supporting_matches_total: 0,
+      supporting_matches_truncated?: false
+    }
   end
 
   defp field(row, key) when is_map(row) do

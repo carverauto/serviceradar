@@ -997,8 +997,16 @@ defmodule ServiceRadarWebNGWeb.SRQL.Builder do
 
   defp normalize_filter_field(entity, _), do: default_search_field(entity)
 
-  defp normalize_filter_op(_entity, _field, op) when op in @allowed_filter_ops, do: op
-  defp normalize_filter_op(entity, field, _op), do: Catalog.default_filter_op(entity, field)
+  defp normalize_filter_op(entity, field, op) do
+    cond do
+      field in Catalog.exact_fields(entity) -> normalize_exact_filter_op(op)
+      op in @allowed_filter_ops -> op
+      true -> Catalog.default_filter_op(entity, field)
+    end
+  end
+
+  defp normalize_exact_filter_op(op) when op in ["not_equals", "not_contains"], do: "not_equals"
+  defp normalize_exact_filter_op(_op), do: "equals"
 
   defp safe_to_string(nil), do: ""
   defp safe_to_string(value) when is_binary(value), do: value

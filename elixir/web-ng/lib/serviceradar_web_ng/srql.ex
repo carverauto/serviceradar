@@ -494,12 +494,15 @@ defmodule ServiceRadarWebNG.SRQL do
 
   defp decode_params(_), do: {:error, :invalid_srql_params}
 
-  defp decode_param(%{"t" => "text", "v" => value}) when is_binary(value), do: {:ok, value}
+  # `@doc false` (rather than `defp`) so `decode_param/1` can be exercised
+  # directly by a `:db_free` unit test, matching `session_setup_sql/0` below.
+  @doc false
+  def decode_param(%{"t" => "text", "v" => value}) when is_binary(value), do: {:ok, value}
 
-  defp decode_param(%{"t" => "bool", "v" => value}) when is_boolean(value), do: {:ok, value}
-  defp decode_param(%{"t" => "int", "v" => value}) when is_integer(value), do: {:ok, value}
+  def decode_param(%{"t" => "bool", "v" => value}) when is_boolean(value), do: {:ok, value}
+  def decode_param(%{"t" => "int", "v" => value}) when is_integer(value), do: {:ok, value}
 
-  defp decode_param(%{"t" => "int_array", "v" => values}) when is_list(values) do
+  def decode_param(%{"t" => "int_array", "v" => values}) when is_list(values) do
     if Enum.all?(values, &is_integer/1) do
       {:ok, values}
     else
@@ -507,10 +510,10 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp decode_param(%{"t" => "float", "v" => value}) when is_float(value), do: {:ok, value}
-  defp decode_param(%{"t" => "float", "v" => value}) when is_integer(value), do: {:ok, value / 1}
+  def decode_param(%{"t" => "float", "v" => value}) when is_float(value), do: {:ok, value}
+  def decode_param(%{"t" => "float", "v" => value}) when is_integer(value), do: {:ok, value / 1}
 
-  defp decode_param(%{"t" => "text_array", "v" => values}) when is_list(values) do
+  def decode_param(%{"t" => "text_array", "v" => values}) when is_list(values) do
     if Enum.all?(values, &is_binary/1) do
       {:ok, values}
     else
@@ -518,14 +521,21 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp decode_param(%{"t" => "timestamptz", "v" => value}) when is_binary(value) do
+  def decode_param(%{"t" => "timestamptz", "v" => value}) when is_binary(value) do
     case DateTime.from_iso8601(value) do
       {:ok, datetime, _offset} -> {:ok, datetime}
       _ -> {:error, :invalid_timestamptz_param}
     end
   end
 
-  defp decode_param(%{"t" => "uuid", "v" => value}) when is_binary(value) do
+  def decode_param(%{"t" => "date", "v" => value}) when is_binary(value) do
+    case Date.from_iso8601(value) do
+      {:ok, date} -> {:ok, date}
+      _ -> {:error, :invalid_date_param}
+    end
+  end
+
+  def decode_param(%{"t" => "uuid", "v" => value}) when is_binary(value) do
     # UUID is passed as a string, but Postgrex expects 16-byte binary
     # Use Ecto.UUID.dump to convert string to binary format
     case Ecto.UUID.dump(value) do
@@ -534,14 +544,14 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp decode_param(%{"t" => type, "v" => value}) when type in ["inet", "cidr"] and is_binary(value) do
+  def decode_param(%{"t" => type, "v" => value}) when type in ["inet", "cidr"] and is_binary(value) do
     case ServiceRadar.Types.Cidr.dump_to_native(value, []) do
       {:ok, inet} -> {:ok, inet}
       _ -> {:error, :invalid_inet_param}
     end
   end
 
-  defp decode_param(_), do: {:error, :invalid_srql_param}
+  def decode_param(_), do: {:error, :invalid_srql_param}
 
   defp normalize_request(%{"query" => query} = request) when is_binary(query) do
     limit = parse_limit(Map.get(request, "limit"))

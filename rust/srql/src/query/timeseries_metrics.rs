@@ -561,9 +561,11 @@ fn bind_interface_hourly_param<'a>(
                 })?;
             Ok(query.bind::<Timestamptz, _>(timestamp))
         }
-        BindParam::Bool(_) | BindParam::Uuid(_) => Err(ServiceError::InvalidRequest(
-            "unsupported bind type for timeseries_metrics_interface_hourly".into(),
-        )),
+        BindParam::Bool(_) | BindParam::Uuid(_) | BindParam::Date(_) => {
+            Err(ServiceError::InvalidRequest(
+                "unsupported bind type for timeseries_metrics_interface_hourly".into(),
+            ))
+        }
     }
 }
 

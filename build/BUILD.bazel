@@ -13,6 +13,7 @@ load(
     "missing_fixed_source_failure_test",
 )
 load(":run_id.bzl", "run_id_file")
+load(":template_authority.bzl", "template_authority_file")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -88,6 +89,9 @@ exports_files([
     "integration_test_dispositions.bzl",
     "integration_tests.bzl",
     "repo_alias.bzl",
+    # Read as text by //:ci_heavy_gate_contract_test, which pins the authority marker written
+    # here against the two consumers that must agree with it.
+    "template_authority.bzl",
 ])
 
 # Opt-in switch for tests that talk to the shared CNPG fixture.
@@ -134,6 +138,41 @@ string_flag(
 run_id_file(
     name = "run_id_file",
     run_id = ":run_id",
+)
+
+# Whether this checkout may WRITE the shared template database, `sr_core_template`.
+#
+# That template is cloned by every run and only ever ratchets forward, so whoever migrates it
+# decides the schema every other branch gets. Leaving that open to any caller is what let seven
+# migrations from an unmerged pull request wedge every open pull request on 2026-09-04: the
+# branch never landed, so the "rebase onto the branch that added those migrations" the
+# ahead-check prescribes had nothing to rebase onto.
+#
+# Being GREEN is not the property that matters -- a passing unmerged branch ratchets it exactly
+# the same way. Being on TRUNK is. So exactly one action in //buildbuddy.yaml passes this --
+# `LargeIngestionGate`, which triggers on push to `staging` -- and pull requests, benchmark
+# branches and workstations apply their migrations to the per-run base instead.
+#
+# What it gates is the RATCHET, precisely: the migration set the template carries. It does not
+# gate `ensure_template`'s create-if-absent, which `provision_base` still performs on any run --
+# an empty template is a cache MISS for everyone (every reader clones it and migrates its own
+# base), not a decision about anyone's schema. Applying a migration is the decision, and that is
+# what only trunk may do.
+#
+# Default false, and every consumer fails CLOSED: an absent, empty or mangled marker refuses
+# the write. A run that wrongly believes it is not the authority fails loudly and changes
+# nothing; a run that wrongly believes it IS poisons the fixture for everyone.
+bool_flag(
+    name = "template_authority",
+    build_setting_default = False,
+)
+
+# The authority decision as a file, so no step reads it from ambient environment -- and so the
+# Rust and Elixir halves of the trunk lifecycle read the SAME answer. See
+# //build/template_authority.bzl.
+template_authority_file(
+    name = "template_authority_file",
+    template_authority = ":template_authority",
 )
 
 # Inputs every Mix compile in this repository needs. Resolved as a toolchain (registered in

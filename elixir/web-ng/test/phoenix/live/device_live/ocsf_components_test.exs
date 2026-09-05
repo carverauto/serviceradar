@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponentsTest do
 
   @moduletag :db_free
 
-  test "Risk & Compliance uses KEV and CVSS from vulnerability matches when stored score is zero" do
+  test "Risk & Compliance fallback scores only active confirmed affected assessments" do
     html =
       render_component(&OcsfComponents.ocsf_info_section/1,
         device_row: %{
@@ -16,22 +16,74 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.OcsfComponentsTest do
           "is_active" => true,
           "is_managed" => true
         },
-        vulnerability_matches: [
-          %{
-            cve_id: "CVE-2025-32463",
-            cvss_score: 7.8,
-            kev: true,
-            exploit_available: true,
-            cwes: ["CWE-829"],
-            evidence: %{"package" => %{"name" => "sudo"}}
-          }
-        ]
+        vulnerability_assessments: %{
+          confirmed: %{
+            rows: [
+              %{
+                cve_id: "CVE-2099-4101",
+                status: "active",
+                assessment: "confirmed",
+                disposition: "affected",
+                cvss_score: 7.8,
+                kev: true,
+                exploit_available: true,
+                package_name: "starling-fetch"
+              }
+            ]
+          },
+          candidates: %{rows: []},
+          history: %{rows: []}
+        }
       )
 
     assert html =~ "Risk &amp; Compliance" or html =~ "Risk & Compliance"
-    assert html =~ "83"
-    assert html =~ "High"
+    assert html =~ "Risk score 90 out of 100"
+    assert html =~ "Critical"
     refute html =~ ">Info<"
+  end
+
+  test "candidate KEV and malformed confirmed rows cannot enter fallback risk" do
+    html =
+      render_component(&OcsfComponents.ocsf_info_section/1,
+        device_row: %{
+          "risk_score" => 0,
+          "risk_level" => "Info",
+          "is_active" => true
+        },
+        vulnerability_assessments: %{
+          confirmed: %{
+            rows: [
+              %{
+                cve_id: "CVE-2099-4302",
+                status: "active",
+                assessment: "confirmed",
+                disposition: "fixed",
+                cvss_score: 10.0,
+                kev: true,
+                package_name: "quartz"
+              }
+            ]
+          },
+          candidates: %{
+            rows: [
+              %{
+                cve_id: "CVE-2099-4201",
+                status: "active",
+                assessment: "candidate",
+                disposition: "unknown",
+                cvss_score: 10.0,
+                kev: true,
+                package_name: "moonbeam"
+              }
+            ]
+          },
+          history: %{rows: []}
+        }
+      )
+
+    assert html =~ ">Info<"
+    assert html =~ "Risk score 0 out of 10"
+    refute html =~ "Risk score 100 out of 100"
   end
 
   test "Risk & Compliance shows one radial score and spans the full width" do

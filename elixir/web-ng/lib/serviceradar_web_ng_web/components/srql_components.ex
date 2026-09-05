@@ -998,6 +998,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
     value_fields = Map.get(config, :value_fields, [])
     boolean_fields = Map.get(config, :boolean_fields, [])
     numeric_fields = Map.get(config, :numeric_fields, [])
+    comparison_fields = numeric_fields ++ Map.get(config, :timestamp_fields, [])
     address_fields = Catalog.address_fields(config)
     # Mode-aware allowlist so chart mode cannot offer tag/near/geo/etc.
     filter_fields = Builder.filter_fields_for(assigns.builder) || config.filter_fields || []
@@ -1010,7 +1011,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
       |> assign(:series_fields, series_fields)
       |> assign(:value_fields, value_fields)
       |> assign(:boolean_fields, boolean_fields)
-      |> assign(:numeric_fields, numeric_fields)
+      |> assign(:comparison_fields, comparison_fields)
       |> assign(:address_fields, address_fields)
       |> assign(:filter_fields, filter_fields)
 
@@ -1168,7 +1169,8 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                   <div class="flex flex-col gap-3">
                     <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
                       <% is_bool_field = (filter["field"] || "") in @boolean_fields %>
-                      <% is_numeric_field = (filter["field"] || "") in @numeric_fields %>
+                      <% is_comparison_field =
+                        (filter["field"] || "") in @comparison_fields %>
                       <% is_address_field = (filter["field"] || "") in @address_fields %>
                       <div class="flex items-center gap-3">
                         <.query_builder_pill label="Filter">
@@ -1212,7 +1214,7 @@ defmodule ServiceRadarWebNGWeb.SRQLComponents do
                               </option>
                             </.ui_inline_select>
                           <% else %>
-                            <%= if is_numeric_field do %>
+                            <%= if is_comparison_field do %>
                               <.ui_inline_select
                                 name={"builder[filters][#{idx}][op]"}
                                 disabled={not @supported}

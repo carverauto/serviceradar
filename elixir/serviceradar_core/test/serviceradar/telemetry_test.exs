@@ -518,6 +518,24 @@ defmodule ServiceRadar.TelemetryTest do
 
       assert [:serviceradar, :event_writer, :consumer, :stream_age_utilization, :ratio] in metric_names
     end
+
+    test "every distribution metric declares prometheus buckets" do
+      # Telemetry is aliased to ServiceRadar.Telemetry in this module, so the
+      # hex Telemetry.Metrics struct has to be named as atoms.
+      distribution = Module.concat([:Telemetry, :Metrics, :Distribution])
+
+      missing =
+        Telemetry.metrics()
+        |> Enum.filter(&(&1.__struct__ == distribution))
+        |> Enum.reject(fn metric ->
+          buckets = Keyword.get(metric.reporter_options, :buckets)
+          is_list(buckets) and buckets != []
+        end)
+        |> Enum.map(& &1.name)
+
+      assert missing == [],
+             "Distribution metrics missing reporter_options buckets: #{inspect(missing)}"
+    end
   end
 
   describe "prefix_tag_metrics/0" do

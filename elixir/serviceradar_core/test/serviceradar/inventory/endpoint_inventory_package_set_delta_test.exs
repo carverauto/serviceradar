@@ -87,4 +87,42 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSetDeltaTest do
     assert PackageSet.server_package_set_hash(reconstructed) ==
              PackageSet.server_package_set_hash(current)
   end
+
+  test "canonical persistence decodes encoded PURL components once" do
+    version = "7:42.0~test1-0ubuntu99.7+fixture1"
+
+    [package] =
+      PackageSet.normalize_delta_packages([
+        %{
+          "name" => "libexample42",
+          "version" => version,
+          "architecture" => "amd64",
+          "manager" => "dpkg",
+          "purl" =>
+            "pkg:deb/ubuntu/libexample42@7:42.0~test1-0ubuntu99.7%2Bfixture1?arch=amd64&source=example-source&sourceversion=7:42.0~test1-0ubuntu99.7%2Bfixture1"
+        }
+      ])
+
+    assert package.purl_canonical ==
+             "pkg:deb/ubuntu/libexample42@7:42.0~test1-0ubuntu99.7%2Bfixture1?arch=amd64&source=example-source&sourceversion=7:42.0~test1-0ubuntu99.7%2Bfixture1"
+
+    refute package.purl_canonical =~ "%252B"
+  end
+
+  test "canonical persistence retains a parsed PURL subpath" do
+    [package] =
+      PackageSet.normalize_delta_packages([
+        %{
+          "name" => "example-agent",
+          "version" => "42.0~test1-0ubuntu99.7",
+          "architecture" => "amd64",
+          "manager" => "dpkg",
+          "purl" =>
+            "pkg:deb/ubuntu/example-agent@42.0~test1-0ubuntu99.7?arch=amd64#licenses/Example%20License"
+        }
+      ])
+
+    assert package.purl_canonical ==
+             "pkg:deb/ubuntu/example-agent@42.0~test1-0ubuntu99.7?arch=amd64#licenses/Example%20License"
+  end
 end

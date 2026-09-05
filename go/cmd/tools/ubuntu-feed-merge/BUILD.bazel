@@ -1,0 +1,32 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "ubuntu-feed-merge_lib",
+    srcs = [
+        "main.go",
+        "projector.go",
+        "structure.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/tools/ubuntu-feed-merge",
+    visibility = ["//visibility:private"],
+    deps = [
+        "@com_github_klauspost_compress//zstd",
+        "@com_github_ulikunitz_xz//:xz",
+    ],
+)
+
+go_binary(
+    name = "ubuntu-feed-merge",
+    embed = [":ubuntu-feed-merge_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "ubuntu-feed-merge_test",
+    srcs = ["main_test.go"],
+    embed = [":ubuntu-feed-merge_lib"],
+    deps = [
+        "@com_github_klauspost_compress//zstd",
+        "@com_github_ulikunitz_xz//:xz",
+    ],
+)

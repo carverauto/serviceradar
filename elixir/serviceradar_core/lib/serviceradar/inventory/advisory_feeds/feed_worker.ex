@@ -8,9 +8,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     * `"vulncheck-kev"`— VulnCheck KEV backup (CISA-KEV-shaped array), 6h
     * `"nist-nvd2"`    — VulnCheck nist-nvd2 backup (full NVD CPE dataset), 6h,
                           gated by both the feature flag and a sub-gate
+    * `"ubuntu-osv-vex"` — Canonical's atomic Ubuntu OSV + OpenVEX tree, 6h
     * `"nvd-api"`      — NVD CVE 2.0 REST fallback (stub; not wired in this slice
                           and intentionally NOT in `@feeds`, so it is never
-                          scheduled — `do_run/1` keeps the stub for future wiring)
+                          scheduled — `do_run/2` keeps the stub for future wiring)
 
   The whole lifecycle — acquire → stage → extract → stream-parse → bulk-load →
   generation swap — runs in core with `SystemActor`. Single-flight is enforced by
@@ -33,10 +34,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.AdvisoryFeeds.Acquisition
   alias ServiceRadar.Inventory.AdvisoryFeeds.Config
+  alias ServiceRadar.Inventory.AdvisoryFeeds.FeedRegistry
   alias ServiceRadar.Inventory.AdvisoryFeeds.Loader
   alias ServiceRadar.Inventory.AdvisoryFeeds.Parsers
   alias ServiceRadar.Inventory.AdvisoryFeeds.Staging
   alias ServiceRadar.Inventory.AdvisoryFeeds.StreamReader
+  alias ServiceRadar.Inventory.AdvisoryFeeds.UbuntuAdapter
   alias ServiceRadar.Inventory.VulnerabilityFeedDefinition
   alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -53,8 +56,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   #
   # These feeds refresh every 6 hours. Retrying three times inside a minute buys
   # nothing; spreading the same three retries across ~42 minutes rides out a
-  # transient upstream problem and still finishes well inside one cycle, even if
-  # every attempt burns the full 60-minute nist-nvd2 timeout first.
+  # transient upstream problem and still finishes inside one cycle, even if
+  # every attempt burns the longest feed timeout first.
   @backoff_seconds [120, 600, 1800]
 
   @impl true
@@ -71,12 +74,17 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   # farm01 nist-nvd2 inserted ~360k advisories / 2.5M coordinates in 30 minutes
   # and still had shards left. 60 minutes leaves headroom for a cold PVC.
   def timeout(%Oban.Job{args: %{"feed" => "nist-nvd2"}}), do: 3_600_000
+
+  # Preparing and projecting the bounded official Ubuntu archives takes close
+  # to an hour on remote runners. Keep a finite whole-job limit with headroom.
+  def timeout(%Oban.Job{args: %{"feed" => "ubuntu-osv-vex"}}), do: 4_500_000
+
   def timeout(_job), do: 180_000
 
   # Must exceed the longest worker timeout. 15 minutes was marking a live
   # nist-nvd2 run stale because already_scheduled?/1 could not see the job
   # (it queried "Elixir.ServiceRadar..." while Oban stores the bare module).
-  @stale_running_seconds 75 * 60
+  @stale_running_seconds 90 * 60
 
   # Grace before a node-less job is considered orphaned. Short, because node
   # liveness is already the decisive signal; this only covers a brief netsplit.
@@ -87,11 +95,45 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   # NOTE: "nvd-api" is intentionally excluded — `do_run("nvd-api")` is an
   # unimplemented stub, so scheduling it only produces error+reschedule noise.
   # Add it back here once the NVD CVE 2.0 REST fallback is wired.
-  @feeds ~w(cisa-kev vulncheck-kev nist-nvd2)
+  @feeds ~w(cisa-kev vulncheck-kev nist-nvd2 ubuntu-osv-vex)
+  @retained_count_feeds ~w(cisa-kev vulncheck-kev nist-nvd2)
+  @retained_count_percent 90
 
   @doc "All feed keys this worker can run."
   @spec feeds() :: [String.t()]
   def feeds, do: @feeds
+
+  @doc false
+  def snapshot_minimum(feed_key, prior_count, absolute_minimum, opts \\ [])
+      when is_binary(feed_key) and is_integer(prior_count) and prior_count >= 0 and
+             is_integer(absolute_minimum) and
+             absolute_minimum > 0 and is_list(opts) do
+    if feed_key in @retained_count_feeds do
+      retained_minimum = div(prior_count * @retained_count_percent + 99, 100)
+      default_minimum = max(absolute_minimum, retained_minimum)
+
+      if Keyword.get(opts, :accept_snapshot_contraction) == true do
+        {absolute_minimum,
+         %{
+           "policy" => "operator_approved_contraction",
+           "prior_count" => prior_count,
+           "minimum_count" => absolute_minimum,
+           "default_minimum_count" => default_minimum,
+           "retained_percent" => @retained_count_percent
+         }}
+      else
+        {default_minimum,
+         %{
+           "policy" => "prior_complete_retention",
+           "prior_count" => prior_count,
+           "minimum_count" => default_minimum,
+           "retained_percent" => @retained_count_percent
+         }}
+      end
+    else
+      {absolute_minimum, nil}
+    end
+  end
 
   @doc "Enqueue all enabled feeds that are not already in flight."
   @spec ensure_scheduled() :: {:ok, :scheduled} | {:error, term()}
@@ -125,13 +167,24 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   def in_flight?(_feed, _opts), do: false
 
   @doc "Enqueue a single feed now (operator \"Run now\")."
-  @spec enqueue(String.t()) :: {:ok, Oban.Job.t()} | {:error, term()}
-  def enqueue(feed) when feed in @feeds do
+  @spec enqueue(String.t(), keyword()) :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue(feed, opts \\ [])
+
+  def enqueue(feed, opts) when feed in @feeds and is_list(opts) do
     _ = cancel_incomplete(feed)
-    %{feed: feed} |> new() |> ObanSupport.safe_insert()
+    feed |> job_changeset(opts) |> ObanSupport.safe_insert()
   end
 
-  def enqueue(_feed), do: {:error, :unknown_feed}
+  def enqueue(_feed, _opts), do: {:error, :unknown_feed}
+
+  @doc false
+  def job_changeset(feed, opts) when feed in @feeds and is_list(opts) do
+    if accept_snapshot_contraction?(feed, opts) do
+      new(%{feed: feed, accept_snapshot_contraction: true}, max_attempts: 1)
+    else
+      new(%{feed: feed})
+    end
+  end
 
   defp maybe_enqueue(feed) do
     cond do
@@ -196,7 +249,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
   end
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"feed" => feed}}) when feed in @feeds do
+  def perform(%Oban.Job{args: %{"feed" => feed} = args}) when feed in @feeds do
     cond do
       not Config.enabled?() ->
         Logger.info("advisory_feeds: disabled, skipping #{feed}")
@@ -213,7 +266,13 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
         :ok
 
       true ->
-        run_feed(feed)
+        accept_snapshot_contraction =
+          feed in @retained_count_feeds and
+            Map.get(args, "accept_snapshot_contraction") == true
+
+        run_feed(feed,
+          accept_snapshot_contraction: accept_snapshot_contraction
+        )
     end
   end
 
@@ -222,9 +281,13 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     {:error, :unknown_feed}
   end
 
-  defp run_feed(feed) do
+  defp run_feed(feed, opts) do
     actor = SystemActor.system(:advisory_feed_worker)
     started = DateTime.utc_now()
+
+    if Keyword.get(opts, :accept_snapshot_contraction) == true do
+      Logger.warning("advisory_feeds: #{feed} operator approved a one-shot snapshot contraction")
+    end
 
     mark_status(
       feed,
@@ -233,28 +296,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     )
 
     try do
-      case do_run(feed) do
+      case do_run(feed, opts) do
         {:ok, result} ->
           Logger.info("advisory_feeds: #{feed} loaded", result: inspect(result))
 
-          mark_status(
-            feed,
-            %{
-              last_status: "success",
-              last_success_at: DateTime.utc_now(),
-              last_message:
-                "loaded #{result.advisories_upserted} advisories " <>
-                  "(#{result.advisories_skipped} unchanged)",
-              last_error: nil,
-              metadata: %{
-                "advisories" => result.advisories_upserted,
-                "coordinates" => result.coordinates_upserted,
-                "advisories_skipped" => result.advisories_skipped,
-                "generation" => result.generation
-              }
-            },
-            actor
-          )
+          mark_status(feed, result_status_attrs({:ok, result}, DateTime.utc_now()), actor)
 
           schedule_next(feed)
           :ok
@@ -269,20 +315,17 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     end
   end
 
+  defp accept_snapshot_contraction?(feed, opts) do
+    feed in @retained_count_feeds and
+      Keyword.get(opts, :accept_snapshot_contraction) == true
+  end
+
   defp fail_feed(feed, reason, actor) do
     Logger.warning("advisory_feeds: #{feed} failed: #{inspect(reason)}",
       reason: inspect(reason)
     )
 
-    mark_status(
-      feed,
-      %{
-        last_status: "error",
-        last_failure_at: DateTime.utc_now(),
-        last_error: inspect(reason)
-      },
-      actor
-    )
+    mark_status(feed, result_status_attrs({:error, reason}, DateTime.utc_now()), actor)
 
     schedule_next(feed)
     {:error, reason}
@@ -491,28 +534,28 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
 
   # --- per-feed pipelines ---------------------------------------------------
 
-  defp do_run("cisa-kev") do
+  defp do_run("cisa-kev", opts) do
     run_id = run_id()
     url = Config.cisa_kev_url()
 
     with {:ok, acquired} <- Acquisition.acquire_cisa(url, run_id) do
       with_run_cleanup(acquired, fn ->
-        parse_and_load(acquired, "cisa", "cisa-kev", &parse_kev/1)
+        parse_and_load(acquired, "cisa", "cisa-kev", &parse_kev/1, opts)
       end)
     end
   end
 
-  defp do_run("vulncheck-kev") do
+  defp do_run("vulncheck-kev", opts) do
     with {:ok, token} <- Config.vulncheck_token(),
          {:ok, acquired} <-
            Acquisition.acquire_vulncheck("vulncheck-kev", token, run_id()) do
       with_run_cleanup(acquired, fn ->
-        parse_and_load(acquired, "vulncheck", "vulncheck-kev", &parse_kev/1)
+        parse_and_load(acquired, "vulncheck", "vulncheck-kev", &parse_kev/1, opts)
       end)
     end
   end
 
-  defp do_run("nist-nvd2") do
+  defp do_run("nist-nvd2", opts) do
     # Drop leftover extracts *before* a new download. Timeout uses :kill, so
     # with_run_cleanup/2 does not run; without this prune each retry added
     # another zip+extract until the node filled.
@@ -523,7 +566,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
         :ok ->
           with {:ok, token} <- Config.vulncheck_token(),
                {:ok, acquired} <- Acquisition.acquire_vulncheck("nist-nvd2", token, run_id()) do
-            with_run_cleanup(acquired, fn -> parse_and_load_nvd(acquired) end)
+            with_run_cleanup(acquired, fn -> parse_and_load_nvd(acquired, opts) end)
           end
 
         {:error, reason} = error ->
@@ -539,7 +582,28 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     end
   end
 
-  defp do_run("nvd-api") do
+  defp do_run("ubuntu-osv-vex", _opts) do
+    _ = Staging.prune_feed("ubuntu-osv-vex", keep: 0)
+
+    with {:ok, entry} <- FeedRegistry.fetch("ubuntu-osv-vex"),
+         true <- Staging.volume_available?() || {:error, :staging_volume_unavailable},
+         :ok <- Staging.ensure_budget(),
+         %{url: osv_url, options: source_options} <- Config.source(entry.feed),
+         vex_url when is_binary(vex_url) <- Map.get(source_options, "vex_url"),
+         {:ok, acquired} <-
+           Acquisition.acquire_ubuntu_pair(entry.feed, osv_url, vex_url, run_id(),
+             timeout_ms: 1_800_000
+           ) do
+      with_run_cleanup(acquired, fn ->
+        load_ubuntu_snapshot(acquired, provider: entry.provider, feed_key: entry.feed_key)
+      end)
+    else
+      {:error, _} = error -> error
+      other -> {:error, {:invalid_ubuntu_source, other}}
+    end
+  end
+
+  defp do_run("nvd-api", _opts) do
     # NVD CVE 2.0 REST fallback is intentionally a stub in this slice (paginated,
     # rate-limited). VulnCheck nist-nvd2 is the primary CPE source.
     {:error, :nvd_api_not_implemented}
@@ -568,51 +632,263 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     result
   end
 
-  defp load_and_finalize(records, provider, feed_key) do
-    generation = Loader.next_generation(provider, feed_key)
+  defp load_and_finalize(records_factory, provider, feed_key, opts) do
     existing_state = Loader.existing_comparison_state(provider, feed_key)
     existing_count = Loader.comparable_count(feed_key, existing_state)
+    required_tree = Keyword.get(opts, :required_tree, feed_key)
+    absolute_minimum = Keyword.get(opts, :expected_minimum, 1)
 
-    result =
-      records
-      |> Loader.load_stream(
-        provider: provider,
-        feed_key: feed_key,
-        generation: generation,
-        existing_comparison_state: existing_state
+    {expected_minimum, retained_count_floor} =
+      snapshot_minimum(feed_key, map_size(existing_state), absolute_minimum,
+        accept_snapshot_contraction: Keyword.get(opts, :accept_snapshot_contraction) == true
       )
-      |> then(&warn_if_guard_inert(feed_key, existing_count, &1))
 
-    Loader.finalize(provider, feed_key, generation, demote_missing: Loader.full_sweep?(result))
-    {:ok, result}
+    preflight_opts = Keyword.put(opts, :expected_minimum, expected_minimum)
+
+    preflight_opts =
+      if retained_count_floor do
+        Keyword.put(preflight_opts, :retained_count_floor, retained_count_floor)
+      else
+        preflight_opts
+      end
+
+    completeness = preflight(records_factory, required_tree, preflight_opts)
+
+    with :ok <- Loader.validate_completeness(completeness) do
+      generation = Loader.next_generation(provider, feed_key)
+
+      records =
+        Stream.flat_map(records_factory.(), fn
+          {:record, record} -> [record]
+          :skip -> []
+          {:read_error, reason} -> raise "source changed after preflight: #{inspect(reason)}"
+          {:parse_error, reason} -> raise "source changed after preflight: #{inspect(reason)}"
+        end)
+
+      with {:ok, result} <-
+             Loader.load_and_finalize(records,
+               provider: provider,
+               feed_key: feed_key,
+               generation: generation,
+               existing_state: existing_state,
+               normalization_version: Keyword.get(opts, :normalization_version),
+               completeness: completeness
+             ) do
+        {:ok, warn_if_guard_inert(feed_key, existing_count, result)}
+      end
+    end
   end
 
-  defp parse_and_load(acquired, provider, feed_key, parse_fun) do
+  defp parse_and_load(acquired, provider, feed_key, parse_fun, opts) do
     json_path = single_json(acquired.extracted_dir)
 
-    records =
+    records_factory = fn ->
       json_path
       |> StreamReader.stream_json_file(records_key: records_key(feed_key))
-      |> Stream.flat_map(fn {:ok, record} -> parse_fun.({record, provider, feed_key}) end)
+      |> Stream.map(
+        &parse_source_item(&1, fn record -> parse_fun.({record, provider, feed_key}) end)
+      )
+    end
 
-    load_and_finalize(records, provider, feed_key)
+    load_and_finalize(
+      records_factory,
+      provider,
+      feed_key,
+      Keyword.put(opts, :required_tree, records_key(feed_key))
+    )
   end
 
-  defp parse_and_load_nvd(acquired) do
+  defp parse_and_load_nvd(acquired, opts) do
     provider = "nvd"
     feed_key = "nist-nvd2"
 
-    records =
+    records_factory = fn ->
       acquired.extracted_dir
       |> StreamReader.stream_nvd_shards()
-      |> Stream.flat_map(fn {:ok, record} ->
-        case Parsers.Nvd.parse_record(record, provider: provider, feed_key: feed_key) do
-          {:ok, mapped} -> [mapped]
-          :skip -> []
-        end
+      |> Stream.map(
+        &parse_source_item(&1, fn record ->
+          Parsers.Nvd.parse_record(record, provider: provider, feed_key: feed_key)
+        end)
+      )
+    end
+
+    load_and_finalize(
+      records_factory,
+      provider,
+      feed_key,
+      opts
+      |> Keyword.put(:normalization_version, Parsers.Nvd.normalization_version())
+      |> Keyword.put(:required_tree, "vulnerabilities")
+    )
+  end
+
+  @doc false
+  def load_ubuntu_snapshot(acquired, opts \\ [])
+
+  def load_ubuntu_snapshot(%{format: :ubuntu_tar_xz_pair} = acquired, opts) do
+    provider = Keyword.get(opts, :provider, "ubuntu")
+    feed_key = Keyword.get(opts, :feed_key, "ubuntu-osv-vex")
+
+    adapter_opts =
+      Keyword.take(opts, [
+        :helper,
+        :helper_args_prefix,
+        :runner,
+        :port_timeout_ms,
+        :provider,
+        :feed_key
+      ])
+
+    with {:ok, snapshot} <- UbuntuAdapter.prepare_pair(acquired, adapter_opts),
+         :ok <- Loader.validate_completeness(snapshot.completeness) do
+      generation = Loader.next_generation(provider, feed_key)
+      existing_state = Loader.existing_comparison_state(provider, feed_key)
+      existing_count = Loader.comparable_count(feed_key, existing_state)
+
+      records =
+        Stream.map(snapshot.records, fn
+          {:ok, record} -> record
+          {:error, reason} -> raise "Ubuntu helper parse failure: #{inspect(reason)}"
+        end)
+
+      completeness =
+        Map.update!(snapshot.completeness, :validation, fn validation ->
+          Map.put(validation, "publication", %{
+            "complete" => true,
+            "count" => snapshot.completeness.source_objects_seen,
+            "generation_provenance" => acquired.generation_provenance,
+            "osv" => acquired.artifacts.osv,
+            "vex" => acquired.artifacts.vex,
+            "acquired_at" => DateTime.to_iso8601(acquired.acquired_at)
+          })
+        end)
+
+      with {:ok, result} <-
+             Loader.load_and_finalize(records,
+               provider: provider,
+               feed_key: feed_key,
+               generation: generation,
+               existing_state: existing_state,
+               normalization_version: Parsers.Ubuntu.normalization_version(),
+               completeness: completeness,
+               transaction_timeout_ms: 3_600_000,
+               timeout_ms: 1_800_000
+             ) do
+        {:ok, warn_if_guard_inert(feed_key, existing_count, result)}
+      end
+    end
+  end
+
+  def load_ubuntu_snapshot(_acquired, _opts), do: {:error, :invalid_ubuntu_acquired_pair}
+
+  defp parse_source_item({:error, {:read_error, _, _} = reason}, _parser),
+    do: {:read_error, reason}
+
+  defp parse_source_item({:error, reason}, _parser), do: {:parse_error, reason}
+
+  defp parse_source_item({:ok, record}, parser) do
+    case parser.(record) do
+      {:ok, mapped} -> {:record, mapped}
+      [mapped] -> {:record, mapped}
+      :skip -> :skip
+      [] -> :skip
+      other -> {:parse_error, {:invalid_parser_result, other}}
+    end
+  rescue
+    error -> {:parse_error, {error, __STACKTRACE__}}
+  end
+
+  @doc false
+  def preflight(records_factory, required_tree, opts) do
+    summary =
+      Enum.reduce(records_factory.(), %{seen: 0, parse_errors: 0, read_errors: 0}, fn
+        {:record, _record}, acc -> %{acc | seen: acc.seen + 1}
+        :skip, acc -> %{acc | parse_errors: acc.parse_errors + 1}
+        {:parse_error, _reason}, acc -> %{acc | parse_errors: acc.parse_errors + 1}
+        {:read_error, _reason}, acc -> %{acc | read_errors: acc.read_errors + 1}
       end)
 
-    load_and_finalize(records, provider, feed_key)
+    put_retained_count_floor(
+      %{
+        complete_snapshot?: summary.parse_errors == 0 and summary.read_errors == 0,
+        source_objects_seen: summary.seen,
+        expected_minimum: Keyword.get(opts, :expected_minimum, 1),
+        parse_errors: summary.parse_errors,
+        read_errors: summary.read_errors,
+        required_trees: [required_tree],
+        validation: %{
+          to_string(required_tree) => %{
+            "complete" => summary.parse_errors == 0 and summary.read_errors == 0,
+            "count" => summary.seen
+          }
+        }
+      },
+      opts,
+      required_tree,
+      summary.seen
+    )
+  rescue
+    error ->
+      put_retained_count_floor(
+        %{
+          complete_snapshot?: false,
+          source_objects_seen: 0,
+          expected_minimum: Keyword.get(opts, :expected_minimum, 1),
+          parse_errors: 1,
+          read_errors: 0,
+          required_trees: [required_tree],
+          validation: %{to_string(required_tree) => %{"complete" => false, "count" => 0}},
+          error: Exception.message(error)
+        },
+        opts,
+        required_tree,
+        0
+      )
+  end
+
+  defp put_retained_count_floor(completeness, opts, required_tree, observed_count) do
+    case Keyword.get(opts, :retained_count_floor) do
+      floor when is_map(floor) ->
+        floor = Map.put(floor, "observed_count", observed_count)
+
+        completeness
+        |> Map.put(:retained_count_floor, floor)
+        |> put_in(
+          [:validation, to_string(required_tree), "retained_count_floor"],
+          floor
+        )
+
+      _ ->
+        completeness
+    end
+  end
+
+  @doc false
+  def result_status_attrs({:error, reason}, now) do
+    %{last_status: "error", last_failure_at: now, last_error: inspect(reason)}
+  end
+
+  def result_status_attrs({:ok, result}, _now) do
+    %{
+      last_status: "success",
+      last_success_at: result.complete_generation_at,
+      last_message:
+        "loaded #{result.advisories_upserted} advisories " <>
+          "(#{result.advisories_skipped} unchanged)",
+      last_error: nil,
+      metadata: %{
+        "advisories" => result.advisories_upserted,
+        "coordinates" => result.coordinates_upserted,
+        "assertions" => result.assertions_upserted,
+        "advisories_skipped" => result.advisories_skipped,
+        "source_objects_seen" => result.source_objects_seen,
+        "parse_errors" => result.parse_errors,
+        "read_errors" => result.read_errors,
+        "generation" => result.generation,
+        "complete_generation_at" => DateTime.to_iso8601(result.complete_generation_at),
+        "validation" => result.validation
+      }
+    }
   end
 
   defp parse_kev({record, provider, feed_key}) do
@@ -638,7 +914,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
     end
   end
 
-  defp mark_status(feed, attrs, actor) do
+  @doc false
+  def mark_status(feed, attrs, actor) do
     {provider, feed_key} = provider_feed(feed)
 
     case VulnerabilityFeedDefinition
@@ -646,6 +923,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
          |> Ash.Query.filter(provider == ^provider and feed_key == ^feed_key)
          |> Ash.read_one(actor: actor) do
       {:ok, %VulnerabilityFeedDefinition{} = def} ->
+        attrs = merge_status_metadata(def.metadata, attrs)
+
         def
         |> Ash.Changeset.for_update(:update_status, attrs, actor: actor)
         |> Ash.update(actor: actor)
@@ -659,10 +938,19 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker do
       :ok
   end
 
-  defp provider_feed("cisa-kev"), do: {"cisa", "cisa-kev"}
-  defp provider_feed("vulncheck-kev"), do: {"vulncheck", "vulncheck-kev"}
-  defp provider_feed("nist-nvd2"), do: {"nvd", "nist-nvd2"}
+  defp merge_status_metadata(current_metadata, %{metadata: status_metadata} = attrs)
+       when is_map(status_metadata) do
+    Map.put(attrs, :metadata, Map.merge(current_metadata || %{}, status_metadata))
+  end
+
+  defp merge_status_metadata(_current_metadata, attrs), do: attrs
+
   defp provider_feed("nvd-api"), do: {"nvd", "nvd-api"}
+
+  defp provider_feed(feed) do
+    {:ok, entry} = FeedRegistry.fetch(feed)
+    {entry.provider, entry.feed_key}
+  end
 
   defp schedule_next(feed) do
     if Config.feed_enabled?(feed) do

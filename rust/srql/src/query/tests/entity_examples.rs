@@ -831,3 +831,125 @@ fn composite_results_stats_rejects_unsupported_aggregation() {
         "error should say only count() is supported, got: {err}"
     );
 }
+
+#[test]
+fn sweep_groups_example_partition_and_enabled() {
+    let query = "in:sweep_groups partition:default enabled:true sort:name:asc";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SweepGroups));
+    let (sql, _) = sweep_groups::to_sql_and_params(&plan).expect("should build sweep_groups SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"sweep_groups\""),
+        "expected query against sweep_groups, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"sweep_groups\".\"partition\" =")
+            && lower.contains("\"sweep_groups\".\"enabled\" ="),
+        "expected partition + enabled filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"sweep_groups\".\"name\" asc"),
+        "expected name asc ordering, got: {sql}"
+    );
+}
+
+#[test]
+fn sweep_profiles_example_name_and_enabled() {
+    // `admin_only` is not an accepted caller filter (see the authorization
+    // bypass fix in `sweep_profiles::apply_filter`): every query is already
+    // unconditionally restricted to `admin_only = false`, asserted below.
+    let query = "in:sweep_profiles name:default enabled:true";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SweepProfiles));
+    let (sql, _) =
+        sweep_profiles::to_sql_and_params(&plan).expect("should build sweep_profiles SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"sweep_profiles\""),
+        "expected query against sweep_profiles, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"sweep_profiles\".\"name\" =")
+            && lower.contains("\"sweep_profiles\".\"enabled\" =")
+            && lower.contains("\"sweep_profiles\".\"admin_only\" = false"),
+        "expected name + enabled filters and the unconditional admin_only restriction in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"sweep_profiles\".\"name\" asc"),
+        "expected default name asc ordering, got: {sql}"
+    );
+}
+
+#[test]
+fn sweep_executions_example_status_and_agent() {
+    let query = "in:sweep_executions status:success agent_id:agent-01";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SweepExecutions));
+    let (sql, _) =
+        sweep_executions::to_sql_and_params(&plan).expect("should build sweep_executions SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"sweep_group_executions\""),
+        "expected query against sweep_group_executions, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"sweep_group_executions\".\"status\" =")
+            && lower.contains("\"sweep_group_executions\".\"agent_id\" ="),
+        "expected status + agent_id filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"sweep_group_executions\".\"started_at\" desc"),
+        "expected default started_at desc ordering, got: {sql}"
+    );
+}
+
+#[test]
+fn sweep_results_example_ip_and_status() {
+    let query = "in:sweep_results ip:192.0.2.10 status:up";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SweepResults));
+    let (sql, _) = sweep_results::to_sql_and_params(&plan).expect("should build sweep_results SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"sweep_host_results\""),
+        "expected query against sweep_host_results, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"sweep_host_results\".\"ip\" =")
+            && lower.contains("\"sweep_host_results\".\"status\" ="),
+        "expected ip + status filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"sweep_host_results\".\"inserted_at\" desc"),
+        "expected default inserted_at desc ordering, got: {sql}"
+    );
+}
+
+#[test]
+fn sweep_coverage_example_device_uid_and_ip() {
+    let query = "in:sweep_coverage device_uid:dev-1 ip:192.0.2.10";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SweepCoverage));
+    let (sql, _) =
+        sweep_coverage::to_sql_and_params(&plan).expect("should build sweep_coverage SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"sweep_coverage_daily\""),
+        "expected query against sweep_coverage_daily, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"sweep_coverage_daily\".\"device_uid\" =")
+            && lower.contains("\"sweep_coverage_daily\".\"ip\" ="),
+        "expected device_uid + ip filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"sweep_coverage_daily\".\"day\" desc"),
+        "expected default day desc ordering, got: {sql}"
+    );
+}

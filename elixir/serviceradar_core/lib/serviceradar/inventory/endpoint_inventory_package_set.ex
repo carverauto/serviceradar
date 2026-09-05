@@ -2,6 +2,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
   @moduledoc false
 
   alias ServiceRadar.Inventory.EndpointInventoryPayload, as: Payload
+  alias ServiceRadar.Inventory.PackageUrl
 
   @hash_algorithm_version 1
   @upload_reason_changed "changed"
@@ -494,38 +495,30 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
     end
   end
 
-  defp parse_purl(nil, _attrs), do: nil
+  defp parse_purl(purl, attrs) do
+    case PackageUrl.parse(purl) do
+      {:ok, components} ->
+        type = purl_type(components.type, attrs.package_manager)
+        namespace = normalize_namespace(components.namespace, type, attrs)
 
-  defp parse_purl("pkg:" <> rest, attrs) do
-    {path_and_version, qualifiers} = split_once(rest, "?")
-    {path, version} = split_once(path_and_version, "@")
-    {type, package_path} = split_once(path, "/")
-
-    type = purl_type(type, attrs.package_manager)
-
-    case package_path_segments(package_path) do
-      [] ->
-        nil
-
-      segments ->
-        name = List.last(segments)
-
-        namespace =
-          segments
-          |> Enum.drop(-1)
-          |> normalize_namespace(type, attrs)
-
-        qualifier_map =
-          qualifiers
-          |> decode_qualifiers()
+        qualifiers =
+          components.qualifiers
           |> Map.put_new("arch", attrs.architecture)
           |> Payload.compact_map()
 
-        build_purl(type, namespace, name, version || attrs.version, qualifier_map)
+        build_purl(
+          type,
+          namespace,
+          components.name,
+          components.version || attrs.version,
+          qualifiers,
+          components.subpath
+        )
+
+      _ ->
+        nil
     end
   end
-
-  defp parse_purl(_purl, _attrs), do: nil
 
   defp fallback_purl(attrs) do
     type = purl_type(attrs.ecosystem, attrs.package_manager)
@@ -553,54 +546,19 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
     Enum.map(segments, &String.downcase/1)
   end
 
-  defp package_path_segments(path) when is_binary(path) do
-    path
-    |> String.split("/", trim: true)
-    |> Enum.map(&URI.decode/1)
-    |> Enum.reject(&(&1 == ""))
-  end
+  defp build_purl(type, namespace, name, version, qualifiers, subpath \\ nil)
 
-  defp package_path_segments(_path), do: []
+  defp build_purl(_type, _namespace, nil, _version, _qualifiers, _subpath), do: nil
 
-  defp build_purl(_type, _namespace, nil, _version, _qualifiers), do: nil
-
-  defp build_purl(type, namespace, name, version, qualifiers) do
-    path = Enum.map_join(namespace ++ [name], "/", &encode_uri_component/1)
-
-    version_part = if version, do: "@#{encode_uri_component(version)}", else: ""
-    qualifier_part = encoded_qualifiers(qualifiers)
-
-    "pkg:#{type}/#{path}#{version_part}#{qualifier_part}"
-  end
-
-  defp decode_qualifiers(nil), do: %{}
-
-  defp decode_qualifiers(query) do
-    query
-    |> URI.query_decoder()
-    |> Map.new(fn {key, value} -> {String.downcase(key), value} end)
-  rescue
-    ArgumentError -> %{}
-  end
-
-  defp encoded_qualifiers(qualifiers) when map_size(qualifiers) == 0, do: ""
-
-  defp encoded_qualifiers(qualifiers) do
-    encoded =
-      qualifiers
-      |> Enum.sort_by(fn {key, _value} -> key end)
-      |> Enum.map_join("&", fn {key, value} ->
-        "#{encode_uri_component(key)}=#{encode_uri_component(value)}"
-      end)
-
-    "?#{encoded}"
-  end
-
-  defp split_once(value, marker) do
-    case String.split(value, marker, parts: 2) do
-      [left, right] -> {left, right}
-      [left] -> {left, nil}
-    end
+  defp build_purl(type, namespace, name, version, qualifiers, subpath) do
+    PackageUrl.canonical(%{
+      type: type,
+      namespace: namespace,
+      name: name,
+      version: version,
+      qualifiers: qualifiers,
+      subpath: subpath
+    })
   end
 
   defp normalize_token(nil), do: nil
@@ -612,12 +570,6 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
       |> String.downcase()
 
     if value == "", do: nil, else: value
-  end
-
-  defp encode_uri_component(value) do
-    value
-    |> to_string()
-    |> URI.encode(&URI.char_unreserved?/1)
   end
 
   defp endpoint_package_metadata(package, cpes) do

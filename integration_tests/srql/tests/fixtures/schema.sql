@@ -2,7 +2,9 @@
 -- The harness drops tables before creation so each test starts cleanly.
 
 DROP TABLE IF EXISTS device_agent_availability;
+DROP TABLE IF EXISTS endpoint_vulnerability_assessments;
 DROP TABLE IF EXISTS endpoint_vulnerability_matches;
+DROP TABLE IF EXISTS advisory_package_assertions;
 DROP TABLE IF EXISTS advisory_coordinates;
 DROP TABLE IF EXISTS vulnerability_advisories;
 DROP TABLE IF EXISTS endpoint_inventory_packages;
@@ -216,6 +218,40 @@ CREATE TABLE advisory_coordinates (
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE advisory_package_assertions (
+    id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    assertion_key           TEXT        NOT NULL UNIQUE,
+    advisory_ref            UUID        NOT NULL REFERENCES vulnerability_advisories(id) ON DELETE CASCADE,
+    provider                TEXT        NOT NULL,
+    feed_key                TEXT        NOT NULL,
+    generation              BIGINT      NOT NULL,
+    cve_id                  TEXT        NOT NULL,
+    authority               TEXT        NOT NULL,
+    source_kind             TEXT        NOT NULL,
+    source_timestamp        TIMESTAMPTZ,
+    package_type            TEXT,
+    namespace               TEXT,
+    release                 TEXT,
+    product_scope           TEXT,
+    source_package          TEXT,
+    binary_package          TEXT,
+    architecture            TEXT,
+    version_scheme          TEXT,
+    disposition             TEXT        NOT NULL,
+    introduced_version      TEXT,
+    fixed_version           TEXT,
+    affected_versions       TEXT[]      NOT NULL DEFAULT '{}',
+    package_purl            TEXT,
+    justification           TEXT,
+    status_text             TEXT,
+    action_text             TEXT,
+    validation              JSONB       NOT NULL DEFAULT '{}',
+    raw                     JSONB       NOT NULL DEFAULT '{}',
+    metadata                JSONB       NOT NULL DEFAULT '{}',
+    inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE endpoint_vulnerability_matches (
     id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     device_uid              TEXT        NOT NULL,
@@ -243,6 +279,58 @@ CREATE TABLE endpoint_vulnerability_matches (
     last_seen_at            TIMESTAMPTZ NOT NULL,
     resolved_at             TIMESTAMPTZ,
     metadata                JSONB       NOT NULL DEFAULT '{}',
+    inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE endpoint_vulnerability_assessments (
+    id                      UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_uid              TEXT        NOT NULL,
+    package_identity_key    TEXT        NOT NULL,
+    source_scope            TEXT        NOT NULL DEFAULT 'host',
+    agent_id                TEXT,
+    scan_ref                UUID,
+    inventory_package_ref   UUID,
+    endpoint_package_ref    UUID        NOT NULL REFERENCES endpoint_packages(id),
+    cve_id                  TEXT        NOT NULL,
+    status                  TEXT        NOT NULL DEFAULT 'active',
+    assessment              TEXT        NOT NULL DEFAULT 'candidate',
+    disposition             TEXT        NOT NULL DEFAULT 'unknown',
+    authority               TEXT,
+    applicability_reason    TEXT        NOT NULL,
+    authority_generation    BIGINT,
+    authority_as_of         TIMESTAMPTZ,
+    freshness               TEXT        NOT NULL DEFAULT 'unknown',
+    provider                TEXT,
+    feed_key                TEXT,
+    advisory_id             TEXT,
+    package_type            TEXT,
+    package_manager         TEXT,
+    ecosystem               TEXT,
+    package_namespace       TEXT,
+    package_release         TEXT,
+    package_name            TEXT,
+    package_purl            TEXT,
+    installed_version       TEXT,
+    source_package          TEXT,
+    source_version          TEXT,
+    binary_package          TEXT,
+    architecture            TEXT,
+    version_scheme          TEXT,
+    fixed_version           TEXT,
+    severity                TEXT,
+    cvss_score              DOUBLE PRECISION,
+    cvss_vector             TEXT,
+    kev                     BOOLEAN     NOT NULL DEFAULT FALSE,
+    exploit_available       BOOLEAN     NOT NULL DEFAULT FALSE,
+    supporting_match_ids    UUID[]      NOT NULL DEFAULT '{}',
+    supporting_assertion_ids UUID[]     NOT NULL DEFAULT '{}',
+    evidence                JSONB       NOT NULL DEFAULT '{}',
+    transition_reason       TEXT,
+    metadata                JSONB       NOT NULL DEFAULT '{}',
+    first_seen_at           TIMESTAMPTZ NOT NULL,
+    last_seen_at            TIMESTAMPTZ NOT NULL,
+    resolved_at             TIMESTAMPTZ,
     inserted_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

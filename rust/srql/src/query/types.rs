@@ -17,11 +17,19 @@ pub enum BindParam {
     Float(f64),
     Timestamptz(String),
     Uuid(uuid::Uuid),
+    Date(String),
 }
 
 impl BindParam {
     pub(crate) fn timestamptz(value: chrono::DateTime<Utc>) -> Self {
         Self::Timestamptz(value.to_rfc3339())
+    }
+
+    /// A `date` bind, formatted `YYYY-MM-DD` (ISO 8601), for entities such
+    /// as `sweep_coverage` whose time column is a real `date` column rather
+    /// than `timestamptz` (issue 4167).
+    pub(crate) fn date(value: chrono::NaiveDate) -> Self {
+        Self::Date(value.format("%Y-%m-%d").to_string())
     }
 }
 

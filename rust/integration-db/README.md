@@ -95,7 +95,7 @@ CA, and `PGSSLSERVERNAME` supplies the certificate DNS name when the DSN address
 The Elixir consumers see the original `verify-ca`/`verify-full` value and enable `verify_peer`.
 
 Without that parser-boundary normalization, the kubectl setup path's `verify-full` default
-aborts `prepare_template`, `provision_db`, `teardown_db`, and `sweep_stale_dbs` before they can
+aborts `provision_base`, `provision_db`, `teardown_db`, and `sweep_stale_dbs` before they can
 connect. A pure Rust lifecycle regression covers both verified libpq modes.
 
 **The Elixir consumers do depend on it**, and both must treat "nothing named a mode" as
@@ -132,16 +132,22 @@ Use [the SRQL fixture skill](../../.agents/skills/srql-fixtures-db-tests/SKILL.m
 canonical runnable recipe. The lifecycle is an ordered sequence of Bazel invocations, not a
 wrapper script:
 
-`sweep -> prepare -> conditional migrate -> provision -> suite -> teardown`
+`sweep -> provision base -> conditional migrate run -> provision lanes -> suite -> teardown`
+
+Note what is NOT in that sequence: `prepare_template` and `migrate_template`. They write the
+shared `sr_core_template`, which only the trunk lifecycle may do, and they refuse without
+`--//build:template_authority=true` -- so a workstation cannot ratchet the fixture CI shares,
+which it previously could. `provision_base` seeds this run's own `sr_core_test_<run>` from the
+template and `migrate_run` applies your migrations there.
 
 Every target must receive `--//build:enable_integration_tests`. Database tests clear the manual
-test filter, use `--strategy=TestRunner=local`, and disable test-result caching. Prepare clears
-the manual build filter and reports migration status on stdout; the caller matches
-`migration(s) pending`, while extra-applied migrations fail the prepare step outright. Keep the
-base fixture DSNs in `SRQL_TEST_*`, use one numeric run ID/attempt for the whole sequence, and
-pair `provision_db_sN` with `integration_tests_sN` for a focused run. Always invoke
-`teardown_db` after provisioning, including after a red shard. `provision_db` refuses to clone a
-template that is behind the migrations on disk, so do not reorder the sequence.
+test filter, use `--strategy=TestRunner=local`, and disable test-result caching. `provision_base`
+clears the manual build filter and reports migration status on stdout; the caller matches
+`migration(s) pending`. Keep the base fixture DSNs in `SRQL_TEST_*`, use one numeric run
+ID/attempt for the whole sequence, and pair `provision_db_sN` with `integration_tests_sN` for a
+focused run. Always invoke `teardown_db` after provisioning, including after a red shard.
+`provision_db` refuses to clone a base that is behind the migrations on disk, so do not reorder
+the sequence.
 
 Against a local docker Postgres with TLS off:
 

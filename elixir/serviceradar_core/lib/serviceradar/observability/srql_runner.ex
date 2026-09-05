@@ -116,6 +116,13 @@ defmodule ServiceRadar.Observability.SRQLRunner do
     end
   end
 
+  defp decode_param(%{"t" => "date", "v" => value}, _opts) when is_binary(value) do
+    case Date.from_iso8601(value) do
+      {:ok, date} -> {:ok, date}
+      _ -> {:error, :invalid_date_param}
+    end
+  end
+
   defp decode_param(%{"t" => "uuid", "v" => value}, _opts) when is_binary(value) do
     case Ecto.UUID.dump(value) do
       {:ok, binary_uuid} -> {:ok, binary_uuid}

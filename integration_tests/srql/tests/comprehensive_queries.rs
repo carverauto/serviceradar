@@ -90,10 +90,7 @@ async fn comprehensive_queries_match_fixtures() {
                 assert_eq!(result["device_id"], "device-alpha");
                 assert_eq!(result["package_manager"], "dpkg");
                 assert_eq!(result["current"], true);
-                assert_eq!(
-                    result["package_id"],
-                    "aaaaaaaa-1111-4111-8111-111111111111"
-                );
+                assert_eq!(result["package_id"], "aaaaaaaa-1111-4111-8111-111111111111");
                 assert_eq!(result["has_package"]["relation"], "HAS_PACKAGE");
                 assert_eq!(result["has_package"]["device_uid"], "device-alpha");
             })),
@@ -140,10 +137,7 @@ async fn comprehensive_queries_match_fixtures() {
             validator: Some(Box::new(|body| {
                 let result = &body["results"][0];
                 assert_eq!(result["rollup_type"], "current_cpe_counts");
-                assert_eq!(
-                    result["cpe"],
-                    "cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"
-                );
+                assert_eq!(result["cpe"], "cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*");
                 assert_eq!(result["host_count"], 1);
             })),
         },
@@ -194,17 +188,132 @@ async fn comprehensive_queries_match_fixtures() {
         },
         TestCase {
             query: "in:cve_matches cve:CVE-2026-0001",
-            expected_count: 1,
+            expected_count: 2,
             validator: Some(Box::new(|body| {
                 let result = &body["results"][0];
                 assert_eq!(result["device_uid"], "device-alpha");
                 assert_eq!(result["package_name"], "nginx");
+                assert_eq!(result["assessment"], "confirmed");
+                assert_eq!(result["disposition"], "affected");
+                assert_eq!(result["authority"], "Ubuntu");
+                assert_eq!(result["freshness"], "fresh");
+                assert_eq!(result["actionable"], true);
                 assert_eq!(result["kev"], true);
                 assert_eq!(result["epss_score"], 0.84);
             })),
         },
         TestCase {
+            // With no lifecycle filter this is an audit/state-row count, not an
+            // exposure count: confirmed, candidate, and resolved all contribute.
+            query: "in:cve_matches stats:count() as n",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["n"], 3);
+            })),
+        },
+        TestCase {
+            query: "in:cve_matches status:active assessment:confirmed disposition:affected stats:count() as n",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["n"], 1);
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_vulnerability_assessments status:resolved",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["device_uid"], "device-beta");
+                assert_eq!(result["assessment"], "confirmed");
+                assert_eq!(result["disposition"], "fixed");
+                assert_eq!(result["actionable"], false);
+            })),
+        },
+        TestCase {
+            query: "in:package_vulnerabilities assessment:candidate freshness:unknown",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["device_uid"], "device-gamma");
+                assert_eq!(result["disposition"], "unknown");
+                assert_eq!(result["actionable"], false);
+            })),
+        },
+        TestCase {
+            query: r#"in:endpoint_vulnerability_assessments cpe:"%nginx:1.24.0%""#,
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["device_uid"], "device-alpha");
+            })),
+        },
+        TestCase {
+            // The candidate has two children: a CPE/openssl row and a PURL/curl row.
+            // Predicates must never be satisfied by different child rows.
+            query: "in:endpoint_vulnerability_assessments coordinate_type:cpe coordinate_value:%curl%",
+            expected_count: 0,
+            validator: None,
+        },
+        TestCase {
+            query: "in:endpoint_vulnerability_assessments coordinate_type:cpe coordinate_value:%openssl%",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["device_uid"], "device-gamma");
+            })),
+        },
+        TestCase {
+            // device-alpha is backed by a raw match; device-gamma only reaches this
+            // advisory through its authoritative package assertion.
+            query: "in:endpoint_vulnerability_assessments advisory_ref:bbbbbbbb-1111-4111-8111-111111111111",
+            expected_count: 2,
+            validator: None,
+        },
+        TestCase {
+            // A package assertion can satisfy advisory_ref by itself, but it cannot
+            // make raw-coordinate predicates true for that advisory.
+            query: "in:endpoint_vulnerability_assessments advisory_ref:bbbbbbbb-1111-4111-8111-111111111111 coordinate_type:cpe coordinate_value:%openssl%",
+            expected_count: 0,
+            validator: None,
+        },
+        TestCase {
+            query: "in:endpoint_vulnerability_assessments !advisory_ref:bbbbbbbb-1111-4111-8111-111111111111",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["device_uid"], "device-beta");
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_vulnerability_assessments authority_generation:7",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["device_uid"], "device-alpha");
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_vulnerability_assessments authority_as_of:>2020-01-01T00:00:00Z",
+            expected_count: 2,
+            validator: None,
+        },
+        TestCase {
+            query: "in:endpoint_vulnerability_assessments !authority_generation:999 !authority_as_of:1999-01-01T00:00:00Z",
+            expected_count: 3,
+            validator: None,
+        },
+        TestCase {
+            // NULL historical refs are distinct from the excluded UUID and must survive NotEq.
+            query: "in:endpoint_vulnerability_assessments !scan_ref:99999999-9999-4999-8999-999999999999",
+            expected_count: 3,
+            validator: None,
+        },
+        TestCase {
             query: "in:endpoint_packages cve:CVE-2026-0001 current:true",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["name"], "nginx");
+                assert_eq!(body["results"][0]["device_uid"], "device-alpha");
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_packages kev:true current:true",
             expected_count: 1,
             validator: Some(Box::new(|body| {
                 assert_eq!(body["results"][0]["name"], "nginx");
@@ -219,10 +328,24 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            // Inventory spans both devices even though only alpha has a confirmed assessment.
             query: r#"in:packages cpe:"cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*" current:true"#,
-            expected_count: 1,
+            expected_count: 2,
             validator: Some(Box::new(|body| {
-                assert_eq!(body["results"][0]["purl"], "pkg:deb/nginx@1.24.0-2ubuntu7")
+                let mut packages: Vec<_> = body["results"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|row| (row["device_uid"].as_str().unwrap(), row["purl"].as_str().unwrap()))
+                    .collect();
+                packages.sort_unstable();
+                assert_eq!(
+                    packages,
+                    vec![
+                        ("device-alpha", "pkg:deb/nginx@1.24.0-2ubuntu7"),
+                        ("device-gamma", "pkg:deb/nginx@1.24.0-2ubuntu7"),
+                    ]
+                );
             })),
         },
         // Device Query Tests

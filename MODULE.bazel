@@ -774,6 +774,7 @@ use_repo(
     "com_github_stretchr_testify",
     "com_github_swaggo_swag",
     "com_github_tetratelabs_wazero",
+    "com_github_ulikunitz_xz",
     "in_gopkg_yaml_v3",
     "io_k8s_api",
     "io_k8s_apimachinery",

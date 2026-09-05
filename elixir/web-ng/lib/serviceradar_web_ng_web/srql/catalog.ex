@@ -379,6 +379,107 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       boolean_fields: ["is_healthy"],
       downsample: false
     },
+    # Sweep diagnostics (issue 4167): declared sweep configuration plus its
+    # execution/result history. `sweep_groups`/`sweep_profiles` are config and
+    # route to the page that manages them; `sweep_executions`/`sweep_results`/
+    # `sweep_coverage` are read-only history and route to /devices, following
+    # the identity-reconciliation-diagnostics precedent above.
+    %{
+      id: "sweep_groups",
+      label: "Sweep Groups",
+      route: "/settings/networks",
+      default_time: "",
+      default_sort_field: "name",
+      default_sort_dir: "asc",
+      default_filter_field: "partition",
+      filter_fields: [
+        "name",
+        "partition",
+        "schedule_type",
+        "enabled",
+        "profile_id",
+        "agent_id"
+      ],
+      boolean_fields: ["enabled"],
+      known_values: %{
+        "schedule_type" => ["interval", "cron", "manual"]
+      },
+      downsample: false
+    },
+    # Admin-only scanner profiles (`admin_only == true`) are excluded from
+    # this entity unconditionally, matching the row-level read restriction
+    # the settings page enforces via Ash (`sweep_profile.ex`). SRQL's raw-SQL
+    # path has no actor/scope context to authorize per caller, so the
+    # restriction is applied to every query rather than being conditional on
+    # the viewer's role. A missing admin-only profile therefore means
+    # "restricted", not "no such profile". `admin_only` is not offered as a
+    # filter field here: the SRQL entity rejects it as unsupported, since
+    # every query is already unconditionally restricted to `admin_only =
+    # false` and accepting it as a caller filter would only ever produce
+    # either a redundant or a contradictory (and rejected) query.
+    %{
+      id: "sweep_profiles",
+      label: "Sweep Profiles",
+      route: "/settings/networks",
+      default_time: "",
+      default_sort_field: "name",
+      default_sort_dir: "asc",
+      default_filter_field: "name",
+      filter_fields: ["name", "enabled"],
+      boolean_fields: ["enabled"],
+      downsample: false
+    },
+    %{
+      id: "sweep_executions",
+      label: "Sweep Executions",
+      route: "/settings/networks",
+      default_time: "",
+      default_sort_field: "started_at",
+      default_sort_dir: "desc",
+      default_filter_field: "sweep_group_id",
+      filter_fields: ["status", "agent_id", "config_version", "sweep_group_id"],
+      known_values: %{
+        "status" => ["pending", "running", "completed", "failed"]
+      },
+      downsample: false
+    },
+    # `sweep_host_results` is pruned at a 7-day retention default (see
+    # `DataRetentionWorker`); an empty result for an older window means
+    # "outside the retention window", not "no sweep activity" — query
+    # `sweep_coverage` for the daily rollup that survives past 7 days.
+    %{
+      id: "sweep_results",
+      label: "Sweep Results",
+      route: "/devices",
+      default_time: "last_24h",
+      default_sort_field: "inserted_at",
+      default_sort_dir: "desc",
+      default_filter_field: "device_id",
+      filter_fields: [
+        "ip",
+        "hostname",
+        "status",
+        "device_id",
+        "agent_id",
+        "sweep_group_id",
+        "execution_id"
+      ],
+      known_values: %{
+        "status" => ["available", "unavailable", "timeout", "error"]
+      },
+      downsample: false
+    },
+    %{
+      id: "sweep_coverage",
+      label: "Sweep Coverage",
+      route: "/devices",
+      default_time: "last_30d",
+      default_sort_field: "day",
+      default_sort_dir: "desc",
+      default_filter_field: "device_uid",
+      filter_fields: ["device_uid", "ip", "agent_id", "sweep_group_id"],
+      downsample: false
+    },
     %{
       id: "events",
       label: "Events",
@@ -1518,10 +1619,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       label: "Vulnerability Advisories",
       route: "/dashboards/endpoint-inventory",
       default_time: "",
-      default_sort_field: "published_at",
+      # The Rust query has a stable compound default (published_at, then cve_id).
+      # Leaving this blank keeps the visual builder from replacing it with a
+      # weaker single-column sort unless the operator explicitly chooses one.
+      default_sort_field: "",
       default_sort_dir: "desc",
       default_filter_field: "cve_id",
       filter_fields: [
+        "id",
         "cve",
         "cve_id",
         "advisory_id",
@@ -1529,15 +1634,19 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "feed_key",
         "severity",
         "title",
+        "description",
         "kev",
         "exploit_available",
         "current",
         "cvss_score",
         "cpe",
+        "cpes",
         "cpe_vendor",
         "cpe_product",
-        "cpe_part"
+        "cpe_part",
+        "cpe_version"
       ],
+      exact_fields: ["id", "feed_key", "severity"],
       boolean_fields: ["kev", "exploit_available", "current"],
       numeric_fields: ["cvss_score"],
       stats_fields: [
@@ -1555,15 +1664,19 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       label: "Advisory Coordinates",
       route: "/dashboards/endpoint-inventory",
       default_time: "",
-      default_sort_field: "cpe_vendor",
+      # Preserve the engine's vendor/product/value ordering when no explicit
+      # sort is present in the query.
+      default_sort_field: "",
       default_sort_dir: "asc",
       default_filter_field: "cve_id",
       filter_fields: [
+        "id",
         "cve",
         "cve_id",
         "coordinate_type",
         "value",
         "cpe",
+        "cpes",
         "cpe_part",
         "cpe_vendor",
         "cpe_product",
@@ -1572,32 +1685,70 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "provider",
         "feed_key",
         "kev",
-        "current"
+        "current",
+        "cvss_score"
       ],
+      exact_fields: ["id", "advisory_ref", "coordinate_type", "cpe_part", "feed_key"],
       boolean_fields: ["kev", "current"],
       numeric_fields: ["cvss_score"],
       downsample: false
     },
     %{
-      id: "endpoint_vulnerability_matches",
-      label: "Vulnerability Matches",
+      id: "endpoint_vulnerability_assessments",
+      label: "Vulnerability Assessments",
       route: "/dashboards/endpoint-inventory",
       default_time: "",
-      default_sort_field: "cvss_score",
+      # Actionability, KEV, exploit availability, CVSS, and recency form the
+      # engine's compound default. An empty UI default preserves all of it.
+      default_sort_field: "",
       default_sort_dir: "desc",
       default_filter_field: "cve_id",
       filter_fields: [
+        "id",
         "device_uid",
         "device_id",
         "agent_id",
         "cve",
         "cve_id",
         "advisory_id",
+        "advisory_ref",
         "provider",
         "feed_key",
+        "assessment",
+        "disposition",
+        "authority",
+        "authority_generation",
+        "authority_as_of",
+        "applicability_reason",
+        "freshness",
+        "source_scope",
+        "package_identity_key",
+        "package_type",
+        "package_manager",
+        "ecosystem",
+        "package_namespace",
+        "namespace",
+        "package_release",
+        "release",
+        "distro",
+        "package_name",
+        "name",
+        "installed_version",
+        "package_version",
+        "version",
+        "package_purl",
+        "purl",
+        "purl_canonical",
+        "source_package",
+        "source_version",
+        "binary_package",
+        "architecture",
+        "version_scheme",
+        "fixed_version",
         "coordinate_type",
         "coordinate_value",
         "cpe",
+        "cpes",
         "status",
         "severity",
         "confidence",
@@ -1606,21 +1757,65 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "cvss_score",
         "package_id",
         "endpoint_package_ref",
+        "inventory_package_ref",
+        "scan_ref",
         "epss_score",
         "due_date",
         "ransomware_use"
       ],
+      exact_fields: [
+        "id",
+        "device_uid",
+        "device_id",
+        "agent_id",
+        "feed_key",
+        "assessment",
+        "disposition",
+        "authority",
+        "applicability_reason",
+        "freshness",
+        "source_scope",
+        "package_identity_key",
+        "package_type",
+        "package_manager",
+        "ecosystem",
+        "package_namespace",
+        "namespace",
+        "package_release",
+        "release",
+        "distro",
+        "architecture",
+        "version_scheme",
+        "coordinate_type",
+        "status",
+        "severity",
+        "confidence",
+        "package_id",
+        "advisory_ref",
+        "endpoint_package_ref",
+        "inventory_package_ref",
+        "scan_ref",
+        "due_date",
+        "ransomware_use"
+      ],
       boolean_fields: ["kev", "exploit_available"],
-      numeric_fields: ["cvss_score", "epss_score"],
+      numeric_fields: ["authority_generation", "cvss_score", "epss_score"],
+      timestamp_fields: ["authority_as_of"],
       stats_fields: [
         "severity",
         "kev",
         "exploit_available",
         "provider",
+        "feed_key",
         "cve_id",
         "device_uid",
         "status",
-        "confidence"
+        "assessment",
+        "disposition",
+        "freshness",
+        "authority",
+        "source_scope",
+        "package_release"
       ],
       downsample: false
     },
@@ -1924,6 +2119,23 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     }
   ]
 
+  # Keep the public query spellings accepted by the Rust parser pointed at one
+  # catalog record per entity. Without this, opening a legacy query in the
+  # visual builder silently falls back to the generic timestamp-sorted shape.
+  @entity_aliases %{
+    "vulnerability_advisory" => "vulnerability_advisories",
+    "advisories" => "vulnerability_advisories",
+    "cves" => "vulnerability_advisories",
+    "advisory_cpes" => "advisory_coordinates",
+    "cpe_coordinates" => "advisory_coordinates",
+    "endpoint_vulnerability_assessment" => "endpoint_vulnerability_assessments",
+    "package_vulnerabilities" => "endpoint_vulnerability_assessments",
+    "endpoint_vulnerability_matches" => "endpoint_vulnerability_assessments",
+    "vulnerability_matches" => "endpoint_vulnerability_assessments",
+    "cve_matches" => "endpoint_vulnerability_assessments",
+    "advisory_matches" => "endpoint_vulnerability_assessments"
+  }
+
   @completion_field_groups [
     :filter_fields,
     :filter_fields_downsample,
@@ -1931,7 +2143,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     :series_fields,
     :stats_fields,
     :boolean_fields,
-    :array_fields
+    :array_fields,
+    :timestamp_fields
   ]
   # Reserved control tokens. The editor accepts `["in:", "where" | control_tokens]` and
   # underlines anything else as unknown, so a downsample/stats token missing here renders
@@ -2052,7 +2265,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   end
 
   def entity(id) when is_binary(id) do
-    Enum.find(@entities, &(&1.id == id)) ||
+    canonical_id = Map.get(@entity_aliases, id, id)
+
+    Enum.find(@entities, &(&1.id == canonical_id)) ||
       %{
         id: id,
         label: String.capitalize(id),
@@ -2125,13 +2340,24 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
   def address_fields(%{} = entity), do: Map.get(entity, :address_fields, [])
 
   @doc """
+  Fields whose values are identifiers or structured enums and therefore only
+  support exact equality in the visual builder.
+  """
+  def exact_fields(entity_id) when is_binary(entity_id) do
+    entity_id |> entity() |> exact_fields()
+  end
+
+  def exact_fields(%{} = entity), do: Map.get(entity, :exact_fields, [])
+
+  @doc """
   Default filter operator for a field on an entity.
 
   `contains` is the right default for free-text fields, but it is wrong for
-  fields with a structured value: booleans, numerics, and addresses are all
-  matched exactly. Callers seeding a new filter row (`Builder.default_state/2`,
-  the builder's "add filter" event) use this so the seeded operator agrees with
-  the operator list the UI actually offers for that field.
+  fields with a structured value: booleans, numerics, timestamps, and addresses
+  are all matched exactly. Callers seeding a new filter row
+  (`Builder.default_state/2`, the builder's "add filter" event) use this so the
+  seeded operator agrees with the operator list the UI actually offers for that
+  field.
   """
   def default_filter_op(entity_id, field) when is_binary(entity_id) do
     entity_id |> entity() |> default_filter_op(field)
@@ -2141,7 +2367,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     exact? =
       field in Map.get(entity, :boolean_fields, []) or
         field in Map.get(entity, :numeric_fields, []) or
-        field in address_fields(entity)
+        field in Map.get(entity, :timestamp_fields, []) or
+        field in address_fields(entity) or
+        field in exact_fields(entity)
 
     if exact?, do: "equals", else: "contains"
   end
@@ -2158,6 +2386,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       "numeric" => entity |> Map.get(:numeric_fields, []) |> Enum.sort(),
       "series" => entity |> Map.get(:series_fields, []) |> Enum.sort(),
       "stats" => entity |> Map.get(:stats_fields, []) |> Enum.sort(),
+      "timestamp" => entity |> Map.get(:timestamp_fields, []) |> Enum.sort(),
       "value" => entity |> Map.get(:value_fields, []) |> Enum.sort()
     }
 

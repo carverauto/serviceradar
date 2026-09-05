@@ -493,6 +493,11 @@ fn apply_bind<'a>(
             query.bind::<Timestamptz, _>(parsed)
         }
         BindParam::Uuid(value) => query.bind::<SqlUuid, _>(value),
+        BindParam::Date(_) => {
+            return Err(ServiceError::InvalidRequest(
+                "unsupported bind type for alerts".into(),
+            ));
+        }
     };
 
     Ok(bound)

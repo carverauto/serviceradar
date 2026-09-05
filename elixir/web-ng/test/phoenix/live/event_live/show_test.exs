@@ -123,6 +123,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     refute has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}"}']")
   end
 
+  @tag :web_ng_shared_fixture_db
   test "SNMP anomaly finding shows device/interface/SNMP links and metric context", %{conn: conn} do
     _device = device_fixture(%{uid: @device_uid, hostname: "core-sw-01"})
     event_id = "snmp-anomaly-1"
@@ -141,10 +142,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.ShowTest do
     assert has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}?tab=interfaces"}']", "SNMP metrics")
     assert has_element?(lv, "a[href='#{~p"/devices/#{@device_uid}?tab=interfaces"}']", "SNMP metrics for interface")
 
-    # Async metric load should produce a chart panel (or at least leave empty state, not crash).
-    html_after = render(lv)
+    # Wait for async panels: a synchronous render() missed the crash when
+    # metric_panels became non-empty.
+    html_after = render_async(lv, 5_000)
     assert html_after =~ "Metric context"
     refute html_after =~ "Failed to load metric context"
+    assert html_after =~ "event-anomaly-metric-0"
+    assert html_after =~ ~s(data-timezone="America/Chicago")
   end
 
   defmodule EventShowSRQLStub do

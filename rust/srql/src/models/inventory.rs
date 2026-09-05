@@ -2,7 +2,7 @@
 //! service status.
 
 use crate::jsonb::DbJson;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use diesel::deserialize::QueryableByName;
 use diesel::prelude::*;
 use diesel::sql_types::{Bool, Int4, Jsonb, Nullable, Text, Timestamptz, Uuid as SqlUuid};
@@ -376,6 +376,260 @@ impl SourceFactDisagreementRow {
             "cleared_at": self.cleared_at,
             "dismissed_at": self.dismissed_at,
             "metadata": serde_json::Value::from(self.metadata),
+        })
+    }
+}
+
+/// Sweep group definition: device-targeting query, schedule, and assigned
+/// agent(s) for an active-scan sweep (issue 4167).
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::sweep_groups, check_for_backend(diesel::pg::Pg))]
+pub struct SweepGroupRow {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub partition: String,
+    pub agent_ids: Vec<String>,
+    pub enabled: bool,
+    pub interval: String,
+    pub schedule_type: String,
+    pub cron_expression: Option<String>,
+    pub static_targets: Vec<String>,
+    pub ports: Option<Vec<i64>>,
+    pub sweep_modes: Option<Vec<String>>,
+    pub emit_availability_events: bool,
+    pub last_run_at: Option<DateTime<Utc>>,
+    pub profile_id: Option<Uuid>,
+    pub updated_at: DateTime<Utc>,
+    pub target_query: Option<String>,
+}
+
+impl SweepGroupRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "sweep_group_id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "partition": self.partition,
+            "agent_ids": self.agent_ids,
+            "enabled": self.enabled,
+            "interval": self.interval,
+            "schedule_type": self.schedule_type,
+            "cron_expression": self.cron_expression,
+            "static_targets": self.static_targets,
+            "ports": self.ports,
+            "sweep_modes": self.sweep_modes,
+            "emit_availability_events": self.emit_availability_events,
+            "last_run_at": self.last_run_at,
+            "profile_id": self.profile_id,
+            "updated_at": self.updated_at,
+            "target_query": self.target_query,
+        })
+    }
+}
+
+/// Sweep scan profile: port list, timing, and banner-grab settings that a
+/// sweep group can reference (issue 4167).
+///
+/// Only `enabled`/`protocols` are surfaced from the embedded banner-grab
+/// map: the write path is gated on `networks.sweeps.banner_grab`, this read
+/// path is not, and the remaining tuning knobs (timeouts, concurrency, rate
+/// limits, queue sizes) carry no diagnostic value for issue 4167.
+///
+/// Unlike the other row structs in this file, this one is NOT `Selectable`
+/// — `banner_grab` is not a declared column (see `schema::sweep_profiles`),
+/// so there is no `table!` column for it to map to. `query/sweep_profiles.rs`
+/// builds `banner_grab_enabled`/`banner_grab_protocols` as explicit SQL
+/// expressions in its own `select_tuple()`, in the same position these two
+/// fields occupy here, and `Queryable` maps them positionally — the same
+/// pattern `CompositeResultRow` uses for its two joined+aliased columns.
+#[derive(Debug, Clone, Queryable, Serialize)]
+pub struct SweepProfileRow {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub ports: Vec<i64>,
+    pub sweep_modes: Vec<String>,
+    pub concurrency: i64,
+    pub timeout: String,
+    pub icmp_settings: DbJson,
+    pub tcp_settings: DbJson,
+    pub admin_only: bool,
+    pub enabled: bool,
+    pub inserted_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub banner_grab_enabled: bool,
+    pub banner_grab_protocols: DbJson,
+}
+
+impl SweepProfileRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "name": self.name,
+            "description": self.description,
+            "ports": self.ports,
+            "sweep_modes": self.sweep_modes,
+            "concurrency": self.concurrency,
+            "timeout": self.timeout,
+            "icmp_settings": serde_json::Value::from(self.icmp_settings),
+            "tcp_settings": serde_json::Value::from(self.tcp_settings),
+            "admin_only": self.admin_only,
+            "enabled": self.enabled,
+            "inserted_at": self.inserted_at,
+            "updated_at": self.updated_at,
+            "banner_grab_enabled": self.banner_grab_enabled,
+            "banner_grab_protocols": serde_json::Value::from(self.banner_grab_protocols),
+        })
+    }
+}
+
+/// A single run of a sweep group: status, timing, and per-run result
+/// counts (issue 4167).
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::sweep_group_executions, check_for_backend(diesel::pg::Pg))]
+pub struct SweepExecutionRow {
+    pub id: Uuid,
+    pub status: String,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub duration_ms: Option<i64>,
+    pub hosts_total: Option<i64>,
+    pub hosts_available: Option<i64>,
+    pub hosts_failed: Option<i64>,
+    pub error_message: Option<String>,
+    pub agent_id: Option<String>,
+    pub config_version: Option<String>,
+    pub sweep_group_id: Uuid,
+    pub scanner_metrics: DbJson,
+    pub inserted_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub banner_grab_summary: DbJson,
+}
+
+impl SweepExecutionRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "status": self.status,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+            "duration_ms": self.duration_ms,
+            "hosts_total": self.hosts_total,
+            "hosts_available": self.hosts_available,
+            "hosts_failed": self.hosts_failed,
+            "error_message": self.error_message,
+            "agent_id": self.agent_id,
+            "config_version": self.config_version,
+            "sweep_group_id": self.sweep_group_id,
+            // Counters only (probe/match/empty/error counts, total bytes);
+            // no attacker-controlled key survives into this map.
+            "scanner_metrics": serde_json::Value::from(self.scanner_metrics),
+            "inserted_at": self.inserted_at,
+            "updated_at": self.updated_at,
+            "banner_grab_summary": serde_json::Value::from(self.banner_grab_summary),
+        })
+    }
+}
+
+/// A single host's result from one sweep execution: reachability, port
+/// coverage, and the requested-vs-observed sweep modes record (issue 4167).
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::sweep_host_results, check_for_backend(diesel::pg::Pg))]
+pub struct SweepResultRow {
+    pub id: Uuid,
+    pub ip: String,
+    pub hostname: Option<String>,
+    pub status: String,
+    pub response_time_ms: Option<i64>,
+    pub sweep_modes_results: DbJson,
+    pub open_ports: Vec<i64>,
+    pub error_message: Option<String>,
+    pub execution_id: Uuid,
+    pub device_id: Option<String>,
+    pub inserted_at: DateTime<Utc>,
+    pub scanned_ports: Vec<i64>,
+    pub agent_id: Option<String>,
+    pub sweep_group_id: Option<Uuid>,
+}
+
+impl SweepResultRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "ip": self.ip,
+            "hostname": self.hostname,
+            "status": self.status,
+            "response_time_ms": self.response_time_ms,
+            // Requested-versus-observed sweep modes record.
+            "modes_results": serde_json::Value::from(self.sweep_modes_results),
+            // Coverage, not a derived closed set: `scanned_ports` minus
+            // `open_ports` is how an operator distinguishes a refused TCP
+            // port from one never attempted. Left as two arrays rather than
+            // a computed `closed_ports` so nothing can go stale against the
+            // values it would be derived from.
+            "open_ports": self.open_ports,
+            "scanned_ports": self.scanned_ports,
+            "error_message": self.error_message,
+            "execution_id": self.execution_id,
+            "device_id": self.device_id,
+            "agent_id": self.agent_id,
+            "sweep_group_id": self.sweep_group_id,
+            "inserted_at": self.inserted_at,
+        })
+    }
+}
+
+/// Daily rollup of sweep coverage for one device/IP: execution counts, port
+/// coverage, and requested-vs-observed sweep modes for that day (issue 4167).
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::sweep_coverage_daily, check_for_backend(diesel::pg::Pg))]
+pub struct SweepCoverageRow {
+    pub id: Uuid,
+    pub day: NaiveDate,
+    pub device_uid: Option<String>,
+    pub ip: String,
+    pub sweep_group_id: Option<Uuid>,
+    pub agent_id: Option<String>,
+    pub execution_count: i64,
+    pub available_count: i64,
+    pub unavailable_count: i64,
+    pub error_count: i64,
+    pub first_seen_at: DateTime<Utc>,
+    pub last_seen_at: DateTime<Utc>,
+    pub scanned_ports: Vec<i64>,
+    pub open_ports: Vec<i64>,
+    pub modes_requested: Vec<String>,
+    pub modes_observed: Vec<String>,
+    pub last_status: Option<String>,
+    pub last_response_time_ms: Option<i64>,
+    pub inserted_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl SweepCoverageRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "day": self.day,
+            "device_uid": self.device_uid,
+            "ip": self.ip,
+            "sweep_group_id": self.sweep_group_id,
+            "agent_id": self.agent_id,
+            "execution_count": self.execution_count,
+            "available_count": self.available_count,
+            "unavailable_count": self.unavailable_count,
+            "error_count": self.error_count,
+            "first_seen_at": self.first_seen_at,
+            "last_seen_at": self.last_seen_at,
+            "scanned_ports": self.scanned_ports,
+            "open_ports": self.open_ports,
+            "modes_requested": self.modes_requested,
+            "modes_observed": self.modes_observed,
+            "last_status": self.last_status,
+            "last_response_time_ms": self.last_response_time_ms,
+            "inserted_at": self.inserted_at,
+            "updated_at": self.updated_at,
         })
     }
 }

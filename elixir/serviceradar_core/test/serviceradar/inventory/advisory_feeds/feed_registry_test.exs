@@ -21,6 +21,23 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedRegistryTest do
     assert entry.refresh_interval_seconds > 0
   end
 
+  test "registers the credential-free atomic Ubuntu OSV and OpenVEX feed" do
+    assert {:ok, entry} = FeedRegistry.fetch("ubuntu-osv-vex")
+
+    assert entry == %{
+             feed: "ubuntu-osv-vex",
+             provider: "ubuntu",
+             feed_key: "ubuntu-osv-vex",
+             display_name: "Ubuntu OSV + OpenVEX",
+             feed_type: "addon_normalized_advisory_feed",
+             requires_credential: false,
+             refresh_interval_seconds: 21_600
+           }
+
+    assert {:ok, "ubuntu-osv-vex"} =
+             FeedRegistry.feed_for("ubuntu", "ubuntu-osv-vex")
+  end
+
   test "fetch/1 is :error for an unknown feed" do
     assert :error = FeedRegistry.fetch("does-not-exist")
     assert :error = FeedRegistry.fetch(nil)

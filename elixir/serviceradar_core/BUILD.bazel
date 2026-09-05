@@ -652,7 +652,8 @@ test_suite(
 #
 # It migrates the SHARED TEMPLATE, not a per-run database. Per-run databases are physical
 # copies of that template (CREATE DATABASE ... TEMPLATE), so the migrations are applied once
-# and every later run gets the schema as a file copy. //rust/integration-db:prepare_template
+# and every later run gets the schema as a file copy. TRUNK ONLY -- see :migrate_run below
+# for why a branch must not reach this target. //rust/integration-db:prepare_template
 # decides whether this target needs to run at all by comparing the migration versions on disk
 # against the template's schema_migrations, and on a branch that adds no migrations the
 # workflow skips it -- which is the point: the BEAM leaves the critical path entirely.
@@ -700,6 +701,11 @@ ex_unit_test(
         # declared input too -- the ex_unit_tests macro adds this automatically, a
         # hand-written ex_unit_test does not.
         "//build:elixir_test_config_loader.exs",
+        # Whether this checkout may write the SHARED template. test/db/template_env.exs refuses
+        # to migrate without it, reading the same declared input //rust/integration-db reads --
+        # which is what keeps the Rust and Elixir halves of the trunk lifecycle from disagreeing
+        # about who is allowed to touch sr_core_template.
+        "//build:template_authority_file",
         "test/db/db_task_helper.exs",
         "test/db/fixture_config.exs",
         "test/db/template_env.exs",
@@ -722,9 +728,8 @@ ex_unit_test(
         "test/db/db_task_helper.exs",
     ],
     # `manual` stays here on purpose: this is an ordered DDL step in the fixture lifecycle
-    # (sweep -> prepare -> migrate -> provision -> tests -> teardown), not a test to be
-    # tag-selected. Bazel does not order tests, so letting a tag pull this into a batch
-    # would let it race the steps it must sit between.
+    # (prepare -> migrate), not a test to be tag-selected. Bazel does not order tests, so
+    # letting a tag pull this into a batch would let it race the steps it must sit between.
     tags = [
         "external",
         "manual",
@@ -734,6 +739,67 @@ ex_unit_test(
         ":erlang_app",
         # test/db/fixture_config.exs resolves the fixture from SERVICERADAR_ENV through these
         # two, which is what replaced parsing an SRQL_TEST_DATABASE_URL secret apart.
+        "//config/manager_config/elixir:manager",
+        "//config/manager_secret/elixir:secret",
+    ],
+)
+
+# The SAME migrator, pointed at this run's own database instead of the shared template.
+#
+# The only difference from :migrate_template is which env preloader runs first --
+# test/db/integration_env.exs derives sr_core_test_<run> from //build:run_id_file, where
+# test/db/template_env.exs names sr_core_template. That one line is the whole fix for a
+# pull request's migrations leaking into state every other branch reads: BazelCI triggers on
+# `pull_request` only, so every run that reached :migrate_template was advancing the shared
+# template with UNMERGED migrations, and every later run whose checkout lacked them was
+# refused. See rust/integration-db/src/template.rs.
+#
+# No shard suffix: SERVICERADAR_TEST_DB_SHARD is deliberately unset, so this migrates the
+# unsharded base that //rust/integration-db:provision_db then clones each lane from. Migrating
+# eight lanes separately would pay the BEAM's 28.8-45.6s startup eight times over.
+#
+# Runs only when //rust/integration-db:provision_base reports migrations pending, which on a
+# branch that adds none is never.
+ex_unit_test(
+    name = "migrate_run",
+    size = "enormous",
+    srcs = ["test/db/migrate_db_test.exs"],
+    data = glob(
+        [
+            "config/**",
+            "priv/repo/**",
+        ],
+        allow_empty = True,
+    ) + [
+        "//build:elixir_test_config_loader.exs",
+        # The per-run database name as a declared build input, read at the same relative path
+        # //rust/integration-db reads it from. One producer of the format, so the migrator and
+        # the provisioner cannot disagree about which database this run owns.
+        "//build:run_id_file",
+        "test/db/db_task_helper.exs",
+        "test/db/fixture_config.exs",
+        "test/db/integration_env.exs",
+        "test/db/integration_env_config.exs",
+        "//config/environments:ci_binpb",
+    ],
+    elixir_opts = [
+        # BEFORE the config loader: config/test.exs reads SERVICERADAR_TEST_DATABASE_URL while
+        # building the Repo settings, so deriving it afterwards has no effect.
+        # integration_env.exs requires fixture_config.exs itself, so it is not listed again.
+        "-r",
+        "test/db/integration_env.exs",
+        "-r",
+        "../../build/elixir_test_config_loader.exs",
+        "-r",
+        "test/db/db_task_helper.exs",
+    ],
+    tags = [
+        "external",
+        "manual",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = [
+        ":erlang_app",
         "//config/manager_config/elixir:manager",
         "//config/manager_secret/elixir:secret",
     ],

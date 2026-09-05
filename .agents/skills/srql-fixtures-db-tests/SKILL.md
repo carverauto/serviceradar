@@ -81,8 +81,18 @@ ignored so provisioning and execution cannot diverge.
 Use the in-cluster BuildBuddy workflow in `buildbuddy.yaml` for the complete sequence:
 
 ```text
-typed ci preflight -> private fixture setup -> sweep -> prepare/migrate -> provision lane -> lane test -> teardown
+private fixture setup -> sweep -> provision base -> migrate run if pending -> provision lane -> lane test -> teardown
 ```
+
+The shared `sr_core_template` is written by the trunk lifecycle only (`LargeIngestionGate`, push
+to `staging`). A branch run seeds its own `sr_core_test_<run>` base from that template and applies
+its own migrations there, so one branch's unmerged migrations can never become the schema another
+branch clones. `//elixir/serviceradar_core:migrate_template`,
+`//rust/integration-db:prepare_template` and `//rust/integration-db:reset_template` refuse
+without `--//build:template_authority=true`, which only `LargeIngestionGate` passes -- so
+invoking any of them from a branch or by hand stops rather than ratchets. `reset_template` from
+a trunk checkout is the deliberate recovery if the template has diverged from trunk; do not
+reach for the flag to get past a refusal on a branch.
 
 That workflow owns `SERVICERADAR_ENV=ci`, the typed configuration inputs, the private secret
 environment, capacity observer, run ID, and caller-owned cleanup. It keeps secret-bearing test
