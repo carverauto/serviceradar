@@ -206,6 +206,58 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjectorTest do
     assert :ok = ConfigSchema.validate_params(schema, params)
   end
 
+  test "legacy boolean drift_mode values coerce to the string enum" do
+    # Rows seeded from unquoted Helm chart defaults (`drift_mode: off` parses
+    # as YAML 1.1 boolean false) used to kill the maintenance job with
+    # "Expected String but got Boolean" on AddonProfile validation.
+    settings = %AnomalyDetectionConfig{
+      n_sigma: 3.0,
+      window_size: 300,
+      confirm_slots: 5,
+      min_samples: 30,
+      metric_denylist: [],
+      emission: %{},
+      metric_class_overrides: %{
+        "cpu" => %{"drift_mode" => "deseasonalized_only"},
+        "disk" => %{"drift_mode" => false},
+        "icmp" => %{"drift_mode" => false},
+        "other" => %{"drift_mode" => false}
+      }
+    }
+
+    managed = AnomalyAddonConfigProjector.managed_params_from_settings(settings)
+
+    assert managed["metric_classes"]["disk"] == %{"drift_mode" => "off"}
+    assert managed["metric_classes"]["icmp"] == %{"drift_mode" => "off"}
+    assert managed["metric_classes"]["other"] == %{"drift_mode" => "off"}
+    assert :ok = ConfigSchema.validate_params(load_addon_schema(), %{"managed" => managed})
+  end
+
+  test "drift_mode rejects boolean true and passes non-boolean values through" do
+    settings = %AnomalyDetectionConfig{
+      n_sigma: 3.0,
+      window_size: 300,
+      confirm_slots: 5,
+      min_samples: 30,
+      metric_denylist: [],
+      emission: %{},
+      metric_class_overrides: %{
+        "disk" => %{"drift_mode" => true, "drift_min_effect" => 2.0},
+        "icmp" => %{"drift_mode" => "bogus"},
+        "other" => %{"drift_mode" => 42}
+      }
+    }
+
+    managed = AnomalyAddonConfigProjector.managed_params_from_settings(settings)
+
+    assert managed["metric_classes"]["disk"] == %{"drift_min_effect" => 2.0}
+    assert managed["metric_classes"]["icmp"] == %{"drift_mode" => "bogus"}
+    assert managed["metric_classes"]["other"] == %{"drift_mode" => 42}
+
+    assert {:error, _} =
+             ConfigSchema.validate_params(load_addon_schema(), %{"managed" => managed})
+  end
+
   defp load_addon_schema do
     path =
       Path.expand("../../../../../addons/anomaly-addon/config.schema.json", __DIR__)

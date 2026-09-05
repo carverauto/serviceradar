@@ -454,11 +454,13 @@ core:
       interface:
         drift_mode: deseasonalized_only
       disk:
-        drift_mode: off
+        # Keep "off" quoted: drift_mode is a schema string, while YAML 1.1
+        # parses an unquoted off as boolean false.
+        drift_mode: "off"
       icmp:
-        drift_mode: off
+        drift_mode: "off"
       other:
-        drift_mode: off
+        drift_mode: "off"
       red: {}
   # First-boot defaults for CNPG-backed capacity forecast settings. These seed
   # the singleton config row when missing and do not overwrite operator edits.
