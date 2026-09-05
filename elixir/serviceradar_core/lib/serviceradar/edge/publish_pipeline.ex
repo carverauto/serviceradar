@@ -118,6 +118,12 @@ defmodule ServiceRadar.Edge.PublishPipeline do
   @default_max_queue 256
   @default_max_lanes 1024
 
+  # A lane sequence is a protobuf uint64, and `ResolvedPrefix.new/1` GUARDS on that range rather
+  # than refusing it. An unchecked value therefore raises a FunctionClauseError inside this
+  # GenServer and takes the process -- and every other lane's prefix -- with it. Bounding it here
+  # is what keeps a refusable input a refusal.
+  @u64_max 0xFFFFFFFFFFFFFFFF
+
   @typedoc """
   A spool lane: the authenticated slot MINUS the sequence. Sequences are the index INTO a lane,
   so they cannot also identify one -- two agents both at sequence 1 are two lanes, not a retry.
@@ -224,7 +230,8 @@ defmodule ServiceRadar.Edge.PublishPipeline do
       map_size(state.lanes) >= state.max_lanes ->
         {:reply, {:error, :lane_limit}, state}
 
-      not (is_integer(first_unresolved) and first_unresolved >= 1) ->
+      not (is_integer(first_unresolved) and first_unresolved >= 1 and
+               first_unresolved <= @u64_max) ->
         {:reply, {:error, :first_unresolved_sequence}, state}
 
       true ->
@@ -325,11 +332,23 @@ defmodule ServiceRadar.Edge.PublishPipeline do
 
   # Starts workers while there is BOTH queued work and a free slot. The loop is what makes the
   # bound a bound: nothing dispatches on the strength of having been offered.
+  #
+  # Emptiness is decided by the QUEUE, not by `queued`. The counter exists because `:queue.len/1`
+  # is O(n) and `:max_queue` is checked on every offer -- but a counter beside a queue is a second
+  # source of truth, and driving the loop from it would turn any drift into a MatchError here,
+  # killing the process and every lane's prefix with it. Reading the queue makes the counter
+  # advisory: it can only ever be wrong about admitting one more offer, never about correctness.
   defp dispatch(state) do
-    if state.queued > 0 and map_size(state.inflight) < state.max_inflight do
-      {{:value, work}, rest} = :queue.out(state.queue)
-      state = start_worker(%{state | queue: rest, queued: state.queued - 1}, work)
-      dispatch(state)
+    if map_size(state.inflight) < state.max_inflight do
+      case :queue.out(state.queue) do
+        {{:value, work}, rest} ->
+          %{state | queue: rest, queued: state.queued - 1}
+          |> start_worker(work)
+          |> dispatch()
+
+        {:empty, _queue} ->
+          state
+      end
     else
       state
     end
