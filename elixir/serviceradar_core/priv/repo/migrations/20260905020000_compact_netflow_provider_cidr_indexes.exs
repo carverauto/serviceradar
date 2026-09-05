@@ -1,8 +1,13 @@
 defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   @moduledoc """
   Rebuilds the three indexes on `platform.netflow_provider_cidrs` to return the
-  space their files still hold. Nothing is redefined: same primary key columns,
+  space their files still hold. `REINDEX INDEX CONCURRENTLY` keeps each index
+  valid and serving throughout and redefines nothing: same primary key columns,
   same secondary keys, same access methods.
+
+  An interrupted rebuild leaves an invalid `..._ccnew` index behind. Rerunning
+  this migration still succeeds -- PostgreSQL picks a fresh suffix rather than
+  failing on the name -- but nothing drops those leftovers, so an operator has to.
 
   Issue #4281 reports 2.4 MB per row. That is a relation size over a row count, and
   the numerator is the part that is wrong: 8519 MiB of files holding 82 MiB of
@@ -54,44 +59,14 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   @disable_migration_lock true
 
   @schema "platform"
-  @table "netflow_provider_cidrs"
-  @pkey_uidx "netflow_provider_cidrs_snapshot_cidr_provider_uidx"
   @cidr_idx "netflow_provider_cidrs_cidr_idx"
   @snapshot_idx "netflow_provider_cidrs_snapshot_provider_idx"
   @pkey "netflow_provider_cidrs_pkey"
 
   def up do
-    execute("DROP INDEX CONCURRENTLY IF EXISTS #{@schema}.#{@pkey_uidx}")
-
-    execute("""
-    CREATE UNIQUE INDEX CONCURRENTLY #{@pkey_uidx}
-      ON #{@schema}.#{@table} (snapshot_id, cidr, provider)
-    """)
-
-    execute("""
-    ALTER TABLE #{@schema}.#{@table}
-      DROP CONSTRAINT IF EXISTS #{@pkey}
-    """)
-
-    execute("""
-    ALTER TABLE #{@schema}.#{@table}
-      ADD CONSTRAINT #{@pkey}
-      PRIMARY KEY USING INDEX #{@pkey_uidx}
-    """)
-
-    execute("DROP INDEX CONCURRENTLY IF EXISTS #{@schema}.#{@cidr_idx}")
-
-    execute("""
-    CREATE INDEX CONCURRENTLY #{@cidr_idx}
-      ON #{@schema}.#{@table} USING gist (cidr inet_ops)
-    """)
-
-    execute("DROP INDEX CONCURRENTLY IF EXISTS #{@schema}.#{@snapshot_idx}")
-
-    execute("""
-    CREATE INDEX CONCURRENTLY #{@snapshot_idx}
-      ON #{@schema}.#{@table} (snapshot_id, provider)
-    """)
+    execute("REINDEX INDEX CONCURRENTLY #{@schema}.#{@pkey}")
+    execute("REINDEX INDEX CONCURRENTLY #{@schema}.#{@cidr_idx}")
+    execute("REINDEX INDEX CONCURRENTLY #{@schema}.#{@snapshot_idx}")
   end
 
   def down, do: :ok
