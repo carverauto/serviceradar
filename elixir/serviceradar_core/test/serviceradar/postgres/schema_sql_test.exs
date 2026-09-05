@@ -243,7 +243,8 @@ defmodule ServiceRadar.Postgres.SchemaSqlTest do
   # `insufficient_privilege`. Read from the migrations themselves so this cannot drift from
   # them, which is the whole reason the assertion above is worth having.
   defp migration_extensions(kind) do
-    Application.app_dir(:serviceradar_core, "priv/repo/migrations")
+    :serviceradar_core
+    |> Application.app_dir("priv/repo/migrations")
     |> Path.join("*.exs")
     |> Path.wildcard()
     |> Enum.flat_map(fn file ->

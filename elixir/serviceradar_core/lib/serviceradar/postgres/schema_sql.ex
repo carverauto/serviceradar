@@ -221,7 +221,7 @@ defmodule ServiceRadar.Postgres.SchemaSql do
         statement
 
       extension ->
-        """
+        String.trim("""
         DO $serviceradar_optional_extension$
         BEGIN
           #{statement};
@@ -230,8 +230,7 @@ defmodule ServiceRadar.Postgres.SchemaSql do
             RAISE NOTICE 'Skipping #{extension} extension creation (insufficient privileges)';
         END
         $serviceradar_optional_extension$
-        """
-        |> String.trim()
+        """)
     end
   end
 
