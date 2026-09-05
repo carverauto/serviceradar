@@ -197,18 +197,6 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
     |> Map.values()
   end
 
-  # Rows are written in PK order `(cidr, provider, snapshot_id)` so each snapshot
-  # inserts into packed leaf pages instead of appending a fresh key range.
-  @doc false
-  @spec sort_provider_rows([map()]) :: [map()]
-  def sort_provider_rows(rows) when is_list(rows) do
-    Enum.sort_by(rows, fn row -> {cidr_sort_key(row.cidr), row.provider} end)
-  end
-
-  defp cidr_sort_key(%Postgrex.INET{address: address, netmask: netmask}) do
-    {tuple_size(address), address, netmask}
-  end
-
   defp promote_snapshot(source_url, payload, rows, etag) do
     snapshot_id = Ecto.UUID.dump!(Ecto.UUID.generate())
     source_sha256 = sha256(payload)
@@ -377,7 +365,6 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
 
   defp insert_provider_rows(rows) when is_list(rows) do
     rows
-    |> sort_provider_rows()
     |> Enum.chunk_every(@insert_chunk_size)
     |> Enum.reduce(0, fn chunk, acc ->
       {count, _} =

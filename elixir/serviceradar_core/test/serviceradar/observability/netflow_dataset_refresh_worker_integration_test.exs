@@ -99,7 +99,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
     assert results == ["cloudflare", "aws", nil]
   end
 
-  test "promoted provider CIDRs use the cidr-leading primary key and keep the gist cidr index" do
+  test "rebuilt provider CIDR indexes keep the primary key and gist cidr index intact" do
     payload =
       Jason.encode!(
         for i <- 0..31 do
@@ -135,7 +135,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
         []
       )
 
-    assert pkey_def =~ "(cidr, provider, snapshot_id)"
+    assert pkey_def =~ "(snapshot_id, cidr, provider)"
 
     %{rows: [[amname]]} =
       Repo.query!(

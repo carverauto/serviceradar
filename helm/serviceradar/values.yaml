@@ -400,9 +400,8 @@ core:
     sweepExecutionDays: 30
     trivyDays: 30
     endpointInventoryDays: 30
-    # Provider CIDR snapshots are ~410k compact rows. Keep the active copy plus
-    # one inactive rollback; drop the rest instead of accumulating two weeks.
-    # PK is (cidr, provider, snapshot_id) so rotation can reuse btree pages.
+    # Provider CIDR snapshots are ~410k rows. Keep the active copy plus one
+    # inactive rollback; drop the rest instead of accumulating two weeks.
     datasetSnapshotDays: 2
     datasetSnapshotKeepLast: 1
     topologyLinkDays: 30
