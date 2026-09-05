@@ -105,11 +105,17 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
   # coverage table (inside this test's rolled-back sandbox transaction) to
   # force the watermark query to fail, and assert the host-result delete is
   # skipped rather than falling back to retention alone.
+  #
+  # CASCADE is load-bearing: `platform.device_sweep_overlap` is a view over
+  # this table, so a bare DROP TABLE now raises 2BP01 rather than reaching the
+  # behavior under test. Dropping the dependents is also the truthful
+  # simulation -- the scenario is "the coverage table is not there", and a real
+  # deploy that removed it would have taken the view with it.
   test "a watermark query failure skips the host-result delete instead of deleting" do
     day = Date.add(Date.utc_today(), -10)
     insert_result_on(day, "10.0.1.20")
 
-    Repo.query!("DROP TABLE platform.sweep_coverage_daily")
+    Repo.query!("DROP TABLE platform.sweep_coverage_daily CASCADE")
 
     assert :ok = SweepDataCleanupWorker.perform(%Oban.Job{args: %{}})
 
