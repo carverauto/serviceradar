@@ -204,7 +204,13 @@ func ForwardCapture(
 		return fmt.Errorf("send capture start: %w", err)
 	}
 
-	credit := newCaptureCredit(start.GetInitialCreditBytes())
+	// Credit comes from the gateway's acks and from nowhere else. Seeding it
+	// from `start.initial_credit_bytes` would let the agent grant itself up to
+	// 4 GiB on a message it composed, before the gateway had accepted the
+	// session at all -- which is the one thing a credit scheme exists to stop.
+	// The field is the gateway's echo of what it is willing to receive; the
+	// gateway sends 0 on the way in and grants for real in its first ack.
+	credit := newCaptureCredit(0)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -250,6 +256,14 @@ func ForwardCapture(
 	if reason, cancelled := readCancelReason(cancelReason); cancelled && state.unmapped == "" {
 		state.reason = proto.CaptureSessionState_CAPTURE_SESSION_STATE_CLIENT_CANCEL
 		state.unmapped = reason
+
+		// A cancel cancels the pump context, so a send loop parked on credit
+		// unwinds with context.Canceled. That is the cancel working, not a
+		// transport failure, and reporting it as an error would make every
+		// operator stop look like a fault in the logs.
+		if errors.Is(sendErr, context.Canceled) {
+			sendErr = nil
+		}
 	}
 
 	if err := transport.Send(&proto.RemotePacketCaptureClientMessage{

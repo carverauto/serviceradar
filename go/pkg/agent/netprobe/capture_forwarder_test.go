@@ -160,6 +160,7 @@ func TestForwardSendsStartThenBlocksThenExactlyOneTerminalState(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	transport.grant(1 << 20)
 
 	err := ForwardCapture(ctx, stream, transport, startSession(1<<20), headerBlock(),
 		ForwardOptions{AccountingInterval: time.Hour})
@@ -196,6 +197,7 @@ func TestTheHeaderIsBlockOneAndSequencesAreMonotonic(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	transport.grant(1 << 20)
 
 	require.NoError(t, ForwardCapture(ctx, stream, transport, startSession(1<<20), headerBlock(),
 		ForwardOptions{AccountingInterval: time.Hour}))
@@ -217,15 +219,19 @@ func TestTheAgentNeverSendsMoreBytesThanItsCredit(t *testing.T) {
 	// not to buffer, which converts a reported drop count into an unreported one.
 	probe, stream, transport := forwardHarness(t)
 
-	// Header is 7 bytes; grant exactly that and nothing more.
+	// Header is 7 bytes. The agent's own start message claims the largest credit
+	// the field can hold; the gateway grants the header and nothing more. A
+	// self-asserted number must buy nothing.
 	const headerBytes = 7
+
+	transport.grant(headerBytes)
 
 	probe.sendBlock(&netprobepb.PcapngBlock{SessionId: testSessionID, Bytes: []byte("0123456789")})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	err := ForwardCapture(ctx, stream, transport, startSession(headerBytes), headerBlock(),
+	err := ForwardCapture(ctx, stream, transport, startSession(^uint32(0)), headerBlock(),
 		ForwardOptions{AccountingInterval: time.Hour, CreditTimeout: 400 * time.Millisecond})
 	require.Error(t, err, "with no further credit the session must end rather than send anyway")
 	require.ErrorIs(t, err, ErrCaptureCredit)
@@ -254,6 +260,8 @@ func TestGrantingCreditReleasesABlockedSend(t *testing.T) {
 	defer cancel()
 
 	done := make(chan error, 1)
+
+	transport.grant(7)
 
 	go func() {
 		done <- ForwardCapture(ctx, stream, transport, startSession(7), headerBlock(),
@@ -344,6 +352,7 @@ func TestAccountingIsEmittedWhileTheSessionRuns(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	transport.grant(1 << 20)
 
 	require.NoError(t, ForwardCapture(ctx, stream, transport, startSession(1<<20), headerBlock(),
 		ForwardOptions{AccountingInterval: time.Second, Now: tick}))
@@ -379,6 +388,7 @@ func TestADroppedPacketCountNeverReportsComplete(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	transport.grant(1 << 20)
 
 	require.NoError(t, ForwardCapture(ctx, stream, transport, startSession(1<<20), headerBlock(),
 		ForwardOptions{AccountingInterval: time.Hour}))
@@ -406,7 +416,7 @@ func TestATransportFailureStillEndsTheSession(t *testing.T) {
 			ForwardOptions{AccountingInterval: time.Hour})
 	}()
 
-	// Zero initial credit means the header itself is waiting. Kill the stream.
+	// With no grant from the gateway the header itself is waiting. Kill the stream.
 	time.Sleep(100 * time.Millisecond)
 	close(transport.incoming)
 
