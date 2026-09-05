@@ -38,7 +38,7 @@ defmodule ServiceRadar.Plugins.DisplayContractTest do
       manifest: "go/cmd/wasm-plugins/proxmox/plugin.yaml",
       contract: "go/cmd/wasm-plugins/proxmox/display/resource_event.display.json",
       producer_id: "proxmox-inventory",
-      producer_version: "0.1.7"
+      producer_version: "0.1.8"
     },
     %{
       manifest: "go/cmd/wasm-plugins/unifi-protect/plugin.yaml",

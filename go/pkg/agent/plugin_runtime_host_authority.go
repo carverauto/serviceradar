@@ -101,6 +101,7 @@ type pluginHostAuthorityEnvelopeBinding struct {
 	AssignmentPolicyFingerprint string                `json:"assignment_policy_fingerprint"`
 	SSHHostKeyPolicy            string                `json:"ssh_host_key_policy,omitempty"`
 	CABundlePEM                 string                `json:"ca_bundle_pem,omitempty"`
+	ServerCertFingerprint       string                `json:"server_cert_fingerprint,omitempty"`
 	CredentialBroker            credentialBrokerGrant `json:"credential_broker"`
 	TargetIDs                   map[string]string     `json:"target_ids,omitempty"`
 }
@@ -115,6 +116,7 @@ type pluginHostAuthorityBinding struct {
 	assignmentPolicyFingerprint string
 	sshHostKeyPolicy            string
 	caBundlePEM                 string
+	serverCertFingerprint       string
 	credentialBroker            credentialBrokerGrant
 	targetIDs                   map[string]string
 }
@@ -129,6 +131,7 @@ type pluginHostAuthorityStableBinding struct {
 	AssignmentPolicyFingerprint string                `json:"assignment_policy_fingerprint"`
 	SSHHostKeyPolicy            string                `json:"ssh_host_key_policy,omitempty"`
 	CABundlePEM                 string                `json:"ca_bundle_pem,omitempty"`
+	ServerCertFingerprint       string                `json:"server_cert_fingerprint,omitempty"`
 	CredentialBroker            credentialBrokerGrant `json:"credential_broker"`
 	TargetIDs                   map[string]string     `json:"target_ids,omitempty"`
 }
@@ -275,7 +278,9 @@ func validatePluginHostAuthorityBinding(
 	if !validProxmoxSSHHostBindingPolicy(pluginID, wire.SSHHostKeyPolicy, grant) {
 		return pluginHostAuthorityBinding{}, errPluginHostAuthorityMalformed
 	}
-	if !validPluginHostAuthorityCABundle(wire.CABundlePEM) {
+	if !validPluginHostAuthorityCABundle(wire.CABundlePEM) ||
+		!validPluginHostAuthorityFingerprint(wire.ServerCertFingerprint) ||
+		(wire.CABundlePEM != "" && wire.ServerCertFingerprint != "") {
 		return pluginHostAuthorityBinding{}, errPluginHostAuthorityMalformed
 	}
 
@@ -289,6 +294,7 @@ func validatePluginHostAuthorityBinding(
 		assignmentPolicyFingerprint: wire.AssignmentPolicyFingerprint,
 		sshHostKeyPolicy:            wire.SSHHostKeyPolicy,
 		caBundlePEM:                 wire.CABundlePEM,
+		serverCertFingerprint:       wire.ServerCertFingerprint,
 		credentialBroker:            grant,
 		targetIDs:                   targetIDs,
 	}, nil
@@ -695,6 +701,7 @@ func fingerprintPluginHostAuthority(bindings []pluginHostAuthorityBinding) strin
 			AssignmentPolicyFingerprint: binding.assignmentPolicyFingerprint,
 			SSHHostKeyPolicy:            binding.sshHostKeyPolicy,
 			CABundlePEM:                 binding.caBundlePEM,
+			ServerCertFingerprint:       binding.serverCertFingerprint,
 			CredentialBroker:            grant,
 			TargetIDs:                   cloneHostAuthorityStringMap(binding.targetIDs),
 		})
@@ -2196,6 +2203,25 @@ func validPluginHostAuthorityCABundle(bundle string) bool {
 	}
 
 	return pluginHostAuthorityCertPool(bundle) != nil
+}
+
+func validPluginHostAuthorityFingerprint(fingerprint string) bool {
+	if fingerprint == "" {
+		return true
+	}
+
+	const prefix = "sha256:"
+	if !strings.HasPrefix(fingerprint, prefix) {
+		return false
+	}
+
+	digest := fingerprint[len(prefix):]
+	if len(digest) != 64 || digest != strings.ToLower(digest) {
+		return false
+	}
+
+	_, err := hex.DecodeString(digest)
+	return err == nil
 }
 
 // pluginHostAuthorityCertPool builds a pool containing only the binding's own

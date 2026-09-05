@@ -31,6 +31,17 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
     {:ok, actor: actor}
   end
 
+  test "seed_defaults/0 warns when no VulnCheck credential_ref is attached" do
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert :ok = FeedDefinitionSeeder.seed_defaults()
+      end)
+
+    assert log =~ "advisory_feeds:"
+    assert log =~ "/settings/networks/credentials"
+    assert log =~ "vulncheck-kev"
+  end
+
   test "seed_defaults/0 creates one feed definition per FeedWorker feed", %{actor: actor} do
     assert :ok = FeedDefinitionSeeder.seed_defaults()
 

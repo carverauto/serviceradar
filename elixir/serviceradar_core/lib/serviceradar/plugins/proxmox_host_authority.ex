@@ -49,6 +49,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
                  insecure_skip_verify
                  ssh_host_key_policy
                  ca_bundle_pem
+                 server_cert_fingerprint
                ))
 
   @target_id_keys ~w(
@@ -294,6 +295,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
         }
         |> maybe_put("ssh_host_key_policy", ssh_host_key_policy)
         |> maybe_put("ca_bundle_pem", ca_bundle_pem(params))
+        |> maybe_put("server_cert_fingerprint", server_cert_fingerprint(params))
       else
         _ -> nil
       end
@@ -628,6 +630,13 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
     first_string([
       value(map_value(params, "template"), "ca_bundle_pem"),
       value(params, "ca_bundle_pem")
+    ])
+  end
+
+  defp server_cert_fingerprint(params) do
+    first_string([
+      value(map_value(params, "template"), "server_cert_fingerprint"),
+      value(params, "server_cert_fingerprint")
     ])
   end
 

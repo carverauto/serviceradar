@@ -20,6 +20,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder do
   use ServiceRadar.DelayedSeeder, callback: :seed_defaults
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.AdvisoryFeeds.Config
   alias ServiceRadar.Inventory.AdvisoryFeeds.FeedRegistry
   alias ServiceRadar.Inventory.VulnerabilityFeedDefinition
 
@@ -31,9 +32,20 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder do
     if repo_enabled?() do
       actor = SystemActor.system(:advisory_feed_definition_seeder)
       Enum.each(FeedRegistry.all(), &ensure_definition(&1, actor))
+      warn_missing_vulncheck_credential()
     end
 
     :ok
+  end
+
+  defp warn_missing_vulncheck_credential do
+    case Config.vulncheck_token() do
+      {:error, {:missing_vulncheck_credential, message}} ->
+        Logger.warning("advisory_feeds: #{message}")
+
+      _ ->
+        :ok
+    end
   end
 
   defp ensure_definition(entry, actor) do

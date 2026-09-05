@@ -124,6 +124,8 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
       @proxmox_contract_path |> File.read!() |> Jason.decode!(),
     {"proxmox-inventory", "0.1.7", "com.carverauto.proxmox.resource_event", "1.0.0"} =>
       @proxmox_contract_path |> File.read!() |> Jason.decode!(),
+    {"proxmox-inventory", "0.1.8", "com.carverauto.proxmox.resource_event", "1.0.0"} =>
+      @proxmox_contract_path |> File.read!() |> Jason.decode!(),
     {"trivy", "0.69.1", "com.carverauto.trivy.vulnerability_report", "1.0.0"} =>
       @trivy_contract_path |> File.read!() |> Jason.decode!(),
     {"falco", "1.0.0", "com.carverauto.falco.runtime_event", "1.0.0"} =>
