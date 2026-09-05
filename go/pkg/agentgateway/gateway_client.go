@@ -87,16 +87,47 @@ const (
 
 // GatewayClient manages the connection to the agent-gateway and pushes status updates.
 type GatewayClient struct {
-	mu               sync.RWMutex
-	conn             *grpc.ClientConn
-	client           proto.AgentGatewayServiceClient
-	addr             string
-	security         *models.SecurityConfig
-	securityProvider srgrpc.SecurityProvider
-	connected        bool
-	reconnectDelay   time.Duration
-	gatewayID        string
-	logger           logger.Logger
+	mu                         sync.RWMutex
+	conn                       *grpc.ClientConn
+	client                     proto.AgentGatewayServiceClient
+	addr                       string
+	security                   *models.SecurityConfig
+	securityProvider           srgrpc.SecurityProvider
+	connected                  bool
+	reconnectDelay             time.Duration
+	gatewayID                  string
+	logger                     logger.Logger
+	remoteCaptureClientFactory func(grpc.ClientConnInterface) proto.RemotePacketCaptureServiceClient
+}
+
+// StreamRemoteCapture opens the remote-capture HTTP/2 stream on the existing
+// managed gateway connection. It must not dial: capture traffic shares the
+// agent's already-authenticated mTLS channel with every other gateway RPC.
+func (g *GatewayClient) StreamRemoteCapture(
+	ctx context.Context,
+) (grpc.BidiStreamingClient[proto.RemotePacketCaptureClientMessage, proto.RemotePacketCaptureServerMessage], error) {
+	g.mu.RLock()
+	conn := g.conn
+	connected := g.connected
+	factory := g.remoteCaptureClientFactory
+	g.mu.RUnlock()
+
+	if !connected || conn == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	if factory == nil {
+		factory = proto.NewRemotePacketCaptureServiceClient
+	}
+
+	stream, err := factory(conn).StreamCapture(ctx)
+	if err != nil {
+		g.logger.Error().Err(err).Msg("Failed to create remote capture stream")
+		g.markDisconnected()
+		return nil, fmt.Errorf("failed to create remote capture stream: %w", err)
+	}
+
+	return stream, nil
 }
 
 // NewGatewayClient creates a new gateway client.

@@ -210,6 +210,18 @@ func (s *Sidecar) RunningAsRoot() bool {
 	return s.runningAsRoot.Load()
 }
 
+// ActiveCaptureCount reports live captures on the currently attached netprobe
+// connection. A disconnect reports zero because failAllCaptureSessions closes and
+// removes every session before the client is detached.
+func (s *Sidecar) ActiveCaptureCount() int {
+	client := s.currentClient()
+	if client == nil {
+		return 0
+	}
+
+	return client.ActiveCaptureCount()
+}
+
 func (s *Sidecar) CorpusRevisions() CorpusRevisions {
 	value := s.revisions.Load()
 	if value == nil {

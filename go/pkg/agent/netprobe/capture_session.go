@@ -234,6 +234,17 @@ func (c *Client) addCaptureSession(sessionID string, sink *captureSink) error {
 	return nil
 }
 
+// ActiveCaptureCount returns the number of capture sessions currently registered
+// with this IPC client. It deliberately exposes only a count: session identifiers,
+// filters, and actors belong in the authorized audit surface, not the broadly
+// reported agent status payload.
+func (c *Client) ActiveCaptureCount() int {
+	c.captureMu.Lock()
+	defer c.captureMu.Unlock()
+
+	return len(c.captureSessions)
+}
+
 func (c *Client) removeCaptureSession(sessionID string) {
 	c.captureMu.Lock()
 	sink := c.captureSessions[sessionID]

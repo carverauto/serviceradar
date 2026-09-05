@@ -25,6 +25,7 @@ go_test(
     name = "agentgateway_test",
     srcs = [
         "gateway_client_camera_media_integration_test.go",
+        "gateway_client_remote_capture_test.go",
         "gateway_client_test.go",
     ],
     embed = [":agentgateway"],
@@ -32,6 +33,7 @@ go_test(
         "//go/pkg/logger",
         "//go/pkg/models",
         "//proto",
+        "@com_github_stretchr_testify//require",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//status",

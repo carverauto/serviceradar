@@ -88,9 +88,9 @@ message StartRemoteCaptureSession {
   // report it without a round trip to core.
   string interface = 5;
 
-  // How much the gateway is willing to receive before its first `CaptureAck`.
-  // Zero means the agent MUST wait for an ack before sending any block, which
-  // is the safe default for an unknown peer.
+  // Reserved for wire compatibility. The gateway is the only authority that
+  // can grant send credit, so agents MUST ignore this field and wait for the
+  // first CaptureAck before sending any block.
   uint32 initial_credit_bytes = 6;
 }
 
