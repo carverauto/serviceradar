@@ -1,7 +1,8 @@
 use super::{
     addon_fleet, addon_statuses, advisory_coordinates, agents, alerts, bmp_events,
     build_query_plan, capacity_forecasts, composite_results, cpu_metrics, dashboard_service_views,
-    dashboards, device_graph, devices, disk_metrics, downsample, endpoint_inventory_scans,
+    dashboards, device_graph, device_sweep_overlap, devices, disk_metrics, downsample,
+    endpoint_inventory_scans,
     endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
     field_survey, flows, gateways, graph_cypher, identity, interfaces, is_full_profile_query, logs,
     memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
@@ -118,6 +119,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::SweepExecutions => sweep_executions::to_sql_and_params(&plan)?,
             Entity::SweepResults => sweep_results::to_sql_and_params(&plan)?,
             Entity::SweepCoverage => sweep_coverage::to_sql_and_params(&plan)?,
+            Entity::DeviceSweepOverlap => device_sweep_overlap::to_sql_and_params(&plan)?,
             Entity::VulnerabilityAdvisories => vulnerability_advisories::to_sql_and_params(&plan)?,
             Entity::AdvisoryCoordinates => advisory_coordinates::to_sql_and_params(&plan)?,
             Entity::EndpointVulnerabilityAssessments => {

@@ -179,6 +179,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         }
         "sweep_results" | "sweep_result" | "sweep_host_results" => Ok(Entity::SweepResults),
         "sweep_coverage" | "sweep_coverage_daily" => Ok(Entity::SweepCoverage),
+        "device_sweep_overlap" | "sweep_overlap" => Ok(Entity::DeviceSweepOverlap),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),

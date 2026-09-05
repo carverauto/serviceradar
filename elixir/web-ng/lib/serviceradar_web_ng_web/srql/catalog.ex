@@ -480,6 +480,36 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       filter_fields: ["device_uid", "ip", "agent_id", "sweep_group_id"],
       downsample: false
     },
+    # Declared-vs-observed diagnostic view (issue 4167, task 4): finds a sweep
+    # group that was told to target a device but produced no coverage rows
+    # for it (`relationship = "declared_not_observed"`).
+    %{
+      id: "device_sweep_overlap",
+      label: "Sweep Declared vs Observed",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "last_seen_at",
+      default_sort_dir: "desc",
+      default_filter_field: "device_uid",
+      filter_fields: [
+        "device_uid",
+        "ip",
+        "sweep_group_id",
+        "agent_id",
+        "relationship",
+        "declared",
+        "observed"
+      ],
+      boolean_fields: ["declared", "observed"],
+      known_values: %{
+        "relationship" => [
+          "declared_and_observed",
+          "declared_not_observed",
+          "observed_not_declared"
+        ]
+      },
+      downsample: false
+    },
     %{
       id: "events",
       label: "Events",

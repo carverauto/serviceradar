@@ -1,7 +1,8 @@
 use super::{
     addon_fleet, addon_statuses, advisory_coordinates, agents, alerts, bmp_events,
     build_query_plan, capacity_forecasts, composite_results, cpu_metrics, dashboard_service_views,
-    dashboards, device_graph, devices, disk_metrics, downsample, endpoint_inventory_scans,
+    dashboards, device_graph, device_sweep_overlap, devices, disk_metrics, downsample,
+    endpoint_inventory_scans,
     endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
     field_survey, flows, gateways, graph_cypher, identity, interfaces, is_full_profile_query, logs,
     memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
@@ -162,6 +163,9 @@ impl QueryEngine {
                 Entity::SweepExecutions => sweep_executions::execute(&mut conn, &plan).await?,
                 Entity::SweepResults => sweep_results::execute(&mut conn, &plan).await?,
                 Entity::SweepCoverage => sweep_coverage::execute(&mut conn, &plan).await?,
+                Entity::DeviceSweepOverlap => {
+                    device_sweep_overlap::execute(&mut conn, &plan).await?
+                }
                 Entity::VulnerabilityAdvisories => {
                     vulnerability_advisories::execute(&mut conn, &plan).await?
                 }

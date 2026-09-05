@@ -84,6 +84,7 @@ pub enum Entity {
     SweepExecutions,
     SweepResults,
     SweepCoverage,
+    DeviceSweepOverlap,
 }
 
 #[derive(Debug, Clone, Serialize)]
