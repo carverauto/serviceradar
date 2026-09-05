@@ -108,9 +108,10 @@ agent release page. The base agent release catalog only rolls the `serviceradar-
 runtime. Add-on packages have their own package state, approval, version, artifact
 digest, and target assignment lifecycle.
 
-When first-party native add-on sync is enabled, ServiceRadar converges the newest
-signed release index into the package catalog. Verified first-party packages covered
-by deployment trust policy are approved automatically. Helm is not an add-on catalog
+When first-party native add-on sync is enabled, ServiceRadar imports signed release
+indexes using the shared [background catalog sync policy](./wasm-plugins.md#sync).
+Verified first-party packages covered by deployment trust policy are approved
+automatically. Helm is not an add-on catalog
 allowlist, and importing or approving a package does not immediately change any
 agent. Existing managed assignments and profiles track the newest approved compatible
 package through a health-gated rollout. Explicit pins and non-first-party packages

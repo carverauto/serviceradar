@@ -152,9 +152,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   Prefers the exact deployed release tag when GitHub has that release.
   When that tag 404s -- unpublished VERSION, a sha-style demo rollout, or a
   private repository the process cannot see -- falls back to the recent-release
-  feed instead of failing the Oban job. The success triple reports which feed
-  served the entries so callers do not re-filter a fallback feed by the tag
-  that 404d.
+  feed. Errors from that feed are returned to the caller. The success triple
+  reports which feed served the entries so callers do not re-filter a fallback
+  feed by the tag that 404d.
   """
   @spec resolve_catalog(String.t() | nil, (String.t() -> {:ok, term()} | {:error, term()}), (-> {:ok, term()}
                                                                                                 | {:error, term()})) ::

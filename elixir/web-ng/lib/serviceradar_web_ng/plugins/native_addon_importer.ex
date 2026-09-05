@@ -115,13 +115,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   @doc """
   Discovers native add-ons for unattended sync.
 
-  Anchors to `release_tag` when GitHub has that release; otherwise falls back
-  to the recent-release feed so an unpublished deployed VERSION does not fail
-  the Oban job. The returned filter tag is the requested tag on an exact hit
-  and `nil` on a fallback feed, so callers never re-filter fallback entries by
-  the tag that 404d. The settings UI "all releases" sentinel keeps its
-  exact-only lookup, preserving the historical 404 instead of silently
-  importing another feed.
+  Uses `ServiceRadarWebNG.Plugins.FirstPartyReleaseClient.resolve_catalog/3`
+  for feed selection. The returned filter tag is the requested tag on an exact
+  hit and `nil` for recent releases, so callers do not re-filter fallback entries
+  by the missing tag. The settings UI sentinel keeps an exact-only lookup; see
+  `ServiceRadarWebNG.Plugins.FirstPartyReleaseClient.admin_all_releases_sentinel/0`.
   """
   @spec list_addons_for_sync(map(), keyword()) ::
           {:ok, [map()], String.t() | nil} | {:error, term()}
