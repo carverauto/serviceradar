@@ -112,6 +112,13 @@ guarded runtime evidence.
       Evidence: both `./scripts/elixir_quality.sh --lint-only` invocations passed at the final
       worktree state (`--project elixir/web-ng --phoenix`: 1,306 files; `--project
       elixir/serviceradar_core`: 2,380 files), with no Credo issues and clean format checks.
+      A supplemental changed-path analyzer audit found no Dialyzer warning in a changed web-ng
+      file. Core's repository-wide run retained its existing warning baseline and emitted seven
+      changed-path warnings, all Dialyzer opaque-type false positives for ordinary `MapSet`
+      equality in three authority modules; Dialyxir cannot render those OTP 28 warnings in strict
+      ignore-file format. Sobelow likewise reported only three findings outside the PR delta.
+      Per the repository analyzer policy, the false positives are recorded rather than replacing
+      idiomatic calls with runtime shape or opacity barriers.
 - [x] 6.4 Validate `improve-rbac-policy-editor`, `add-dashboard-creator`, and
       `add-dashboard-package-access-control` with `openspec validate --strict`.
 - [x] 6.5 Update operator-facing documentation and CHANGELOG only where the implemented UI or
