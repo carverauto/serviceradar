@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.CredentialCoverage
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
+  alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Repositories
   alias ServiceRadarWebNG.Plugins.Storage
@@ -37,7 +38,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   # third-party repositories are documented to use) has no single release
   # holding its whole catalog, so selecting one tag would show one plugin and
   # hide the rest.
-  @all_releases_tag "__all_releases__"
+  @all_releases_tag FirstPartyReleaseClient.admin_all_releases_sentinel()
   @plugin_assignment_manage_permission "settings.plugins.manage"
   @credential_manage_permission "settings.credentials.manage"
   # Deliberately not implied by plugins.stage: staging imports from a source the

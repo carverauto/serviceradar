@@ -229,6 +229,54 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert [%AddonPackage{source_release_tag: "v1.0.0"}] = sample_packages()
   end
 
+  test "sync worker falls back to recent releases when the deployed tag is unpublished", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    configure_sync_worker()
+    Process.put(:native_addon_recent_release_requests, 0)
+    original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
+    System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.4.51")
+
+    on_exit(fn -> restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version) end)
+
+    assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true}})
+    assert Process.get(:native_addon_recent_release_requests) >= 1
+    assert [%AddonPackage{source_release_tag: "v1.0.0"}] = sample_packages()
+  end
+
+  test "sync worker does not fail the job when GitHub has no native add-on catalog", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    configure_sync_worker()
+    Process.put(:native_addon_recent_releases_result, {:ok, %Req.Response{status: 404, body: ""}})
+    original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
+    System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.4.51")
+
+    on_exit(fn -> restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version) end)
+
+    assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true}})
+    assert [] = sample_packages()
+  end
+
+  test "sync worker does not fail the job when the deployed release publishes no add-on index", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+    configure_sync_worker()
+    Process.put(:native_addon_release, Map.put(release(), "assets", []))
+    Process.put(:native_addon_recent_release_requests, 0)
+    original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
+    System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.0.0")
+
+    on_exit(fn -> restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version) end)
+
+    assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true}})
+    assert Process.get(:native_addon_recent_release_requests) == 0
+    assert [] = sample_packages()
+  end
+
   test "sync worker imports every discovered native add-on and only auto-approves configured ids", %{
     private_key: private_key
   } do

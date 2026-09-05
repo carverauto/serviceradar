@@ -274,14 +274,13 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> maybe_put(:github_token, Keyword.get(opts, :github_token))
       |> maybe_put(:trusted_upload_signing_keys, Keyword.get(opts, :trusted_upload_signing_keys))
 
-    discovery_attrs = source_attrs
-
-    with {:ok, plugins} <- discover_first_party_plugins(discovery_attrs, limit, release_tag) do
+    with {:ok, plugins, filter_tag} <-
+           discover_first_party_plugins(source_attrs, limit, release_tag, opts) do
       existing = existing_import_keys(opts)
 
       candidates =
         plugins
-        |> maybe_filter_release_tag(release_tag)
+        |> maybe_filter_release_tag(filter_tag)
         |> Enum.filter(&Map.get(&1, :import_ready?))
         |> dedupe_first_party_plugin_versions()
 
@@ -333,13 +332,21 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     end
   end
 
-  defp discover_first_party_plugins(discovery_attrs, _limit, release_tag)
-       when is_binary(release_tag) and release_tag != "" do
-    FirstPartyImporter.list_release_plugins(discovery_attrs, release_tag)
-  end
+  defp discover_first_party_plugins(attrs, limit, release_tag, opts) do
+    if Keyword.get(opts, :allow_release_fallback, false) do
+      FirstPartyImporter.list_plugins_for_sync(attrs, limit: limit, release_tag: release_tag)
+    else
+      result =
+        if is_binary(release_tag) and release_tag != "" do
+          FirstPartyImporter.list_release_plugins(attrs, release_tag)
+        else
+          FirstPartyImporter.list_recent_plugins(attrs, limit)
+        end
 
-  defp discover_first_party_plugins(discovery_attrs, limit, _release_tag) do
-    FirstPartyImporter.list_recent_plugins(discovery_attrs, limit)
+      with {:ok, plugins} <- result do
+        {:ok, plugins, release_tag}
+      end
+    end
   end
 
   # (plugin_id, version, release_tag) keys of already-imported packages, read

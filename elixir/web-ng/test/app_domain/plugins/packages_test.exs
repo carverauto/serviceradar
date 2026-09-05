@@ -73,17 +73,21 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
             Process.get(:first_party_recent_release_requests, 0) + 1
           )
 
-          releases =
-            if Process.get(:first_party_duplicate_releases) do
-              [
-                PackagesTest.first_party_release("v1.0.2"),
-                PackagesTest.first_party_release("v1.0.1")
-              ]
-            else
-              [PackagesTest.first_party_release()]
-            end
+          if Process.get(:first_party_recent_releases_missing) do
+            {:ok, %Req.Response{status: 404, body: ""}}
+          else
+            releases =
+              if Process.get(:first_party_duplicate_releases) do
+                [
+                  PackagesTest.first_party_release("v1.0.2"),
+                  PackagesTest.first_party_release("v1.0.1")
+                ]
+              else
+                [PackagesTest.first_party_release()]
+              end
 
-          {:ok, %Req.Response{status: 200, body: releases}}
+            {:ok, %Req.Response{status: 200, body: releases}}
+          end
 
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.0.1") ->
           {:ok, %Req.Response{status: 200, body: PackagesTest.first_party_release("v1.0.1")}}
@@ -162,6 +166,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     Process.put(:first_party_package_bundle, nil)
     Process.put(:first_party_package_signature, nil)
     Process.put(:first_party_duplicate_releases, false)
+    Process.put(:first_party_recent_releases_missing, false)
     Process.put(:first_party_recent_release_requests, 0)
 
     on_exit(fn ->
@@ -391,6 +396,19 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     assert package.content_hash == Storage.sha256(first_party_wasm("v1.0.2"))
   end
 
+  test "admin sync imports nothing when the selected release is missing" do
+    assert {:error, reason} =
+             Packages.sync_first_party_plugins(
+               actor: system_actor(),
+               repo_url: @repo_url,
+               release_tag: "v9.8.7"
+             )
+
+    assert reason =~ "Release tag v9.8.7 was not found"
+    assert Process.get(:first_party_recent_release_requests) == 0
+    assert [] = Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+  end
+
   test "periodic first-party sync anchors discovery to the deployed release" do
     original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
     System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.0.1")
@@ -408,6 +426,41 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
              Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
 
     assert package.source_release_tag == "v1.0.1"
+  end
+
+  test "periodic first-party sync falls back to recent releases when the deployed tag is unpublished" do
+    original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
+    System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.4.51")
+
+    on_exit(fn -> restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version) end)
+
+    assert :ok =
+             FirstPartySyncWorker.perform(%Job{
+               args: %{"force" => true, "repo_url" => @repo_url, "limit" => 10}
+             })
+
+    assert Process.get(:first_party_recent_release_requests) >= 1
+
+    assert [%PluginPackage{} = package] =
+             Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+
+    assert package.source_release_tag == "v1.0.1"
+  end
+
+  test "periodic first-party sync does not fail the job when GitHub has no plugin catalog" do
+    original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
+    System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.4.51")
+    Process.put(:first_party_recent_releases_missing, true)
+
+    on_exit(fn -> restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version) end)
+
+    assert :ok =
+             FirstPartySyncWorker.perform(%Job{
+               args: %{"force" => true, "repo_url" => @repo_url, "limit" => 10}
+             })
+
+    assert Process.get(:first_party_recent_release_requests) >= 1
+    assert [] = Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
   end
 
   test "periodic first-party sync schedules a successor while the current job executes" do
