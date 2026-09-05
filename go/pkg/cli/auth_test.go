@@ -26,8 +26,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -161,6 +163,7 @@ func TestAuthFilterEmptyStaysEmpty(t *testing.T) {
 
 // deviceTestServer serves the RFC 8628 pair with scripted token-poll answers.
 type deviceTestServer struct {
+	mu            sync.Mutex
 	t             *testing.T
 	server        *httptest.Server
 	deviceSeen    atomic.Int32
@@ -197,6 +200,8 @@ func (s *deviceTestServer) handleDevice(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.clientIDSeen = req["client_id"]
 
 	payload := map[string]any{
@@ -238,13 +243,30 @@ func successTokenAnswer() tokenAnswer {
 	}}
 }
 
+type deviceTestClock struct {
+	current time.Time
+	waits   []time.Duration
+}
+
+func (c *deviceTestClock) now() time.Time { return c.current }
+
+func (c *deviceTestClock) sleep(d time.Duration) {
+	c.waits = append(c.waits, d)
+	c.current = c.current.Add(d)
+}
+
+func runTestDeviceCodeFlow(client *http.Client, instance, scope string, openBrowser bool, writer io.Writer) (authCredentialEntry, error) {
+	clock := &deviceTestClock{}
+	return runDeviceCodeFlowWithClock(client, instance, scope, openBrowser, writer, clock.now, clock.sleep)
+}
+
 func TestDeviceCodeFlowSuccess(t *testing.T) {
 	srv := newDeviceTestServer(t, []tokenAnswer{
 		{status: http.StatusBadRequest, body: map[string]string{"error": "authorization_pending"}},
 		successTokenAnswer(),
 	})
 
-	entry, err := runDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, false, io.Discard)
+	entry, err := runTestDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, false, io.Discard)
 	if err != nil {
 		t.Fatalf("device flow: %v", err)
 	}
@@ -261,8 +283,11 @@ func TestDeviceCodeFlowSuccess(t *testing.T) {
 		t.Fatalf("timestamps missing: %+v", entry)
 	}
 
-	if srv.clientIDSeen != authClientID {
-		t.Fatalf("client_id = %q, want %q", srv.clientIDSeen, authClientID)
+	srv.mu.Lock()
+	clientIDSeen := srv.clientIDSeen
+	srv.mu.Unlock()
+	if clientIDSeen != authClientID {
+		t.Fatalf("client_id = %q, want %q", clientIDSeen, authClientID)
 	}
 
 	if got := int(srv.tokenCalls.Load()); got != 2 {
@@ -276,13 +301,37 @@ func TestDeviceCodeFlowSlowDownBacksOff(t *testing.T) {
 		successTokenAnswer(),
 	})
 
-	entry, err := runDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, false, io.Discard)
+	clock := &deviceTestClock{}
+	entry, err := runDeviceCodeFlowWithClock(srv.server.Client(), srv.server.URL, authDefaultScope, false, io.Discard, clock.now, clock.sleep)
 	if err != nil {
 		t.Fatalf("device flow with slow_down: %v", err)
 	}
 
+	if len(clock.waits) != 2 || clock.waits[0] != time.Second || clock.waits[1] != 6*time.Second {
+		t.Fatalf("poll waits = %v, want [1s 6s]", clock.waits)
+	}
+
 	if entry.Token != "test-jwt-token" {
 		t.Fatalf("token = %q", entry.Token)
+	}
+}
+
+func TestDeviceCodeFlowTimesOut(t *testing.T) {
+	srv := newDeviceTestServer(t, nil)
+	srv.mu.Lock()
+	srv.devicePayload = map[string]any{"expires_in": 2}
+	srv.mu.Unlock()
+
+	clock := &deviceTestClock{}
+	_, err := runDeviceCodeFlowWithClock(srv.server.Client(), srv.server.URL, authDefaultScope, false, io.Discard, clock.now, clock.sleep)
+	if !errors.Is(err, errAuthExpired) {
+		t.Fatalf("err = %v, want %v", err, errAuthExpired)
+	}
+	if got := srv.tokenCalls.Load(); got != 2 {
+		t.Fatalf("token polls = %d, want 2", got)
+	}
+	if elapsed := clock.current.Sub(time.Time{}); elapsed != 2*time.Second {
+		t.Fatalf("elapsed = %s, want 2s", elapsed)
 	}
 }
 
@@ -303,7 +352,7 @@ func TestDeviceCodeFlowTerminalStates(t *testing.T) {
 				{status: http.StatusBadRequest, body: map[string]string{"error": tc.code}},
 			})
 
-			_, err := runDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, false, io.Discard)
+			_, err := runTestDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, false, io.Discard)
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -321,7 +370,7 @@ func TestDeviceCodeFlowDeviceNotFound(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := runDeviceCodeFlow(srv.Client(), srv.URL, authDefaultScope, false, io.Discard)
+	_, err := runTestDeviceCodeFlow(srv.Client(), srv.URL, authDefaultScope, false, io.Discard)
 	if !errors.Is(err, errAuthFlowFailed) {
 		t.Fatalf("err = %v, want %v", err, errAuthFlowFailed)
 	}
@@ -329,13 +378,15 @@ func TestDeviceCodeFlowDeviceNotFound(t *testing.T) {
 
 func TestDeviceCodeFlowRejectsNonHTTPVerificationURI(t *testing.T) {
 	srv := newDeviceTestServer(t, []tokenAnswer{successTokenAnswer()})
+	srv.mu.Lock()
 	srv.devicePayload = map[string]any{
 		"verification_uri":          "file:///etc/passwd",
 		"verification_uri_complete": "file:///etc/passwd",
 	}
+	srv.mu.Unlock()
 
 	var out bytes.Buffer
-	_, err := runDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, true, &out)
+	_, err := runTestDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, true, &out)
 	if !errors.Is(err, errAuthFlowFailed) {
 		t.Fatalf("err = %v, want %v", err, errAuthFlowFailed)
 	}
@@ -349,7 +400,7 @@ func TestDeviceCodeFlowPrintsVerificationURL(t *testing.T) {
 	srv := newDeviceTestServer(t, []tokenAnswer{successTokenAnswer()})
 
 	var out bytes.Buffer
-	_, err := runDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, false, &out)
+	_, err := runTestDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, false, &out)
 	if err != nil {
 		t.Fatalf("device flow: %v", err)
 	}

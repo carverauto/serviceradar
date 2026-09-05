@@ -47,15 +47,17 @@ RUN mkdir -p /build-out && \
         echo "Building from ${BINARY_PATH}" && \
         cd ${BINARY_PATH} && ls -la && \
         cd /src && \
-        GOOS=linux GOARCH=amd64 go build -v -o "/build-out/serviceradar-${COMPONENT}" "./${BINARY_PATH}"; \
+        binary_name="serviceradar-${COMPONENT}" && \
+        if [ "${COMPONENT}" = "cli" ]; then binary_name=srctl; fi && \
+        GOOS=linux GOARCH=amd64 go build -v -o "/build-out/${binary_name}" "./${BINARY_PATH}"; \
     else \
         echo "ERROR: Could not find source code in ${BINARY_PATH}" && \
         find . -name "main.go" | grep -E "checkers|${COMPONENT}" && \
         exit 1; \
     fi && \
     if [ "${COMPONENT}" = "agent" ]; then \
-        echo "Building serviceradar-cli for agent package" && \
-        GOOS=linux GOARCH=amd64 go build -v -o "/build-out/serviceradar-cli" "./go/cmd/cli"; \
+        echo "Building srctl for agent package" && \
+        GOOS=linux GOARCH=amd64 go build -v -o "/build-out/srctl" "./go/cmd/cli"; \
     fi && \
     echo "Build completed successfully" && \
     ls -la /build-out

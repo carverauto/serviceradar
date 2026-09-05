@@ -398,6 +398,10 @@ type authTokenError struct {
 // Poll errors that are part of the protocol (pending, slow_down) are handled;
 // terminal states surface as errors with a login hint.
 func runDeviceCodeFlow(client *http.Client, instance, scope string, openBrowser bool, writer io.Writer) (authCredentialEntry, error) {
+	return runDeviceCodeFlowWithClock(client, instance, scope, openBrowser, writer, time.Now, time.Sleep)
+}
+
+func runDeviceCodeFlowWithClock(client *http.Client, instance, scope string, openBrowser bool, writer io.Writer, now func() time.Time, sleep func(time.Duration)) (authCredentialEntry, error) {
 	device, err := requestDeviceCode(client, instance, scope)
 	if err != nil {
 		return authCredentialEntry{}, err
@@ -422,7 +426,7 @@ func runDeviceCodeFlow(client *http.Client, instance, scope string, openBrowser 
 		expiresIn = 900
 	}
 
-	deadline := time.Now().Add(time.Duration(expiresIn) * time.Second)
+	deadline := now().Add(time.Duration(expiresIn) * time.Second)
 
 	out := &authOutput{writer: writer}
 	out.println("")
@@ -441,8 +445,8 @@ func runDeviceCodeFlow(client *http.Client, instance, scope string, openBrowser 
 		openBrowserURL(verificationURI)
 	}
 
-	for time.Now().Before(deadline) {
-		time.Sleep(interval)
+	for now().Before(deadline) {
+		sleep(interval)
 
 		entry, pollErr := pollDeviceToken(client, instance, device.DeviceCode)
 		if pollErr == nil {
