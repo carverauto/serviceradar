@@ -379,6 +379,48 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
     end
   end
 
+  describe "anomaly finding presentation" do
+    @tag :web_ng_shared_fixture_db
+    test "names the metric and identity instead of the canned anomaly title", %{conn: conn} do
+      user =
+        then(operator_user_fixture(), fn user ->
+          Ash.update!(user, %{timezone: "America/Chicago"},
+            action: :update_timezone_preference,
+            actor: user
+          )
+        end)
+
+      {:ok, lv, html} = live(log_in_user(conn, user), ~p"/alerts/anomaly-alert-1")
+
+      assert html =~ "Anomaly · ifHCInOctets · host01.example.com"
+      refute html =~ ">Anomaly Finding<"
+      assert html =~ "ifIndex 4"
+
+      # Alerts.triggered_at is timestamp(0) without time zone. SRQL can hand the
+      # LiveView an offset-less ISO string; user_time will not hook that shape,
+      # so the stream used to render a hyphen next to the severity dots.
+      assert has_element?(
+               lv,
+               ~s(time#alert-triggered-time[datetime="2026-09-04T22:02:56Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-incident-first-seen-time[datetime="2026-09-04T21:57:56Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-incident-last-seen-time[datetime="2026-09-04T22:02:56Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(#alert-stream time[datetime="2026-09-04T22:02:56Z"][data-user-time-zone="America/Chicago"])
+             )
+    end
+  end
+
   # --- helpers --------------------------------------------------------------
 
   defp reload(alert) do
@@ -477,6 +519,48 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
     def query_request(%{"query" => query}) when is_binary(query), do: query(query, %{})
     def query_request(_payload), do: {:error, :invalid_request}
 
+    defp alert_row("anomaly-alert-1") do
+      series_key =
+        "v2|partition=#{hex("default")}|identity=#{hex("host01.example.com")}|metric=#{hex("ifHCInOctets")}|if_index=#{hex("4")}"
+
+      %{
+        "id" => "anomaly-alert-1",
+        "title" => "Anomaly Finding",
+        "description" => "Causal prediction finding detected",
+        "severity" => "critical",
+        "status" => "resolved",
+        "source_type" => "event",
+        "device_uid" => "sr:00000000-0000-4000-8000-000000000001",
+        "triggered_at" => "2026-09-04T22:02:56",
+        "timestamp" => "2026-09-04T22:02:56",
+        "created_at" => "2026-09-04T22:02:56",
+        "metadata" => %{
+          "incident_rule_id" => "rule-anomaly-1",
+          "incident_rule_name" => "causal_prediction_health_finding",
+          "incident_group_key" => "device=sr:00000000-0000-4000-8000-000000000001|anomaly.series_key=#{series_key}",
+          "incident_group_values" => %{
+            "device" => "sr:00000000-0000-4000-8000-000000000001",
+            "anomaly.series_key" => series_key
+          },
+          "incident_first_seen_at" => "2026-09-04T21:57:56",
+          "incident_last_seen_at" => "2026-09-04T22:02:56",
+          "incident_diagnostics" => %{
+            "rule_name" => "causal_prediction_health_finding",
+            "group_key" => "device=sr:00000000-0000-4000-8000-000000000001|anomaly.series_key=#{series_key}",
+            "group_values" => %{
+              "device" => "sr:00000000-0000-4000-8000-000000000001",
+              "anomaly.series_key" => series_key
+            },
+            "first_seen_at" => "2026-09-04T21:57:56",
+            "last_seen_at" => "2026-09-04T22:02:56",
+            "window_count" => 1,
+            "threshold" => 1,
+            "window_seconds" => 300
+          }
+        }
+      }
+    end
+
     defp alert_row(id) do
       %{
         "id" => id,
@@ -496,5 +580,7 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
         "triggered_at" => "2026-08-09T12:00:00"
       }
     end
+
+    defp hex(value), do: Base.encode16(to_string(value), case: :lower)
   end
 end
