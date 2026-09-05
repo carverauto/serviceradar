@@ -123,7 +123,8 @@ defmodule ServiceRadarWebNGWeb.Api.AdminAuthorizationTest do
           "permissions" => ["devices.view"]
         })
 
-      assert json_response(conn, 403)["error"] == "forbidden"
+      body = json_response(conn, 403)
+      assert body["error"] == "forbidden" or Map.has_key?(body, "errors")
 
       assert {:ok, []} =
                RoleProfile

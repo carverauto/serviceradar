@@ -616,7 +616,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RbacLiveTest do
     name = "#{marker}-revoked-live"
 
     live_view
-    |> element("button[phx-click='open_new_profile']")
+    |> element("button[phx-click='open_new_profile']:not([phx-value-clone-source-id])")
     |> render_click()
 
     live_view

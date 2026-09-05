@@ -435,8 +435,8 @@ ex_unit_test(
         "test/phoenix/live/alert_live/show_test.exs",
         "test/phoenix/live/authored_dashboard_live_test.exs",
         "test/phoenix/live/camera_analysis_worker_live_test.exs",
-        "test/phoenix/live/device_live_test.exs",
         "test/phoenix/live/device_live/endpoint_inventory_data_db_test.exs",
+        "test/phoenix/live/device_live_test.exs",
         "test/phoenix/live/event_live/show_test.exs",
         "test/phoenix/live/log_live/index_test.exs",
         "test/phoenix/live/log_live/netflows_test.exs",
@@ -482,7 +482,11 @@ ex_unit_test(
         "SERVICERADAR_REQUIRE_DB_TESTS": "1",
         "SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS": "600000",
         "SERVICERADAR_TEST_DB_SHARD": "serial_0",
-        "TEST_CNPG_POOL_SIZE": "2",
+        # A single RBAC LiveView mount starts three async database loads. Keep
+        # enough connections for that fan-out plus the endpoint's own request
+        # and application processes; the 15-second query timeout still catches
+        # a real hang.
+        "TEST_CNPG_POOL_SIZE": "8",
         "TEST_CNPG_QUEUE_INTERVAL_MS": "10000",
         "TEST_CNPG_QUEUE_TARGET_MS": "10000",
     },

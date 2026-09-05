@@ -9,14 +9,14 @@ defmodule ServiceRadar.Dashboards.Preparations.PolicyEditorAudience do
   require Ash.Query
 
   @impl true
-  def prepare(query, opts, _context) do
+  def prepare(query, opts, context) do
     group_id = Ash.Query.get_argument(query, :group_id)
 
     grant_query =
       opts
       |> Keyword.fetch!(:source)
       |> grant_resource()
-      |> Ash.Query.for_read(:read)
+      |> Ash.Query.for_read(:read, %{}, actor: context.actor, authorize?: context.authorize?)
       |> Ash.Query.filter(subject_type == :group and subject_group_id == ^group_id)
       |> Ash.Query.limit(1)
 
