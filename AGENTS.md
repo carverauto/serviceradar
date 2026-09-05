@@ -392,6 +392,11 @@ Prefer Socket Firewall for supported dependency-fetching commands. Prefix JavaSc
 - **Rust**: run `cargo fmt` + `cargo clippy` on touched crates (notably `rust/srql`); leverage existing Diesel helpers + CNPG pooling utilities before adding new abstractions.
 - **Elixir / Dialyzer**: prefer idiomatic Elixir (`MapSet.new/1`, direct `GRPC.Stub.connect/2`, normal Ash reads). Treat Dialyzer as advisory for false positives (opaque types, incomplete PLT success typing). See **Hard Rules** — never degrade APIs to silence the type checker. Use `mix dialyzer --format dialyzer` when Dialyxir short format crashes on unknown warning kinds.
 - **Docs**: place new operational runbooks under `docs/docs/`; keep Markdown ASCII only.
+- **OpenSpec**: `openspec validate <change> --strict` reads a requirement's FIRST
+  line as its normative statement, not the whole block. A `### Requirement:` that
+  opens with narrative -- a "CORRECTED while implementing" note, a rationale
+  paragraph -- is reported as containing no SHALL or MUST even when it contains
+  several. Lead with the SHALL/MUST sentence and put the narrative below it.
 - **Causal / statistical / streaming-anomaly reasoning**: use the **DeepCausality** library (`deep_causality_core` Flow API plus `deep_causality_data_structures` `SlidingWindow`; source at `~/src/deep_causality`), wrapped by the project-owned **`serviceradar-anomaly-core`** crate (`rust/anomaly-core`). DeepCausality is authored by Marvin Hansen, who guides ServiceRadar's anomaly-engine design. **Do not hand-roll a parallel detector** for rolling z-score, running mean/variance, sliding windows, CSM, or equivalent anomaly decisions in Elixir, Go, or a second Rust crate when `serviceradar-anomaly-core` already provides the primitive. A second implementation must be kept in numeric parity by hand and can drift. **`serviceradar-anomaly-core` is the single source of truth**: it powers the edge anomaly add-on (`rust/anomaly-addon`, agent-sidecar) today and a backfill/backtesting CLI. The legacy central `causal_reasoner_nif` + central analysis pipeline are **being retired** (per-series anomaly moved to the edge; see `openspec/changes/move-anomaly-detection-to-edge`) — do not extend them. If DeepCausality lacks a primitive, add it upstream or to `serviceradar-anomaly-core`, never a divergent reimplementation.
 
 ## Rust Dependency Management
@@ -1094,6 +1099,15 @@ leave
 `SERVICERADAR_TEST_DATABASE_URL` unset so each shard derives its disposable database. When using
 a NodePort, export both `PGSSLSERVERNAME` and `SRQL_TEST_DATABASE_SERVER_NAME` with the CNPG
 certificate's DNS name so the Rust and Elixir clients verify the same certificate.
+
+**BazelCI runs the PR head's `buildbuddy.yaml` against the MERGED tree.** It merges
+`origin/staging` into the branch before building, but the workflow steps come from the
+branch's own `buildbuddy.yaml`. So a branch that predates a lifecycle change runs the OLD
+step sequence against NEW `//rust/integration-db` code, and the symptom names neither: a
+`provision_db` failing with `sr_core_test_<run> does not exist; run
+//rust/integration-db:provision_base first` means the branch's `buildbuddy.yaml` has no
+`provision_base` step, not that the fixture is broken. Diff `buildbuddy.yaml` against
+`origin/staging` before reading further; the fix is a rebase, not a code change.
 
 With a mode-0600 ignored `.bazelrc.remote` containing the BuildBuddy credential, add
 `--config=cache_only`: compilation artifacts use the public authenticated cache while
