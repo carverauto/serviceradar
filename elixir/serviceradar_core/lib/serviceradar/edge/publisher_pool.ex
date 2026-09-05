@@ -52,12 +52,24 @@ defmodule ServiceRadar.Edge.PublisherPool do
   I/O, a durable PubAck releases the credit, and a refusal that is not proven poison leaves the
   frame outstanding for a republish.
 
-  NOT wired: publication is still one synchronous request per record. The window bounds how many
-  may be ADMITTED at once, which bounds concurrent admissions but NOT concurrent publications --
-  see `PublishWindow`'s "what this does not yet bound" -- and the asynchronous
-  pipelining that would make out-of-order settlement possible is also TASK 3.3's -- along with the
-  hard window itself and the recording of out-of-order PubAcks. 3.4 owns exact-byte and retained-
-  memory binding; 3.5 owns outcome-specific PubAck validation and prefix advancement. This module also does not bind byte credits to encoded frame size.
+  NOW WIRED, and this section previously said otherwise: publication is no longer one synchronous
+  request per record. `ServiceRadar.Edge.PublishPipeline` runs several through this window at
+  once, each worker admitting, publishing and settling in its OWN process -- which is what the
+  "admit, publish and settle in the same process" rule above requires, and why the pipeline hands
+  out work rather than reservations.
+
+  The consequence for this module is that the sentence which used to sit here -- "the window
+  bounds concurrent admissions but NOT concurrent publications" -- is no longer true. A worker
+  holds its credits for exactly as long as its request is outstanding, so what the grant bounds is
+  the number of requests on the wire.
+
+  STILL NOT wired: nothing in the application offers to a pipeline yet. The gateway's per-lane
+  session is task 3.1's, and `JetStreamPublisher.publish_record/2` has no production caller
+  either, so the whole chain is exercised by tests.
+
+  STILL NOT this module's: 3.4 owns exact-byte and retained-memory binding; 3.5 owns
+  outcome-specific PubAck validation and prefix advancement. This module also does not bind byte
+  credits to encoded frame size.
 
   """
 
