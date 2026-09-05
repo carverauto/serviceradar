@@ -285,6 +285,24 @@ vitest_bin.vitest_test(
     tags = ["unit_test"],
 )
 
+vitest_bin.vitest_test(
+    name = "remote_access_ssh_console_component_test",
+    args = [
+        "run",
+        "component/test/RemoteAccessSSHConsole.test.jsx",
+    ],
+    chdir = package_name(),
+    data = [
+        ":node_modules",
+        "component/src/RemoteAccessSSHConsole.jsx",
+        "component/src/RemoteAccessTerminal.jsx",
+        "component/src/renderText.js",
+        "component/src/sshEphemeralKeypair.js",
+        "component/test/RemoteAccessSSHConsole.test.jsx",
+    ],
+    tags = ["unit_test"],
+)
+
 js_binary(
     name = "god_view_elk_scene_bundler",
     data = [":node_modules/esbuild"],

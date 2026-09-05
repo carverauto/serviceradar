@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from "react"
 
 import RemoteAccessTerminal from "./RemoteAccessTerminal.jsx"
+import {renderText} from "./renderText.js"
 import {
   generateEphemeralEd25519Keypair,
   loadPreferredSshUsername,
@@ -93,11 +94,17 @@ function clearRemembered(deviceUid) {
 }
 
 function errorMessage(error) {
-  if (error?.message) {
+  if (error instanceof Error) {
+    return error.message === "" ? "Unable to open SSH session." : error.message
+  }
+
+  if (typeof error?.message === "string" && error.message !== "") {
     return error.message
   }
 
-  return "Unable to open SSH session."
+  const rendered = renderText(error)
+
+  return rendered === "" ? "Unable to open SSH session." : rendered
 }
 
 function apiError(payload, fallback) {
@@ -1113,7 +1120,7 @@ export function Component({
             </div>
           ) : null}
 
-          {error ? <div className="alert alert-error text-sm">{error}</div> : null}
+          {error ? <div className="alert alert-error text-sm">{renderText(error)}</div> : null}
 
           <button
             className="btn btn-primary w-full"
