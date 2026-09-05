@@ -48,6 +48,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
                  ticket
                  insecure_skip_verify
                  ssh_host_key_policy
+                 ca_bundle_pem
                ))
 
   @target_id_keys ~w(
@@ -281,20 +282,18 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
              target |> target_ids() |> binding_target_ids(plugin_id) do
         binding_grant = scope_grant_to_origin(grant, origin, plugin_id, auth_mode, target)
 
-        maybe_put(
-          %{
-            "binding_id" => binding_id(assignment_id, credential_rule_id, origin, target_ids),
-            "provider" => @provider,
-            "credential_rule_id" => rule_id,
-            "origin" => origin,
-            "assignment_policy_version" => policy_binding.policy_version,
-            "assignment_policy_fingerprint" => policy_binding.fingerprint,
-            "credential_broker" => binding_grant,
-            "target_ids" => target_ids
-          },
-          "ssh_host_key_policy",
-          ssh_host_key_policy
-        )
+        %{
+          "binding_id" => binding_id(assignment_id, credential_rule_id, origin, target_ids),
+          "provider" => @provider,
+          "credential_rule_id" => rule_id,
+          "origin" => origin,
+          "assignment_policy_version" => policy_binding.policy_version,
+          "assignment_policy_fingerprint" => policy_binding.fingerprint,
+          "credential_broker" => binding_grant,
+          "target_ids" => target_ids
+        }
+        |> maybe_put("ssh_host_key_policy", ssh_host_key_policy)
+        |> maybe_put("ca_bundle_pem", ca_bundle_pem(params))
       else
         _ -> nil
       end
@@ -621,6 +620,16 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
   end
 
   defp auth_mode(_plugin_id, _params, _grant), do: :api_token
+
+  # Operator-supplied trust material, delivered by the manifest params template
+  # as $source: rule. The agent verifies against this anchor alone; it never
+  # reaches the Wasm guest (see @secret_keys).
+  defp ca_bundle_pem(params) do
+    first_string([
+      value(map_value(params, "template"), "ca_bundle_pem"),
+      value(params, "ca_bundle_pem")
+    ])
+  end
 
   defp ssh_host_key_policy(:api_token, _params), do: {:ok, nil}
 

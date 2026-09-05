@@ -20,7 +20,7 @@
           },
           "api_token": {
             "type": "string",
-            "description": "NetBox API token sent as `Authorization: Token <value>`. Stored in the assignment parameters; scope it to read-only DCIM access."
+            "description": "NetBox API token sent as `Authorization: Token <value>`. Prefer a NetBox credential rule, which delivers the token without storing it here; scope it to read-only DCIM access."
           },
           "page_size": {
             "type": "integer",
@@ -61,11 +61,15 @@
     },
     "base_url": {
       "type": "string",
-      "x-serviceradar-ui-hidden": true
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "NetBox base URL. Injected from the credential rule's controller host. Never entered on the plugin assignment form."
     },
     "api_token": {
       "type": "string",
-      "x-serviceradar-ui-hidden": true
+      "x-serviceradar-ui-hidden": true,
+      "x-serviceradar-credential-materialized": true,
+      "description": "NetBox API token. Stored on a credential secret, not on this assignment."
     },
     "page_size": {
       "type": "integer",

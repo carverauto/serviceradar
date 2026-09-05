@@ -16,20 +16,20 @@
 - [ ] 2.4 Verify the hidden `producer_schedule` path still forces `verify` and is unaffected.
 
 ## 3. CA trust material (PR: fix/netbox-proxmox-credential-delivery)
-- [ ] 3.1 Add `ca_bundle_pem` and `server_cert_fingerprint` attributes to `NetworkCredentialRule` with a migration in the `platform` schema.
-- [ ] 3.2 Validate both at the changeset: PEM parses and is unexpired; fingerprint matches `^sha256:[0-9a-f]{64}$`; the two are mutually exclusive.
-- [ ] 3.3 Surface both fields in the credential rule form, shown when the provider declares transport controls.
-- [ ] 3.4 Carry trust material through the parameter template into plugin config and honour it in the agent HTTP client as the sole trust anchor.
-- [ ] 3.5 Keep `verify` mandatory for Proxmox `inventory_enrichment`; add a test proving a rule with a valid bundle passes and one without still fails closed.
+- [x] 3.1 Add `ca_bundle_pem` and `server_cert_fingerprint` attributes to `NetworkCredentialRule` with a migration in the `platform` schema.
+- [x] 3.2 Validate both at the changeset: PEM parses and is unexpired; fingerprint matches `^sha256:[0-9a-f]{64}$`; the two are mutually exclusive.
+- [x] 3.3 Surface both fields in the credential rule form, shown when the provider declares transport controls.
+- [x] 3.4 Carry trust material through the parameter template into plugin config and honour it in the agent HTTP client as the sole trust anchor.
+- [x] 3.5 Keep `verify` mandatory for Proxmox `inventory_enrichment`; add a test proving a rule with a valid bundle passes and one without still fails closed.
 
 ## 4. NetBox credential surface (PR: fix/netbox-proxmox-credential-delivery)
-- [ ] 4.1 Add an `integrations.credential_profiles` entry for `netbox` with `api_token` auth and an `inventory_sync` purpose.
-- [ ] 4.2 Move the per-source `api_token` out of assignment params to a credential rule reference; keep non-secret source fields as params.
+- [x] 4.1 Add an `integrations.credential_profiles` entry for `netbox` with `api_token` auth and an `inventory_sync` purpose.
+- [x] 4.2 Move the per-source `api_token` out of assignment params to a credential rule reference; keep non-secret source fields as params.
 - [ ] 4.3 Add a Settings surface for NetBox sources so `sources[]` is no longer hand-written.
-- [ ] 4.4 Fail the check with a message naming the missing piece rather than the generic `has no sources configured`.
+- [x] 4.4 Fail the check with a message naming the missing piece rather than the generic `has no sources configured`.
 
 ## 5. Remaining environment-sourced credentials (PR: fix/netbox-proxmox-credential-delivery)
-- [ ] 5.1 Remove the `VULNCHECK_API_TOKEN` / `SERVICERADAR_VULNCHECK_TOKEN` fallback from `advisory_feeds/config.ex`; require a `credential_ref`.
+- [x] 5.1 Remove the `VULNCHECK_API_TOKEN` / `SERVICERADAR_VULNCHECK_TOKEN` fallback from `advisory_feeds/config.ex`; require a `credential_ref`.
 - [ ] 5.2 Add a migration note and a startup warning for any feed row still lacking a `credential_ref`.
 - [ ] 5.3 Document the agent `/etc/serviceradar/snmp.json` path as the one remaining file-based credential source, with its migration path to broker-backed SNMP references.
 

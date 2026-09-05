@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -86,6 +87,9 @@ var errPluginHTTPTooManyRedirects = errors.New("stopped after 10 redirects")
 var (
 	pluginHTTPInsecureTransportMu    sync.Mutex
 	pluginHTTPInsecureTransportCache = map[*http.Transport]*http.Transport{}
+
+	pluginHTTPPinnedTransportMu    sync.Mutex
+	pluginHTTPPinnedTransportCache = map[pluginHTTPPinnedTransportKey]*http.Transport{}
 )
 
 func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, reqPtr, reqLen, respPtr, respLen uint32) int32 {
@@ -210,7 +214,12 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		return pluginErrDenied
 	}
 
-	httpClient := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify, timeout)
+	httpClient := pluginHTTPClientForBinding(
+		e.manager.httpClient,
+		payload.InsecureSkipVerify,
+		timeout,
+		proxmoxBinding,
+	)
 	configurePluginHTTPRedirects(httpClient, grant, reqURL, &e.assignment.Permissions)
 	if hostCredentialBound {
 		// Host-retained credentials are authorized for this one canonical
@@ -723,4 +732,89 @@ func flattenHeaders(headers http.Header) map[string]string {
 		flat[key] = strings.Join(values, ",")
 	}
 	return flat
+}
+
+type pluginHTTPPinnedTransportKey struct {
+	base   *http.Transport
+	bundle string
+}
+
+// pluginHTTPClientWithPinnedRoots returns a client that verifies against the
+// binding's own trust material and nothing else. Replacing the roots rather
+// than adding to them is the point: a rule that pins a private CA is asking for
+// that anchor, and keeping the public roots would still accept any
+// publicly-trusted certificate for the same origin.
+//
+// A bundle that does not parse yields the client unchanged, so verification
+// falls back to the system pool and fails closed at handshake rather than
+// silently trusting nothing. The control plane rejects unparseable material at
+// save time, so reaching that branch means the binding was tampered with in
+// transit.
+// pluginHTTPClientForBinding applies the binding's own trust material when it
+// carries any, so hostHTTPRequest states the intent once rather than branching
+// on it inline.
+func pluginHTTPClientForBinding(
+	base *http.Client,
+	insecureSkipVerify bool,
+	timeout time.Duration,
+	binding *pluginHostAuthorityBinding,
+) *http.Client {
+	client := pluginHTTPClient(base, insecureSkipVerify, timeout)
+	if binding == nil || binding.caBundlePEM == "" {
+		return client
+	}
+
+	return pluginHTTPClientWithPinnedRoots(client, binding.caBundlePEM)
+}
+
+func pluginHTTPClientWithPinnedRoots(client *http.Client, bundle string) *http.Client {
+	pool := pluginHostAuthorityCertPool(bundle)
+	if pool == nil {
+		return client
+	}
+
+	cloned := *client
+	cloned.Transport = pluginHTTPPinnedTransport(cloned.Transport, bundle, pool)
+
+	return &cloned
+}
+
+func pluginHTTPPinnedTransport(
+	transport http.RoundTripper,
+	bundle string,
+	pool *x509.CertPool,
+) http.RoundTripper {
+	baseTransport, ok := transport.(*http.Transport)
+	if transport != nil && (!ok || baseTransport == nil) {
+		// A custom transport owns its own TLS and denial policy; replacing it
+		// would bypass wrappers such as the fail-closed transport installed
+		// when configured CA roots cannot load.
+		return transport
+	}
+	if baseTransport == nil {
+		baseTransport, ok = http.DefaultTransport.(*http.Transport)
+		if !ok || baseTransport == nil {
+			baseTransport = &http.Transport{}
+		}
+	}
+
+	key := pluginHTTPPinnedTransportKey{base: baseTransport, bundle: bundle}
+
+	pluginHTTPPinnedTransportMu.Lock()
+	defer pluginHTTPPinnedTransportMu.Unlock()
+
+	if cached := pluginHTTPPinnedTransportCache[key]; cached != nil {
+		return cached
+	}
+
+	httpTransport := baseTransport.Clone()
+	if httpTransport.TLSClientConfig != nil {
+		httpTransport.TLSClientConfig = httpTransport.TLSClientConfig.Clone()
+	} else {
+		httpTransport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	httpTransport.TLSClientConfig.RootCAs = pool
+	pluginHTTPPinnedTransportCache[key] = httpTransport
+
+	return httpTransport
 }
