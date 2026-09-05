@@ -78,7 +78,7 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
   const routes = await client.list("notification-routes")
   for (const route of routes) {
     const expr = route.attributes?.match_expression
-    if (route.attributes?.name === "test" && hasEmptyEquals(expr) && route.attributes?.enabled) {
+    if (hasEmptyEquals(expr) && route.attributes?.enabled) {
       await client.patch(`notification-routes/${route.id}/disable`, "notification_route", route.id, {})
       console.log(`Disabled empty-title route ${route.id}`)
     }
@@ -104,14 +104,12 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
   }
 
   if (options.fireTest) {
-    const alert = await client.create("alerts", "alert", {
-      title: "Kubernetes worker node node-worker-1.example.com is NotReady",
-      description: "Operator test-send for k8s_node_not_ready",
-      severity: "critical",
-      source_type: "system",
-      metadata: {incident_rule_name: RULE_NAME},
+    const probe = await client.create("alerts/k8s-node-not-ready-test", "alert", {
+      cluster_id: String(options.cluster || "demo"),
+      node: "node-worker-1.example.com",
+      role: "worker",
     })
-    console.log(`Fired test alert ${alert.id}`)
+    console.log(`Fired node.not_ready probe for ${probe.attributes?.node || "node-worker-1.example.com"}`)
   }
 
   console.log(`✓ ${ROUTE_NAME} routes to ${channelName} on ${instance}`)

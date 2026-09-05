@@ -86,11 +86,7 @@ def main() -> int:
     routes = client.list("notification-routes")
     for route in routes:
         expr = route["attributes"].get("match_expression") or {}
-        if (
-            route["attributes"].get("name") == "test"
-            and _has_empty_equals(expr)
-            and route["attributes"].get("enabled")
-        ):
+        if _has_empty_equals(expr) and route["attributes"].get("enabled"):
             client.patch(f"notification-routes/{route['id']}/disable", "notification_route", route["id"], {})
             print(f"Disabled empty-title route {route['id']}")
 
@@ -110,18 +106,17 @@ def main() -> int:
         print(f"Created route {ROUTE_NAME}")
 
     if args.fire_test:
-        alert = client.create(
-            "alerts",
+        probe = client.create(
+            "alerts/k8s-node-not-ready-test",
             "alert",
             {
-                "title": "Kubernetes worker node node-worker-1.example.com is NotReady",
-                "description": "Operator test-send for k8s_node_not_ready",
-                "severity": "critical",
-                "source_type": "system",
-                "metadata": {"incident_rule_name": RULE_NAME},
+                "cluster_id": "demo",
+                "node": "node-worker-1.example.com",
+                "role": "worker",
             },
         )
-        print(f"Fired test alert {alert['id']}")
+        node = (probe.get("attributes") or {}).get("node") or "node-worker-1.example.com"
+        print(f"Fired node.not_ready probe for {node}")
 
     print(f"OK {ROUTE_NAME} -> {args.channel} on {instance}")
     return 0

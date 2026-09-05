@@ -51,15 +51,12 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
     if snapshots == [] do
       {:ok, 0}
     else
-      total =
-        Enum.reduce(snapshots, 0, fn snap, acc ->
-          case apply_snapshot(snap) do
-            {:ok, n} -> acc + n
-            {:error, _} -> acc
-          end
-        end)
-
-      {:ok, total}
+      Enum.reduce_while(snapshots, {:ok, 0}, fn snap, {:ok, acc} ->
+        case apply_snapshot(snap) do
+          {:ok, n} -> {:cont, {:ok, acc + n}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
     end
   rescue
     e ->
@@ -75,13 +72,26 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
     Enum.flat_map(nodes, fn node ->
       name = node.name
       new_ready = node.ready
-      prev = Map.get(previous, name)
+      prev = previous_ready(previous, name)
 
       cond do
         prev == true and new_ready == false -> [{:not_ready, node}]
         prev == false and new_ready == true -> [{:ready, node}]
         prev == nil and new_ready == false -> [{:not_ready, node}]
         true -> []
+      end
+    end)
+  end
+
+  @doc false
+  def disappeared_not_ready(previous, nodes) when is_map(previous) and is_list(nodes) do
+    present = MapSet.new(Enum.map(nodes, & &1.name))
+
+    Enum.flat_map(previous, fn {name, value} ->
+      if previous_ready(previous, name) == false and not MapSet.member?(present, name) do
+        [{:ready, previous_node(name, value)}]
+      else
+        []
       end
     end)
   end
@@ -143,14 +153,16 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
 
   defp load_previous_ready(cluster_id) do
     sql = """
-    SELECT name, ready
+    SELECT name, ready, role
     FROM #{@prefix}.#{@table}
     WHERE cluster_id = $1 AND deleted_at IS NULL
     """
 
     case Repo.query(sql, [cluster_id]) do
       {:ok, %{rows: rows}} ->
-        Map.new(rows, fn [name, ready] -> {name, ready} end)
+        Map.new(rows, fn [name, ready, role] ->
+          {name, %{ready: ready, role: role, cluster_id: cluster_id}}
+        end)
 
       {:error, reason} ->
         Logger.warning("k8s nodes: previous ready lookup failed: #{inspect(reason)}")
@@ -164,7 +176,9 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
       |> Application.get_env(__MODULE__, [])
       |> Keyword.get(:publisher, &default_publish/2)
 
-    Enum.each(readiness_transitions(previous, rows), fn {kind, node} ->
+    transitions = readiness_transitions(previous, rows) ++ disappeared_not_ready(previous, rows)
+
+    Enum.each(transitions, fn {kind, node} ->
       case publisher.("k8s", transition_payload(kind, node)) do
         :ok ->
           :ok
@@ -189,7 +203,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
       "event_type" => event_type,
       "severity" => severity(kind),
       "message" => message(kind, node),
-      "device_uid" => node[:device_uid],
+      "device_uid" => lookup_device_uid(label),
       "attributes" => %{
         "event_type" => event_type,
         "cluster_id" => node.cluster_id,
@@ -273,6 +287,38 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
   end
 
   defp normalize_node(_, _, _), do: nil
+
+  defp previous_ready(previous, name) do
+    case Map.get(previous, name) do
+      %{ready: ready} -> ready
+      ready when is_boolean(ready) -> ready
+      _ -> nil
+    end
+  end
+
+  defp previous_node(name, %{role: role, cluster_id: cluster_id}) do
+    %{name: name, role: role, cluster_id: cluster_id, ready: true, ready_reason: "NodeDeleted"}
+  end
+
+  defp previous_node(name, _ready) do
+    %{name: name, role: "worker", cluster_id: "", ready: true, ready_reason: "NodeDeleted"}
+  end
+
+  defp lookup_device_uid(hostname) when is_binary(hostname) and hostname != "" do
+    sql = """
+    SELECT uid
+    FROM platform.ocsf_devices
+    WHERE hostname = $1 AND deleted_at IS NULL
+    LIMIT 1
+    """
+
+    case Repo.query(sql, [hostname]) do
+      {:ok, %{rows: [[uid]]}} when is_binary(uid) and uid != "" -> uid
+      _ -> nil
+    end
+  end
+
+  defp lookup_device_uid(_), do: nil
 
   defp node_key(cluster_id, name) do
     :crypto.hash(:sha256, cluster_id <> "|" <> name)

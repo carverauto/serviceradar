@@ -99,4 +99,28 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodesTest do
 
     assert [] = K8sNodes.readiness_transitions(%{"node-worker-1.example.com" => false}, [worker])
   end
+
+  test "disappeared_not_ready emits a ready/clear for a NotReady node that left the snapshot" do
+    previous = %{
+      "node-worker-1.example.com" => %{
+        ready: false,
+        role: "worker",
+        cluster_id: "cluster-a"
+      },
+      "node-control-1.example.com" => %{
+        ready: true,
+        role: "control-plane",
+        cluster_id: "cluster-a"
+      }
+    }
+
+    remaining = [
+      %{name: "node-control-1.example.com", cluster_id: "cluster-a", role: "control-plane", ready: true}
+    ]
+
+    assert [{:ready, recovered}] = K8sNodes.disappeared_not_ready(previous, remaining)
+    assert recovered.name == "node-worker-1.example.com"
+    assert recovered.role == "worker"
+    assert recovered.ready_reason == "NodeDeleted"
+  end
 end

@@ -32,6 +32,7 @@ defmodule ServiceRadar.Monitoring.Alert do
     notifiers: [ServiceRadar.Monitoring.AlertNotifier],
     extensions: [AshStateMachine, AshOban, AshJsonApi.Resource]
 
+  alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.Inventory.DeviceLifecycle
   alias ServiceRadar.Monitoring.Alert.AutoEscalateScheduler
   alias ServiceRadar.Monitoring.Alert.AutoEscalateWorker
@@ -63,6 +64,7 @@ defmodule ServiceRadar.Monitoring.Alert do
   @alert_metadata_fields [:metadata, :tags]
   @alert_operator_actions [
     :trigger,
+    :publish_k8s_node_not_ready,
     :record_notification,
     :update_metadata
   ]
@@ -98,6 +100,7 @@ defmodule ServiceRadar.Monitoring.Alert do
       index :active, route: "/active"
       index :pending, route: "/pending"
       post :trigger
+      post :publish_k8s_node_not_ready, route: "/k8s-node-not-ready-test"
       patch :acknowledge, route: "/:id/acknowledge"
       patch :resolve, route: "/:id/resolve"
     end
@@ -279,10 +282,44 @@ defmodule ServiceRadar.Monitoring.Alert do
       end
 
       change set_attribute(:triggered_at, &DateTime.utc_now/0)
-      # JSON:API / CLI test-sends use this action. Enqueue the same first-notify
-      # routing request as `:send_notification` so a created alert pages without
-      # waiting for the AshOban scan (which is first-100 of a large backlog).
-      change {EnqueueRoutingRequest, lifecycle_reason: :fire}
+    end
+
+    action :publish_k8s_node_not_ready, :map do
+      description "Emit a node.not_ready internal log so StatefulAlertEngine groups by cluster+node"
+
+      argument :cluster_id, :string, allow_nil?: false, public?: true
+      argument :node, :string, allow_nil?: false, public?: true
+      argument :role, :string, allow_nil?: true, public?: true
+
+      run fn input, _context ->
+        role =
+          case input.arguments.role do
+            "control-plane" -> "control-plane"
+            _ -> "worker"
+          end
+
+        node = input.arguments.node
+        cluster_id = input.arguments.cluster_id
+        event_type = "node.not_ready"
+
+        payload = %{
+          "event_type" => event_type,
+          "severity" => "critical",
+          "message" => "Kubernetes #{role} node #{node} is NotReady",
+          "attributes" => %{
+            "event_type" => event_type,
+            "cluster_id" => cluster_id,
+            "node" => node,
+            "node.role" => role,
+            "hostname" => node
+          }
+        }
+
+        case InternalLogPublisher.publish("k8s", payload) do
+          :ok -> {:ok, %{published: true, cluster_id: cluster_id, node: node, role: role}}
+          {:error, reason} -> {:error, reason}
+        end
+      end
     end
 
     update :reassign_device do

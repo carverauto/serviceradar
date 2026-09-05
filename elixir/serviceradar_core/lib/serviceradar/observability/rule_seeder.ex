@@ -401,7 +401,6 @@ defmodule ServiceRadar.Observability.RuleSeeder do
           "message" => "Kubernetes node is NotReady"
         },
         alert: %{
-          "title" => "Alert",
           "severity" => "critical"
         }
       },
