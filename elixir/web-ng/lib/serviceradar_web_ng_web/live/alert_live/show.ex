@@ -1215,6 +1215,8 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       |> assign(:series_metric, series.metric)
       |> assign(:series_identity, series.identity)
       |> assign(:series_interface, series.interface)
+      |> assign(:first_seen_at, incident_seen_at(assigns.alert, "first_seen_at", "incident_first_seen_at"))
+      |> assign(:last_seen_at, incident_seen_at(assigns.alert, "last_seen_at", "incident_last_seen_at"))
 
     ~H"""
     <div class="overflow-hidden rounded-sr-surface border border-amber-500/25 bg-amber-500/5 shadow-sr-surface">
@@ -1253,13 +1255,13 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
         <.time_fact_cell
           id="alert-incident-first-seen-time"
           label="First seen"
-          value={diagnostic_value(@diagnostics, ["first_seen_at"])}
+          value={@first_seen_at}
           timezone={@timezone}
         />
         <.time_fact_cell
           id="alert-incident-last-seen-time"
           label="Last seen"
-          value={diagnostic_value(@diagnostics, ["last_seen_at"])}
+          value={@last_seen_at}
           timezone={@timezone}
         />
         <.fact_cell label="Process" value={process_display(@process)} mono />
@@ -1733,25 +1735,23 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
   defp group_dimension_parts(alert) when is_map(alert) do
     values = incident_group_values(alert)
 
-    cond do
-      map_size(values) > 0 ->
-        values
-        |> Enum.sort_by(fn {key, _} -> to_string(key) end)
-        |> Enum.flat_map(fn {key, value} ->
-          case value do
-            v when is_binary(v) and v != "" ->
-              [dimension_part(to_string(key), v)]
+    if map_size(values) > 0 do
+      values
+      |> Enum.sort_by(fn {key, _} -> to_string(key) end)
+      |> Enum.flat_map(fn {key, value} ->
+        case value do
+          v when is_binary(v) and v != "" ->
+            [dimension_part(to_string(key), v)]
 
-            v when is_atom(v) and not is_nil(v) ->
-              [dimension_part(to_string(key), Atom.to_string(v))]
+          v when is_atom(v) and not is_nil(v) ->
+            [dimension_part(to_string(key), Atom.to_string(v))]
 
-            _ ->
-              []
-          end
-        end)
-
-      true ->
-        parse_group_key(raw_group_key(alert))
+          _ ->
+            []
+        end
+      end)
+    else
+      parse_group_key(raw_group_key(alert))
     end
   end
 
@@ -1759,12 +1759,10 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
   defp dimension_part(key, value) do
     display =
-      cond do
-        String.contains?(key, "series_key") or String.starts_with?(value, "v2") ->
-          AnomalySeriesKey.display(value) || value
-
-        true ->
-          maybe_decode_hex(value)
+      if String.contains?(key, "series_key") or String.starts_with?(value, "v2") do
+        AnomalySeriesKey.display(value) || value
+      else
+        maybe_decode_hex(value)
       end
 
     %{
@@ -2059,18 +2057,71 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     end
   end
 
-  defp alert_timestamp_value(alert) do
+  defp alert_timestamp_value(alert) when is_map(alert) do
     raw =
-      Map.get(alert, "triggered_at") ||
-        Map.get(alert, "timestamp") ||
-        Map.get(alert, "event_time") ||
-        Map.get(alert, "created_at")
+      Enum.find_value(
+        [
+          alert_map_get(alert, "triggered_at"),
+          alert_map_get(alert, "timestamp"),
+          alert_map_get(alert, "event_time"),
+          alert_map_get(alert, "created_at"),
+          alert_map_get(alert, "updated_at"),
+          incident_seen_at(alert, "last_seen_at", "incident_last_seen_at"),
+          incident_seen_at(alert, "first_seen_at", "incident_first_seen_at")
+        ],
+        &present_value/1
+      )
 
     case parse_alert_datetime(raw) do
       {:ok, datetime} -> datetime
       _ -> raw
     end
   end
+
+  defp alert_timestamp_value(_), do: nil
+
+  defp incident_seen_at(alert, diagnostic_key, metadata_key) when is_map(alert) do
+    metadata = alert_map_get(alert, "metadata")
+    metadata = if is_map(metadata), do: metadata, else: %{}
+
+    raw =
+      present_value(diagnostic_value(incident_diagnostics(alert), [diagnostic_key])) ||
+        present_value(alert_map_get(metadata, metadata_key))
+
+    case parse_alert_datetime(raw) do
+      {:ok, datetime} -> datetime
+      _ -> raw
+    end
+  end
+
+  defp incident_seen_at(_, _, _), do: nil
+
+  defp present_value(value) when value in [nil, "", "—"], do: nil
+
+  defp present_value(value) when is_binary(value) do
+    if String.trim(value) == "", do: nil, else: value
+  end
+
+  defp present_value(value), do: value
+
+  defp alert_map_get(map, key) when is_map(map) and is_binary(key) do
+    case present_value(Map.get(map, key)) do
+      nil -> present_value(Map.get(map, alert_atom_key(key)))
+      value -> value
+    end
+  end
+
+  defp alert_map_get(_, _), do: nil
+
+  defp alert_atom_key("triggered_at"), do: :triggered_at
+  defp alert_atom_key("timestamp"), do: :timestamp
+  defp alert_atom_key("event_time"), do: :event_time
+  defp alert_atom_key("created_at"), do: :created_at
+  defp alert_atom_key("updated_at"), do: :updated_at
+  defp alert_atom_key("metadata"), do: :metadata
+  defp alert_atom_key("incident_first_seen_at"), do: :incident_first_seen_at
+  defp alert_atom_key("incident_last_seen_at"), do: :incident_last_seen_at
+  defp alert_atom_key(_), do: :__unknown__
 
   defp parse_alert_datetime(%DateTime{} = datetime), do: {:ok, datetime}
 

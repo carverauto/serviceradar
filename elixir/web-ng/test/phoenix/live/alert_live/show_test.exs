@@ -395,9 +395,28 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
       assert html =~ "Anomaly · ifHCInOctets · host01.example.com"
       refute html =~ ">Anomaly Finding<"
       assert html =~ "ifIndex 4"
+
+      # Alerts.triggered_at is timestamp(0) without time zone. SRQL can hand the
+      # LiveView an offset-less ISO string; user_time will not hook that shape,
+      # so the stream used to render a hyphen next to the severity dots.
       assert has_element?(
                lv,
-               ~s(#alert-stream time[datetime="2026-09-04T22:02:56.000000Z"][data-user-time-zone="America/Chicago"])
+               ~s(time#alert-triggered-time[datetime="2026-09-04T22:02:56Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-incident-first-seen-time[datetime="2026-09-04T21:57:56Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(time#alert-incident-last-seen-time[datetime="2026-09-04T22:02:56Z"][data-user-time-zone="America/Chicago"])
+             )
+
+      assert has_element?(
+               lv,
+               ~s(#alert-stream time[datetime="2026-09-04T22:02:56Z"][data-user-time-zone="America/Chicago"])
              )
     end
   end
@@ -512,28 +531,28 @@ defmodule ServiceRadarWebNGWeb.AlertLive.ShowTest do
         "status" => "resolved",
         "source_type" => "event",
         "device_uid" => "sr:00000000-0000-4000-8000-000000000001",
-        "triggered_at" => nil,
-        "timestamp" => nil,
-        "created_at" => "2026-09-04T22:02:56.000000Z",
+        "triggered_at" => "2026-09-04T22:02:56",
+        "timestamp" => "2026-09-04T22:02:56",
+        "created_at" => "2026-09-04T22:02:56",
         "metadata" => %{
           "incident_rule_id" => "rule-anomaly-1",
           "incident_rule_name" => "causal_prediction_health_finding",
-          "incident_group_key" =>
-            "device=sr:00000000-0000-4000-8000-000000000001|anomaly.series_key=#{series_key}",
+          "incident_group_key" => "device=sr:00000000-0000-4000-8000-000000000001|anomaly.series_key=#{series_key}",
           "incident_group_values" => %{
             "device" => "sr:00000000-0000-4000-8000-000000000001",
             "anomaly.series_key" => series_key
           },
+          "incident_first_seen_at" => "2026-09-04T21:57:56",
+          "incident_last_seen_at" => "2026-09-04T22:02:56",
           "incident_diagnostics" => %{
             "rule_name" => "causal_prediction_health_finding",
-            "group_key" =>
-              "device=sr:00000000-0000-4000-8000-000000000001|anomaly.series_key=#{series_key}",
+            "group_key" => "device=sr:00000000-0000-4000-8000-000000000001|anomaly.series_key=#{series_key}",
             "group_values" => %{
               "device" => "sr:00000000-0000-4000-8000-000000000001",
               "anomaly.series_key" => series_key
             },
-            "first_seen_at" => "2026-09-04T21:57:56Z",
-            "last_seen_at" => "2026-09-04T22:02:56Z",
+            "first_seen_at" => "2026-09-04T21:57:56",
+            "last_seen_at" => "2026-09-04T22:02:56",
             "window_count" => 1,
             "threshold" => 1,
             "window_seconds" => 300

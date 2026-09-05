@@ -29,17 +29,15 @@ defmodule ServiceRadar.Observability.EventTitle do
   def alert_title(alert) when is_map(alert) do
     explicit = text_value(alert, "title")
 
-    cond do
-      present?(explicit) and not generic_alert_title?(explicit) ->
-        explicit
-
-      true ->
-        first_present([
-          finding_subject(alert),
-          unless_generic_message(message_title(text_value(alert, "description"))),
-          unless_generic_message(message_title(text_value(alert, "message"))),
-          unless_generic_message(message_title(text_value(alert, "short_message")))
-        ]) || explicit || @fallback_alert_title
+    if present?(explicit) and not generic_alert_title?(explicit) do
+      explicit
+    else
+      first_present([
+        finding_subject(alert),
+        unless_generic_message(message_title(text_value(alert, "description"))),
+        unless_generic_message(message_title(text_value(alert, "message"))),
+        unless_generic_message(message_title(text_value(alert, "short_message")))
+      ]) || explicit || @fallback_alert_title
     end
   end
 
@@ -122,9 +120,15 @@ defmodule ServiceRadar.Observability.EventTitle do
         nested_text(alert, ["metadata", "incident_diagnostics", "rule_name"])
 
     cond do
-      present?(group_value(values, ["anomaly.series_key", "series_key"])) -> "Anomaly"
-      present?(rule_name) and String.contains?(to_string(rule_name), "anomaly") -> "Anomaly"
-      present?(rule_name) and String.contains?(to_string(rule_name), "capacity") -> "Capacity"
+      present?(group_value(values, ["anomaly.series_key", "series_key"])) ->
+        "Anomaly"
+
+      present?(rule_name) and String.contains?(to_string(rule_name), "anomaly") ->
+        "Anomaly"
+
+      present?(rule_name) and String.contains?(to_string(rule_name), "capacity") ->
+        "Capacity"
+
       generic_alert_title?(text_value(alert, "title")) and
           String.contains?(String.downcase(text_value(alert, "title") || ""), "anomaly") ->
         "Anomaly"
@@ -248,7 +252,8 @@ defmodule ServiceRadar.Observability.EventTitle do
   defp map_field(_, _), do: %{}
 
   defp nested_text(map, keys) when is_map(map) and is_list(keys) do
-    Enum.reduce_while(keys, map, fn key, acc ->
+    keys
+    |> Enum.reduce_while(map, fn key, acc ->
       case acc do
         %{} = current ->
           {:cont, Map.get(current, key) || Map.get(current, atom_key(key))}
