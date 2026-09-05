@@ -112,9 +112,10 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
   @doc false
   # Whether a grant lifecycle `action` should be mirrored into `ocsf_events`.
   # Routine issue/activate/consume are debug logs only; deny/revoke/expire stay
-  # events. Exposed for testing.
+  # events. Anything else is emitted: unknown actions fail closed to an event,
+  # never silently suppressed. Exposed for testing.
   def emit_grant_lifecycle_event?(action) do
-    not routine_grant_lifecycle?(normalize_atom(action, :issue))
+    not routine_grant_lifecycle?(action)
   end
 
   def provider_lifecycle_event_attrs(provider, action) do

@@ -82,6 +82,11 @@ defmodule ServiceRadar.Credentials.CredentialEventWriterTest do
       assert CredentialEventWriter.emit_grant_lifecycle_event?(:revoke)
       assert CredentialEventWriter.emit_grant_lifecycle_event?(:expire)
     end
+
+    test "unknown actions fail closed to an event, never suppressed" do
+      assert CredentialEventWriter.emit_grant_lifecycle_event?(:bogus_action)
+      assert CredentialEventWriter.emit_grant_lifecycle_event?(nil)
+    end
   end
 
   describe "write_broker_grant_lifecycle/2" do
