@@ -743,8 +743,9 @@ func flattenHeaders(headers http.Header) map[string]string {
 }
 
 type pluginHTTPPinnedTransportKey struct {
-	base   *http.Transport
-	bundle string
+	base        *http.Transport
+	bundle      string
+	fingerprint string
 }
 
 // pluginHTTPClientWithPinnedRoots returns a client that verifies against the
@@ -792,28 +793,19 @@ func pluginHTTPClientWithPinnedFingerprint(client *http.Client, fingerprint stri
 }
 
 func pluginHTTPPinnedFingerprintTransport(transport http.RoundTripper, fingerprint string) http.RoundTripper {
-	baseTransport, ok := transport.(*http.Transport)
-	if transport != nil && (!ok || baseTransport == nil) {
-		return transport
-	}
-	if baseTransport == nil {
-		baseTransport, ok = http.DefaultTransport.(*http.Transport)
-		if !ok || baseTransport == nil {
-			baseTransport = &http.Transport{}
-		}
-	}
-
-	httpTransport := baseTransport.Clone()
-	if httpTransport.TLSClientConfig != nil {
-		httpTransport.TLSClientConfig = httpTransport.TLSClientConfig.Clone()
-	} else {
-		httpTransport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
-	}
-	httpTransport.TLSClientConfig.InsecureSkipVerify = true
-	httpTransport.TLSClientConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
-		return matchPluginHostAuthorityFingerprint(rawCerts, fingerprint)
-	}
-	return httpTransport
+	return pluginHTTPPinnedTransport(
+		transport,
+		pluginHTTPPinnedTransportKey{fingerprint: fingerprint},
+		func(tlsConfig *tls.Config) {
+			// Chain building and hostname matching cannot succeed without an
+			// anchor; VerifyPeerCertificate is the whole verification here and
+			// accepts exactly one leaf.
+			tlsConfig.InsecureSkipVerify = true
+			tlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+				return matchPluginHostAuthorityFingerprint(rawCerts, fingerprint)
+			}
+		},
+	)
 }
 
 func matchPluginHostAuthorityFingerprint(rawCerts [][]byte, expected string) error {
@@ -836,15 +828,33 @@ func pluginHTTPClientWithPinnedRoots(client *http.Client, bundle string) *http.C
 	}
 
 	cloned := *client
-	cloned.Transport = pluginHTTPPinnedTransport(cloned.Transport, bundle, pool)
+	cloned.Transport = pluginHTTPPinnedRootsTransport(cloned.Transport, bundle, pool)
 
 	return &cloned
 }
 
-func pluginHTTPPinnedTransport(
+func pluginHTTPPinnedRootsTransport(
 	transport http.RoundTripper,
 	bundle string,
 	pool *x509.CertPool,
+) http.RoundTripper {
+	return pluginHTTPPinnedTransport(
+		transport,
+		pluginHTTPPinnedTransportKey{bundle: bundle},
+		func(tlsConfig *tls.Config) { tlsConfig.RootCAs = pool },
+	)
+}
+
+// pluginHTTPPinnedTransport returns a transport whose TLS config is the base
+// transport's with the binding's pinning applied. Results are memoized on the
+// base transport plus the pinned material so a binding keeps one connection
+// pool across requests instead of handshaking anew for every call and leaking
+// an idle connection per discarded transport. `key.base` is filled in here;
+// callers supply only the material that distinguishes their pinning.
+func pluginHTTPPinnedTransport(
+	transport http.RoundTripper,
+	key pluginHTTPPinnedTransportKey,
+	pin func(*tls.Config),
 ) http.RoundTripper {
 	baseTransport, ok := transport.(*http.Transport)
 	if transport != nil && (!ok || baseTransport == nil) {
@@ -860,7 +870,7 @@ func pluginHTTPPinnedTransport(
 		}
 	}
 
-	key := pluginHTTPPinnedTransportKey{base: baseTransport, bundle: bundle}
+	key.base = baseTransport
 
 	pluginHTTPPinnedTransportMu.Lock()
 	defer pluginHTTPPinnedTransportMu.Unlock()
@@ -875,7 +885,7 @@ func pluginHTTPPinnedTransport(
 	} else {
 		httpTransport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
-	httpTransport.TLSClientConfig.RootCAs = pool
+	pin(httpTransport.TLSClientConfig)
 	pluginHTTPPinnedTransportCache[key] = httpTransport
 
 	return httpTransport

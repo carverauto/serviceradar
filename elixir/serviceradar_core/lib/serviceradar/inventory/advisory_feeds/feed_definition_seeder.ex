@@ -39,11 +39,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder do
   end
 
   defp warn_missing_vulncheck_credential do
-    case Config.vulncheck_token() do
+    case Config.vulncheck_credential_attached() do
       {:error, {:missing_vulncheck_credential, message}} ->
         Logger.warning("advisory_feeds: #{message}")
 
-      _ ->
+      :ok ->
         :ok
     end
   end

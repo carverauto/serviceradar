@@ -210,6 +210,23 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
     end
   end
 
+  @doc """
+  Whether a VulnCheck-backed feed row carries a `credential_ref`.
+
+  This is the check a diagnostic wants: it reads the reference and stops there.
+  `vulncheck_token/1` resolves through the credential broker, which mints a
+  persisted grant and decrypts the secret, so calling it merely to decide
+  whether to warn would materialize plaintext material nothing is about to use.
+  """
+  @spec vulncheck_credential_attached() ::
+          :ok | {:error, {:missing_vulncheck_credential, String.t()}}
+  def vulncheck_credential_attached do
+    case definition_credential_ref() do
+      ref when is_binary(ref) -> :ok
+      nil -> {:error, {:missing_vulncheck_credential, @missing_credential_message}}
+    end
+  end
+
   defp definition_credential_ref do
     @vulncheck_credential_feeds
     |> Stream.map(&definition_credential_ref/1)

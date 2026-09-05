@@ -10,10 +10,12 @@ import (
 	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/pem"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -287,5 +289,71 @@ func TestPluginHostAuthorityRejectsCABundleAndFingerprintTogether(t *testing.T) 
 	bindings, _ := assignment.pluginHostAuthoritySnapshot()
 	if len(bindings) != 0 {
 		t.Fatalf("host bindings = %d, want 0 when both trust-material forms are set", len(bindings))
+	}
+}
+
+// pluginHTTPClientForBinding runs once per plugin HTTP request, so a pinning
+// path that rebuilds its transport hands every request an empty connection
+// pool: a full handshake each time, plus an idle connection stranded in each
+// discarded transport until IdleConnTimeout.
+func TestPinnedBindingReusesOneConnectionAcrossRequests(t *testing.T) {
+	loopback := net.ParseIP("127.0.0.1")
+	caPEM, leaf := newPrivateCAAndLeaf(t, loopback)
+
+	for _, tc := range []struct {
+		name    string
+		binding *pluginHostAuthorityBinding
+	}{
+		{
+			name:    "pinned CA bundle",
+			binding: &pluginHostAuthorityBinding{caBundlePEM: caPEM},
+		},
+		{
+			name:    "pinned leaf fingerprint",
+			binding: &pluginHostAuthorityBinding{serverCertFingerprint: leafFingerprint(t, leaf)},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var handshakes atomic.Int64
+
+			server := httptest.NewUnstartedServer(
+				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				}),
+			)
+			server.TLS = &tls.Config{
+				Certificates: []tls.Certificate{leaf},
+				MinVersion:   tls.VersionTLS12,
+				GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
+					handshakes.Add(1)
+					return nil, nil
+				},
+			}
+			server.StartTLS()
+			defer server.Close()
+
+			// A base transport of this test's own so the shared pinned-transport
+			// cache is keyed away from every other test in the package.
+			base := &http.Client{Transport: &http.Transport{}}
+
+			for range 3 {
+				client := pluginHTTPClientForBinding(base, false, 5*time.Second, tc.binding)
+
+				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+				if err != nil {
+					t.Fatalf("build request: %v", err)
+				}
+				resp, err := client.Do(req)
+				if err != nil {
+					t.Fatalf("pinned request: %v", err)
+				}
+				_, _ = io.Copy(io.Discard, resp.Body)
+				_ = resp.Body.Close()
+			}
+
+			if got := handshakes.Load(); got != 1 {
+				t.Fatalf("TLS handshakes = %d, want 1: the binding must keep one connection pool across requests", got)
+			}
+		})
 	}
 }
