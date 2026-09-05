@@ -348,6 +348,19 @@ export function Component({
     return {credential}
   }, [credential])
 
+  // Rules-of-hooks: every hook must run on every render, including the
+  // post-201 session branch below, which early-returns. A memo placed after
+  // that return silently drops a hook on session renders and unmounts the
+  // whole console (dev: "rendered fewer hooks", prod: minified error #300).
+  const accountNames = useMemo(
+    () =>
+      accounts
+        .map((account) => (typeof account === "string" ? account : account?.name))
+        .filter((name) => typeof name === "string" && name.trim() !== "")
+        .map((name) => name.trim()),
+    [accounts]
+  )
+
   async function handleFile(event) {
     const file = event.target.files?.[0]
 
@@ -858,15 +871,6 @@ export function Component({
       </div>
     )
   }
-
-  const accountNames = useMemo(
-    () =>
-      accounts
-        .map((account) => (typeof account === "string" ? account : account?.name))
-        .filter((name) => typeof name === "string" && name.trim() !== "")
-        .map((name) => name.trim()),
-    [accounts]
-  )
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-base-100">

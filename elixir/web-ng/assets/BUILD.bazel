@@ -290,6 +290,7 @@ vitest_bin.vitest_test(
     args = [
         "run",
         "component/test/RemoteAccessSSHConsole.test.jsx",
+        "component/test/RemoteAccessSSHConsoleSession.test.jsx",
     ],
     chdir = package_name(),
     data = [
@@ -299,6 +300,7 @@ vitest_bin.vitest_test(
         "component/src/renderText.js",
         "component/src/sshEphemeralKeypair.js",
         "component/test/RemoteAccessSSHConsole.test.jsx",
+        "component/test/RemoteAccessSSHConsoleSession.test.jsx",
     ],
     tags = ["unit_test"],
 )
