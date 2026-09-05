@@ -424,6 +424,23 @@ defmodule ServiceRadar.EventWriter.Config do
   Shared by `default_streams/0` and both runtime.exs stream lists so the
   retention stanza cannot drift.
   """
+  @spec k8s_nodes_stream() :: stream_config()
+  def k8s_nodes_stream do
+    %{
+      name: "K8S_NODES",
+      stream_name: "k8s_inventory",
+      subject: "inventory.k8s.nodes",
+      processor: ServiceRadar.EventWriter.Processors.K8sNodes,
+      batch_size: 1,
+      batch_timeout: 2_000,
+      stream_retention: "limits",
+      stream_storage: "file",
+      stream_discard: "old",
+      stream_max_bytes: 1_073_741_824,
+      stream_max_age: 86_400_000_000_000
+    }
+  end
+
   @spec analytics_predictions_stream() :: stream_config()
   def analytics_predictions_stream do
     %{
@@ -505,19 +522,7 @@ defmodule ServiceRadar.EventWriter.Config do
         stream_max_bytes: 1_073_741_824,
         stream_max_age: 86_400_000_000_000
       },
-      %{
-        name: "K8S_NODES",
-        stream_name: "k8s_inventory",
-        subject: "inventory.k8s.nodes",
-        processor: ServiceRadar.EventWriter.Processors.K8sNodes,
-        batch_size: 1,
-        batch_timeout: 2_000,
-        stream_retention: "limits",
-        stream_storage: "file",
-        stream_discard: "old",
-        stream_max_bytes: 1_073_741_824,
-        stream_max_age: 86_400_000_000_000
-      },
+      k8s_nodes_stream(),
       %{
         name: "OTEL_METRICS",
         stream_name: "events",

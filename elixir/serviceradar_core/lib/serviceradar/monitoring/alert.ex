@@ -100,7 +100,7 @@ defmodule ServiceRadar.Monitoring.Alert do
       index :active, route: "/active"
       index :pending, route: "/pending"
       post :trigger
-      post :publish_k8s_node_not_ready, route: "/k8s-node-not-ready-test"
+      route :post, "/k8s-node-not-ready-test", :publish_k8s_node_not_ready
       patch :acknowledge, route: "/:id/acknowledge"
       patch :resolve, route: "/:id/resolve"
     end
@@ -302,7 +302,7 @@ defmodule ServiceRadar.Monitoring.Alert do
         cluster_id = input.arguments.cluster_id
         event_type = "node.not_ready"
 
-        payload = %{
+        not_ready = %{
           "event_type" => event_type,
           "severity" => "critical",
           "message" => "Kubernetes #{role} node #{node} is NotReady",
@@ -315,9 +315,22 @@ defmodule ServiceRadar.Monitoring.Alert do
           }
         }
 
-        case InternalLogPublisher.publish("k8s", payload) do
-          :ok -> {:ok, %{published: true, cluster_id: cluster_id, node: node, role: role}}
-          {:error, reason} -> {:error, reason}
+        ready = %{
+          "event_type" => "node.ready",
+          "severity" => "info",
+          "message" => "Kubernetes #{role} node #{node} is Ready",
+          "attributes" => %{
+            "event_type" => "node.ready",
+            "cluster_id" => cluster_id,
+            "node" => node,
+            "node.role" => role,
+            "hostname" => node
+          }
+        }
+
+        with :ok <- InternalLogPublisher.publish("k8s", not_ready),
+             :ok <- InternalLogPublisher.publish("k8s", ready) do
+          {:ok, %{published: true, cluster_id: cluster_id, node: node, role: role, cleared: true}}
         end
       end
     end

@@ -2,22 +2,23 @@
 
 ## Why
 
-A cluster worker going `Ready=False` is silent in Discord even though demo
-ServiceRadar already inventories those nodes and already has a Discord channel.
+A cluster worker going `Ready=False` is silent in Discord even though a
+ServiceRadar instance already inventories those nodes and already has a Discord
+channel.
 
-Diagnosis on the carverauto `demo` instance (kubectl context `carverauto`)
-separates three layers:
+Diagnosis on a demo instance separates three layers:
 
 1. **Trigger.** `serviceradar-k8s-inventory` watches Services, EndpointSlices,
    and Gateway API. It does not watch Nodes. There is no `Ready` condition
    signal, no seeded rule, and no `Device Unreachable` (or node-down) alert for
-   `k8s-cp*` hostnames. Sweep still marks the nodes' IPv4 addresses available,
-   which is expected: kubelet NotReady does not imply ICMP loss.
-2. **Masking.** The notification platform *is* running. Channel `demo-discord`
-   is enabled, native Discord, with a `webhook_url` secret. The only route
-   (`test`) matches `alert.title equals ""`. Every recorded delivery
-   (12k+) is `suppressed` with `no_matching_route`. Channel health is
-   `unknown` because nothing has ever been dispatched to it.
+   worker or control-plane hostnames such as `node-worker-1.example.com` and
+   `node-control-1.example.com`. Sweep still marks the nodes' IPv4 addresses
+   available, which is expected: kubelet NotReady does not imply ICMP loss.
+2. **Masking.** The notification platform *is* running. An enabled Discord
+   channel exists, with a `webhook_url` secret. The only route (`test`) matches
+   `alert.title equals ""`. Recorded deliveries are `suppressed` with
+   `no_matching_route`. Channel health is `unknown` because nothing has ever
+   been dispatched to it.
 3. **Symptom.** Discord stays quiet.
 
 `openspec/changes/add-notification-platform` already built the delivery engine
@@ -39,12 +40,16 @@ channel silent.
 - Route those alerts through the existing notification platform to the
   operator Discord channel. Reject empty-string `equals` match operands on
   routes so a "test" route cannot silently match nothing.
-- On demo: add (or replace) a route whose predicate matches the seeded rule
-  and fans out to `demo-discord`. Prove Discord with a test send that
-  traverses that same route. Operators configure this through the JSON:API
-  (`/api/v2/notification-*`) via `serviceradar-cli notifications
-  ensure-k8s-alerts` or `js/cli/ensure_k8s_node_alerts.py`, not by hand in
-  the UI.
+- On a demo instance: add (or replace) a route whose predicate matches the
+  seeded rule and fans out to the existing Discord channel. Prove Discord
+  with a test send that traverses that same route. Operators configure this
+  through the JSON:API (`/api/v2/notification-*`) via
+  `serviceradar-cli notifications ensure-k8s-alerts` or
+  `js/cli/ensure_k8s_node_alerts.py`, not by hand in the UI. The JSON:API
+  can create a NotificationChannel only when the operator already has a
+  Discord incoming-webhook URL; there is no endpoint that mints a Discord
+  webhook. The CLI/Python helpers fail closed if the named channel is
+  absent.
 
 ## Impact
 

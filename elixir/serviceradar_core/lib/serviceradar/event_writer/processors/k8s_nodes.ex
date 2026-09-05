@@ -309,6 +309,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
     SELECT uid
     FROM platform.ocsf_devices
     WHERE hostname = $1 AND deleted_at IS NULL
+    ORDER BY uid
     LIMIT 1
     """
 

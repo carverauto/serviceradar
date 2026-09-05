@@ -390,15 +390,14 @@ defmodule ServiceRadar.Observability.RuleSeeder do
             "attribute_equals" => %{"event_type" => "node.ready"}
           }
         },
-        group_by: ["cluster_id", "node"],
+        group_by: ["cluster_id", "node", "node.role"],
         threshold: 1,
         window_seconds: 300,
         bucket_seconds: 60,
         cooldown_seconds: 300,
         renotify_seconds: 21_600,
         event: %{
-          "log_name" => "alert.availability.k8s.node",
-          "message" => "Kubernetes node is NotReady"
+          "log_name" => "alert.availability.k8s.node"
         },
         alert: %{
           "severity" => "critical"
