@@ -95,7 +95,7 @@ CA, and `PGSSLSERVERNAME` supplies the certificate DNS name when the DSN address
 The Elixir consumers see the original `verify-ca`/`verify-full` value and enable `verify_peer`.
 
 Without that parser-boundary normalization, the kubectl setup path's `verify-full` default
-aborts `prepare_template`, `provision_db`, `teardown_db`, and `sweep_stale_dbs` before they can
+aborts `provision_base`, `provision_db`, `teardown_db`, and `sweep_stale_dbs` before they can
 connect. A pure Rust lifecycle regression covers both verified libpq modes.
 
 **The Elixir consumers do depend on it**, and both must treat "nothing named a mode" as

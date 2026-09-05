@@ -1036,8 +1036,23 @@ the shared CNPG/AGE fixture. There is deliberately no orchestration script: invo
 Bazel lifecycle in order as the caller:
 
 ```text
-sweep -> prepare template -> migrate if pending -> provision -> test -> teardown
+sweep -> provision base -> migrate run if pending -> provision lanes -> test -> teardown
 ```
+
+**Never run `//elixir/serviceradar_core:migrate_template` from a branch.** `sr_core_template` is
+shared by every run on the fixture and only ratchets forward, so migrating it from a branch
+checkout writes that branch's unmerged migrations into the schema every other branch clones --
+and every branch whose checkout lacks them is then refused. That is not hypothetical: one branch
+left seven behind and every other pull request went red on a step unrelated to its own diff.
+The template is advanced by the trunk lifecycle alone (`LargeIngestionGate`, push to `staging`).
+
+A branch's own migrations go to its **run base**: `//rust/integration-db:provision_base` seeds
+`sr_core_test_<run>` from the template, `//elixir/serviceradar_core:migrate_run` brings that one
+database up to the checkout, and the lane databases are cloned from it. If `provision_base`
+reports the template AHEAD of the checkout it does not fail -- it builds the base from nothing,
+says so, and leaves the shared template alone. `bazel run //rust/integration-db:reset_template`
+is the deliberate recovery when the template has diverged from trunk; the trunk lifecycle runs it
+automatically in that case.
 
 For one shard, pair `//rust/integration-db:provision_db_sN` with
 `//elixir/serviceradar_core:integration_tests_sN`. CI uses the unsuffixed provision target and

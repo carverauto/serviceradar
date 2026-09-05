@@ -93,35 +93,18 @@ actions:
           export SERVICERADAR_ENV=ci
           export BAZEL_PROFILE=ci
 
-          # Template migration is outside the measured lifecycle and uses private state.
-          (
-            PREFLIGHT_RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
-            PREFLIGHT_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-preflight-env.XXXXXX")"
-            chmod 600 "$PREFLIGHT_ENV_FILE"
-            SERVICERADAR_FIXTURE_ENV_FILE="$PREFLIGHT_ENV_FILE"
-            export SERVICERADAR_FIXTURE_ENV_FILE
-            trap 'rm -f "$PREFLIGHT_ENV_FILE"' EXIT
-            bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //:buildbuddy_setup_fixture_env
-            set -a; . "$PREFLIGHT_ENV_FILE"; set +a
-            PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
-               --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-               --test_output=errors
-               --nocache_test_results --noremote_upload_local_results
-               --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
-               --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
-               --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
-               $SERVICERADAR_TEST_ENV_FLAGS"
-            preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:prepare_template)"
-            echo "$preflight"
-            case "$preflight" in
-              *"migration(s) pending"*) bazel test $PREFLIGHT_FLAGS //elixir/serviceradar_core:migrate_template ;;
-            esac
-            preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:prepare_template)"
-            echo "$preflight"
-            case "$preflight" in
-              *"migration(s) pending"*) echo "template remains pending after preflight" >&2; exit 1 ;;
-            esac
-          )
+          # THE SHARED TEMPLATE IS NOT WRITTEN HERE, and that is the entire point of this
+          # comment. BazelCI runs on branches, never on staging, so every run that reached the
+          # template migrator was advancing a cache every branch reads with migrations that were
+          # not yet on staging. One branch left seven behind and every other branch then went red
+          # on a step unrelated to its own diff, until that branch landed. A branch's CI outcome
+          # must not depend on which other branches ran before it.
+          #
+          # This run's migrations go to this run's own database instead: provision_base seeds
+          # sr_core_test_$RUN_ID from the template, migrate_run brings it up to this checkout,
+          # and provision_db clones the lanes from it -- all under $RUN_ID, all inside the
+          # measured lifecycle below, because they are this run's own work. Only the trunk
+          # action (LargeIngestionGate, push to staging) advances sr_core_template.
 
           RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
           export RUN_ID
@@ -243,10 +226,12 @@ actions:
           wait_for_observer_ready 30 || exit 1
 
           bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
-          template="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_template)"
-          echo "$template"
-          case "$template" in
-            *"migration(s) pending"*) echo "template changed during measured lifecycle" >&2; exit 1 ;;
+          base="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_base)"
+          echo "$base"
+          # Only when this branch actually adds migrations. The BEAM costs 28.8-45.6s before it
+          # runs a line of test code, and provision_db re-checks the base either way.
+          case "$base" in
+            *"migration(s) pending"*) bazel test $FLAGS //elixir/serviceradar_core:migrate_run ;;
           esac
           bazel test $FLAGS //rust/integration-db:provision_db
           # test_tag_filters controls execution, not every top-level target Bazel builds from
@@ -336,7 +321,14 @@ actions:
           export SERVICERADAR_ENV=ci
           export BAZEL_PROFILE=ci
 
-          # Template migration is outside the measured lifecycle and uses private state.
+          # THE ONLY PLACE THE SHARED TEMPLATE IS WRITTEN. This action triggers on a push to
+          # staging and on the nightly cron, so the migrations in this checkout are the MERGED
+          # ones -- which is the whole qualification for advancing a cache every branch reads.
+          # Pull requests build a per-run base instead; see rust/integration-db/src/template.rs
+          # for the incident that split these two apart.
+          #
+          # Outside the measured lifecycle and using private state: its credentials and run id
+          # belong to this subshell, so it cannot warm or leak measured-run configuration.
           (
             PREFLIGHT_RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
             PREFLIGHT_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-preflight-env.XXXXXX")"
@@ -356,6 +348,18 @@ actions:
                $SERVICERADAR_TEST_ENV_FLAGS"
             preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:prepare_template)"
             echo "$preflight"
+            # An AHEAD template holds migrations that are on no merged branch. The migrator
+            # cannot un-apply anything, so running it here would report success and change
+            # nothing, and every branch would keep paying a full schema build. Invalidate the
+            # cache instead -- on trunk, and only on trunk, "ahead of this checkout" and "ahead
+            # of the schema of record" are the same statement.
+            case "$preflight" in
+              *"template is AHEAD"*)
+                bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:reset_template
+                preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:prepare_template)"
+                echo "$preflight"
+                ;;
+            esac
             case "$preflight" in
               *"migration(s) pending"*) bazel test $PREFLIGHT_FLAGS //elixir/serviceradar_core:migrate_template ;;
             esac
@@ -363,6 +367,7 @@ actions:
             echo "$preflight"
             case "$preflight" in
               *"migration(s) pending"*) echo "template remains pending after preflight" >&2; exit 1 ;;
+              *"template is AHEAD"*) echo "template is still ahead of trunk after a reset" >&2; exit 1 ;;
             esac
           )
 
@@ -486,10 +491,12 @@ actions:
           wait_for_observer_ready 30 || exit 1
 
           bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
-          template="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_template)"
-          echo "$template"
-          case "$template" in
-            *"migration(s) pending"*) echo "template changed during measured lifecycle" >&2; exit 1 ;;
+          base="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_base)"
+          echo "$base"
+          # Only when this branch actually adds migrations. The BEAM costs 28.8-45.6s before it
+          # runs a line of test code, and provision_db re-checks the base either way.
+          case "$base" in
+            *"migration(s) pending"*) bazel test $FLAGS //elixir/serviceradar_core:migrate_run ;;
           esac
           bazel test $FLAGS //rust/integration-db:provision_db_large_ingestion
           bazel test $FLAGS //elixir/serviceradar_core:large_ingestion_release_gate
@@ -539,8 +546,10 @@ actions:
           --build_tag_filters=
           //rust/integration-db:observe_connections
           //rust/integration-db:sweep_stale_dbs
+          //rust/integration-db:provision_base
           //rust/integration-db:provision_db
           //rust/integration-db:teardown_db
+          //elixir/serviceradar_core:migrate_run
 
       - run: |
           set -euo pipefail
@@ -549,36 +558,18 @@ actions:
           export SERVICERADAR_ENV=ci
           export BAZEL_PROFILE=ci
 
-          # Preflight is intentionally outside the clock. It may migrate, then proves the
-          # template current before the measured lifecycle starts. Its credentials and run id
-          # are private to this subshell, so it cannot warm or leak measured-run configuration.
-          (
-            PREFLIGHT_RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
-            PREFLIGHT_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-preflight-env.XXXXXX")"
-            SERVICERADAR_FIXTURE_ENV_FILE="$PREFLIGHT_ENV_FILE"
-            export SERVICERADAR_FIXTURE_ENV_FILE
-            trap 'rm -f "$PREFLIGHT_ENV_FILE"' EXIT
-            bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //:buildbuddy_setup_fixture_env
-            set -a; . "$PREFLIGHT_ENV_FILE"; set +a
-            PREFLIGHT_FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
-               --//build:run_id=$PREFLIGHT_RUN_ID --test_env=SERVICERADAR_ENV=ci --flaky_test_attempts=1
-               --test_output=all
-               --nocache_test_results --noremote_upload_local_results
-               --test_env=SERVICERADAR_SECRET_DATABASE_PASSWORD
-               --test_env=SERVICERADAR_SECRET_DATABASE_ADMIN_PASSWORD
-               --test_env=SERVICERADAR_SECRET_DGRAPH_ADMIN_PASSWORD
-               $SERVICERADAR_TEST_ENV_FLAGS"
-            preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:prepare_template)"
-            echo "$preflight"
-            case "$preflight" in
-              *"migration(s) pending"*) bazel test $PREFLIGHT_FLAGS //elixir/serviceradar_core:migrate_template ;;
-            esac
-            preflight="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$PREFLIGHT_RUN_ID //rust/integration-db:prepare_template)"
-            echo "$preflight"
-            case "$preflight" in
-              *"migration(s) pending"*) echo "template remains pending after preflight" >&2; exit 1 ;;
-            esac
-          )
+          # THE SHARED TEMPLATE IS NOT WRITTEN HERE, and that is the entire point of this
+          # comment. BazelCI runs on branches, never on staging, so every run that reached the
+          # template migrator was advancing a cache every branch reads with migrations that were
+          # not yet on staging. One branch left seven behind and every other branch then went red
+          # on a step unrelated to its own diff, until that branch landed. A branch's CI outcome
+          # must not depend on which other branches ran before it.
+          #
+          # This run's migrations go to this run's own database instead: provision_base seeds
+          # sr_core_test_$RUN_ID from the template, migrate_run brings it up to this checkout,
+          # and provision_db clones the lanes from it -- all under $RUN_ID, all inside the
+          # measured lifecycle below, because they are this run's own work. Only the trunk
+          # action (LargeIngestionGate, push to staging) advances sr_core_template.
 
           RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
           export RUN_ID
@@ -659,10 +650,12 @@ actions:
           wait_for_marker "$READY_FILE" 30 || { echo "observer did not become ready" >&2; exit 1; }
 
           bazel test $FLAGS //rust/integration-db:sweep_stale_dbs
-          template="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:prepare_template)"
-          echo "$template"
-          case "$template" in
-            *"migration(s) pending"*) echo "template changed during benchmark; warm-up/non-cohort" >&2; exit 1 ;;
+          base="$(bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //rust/integration-db:provision_base)"
+          echo "$base"
+          # Only when this branch actually adds migrations. The BEAM costs 28.8-45.6s before it
+          # runs a line of test code, and provision_db re-checks the base either way.
+          case "$base" in
+            *"migration(s) pending"*) bazel test $FLAGS //elixir/serviceradar_core:migrate_run ;;
           esac
           bazel test $FLAGS //rust/integration-db:provision_db
           # test_tag_filters controls execution, not every top-level target Bazel builds from

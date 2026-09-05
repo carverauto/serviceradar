@@ -38,6 +38,28 @@
 //!
 //! Migrations are append-only, so the common case after adding one is that the template is
 //! advanced by exactly that migration rather than rebuilt.
+//!
+//! # Who may WRITE to the template
+//!
+//! Only a run on trunk. This is the whole reason the lifecycle has a run base at all.
+//!
+//! The template is shared by every run and only ever ratchets FORWARD, so it is a CACHE of
+//! trunk's schema and nothing else. It used to be advanced by whichever run reached
+//! `//elixir/serviceradar_core:migrate_template` first -- and BazelCI triggers on
+//! `pull_request` only, so in practice that was always a branch whose migrations were
+//! UNMERGED. One such branch left seven migrations in the template that existed on no other
+//! branch, and from that moment every other pull request cloned a schema it did not have the
+//! code for. The check below caught it, correctly, and refused; the cost was that one
+//! branch's pollution wedged everyone else's CI until that branch merged.
+//!
+//! So a branch's own migrations now go to `sr_core_test_<run>` -- the RUN BASE, created by
+//! `//rust/integration-db:provision_base`, migrated by
+//! `//elixir/serviceradar_core:migrate_run`, and used as the source the lane databases are
+//! cloned from. The shared template is read, never written, by anything but trunk.
+//!
+//! And when the template is nonetheless ahead of this checkout, the run does not refuse: it
+//! builds the run base from nothing instead ([`create_scratch`]) and reports loudly. A cache
+//! that cannot be used is a cache miss, not an outage.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -127,82 +149,136 @@ pub async fn ensure_template(owner: &str) -> Result<TemplateState> {
     Ok(state)
 }
 
-/// Migration versions present on disk but not yet applied to the template.
-///
-/// Empty means the Elixir migrator has nothing to do. It does NOT establish that the template is
-/// current: the template may also contain extra-applied versions absent from this checkout. Use
-/// [`migration_drift`] and [`ensure_not_ahead`] when both directions matter.
-pub async fn pending_versions(migrations_dir: &Path) -> Result<Vec<i64>> {
-    Ok(migration_drift(migrations_dir).await?.pending)
-}
-
-/// How the template's applied migrations differ from this checkout's, in BOTH directions.
+/// How a database's applied migrations differ from this checkout's, in BOTH directions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MigrationDrift {
-    /// On disk here, not applied to the template. The ordinary "you need to migrate" case.
+    /// On disk here, not applied there. The ordinary "you need to migrate" case.
     pub pending: Vec<i64>,
-    /// Applied to the template, ABSENT from this checkout. See [`migration_drift`].
+    /// Applied there, ABSENT from this checkout. See [`migration_drift_of`].
     pub extra_applied: Vec<i64>,
 }
 
-/// Compares the migrations on disk against the template's `schema_migrations`, both ways.
+/// [`migration_drift_of`] against the shared template.
+pub async fn migration_drift(migrations_dir: &Path) -> Result<MigrationDrift> {
+    migration_drift_of(TEMPLATE_DATABASE, migrations_dir).await
+}
+
+/// Compares the migrations on disk against `database`'s `schema_migrations`, both ways.
 ///
-/// The second direction is the one that used to go unasked. `sr_core_template` is SHARED across
-/// branches and only ever ratchets FORWARD: whichever branch runs the lifecycle first leaves its
-/// schema behind for every branch that clones it afterwards. A branch that is BEHIND therefore
-/// runs its own code against a FUTURE schema, and nothing noticed, because the only question
-/// asked was "is anything PENDING?" -- and a behind-branch's migrations are a strict SUBSET of
-/// what is applied, so the answer is no.
+/// The second direction is the one that used to go unasked. A database that is AHEAD of this
+/// checkout runs the code under test against a FUTURE schema, and nothing noticed, because the
+/// only question asked was "is anything PENDING?" -- and a behind-checkout's migrations are a
+/// strict SUBSET of what is applied, so the answer is no.
 ///
 /// Twice now that has surfaced as a scatter of constraint and undefined-column errors naming no
 /// migration at all: once when `discovered_interfaces` was rekeyed, and again when
 /// `network_credential_secret_versions` was reshaped. Each cost a full bisect to identify.
-pub async fn migration_drift(migrations_dir: &Path) -> Result<MigrationDrift> {
+pub async fn migration_drift_of(database: &str, migrations_dir: &Path) -> Result<MigrationDrift> {
     let on_disk = versions_on_disk(migrations_dir)?;
 
     if on_disk.is_empty() {
         bail!(
-            "no migrations found under {}; refusing to report a current template on the \
+            "no migrations found under {}; refusing to report a current database on the \
              strength of an empty directory",
             migrations_dir.display()
         );
     }
 
-    let applied = applied_versions().await?;
+    let applied = applied_versions(database).await?;
 
     Ok(drift_between(&on_disk, &applied))
 }
 
-/// Refuses when the template is AHEAD of this checkout, naming every extra migration.
-///
-/// Pending and extra-applied migrations can coexist when branches have diverged, so the refusal
-/// does not assume that the pending direction is empty.
-///
-/// Separate from [`migration_drift`] so the REFUSAL is testable, not just the comparison: the
-/// message is the entire value of this guard. What it replaces is a scatter of constraint and
-/// undefined-column errors that name no migration, which has twice cost a full bisect.
-pub fn ensure_not_ahead(template: &str, drift: &MigrationDrift) -> Result<()> {
-    if drift.extra_applied.is_empty() {
-        return Ok(());
-    }
+/// Whether the shared template may seed this checkout's run base.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TemplateFitness {
+    /// Nothing applied to the template is absent from this checkout. Clone it.
+    Usable,
+    /// The template carries migrations this checkout does not have. Do NOT clone it.
+    Ahead { extra_applied: Vec<i64> },
+}
 
-    let versions = drift
-        .extra_applied
+/// Decide whether the template is a safe seed for the run base.
+///
+/// Only the extra-applied direction disqualifies it. A template that is merely BEHIND is the
+/// ordinary case for a branch that adds migrations: the clone is seeded from it and the pending
+/// migrations are then applied to the RUN BASE, never back to the shared template.
+pub fn template_fitness(drift: &MigrationDrift) -> TemplateFitness {
+    if drift.extra_applied.is_empty() {
+        TemplateFitness::Usable
+    } else {
+        TemplateFitness::Ahead {
+            extra_applied: drift.extra_applied.clone(),
+        }
+    }
+}
+
+/// The report printed when an ahead template is bypassed, naming every extra migration.
+///
+/// Naming them is the entire value of this text: what it replaces is a scatter of constraint and
+/// undefined-column errors that name no migration, which has twice cost a full bisect. It is a
+/// REPORT rather than a refusal because the run then builds its schema from its own migrations,
+/// which is strictly more correct than cloning a future one -- and because refusing made one
+/// branch's pollution wedge every other branch's CI until a human intervened.
+pub fn ahead_report(template: &str, extra_applied: &[i64]) -> String {
+    let versions = extra_applied
         .iter()
         .map(i64::to_string)
         .collect::<Vec<_>>()
         .join(", ");
 
-    bail!(
+    format!(
         "template {template} is AHEAD of this checkout: {} migration(s) are applied that this \
          branch does not contain.\n\nExtra applied versions: {versions}\n\n\
-         The template is shared and only ratchets forward, so a branch behind another clones a \
-         FUTURE schema. `mix ecto.migrate` cannot see this: it reports migrations pending from \
-         this checkout, not migrations already applied to the template that are absent from \
-         this checkout.\n\n\
-         Merge or rebase onto the branch that added those migrations. Re-provisioning will NOT \
-         help -- a fresh clone of the same template reproduces it exactly.",
-        drift.extra_applied.len()
+         This run will NOT clone it. The run base is built from this checkout's own migrations \
+         instead, which costs a full schema build for this run and leaves the shared template \
+         untouched.\n\n\
+         If those versions are on staging, merge or rebase -- your branch is behind. If they \
+         belong to no merged branch, something advanced the shared template that should not \
+         have; `bazel run //rust/integration-db:reset_template` drops it so the next trunk run \
+         rebuilds it from staging.",
+        extra_applied.len()
+    )
+}
+
+/// Refuses unless `database`'s applied migrations match this checkout EXACTLY, both ways.
+///
+/// The gate in front of cloning the lane databases. By then the run base has been seeded and
+/// migrated by this run alone, so either direction of drift is a broken invariant rather than a
+/// state a branch can arrive in -- and cloning eight lanes from a half-built base would scatter
+/// the failure across every lane instead of reporting it once, here.
+pub fn ensure_current(database: &str, drift: &MigrationDrift) -> Result<()> {
+    if drift.extra_applied.is_empty() && drift.pending.is_empty() {
+        return Ok(());
+    }
+
+    let mut problems = Vec::new();
+
+    if !drift.pending.is_empty() {
+        problems.push(format!(
+            "{} migration(s) still PENDING (starting at {}); \
+             //elixir/serviceradar_core:migrate_run must run before the lanes are cloned",
+            drift.pending.len(),
+            drift.pending[0]
+        ));
+    }
+
+    if !drift.extra_applied.is_empty() {
+        problems.push(format!(
+            "{} migration(s) applied that this checkout does not contain ({})",
+            drift.extra_applied.len(),
+            drift
+                .extra_applied
+                .iter()
+                .map(i64::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+
+    bail!(
+        "run base {database} does not match this checkout: {}",
+        problems.join("; ")
     )
 }
 
@@ -214,27 +290,24 @@ fn drift_between(on_disk: &BTreeSet<i64>, applied: &BTreeSet<i64>) -> MigrationD
     }
 }
 
-/// Versions recorded in the template's `schema_migrations`.
+/// Versions recorded in `database`'s `schema_migrations`.
 ///
-/// A template with no such table has had nothing applied yet, which is the state
-/// [`ensure_template`] leaves behind on first creation.
-async fn applied_versions() -> Result<BTreeSet<i64>> {
+/// A database with no such table has had nothing applied yet, which is the state
+/// [`ensure_template`] and [`create_scratch`] both leave behind on first creation.
+async fn applied_versions(database: &str) -> Result<BTreeSet<i64>> {
     // Check for the database before connecting to it. Connecting to a database that does not
     // exist reports `FATAL: database "sr_core_template" does not exist`, which reads like a
-    // fixture outage rather than "nothing has created the template yet".
+    // fixture outage rather than "nothing has created it yet".
     {
         let (admin, _task) = connect_admin(None).await?;
-        if !database_exists(&admin, TEMPLATE_DATABASE).await? {
-            bail!(
-                "template {TEMPLATE_DATABASE} does not exist; run \
-                 //rust/integration-db:prepare_template first"
-            );
+        if !database_exists(&admin, database).await? {
+            bail!("{database} does not exist; run //rust/integration-db:provision_base first");
         }
     }
 
-    let (client, _task) = connect_admin(Some(TEMPLATE_DATABASE)).await?;
+    let (client, _task) = connect_admin(Some(database)).await?;
 
-    let Some(schema) = schema_migrations_schema(&client).await? else {
+    let Some(schema) = schema_migrations_schema(&client, database).await? else {
         return Ok(BTreeSet::new());
     };
 
@@ -265,7 +338,7 @@ async fn applied_versions() -> Result<BTreeSet<i64>> {
 /// relation. [`crate::install_extensions`] creates the platform schema up front precisely so
 /// this cannot happen -- but a template built before that fix, or by hand, still can, and a
 /// silent pick of the wrong one would replay 368 migrations against a full schema.
-async fn schema_migrations_schema(client: &Client) -> Result<Option<String>> {
+async fn schema_migrations_schema(client: &Client, database: &str) -> Result<Option<String>> {
     let rows = client
         .query(
             "SELECT n.nspname FROM pg_class c \
@@ -286,9 +359,10 @@ async fn schema_migrations_schema(client: &Client) -> Result<Option<String>> {
         0 => Ok(None),
         1 => Ok(Some(schemas.into_iter().next().expect("length checked"))),
         _ => bail!(
-            "template {TEMPLATE_DATABASE} has schema_migrations in more than one schema ({}); \
-             Ecto would read the empty one and replay every migration. Drop the template and \
-             let //rust/integration-db:prepare_template rebuild it.",
+            "{database} has schema_migrations in more than one schema ({}); Ecto would read the \
+             empty one and replay every migration. For the shared template, \
+             `bazel run //rust/integration-db:reset_template` drops it so the next trunk run \
+             rebuilds it.",
             schemas.join(", ")
         ),
     }
@@ -329,19 +403,23 @@ fn versions_on_disk(migrations_dir: &Path) -> Result<BTreeSet<i64>> {
     Ok(versions)
 }
 
-/// Create `database` as a physical copy of the template.
+/// Create `database` as a physical copy of `source`.
 ///
-/// Replaces the old create-then-install-extensions path: everything the template holds --
-/// schema, extensions, TimescaleDB catalog, AGE graphs -- arrives with the copy.
-pub async fn clone_from_template(database: &str, owner: &str) -> Result<()> {
+/// Replaces the old create-then-install-extensions path: everything the source holds -- schema,
+/// extensions, TimescaleDB catalog, AGE graphs -- arrives with the copy.
+///
+/// `source` is the shared template when seeding a run base, and the RUN BASE when cloning the
+/// lane databases. Only the target is required to be disposable: the shared template is a legal
+/// source and an illegal target, which is the asymmetry [`crate::assert_disposable`] encodes.
+pub async fn clone_database(source: &str, database: &str, owner: &str) -> Result<()> {
     crate::assert_disposable(database)?;
 
     let (admin, _task) = connect_admin(None).await?;
 
-    if !database_exists(&admin, TEMPLATE_DATABASE).await? {
+    if !database_exists(&admin, source).await? {
         bail!(
-            "template {TEMPLATE_DATABASE} does not exist; run //rust/integration-db:ensure_template \
-             and //elixir/serviceradar_core:migrate_template first"
+            "{source} does not exist; run //rust/integration-db:provision_base before cloning \
+             from it"
         );
     }
 
@@ -359,19 +437,20 @@ pub async fn clone_from_template(database: &str, owner: &str) -> Result<()> {
     // CREATE DATABASE ... TEMPLATE refuses to run while ANY session is connected to the
     // source, failing with SQLSTATE 55006 (object_in_use).
     //
-    // Two things cause that, and neither should be fatal. Our own connection from the
+    // Three things cause that, and none should be fatal. Our own connection from the
     // pending-versions check closes asynchronously -- dropping a tokio_postgres Client
     // signals the connection task, but the server may not have processed the disconnect by
-    // the time the next statement lands. And a concurrent run may be migrating the template,
-    // which takes as long as it takes.
+    // the time the next statement lands. A concurrent run may be migrating the shared
+    // template, which takes as long as it takes. And when the source is this run's own base,
+    // the BEAM that just migrated it may not have finished tearing its pool down.
     //
-    // So: retry with backoff rather than terminate. Terminating backends on the template
-    // would resolve the first case and corrupt the second, killing another run's migration
-    // half way through.
+    // So: retry with backoff rather than terminate. Terminating backends on the source would
+    // resolve the first case and corrupt the second, killing another run's migration half way
+    // through.
     let statement = format!(
         "CREATE DATABASE {} TEMPLATE {} OWNER {};",
         quote_ident(database),
-        quote_ident(TEMPLATE_DATABASE),
+        quote_ident(source),
         quote_ident(owner)
     );
 
@@ -383,6 +462,101 @@ pub async fn clone_from_template(database: &str, owner: &str) -> Result<()> {
             Ok(()) => return Ok(()),
             Err(err) if is_object_in_use(&err) => {
                 eprintln!(
+                    "{source} is in use (attempt {attempt}/{CLONE_RETRIES}); \
+                     retrying in {delay:?}"
+                );
+                tokio::time::sleep(delay).await;
+                delay = (delay * 2).min(CLONE_RETRY_MAX);
+                last_err = Some(err);
+            }
+            Err(err) => {
+                return Err(err)
+                    .with_context(|| format!("failed to clone {database} from {source}"))
+            }
+        }
+    }
+
+    Err(last_err.expect("loop ran at least once")).with_context(|| {
+        format!(
+            "{source} was still in use after {CLONE_RETRIES} attempts; something is holding a \
+             connection to it"
+        )
+    })
+}
+
+/// Create `database` empty, with the extensions, AGE graphs and grants a migrator needs.
+///
+/// The seed for a run base when the shared template cannot be cloned. Deliberately the same
+/// state [`ensure_template`] leaves behind on first creation, so `SchemaBootstrap.classify/1`
+/// reports `:empty` and the Elixir migrator takes the baseline path it already takes when the
+/// template itself is built from nothing.
+pub async fn create_scratch(database: &str, owner: &str) -> Result<()> {
+    crate::assert_disposable(database)?;
+
+    let (admin, _task) = connect_admin(None).await?;
+
+    // A retried attempt starts clean, exactly as the clone path does.
+    terminate_backends(&admin, database).await?;
+
+    admin
+        .batch_execute(&format!(
+            "DROP DATABASE IF EXISTS {} WITH (FORCE);",
+            quote_ident(database)
+        ))
+        .await
+        .context("failed to drop the pre-existing database")?;
+
+    admin
+        .batch_execute(&format!(
+            "CREATE DATABASE {} OWNER {};",
+            quote_ident(database),
+            quote_ident(owner)
+        ))
+        .await
+        .with_context(|| format!("failed to create {database}"))?;
+
+    install_extensions(database, owner).await
+}
+
+/// Drop the shared template, so the next trunk run rebuilds it from staging.
+///
+/// The recovery for a template that has diverged from trunk -- migrations applied that belong to
+/// no merged branch, or a `schema_migrations` in two schemas. Nothing else may drop it:
+/// [`crate::assert_disposable`] refuses the name, which is what keeps teardown and the sweep off
+/// it, and this function is the single deliberate exception.
+///
+/// Does NOT terminate backends. A session on the template is either another run cloning from it
+/// or a migration in flight, and killing the second leaves a half-applied schema -- the exact
+/// state `//elixir/serviceradar_core:migrate_template` documents as unrecoverable. It retries
+/// `object_in_use` on the same schedule as the clone path and then reports, so a busy template
+/// delays the reset rather than corrupting a concurrent run.
+pub async fn reset_template() -> Result<bool> {
+    let (admin, _task) = connect_admin(None).await?;
+
+    lock(&admin).await?;
+
+    let result = drop_template_locked(&admin).await;
+
+    unlock(&admin).await?;
+
+    result
+}
+
+async fn drop_template_locked(admin: &Client) -> Result<bool> {
+    if !database_exists(admin, TEMPLATE_DATABASE).await? {
+        return Ok(false);
+    }
+
+    let statement = format!("DROP DATABASE {};", quote_ident(TEMPLATE_DATABASE));
+
+    let mut delay = CLONE_RETRY_INITIAL;
+    let mut last_err = None;
+
+    for attempt in 1..=CLONE_RETRIES {
+        match admin.batch_execute(&statement).await {
+            Ok(()) => return Ok(true),
+            Err(err) if is_object_in_use(&err) => {
+                eprintln!(
                     "template {TEMPLATE_DATABASE} is in use (attempt {attempt}/{CLONE_RETRIES}); \
                      retrying in {delay:?}"
                 );
@@ -391,9 +565,7 @@ pub async fn clone_from_template(database: &str, owner: &str) -> Result<()> {
                 last_err = Some(err);
             }
             Err(err) => {
-                return Err(err).with_context(|| {
-                    format!("failed to clone {database} from template {TEMPLATE_DATABASE}")
-                })
+                return Err(err).with_context(|| format!("failed to drop {TEMPLATE_DATABASE}"))
             }
         }
     }
@@ -515,31 +687,29 @@ mod tests {
     }
 
     #[test]
-    fn ahead_refusal_explains_divergent_drift_without_denying_pending_migrations() {
+    fn an_ahead_template_is_unusable_even_when_some_migrations_are_also_pending() {
+        // Divergent branches produce drift in BOTH directions at once. The extra-applied side
+        // alone decides usability; a coexisting pending set must not mask it.
         let drift = drift_between(&versions(&[1, 2, 4]), &versions(&[1, 3]));
 
         assert_eq!(drift.pending, vec![2, 4]);
-        assert_eq!(drift.extra_applied, vec![3]);
-
-        let error = ensure_not_ahead("sr_core_template", &drift)
-            .expect_err("extra-applied migrations must be refused even when some are pending");
-        let message = error.to_string();
-
-        assert!(
-            message.contains(
-                "not migrations already applied to the template that are absent from this checkout"
-            ),
-            "message: {message}"
+        assert_eq!(
+            template_fitness(&drift),
+            TemplateFitness::Ahead {
+                extra_applied: vec![3]
+            }
         );
     }
 
     #[test]
-    fn ensure_not_ahead_refuses_and_names_every_extra_migration() {
+    fn ahead_report_names_every_extra_migration_and_the_recovery() {
         let drift = drift_between(&versions(&[1]), &versions(&[1, 20_260_830_220_000, 99]));
 
-        let error = ensure_not_ahead("sr_core_template", &drift)
-            .expect_err("a template ahead of the checkout must be refused");
-        let message = error.to_string();
+        let TemplateFitness::Ahead { extra_applied } = template_fitness(&drift) else {
+            panic!("a template ahead of the checkout must be reported as ahead");
+        };
+
+        let message = ahead_report("sr_core_template", &extra_applied);
 
         // Naming them is the whole point: it is what replaces the bisect.
         assert!(message.contains("20260830220000"), "message: {message}");
@@ -549,16 +719,47 @@ mod tests {
             message.contains("AHEAD of this checkout"),
             "message: {message}"
         );
+        // The recovery for the case the versions belong to no merged branch. Without it the
+        // report says what is wrong and not how the shared state gets repaired.
+        assert!(message.contains("reset_template"), "message: {message}");
     }
 
     #[test]
-    fn ensure_not_ahead_permits_a_checkout_that_is_merely_ahead() {
-        // PENDING is the ordinary "you need to migrate" case, which the lifecycle's migrate step
-        // exists to fix. Refusing it here would turn every first run into a hard stop.
+    fn a_template_that_is_merely_behind_is_still_usable() {
+        // PENDING is the ordinary case for a branch that ADDS migrations. The clone is seeded
+        // from the template and the pending migrations are applied to the run base afterwards,
+        // so refusing here would stop every migration-bearing branch from testing at all.
         let drift = drift_between(&versions(&[1, 2, 3]), &versions(&[1]));
 
         assert!(!drift.pending.is_empty());
-        assert!(ensure_not_ahead("sr_core_template", &drift).is_ok());
+        assert_eq!(template_fitness(&drift), TemplateFitness::Usable);
+    }
+
+    #[test]
+    fn a_run_base_must_be_exactly_current_before_the_lanes_are_cloned() {
+        // Pending is fatal HERE even though it is ordinary for the template: by this point the
+        // run has seeded and migrated its own base, so anything outstanding means the migrate
+        // step did not run, and eight lanes would be cloned from a half-built schema.
+        let behind = drift_between(&versions(&[1, 2, 3]), &versions(&[1]));
+        let message = ensure_current("sr_core_test_abcd1234", &behind)
+            .expect_err("a run base with pending migrations must be refused")
+            .to_string();
+
+        assert!(
+            message.contains("2 migration(s) still PENDING"),
+            "{message}"
+        );
+        assert!(message.contains("migrate_run"), "{message}");
+
+        let ahead = drift_between(&versions(&[1]), &versions(&[1, 7]));
+        let message = ensure_current("sr_core_test_abcd1234", &ahead)
+            .expect_err("a run base ahead of the checkout must be refused")
+            .to_string();
+
+        assert!(message.contains("7"), "{message}");
+
+        let current = drift_between(&versions(&[1, 2]), &versions(&[1, 2]));
+        assert!(ensure_current("sr_core_test_abcd1234", &current).is_ok());
     }
 
     #[test]
