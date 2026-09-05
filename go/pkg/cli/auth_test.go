@@ -121,6 +121,10 @@ func TestAuthLoginRejectsInstanceWithoutScheme(t *testing.T) {
 // secret-generator hook runs: `... auth bcrypt-gen --password <pw>`. It must
 // succeed and print a hash of the password itself.
 func TestAuthBcryptGenMatchesHelmHookInvocation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("production-cost bcrypt generation and verification are exercised in the non-short suite")
+	}
+
 	const password = "s3cret-admin-pw"
 
 	cfg := &CmdConfig{}
