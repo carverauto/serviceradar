@@ -709,8 +709,30 @@ defmodule ServiceRadarWebNGWeb.Router do
     # Plugin assignments
     get("/plugin-assignments", PluginAssignmentController, :index)
     post("/plugin-assignments", PluginAssignmentController, :create)
+    get("/plugin-assignments/:id", PluginAssignmentController, :show)
     patch("/plugin-assignments/:id", PluginAssignmentController, :update)
     delete("/plugin-assignments/:id", PluginAssignmentController, :delete)
+
+    # Credential secrets and rules (same auth as plugin assignments)
+    get("/network-credential-secrets", NetworkCredentialSecretController, :index)
+    post("/network-credential-secrets", NetworkCredentialSecretController, :create)
+    get("/network-credential-secrets/:id", NetworkCredentialSecretController, :show)
+    patch("/network-credential-secrets/:id", NetworkCredentialSecretController, :update)
+    post("/network-credential-secrets/:id/rotate", NetworkCredentialSecretController, :rotate)
+
+    get("/network-credential-rules", NetworkCredentialRuleController, :index)
+    post("/network-credential-rules", NetworkCredentialRuleController, :create)
+    get("/network-credential-rules/:id", NetworkCredentialRuleController, :show)
+    patch("/network-credential-rules/:id", NetworkCredentialRuleController, :update)
+    post("/network-credential-rules/:id/enable", NetworkCredentialRuleController, :enable)
+    post("/network-credential-rules/:id/disable", NetworkCredentialRuleController, :disable)
+
+    get("/ansible-controllers", AnsibleControllerController, :index)
+    post("/ansible-controllers", AnsibleControllerController, :create)
+    get("/ansible-controllers/:id", AnsibleControllerController, :show)
+    patch("/ansible-controllers/:id", AnsibleControllerController, :update)
+    post("/ansible-controllers/:id/enable", AnsibleControllerController, :enable)
+    post("/ansible-controllers/:id/disable", AnsibleControllerController, :disable)
 
     # Collector package management
     get("/collectors", CollectorController, :index)

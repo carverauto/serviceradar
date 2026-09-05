@@ -39,6 +39,44 @@ defmodule ServiceRadarWebNGWeb.Plugs.ConfineNarrowScopeTest do
       assert conn.status == 403
     end
 
+    test "a plugins.manage token reaches assignment, credential, and controller routes" do
+      id = Ecto.UUID.generate()
+
+      for {method, path} <- [
+            {"GET", "/api/admin/plugin-assignments"},
+            {"POST", "/api/admin/plugin-assignments"},
+            {"GET", "/api/admin/plugin-assignments/#{id}"},
+            {"PATCH", "/api/admin/plugin-assignments/#{id}"},
+            {"GET", "/api/admin/network-credential-rules"},
+            {"POST", "/api/admin/network-credential-rules"},
+            {"GET", "/api/admin/network-credential-secrets"},
+            {"POST", "/api/admin/network-credential-secrets/#{id}/rotate"},
+            {"POST", "/api/admin/network-credential-rules/#{id}/enable"},
+            {"GET", "/api/admin/ansible-controllers"},
+            {"POST", "/api/admin/ansible-controllers/#{id}/disable"},
+            {"GET", "/api/admin/plugin-packages"},
+            {"GET", "/api/admin/plugins"}
+          ] do
+        conn = run(method, path, "plugins.manage")
+
+        refute conn.halted, "expected #{method} #{path} to pass for plugins.manage"
+      end
+    end
+
+    test "a plugins.manage token cannot stage a plugin package" do
+      conn = run("POST", "/api/admin/plugin-packages", "plugins.manage")
+
+      assert conn.halted
+      assert conn.status == 403
+    end
+
+    test "a plugin.publish token cannot create a credential rule" do
+      conn = run("POST", "/api/admin/network-credential-rules", "plugin.publish")
+
+      assert conn.halted
+      assert conn.status == 403
+    end
+
     test "a narrow token is refused on unrelated API routes" do
       for {method, path} <- [
             {"GET", "/api/admin/devices"},

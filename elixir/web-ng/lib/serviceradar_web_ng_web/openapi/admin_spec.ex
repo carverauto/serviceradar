@@ -235,6 +235,7 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
           )
       },
       "/api/admin/plugin-assignments/{id}" => %{
+        "get" => op("Get plugin assignment", "Plugin Assignments", params: [:id], response: "AnyObject"),
         "patch" =>
           op("Update plugin assignment", "Plugin Assignments",
             params: [:id],
@@ -246,6 +247,80 @@ defmodule ServiceRadarWebNGWeb.OpenAPI.AdminSpec do
             params: [:id],
             response: "AnyObject"
           )
+      },
+      "/api/admin/network-credential-secrets" => %{
+        "get" => op("List network credential secrets", "Credentials", response: "AnyArray"),
+        "post" =>
+          op("Create network credential secret", "Credentials",
+            body: "AnyObject",
+            response: "AnyObject",
+            status: "201"
+          )
+      },
+      "/api/admin/network-credential-secrets/{id}" => %{
+        "get" => op("Get network credential secret", "Credentials", params: [:id], response: "AnyObject"),
+        "patch" =>
+          op("Update network credential secret details", "Credentials",
+            params: [:id],
+            body: "AnyObject",
+            response: "AnyObject"
+          )
+      },
+      "/api/admin/network-credential-secrets/{id}/rotate" => %{
+        "post" =>
+          op("Rotate network credential secret", "Credentials",
+            params: [:id],
+            body: "AnyObject",
+            response: "AnyObject"
+          )
+      },
+      "/api/admin/network-credential-rules" => %{
+        "get" => op("List network credential rules", "Credentials", response: "AnyArray"),
+        "post" =>
+          op("Create network credential rule", "Credentials",
+            body: "AnyObject",
+            response: "AnyObject",
+            status: "201"
+          )
+      },
+      "/api/admin/network-credential-rules/{id}" => %{
+        "get" => op("Get network credential rule", "Credentials", params: [:id], response: "AnyObject"),
+        "patch" =>
+          op("Update network credential rule", "Credentials",
+            params: [:id],
+            body: "AnyObject",
+            response: "AnyObject"
+          )
+      },
+      "/api/admin/network-credential-rules/{id}/enable" => %{
+        "post" => op("Enable network credential rule", "Credentials", params: [:id], response: "AnyObject")
+      },
+      "/api/admin/network-credential-rules/{id}/disable" => %{
+        "post" => op("Disable network credential rule", "Credentials", params: [:id], response: "AnyObject")
+      },
+      "/api/admin/ansible-controllers" => %{
+        "get" => op("List Ansible controllers", "Ansible", response: "AnyArray"),
+        "post" =>
+          op("Create Ansible controller", "Ansible",
+            body: "AnyObject",
+            response: "AnyObject",
+            status: "201"
+          )
+      },
+      "/api/admin/ansible-controllers/{id}" => %{
+        "get" => op("Get Ansible controller", "Ansible", params: [:id], response: "AnyObject"),
+        "patch" =>
+          op("Update Ansible controller", "Ansible",
+            params: [:id],
+            body: "AnyObject",
+            response: "AnyObject"
+          )
+      },
+      "/api/admin/ansible-controllers/{id}/enable" => %{
+        "post" => op("Enable Ansible controller", "Ansible", params: [:id], response: "AnyObject")
+      },
+      "/api/admin/ansible-controllers/{id}/disable" => %{
+        "post" => op("Disable Ansible controller", "Ansible", params: [:id], response: "AnyObject")
       },
       "/api/admin/collectors" => %{
         "get" => op("List collectors", "Collectors", response: "AnyArray"),

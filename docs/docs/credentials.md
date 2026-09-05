@@ -402,6 +402,35 @@ Each rule row on the table offers:
   references are shown as references; secret material is never resolved or
   displayed here.
 
+## Managing credentials from the API
+
+Every setting on this page is also available through the authenticated admin
+API, on the same auth and RBAC as the plugin assignment endpoints. That is
+what repeatable spin-up uses: a checked-in playbook applied with
+`serviceradar-cli plugin apply`, with secret values read from environment
+variables at apply time and never stored in git. See
+`playbooks/demo-plugins.yaml` in the repo root.
+
+- Secrets: `GET/POST/PATCH /api/admin/network-credential-secrets`, plus
+  `POST .../{id}/rotate`. List and get responses never include secret
+  material; values are write-only on create and rotate.
+- Rules: `GET/POST/PATCH /api/admin/network-credential-rules`, plus
+  `POST .../{id}/enable|disable`. Create and update accept the TLS policy,
+  CA bundle (`ca_bundle_pem`), server certificate fingerprint, allowed ports,
+  and metadata such as the controller host.
+- AWX/AAP controllers: `GET/POST/PATCH /api/admin/ansible-controllers`, plus
+  `POST .../{id}/enable|disable`. Controllers bind credentials by secret id
+  only; tokens are never echoed back.
+- Assignments: `GET /api/admin/plugin-assignments/{id}` alongside the
+  existing assignment CRUD; assignment JSON includes `plugin_id` so a
+  playbook can match by plugin identity.
+
+CLI device-code tokens request the `plugins.manage` scope for these calls
+(`serviceradar-cli auth login --scope plugins.manage`). The scope only makes
+the calls requestable; each endpoint still checks the caller's RBAC
+permission (`settings.credentials.manage`, `plugins.assign`,
+`ansible.controllers.manage`).
+
 ## Provider setup
 
 ### Proxmox VE
@@ -786,6 +815,10 @@ Credential Rules page is the only route to the resource (there is no REST or
 GraphQL endpoint for `network_credential_rules`), nothing about the rule you are
 entering is wrong, and no combination of fields makes the save succeed, because
 the form cannot submit a value the validator demands. Wait for the release.
+
+(On current versions the admin API under "Managing credentials from the API"
+above also accepts these fields, so a rule that the form cannot yet save can
+be created through `POST /api/admin/network-credential-rules` instead.)
 
 ### "AWX configuration invalid: api_token is required (resolved from credential broker grant)"
 

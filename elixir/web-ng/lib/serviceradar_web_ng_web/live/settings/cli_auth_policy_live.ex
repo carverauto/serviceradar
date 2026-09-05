@@ -180,7 +180,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
         fallback = %{
           cli_auth_enabled: true,
           cli_session_ttl_days: 30,
-          cli_allowed_scopes: ["dashboard.publish", "plugin.publish"]
+          cli_allowed_scopes: ["dashboard.publish", "plugin.publish", "plugins.manage"]
         }
 
         socket
@@ -193,7 +193,11 @@ defmodule ServiceRadarWebNGWeb.Settings.CliAuthPolicyLive do
     %{
       cli_auth_enabled: !!settings.cli_auth_enabled,
       cli_session_ttl_days: settings.cli_session_ttl_days || 30,
-      cli_allowed_scopes: Enum.join(settings.cli_allowed_scopes || ["dashboard.publish", "plugin.publish"], "\n")
+      cli_allowed_scopes:
+        Enum.join(
+          settings.cli_allowed_scopes || ["dashboard.publish", "plugin.publish", "plugins.manage"],
+          "\n"
+        )
     }
   end
 

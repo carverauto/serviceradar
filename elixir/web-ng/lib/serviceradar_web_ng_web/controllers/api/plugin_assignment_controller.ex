@@ -21,6 +21,19 @@ defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentController do
     end
   end
 
+  def show(conn, %{"id" => id}) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.view") do
+      scope = get_scope(conn)
+
+      case Plugins.get_assignment(id, scope: scope) do
+        {:ok, assignment} -> json(conn, assignment_to_json(assignment))
+        {:error, :not_found} -> {:error, :not_found}
+        {:error, error} -> {:error, error}
+      end
+    end
+  end
+
   def create(conn, params) do
     with :ok <- require_authenticated(conn),
          :ok <- require_permission(conn, "plugins.assign") do
@@ -86,6 +99,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentController do
     %{
       id: assignment.id,
       agent_uid: assignment.agent_uid,
+      plugin_id: assignment.plugin_id,
       plugin_package_id: assignment.plugin_package_id,
       enabled: assignment.enabled,
       interval_seconds: assignment.interval_seconds,
