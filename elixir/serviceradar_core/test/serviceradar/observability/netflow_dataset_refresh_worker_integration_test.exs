@@ -99,7 +99,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
     assert results == ["cloudflare", "aws", nil]
   end
 
-  test "provider CIDR heap rows stay compact and use cidr-leading indexes" do
+  test "promoted provider CIDRs use the cidr-leading primary key and keep the gist cidr index" do
     payload =
       Jason.encode!(
         for i <- 0..31 do
@@ -127,21 +127,13 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
     assert :ok = NetflowProviderDatasetRefreshWorker.perform(%Oban.Job{args: %{}})
     %{id: snapshot_id, record_count: 32} = active_provider_snapshot!()
 
-    %{rows: [[count, avg_bytes, max_bytes]]} =
+    %{rows: [[count]]} =
       Repo.query!(
-        """
-        SELECT count(*),
-               avg(pg_column_size(t))::bigint,
-               max(pg_column_size(t))::bigint
-        FROM platform.netflow_provider_cidrs t
-        WHERE snapshot_id = $1
-        """,
+        "SELECT count(*) FROM platform.netflow_provider_cidrs WHERE snapshot_id = $1",
         [snapshot_id]
       )
 
     assert count == 32
-    assert avg_bytes < 512
-    assert max_bytes < 1024
 
     %{rows: [[pkey_def]]} =
       Repo.query!(

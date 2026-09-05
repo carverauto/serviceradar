@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   @moduledoc """
-  Rebuilds `platform.netflow_provider_cidrs` indexes so snapshot rotation
-  does not leak deleted btree/GiST pages.
+  Reclaims the deleted pages `platform.netflow_provider_cidrs` has leaked, and
+  reorders the primary key so snapshot rotation stops refilling them there.
 
   Issue #4281 reports 2.4 MB per row. That figure could not be reproduced against
   this table and the report does not name the query that produced it, so it stands
@@ -28,7 +28,11 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
 
   `netflow_provider_cidrs_snapshot_provider_idx` keeps `(snapshot_id, provider)`
   because snapshot pruning deletes by `snapshot_id`, so it is rebuilt with the same
-  definition to reclaim leaked pages rather than reordered or dropped.
+  definition rather than reordered or dropped. That reclaims its 371 MiB once and
+  no more: the key is still snapshot_id-leading, so rotation will accumulate
+  deleted pages in it again by the same mechanism. It packs about 1,200 entries
+  per leaf page against the primary key's 93, so it leaks roughly 13x slower.
+  Reclaiming that residue is follow-up work, not this change.
   """
 
   use Ecto.Migration
