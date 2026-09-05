@@ -55,8 +55,10 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   def up do
     execute("SET statement_timeout TO 0")
 
+    execute("DROP INDEX CONCURRENTLY IF EXISTS #{@schema}.#{@new_uidx}")
+
     execute("""
-    CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS #{@new_uidx}
+    CREATE UNIQUE INDEX CONCURRENTLY #{@new_uidx}
       ON #{@schema}.#{@table} (cidr, provider, snapshot_id)
     """)
 
@@ -89,8 +91,10 @@ defmodule ServiceRadar.Repo.Migrations.CompactNetflowProviderCidrIndexes do
   def down do
     execute("SET statement_timeout TO 0")
 
+    execute("DROP INDEX CONCURRENTLY IF EXISTS #{@schema}.#{@old_uidx}")
+
     execute("""
-    CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS #{@old_uidx}
+    CREATE UNIQUE INDEX CONCURRENTLY #{@old_uidx}
       ON #{@schema}.#{@table} (snapshot_id, cidr, provider)
     """)
 

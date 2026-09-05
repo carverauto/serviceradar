@@ -127,13 +127,7 @@ defmodule ServiceRadar.Observability.NetflowDatasetRefreshWorkerIntegrationTest 
     assert :ok = NetflowProviderDatasetRefreshWorker.perform(%Oban.Job{args: %{}})
     %{id: snapshot_id, record_count: 32} = active_provider_snapshot!()
 
-    %{rows: [[count]]} =
-      Repo.query!(
-        "SELECT count(*) FROM platform.netflow_provider_cidrs WHERE snapshot_id = $1",
-        [snapshot_id]
-      )
-
-    assert count == 32
+    assert provider_prefix_count(snapshot_id) == 32
 
     %{rows: [[pkey_def]]} =
       Repo.query!(
