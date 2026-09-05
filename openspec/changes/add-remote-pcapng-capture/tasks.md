@@ -302,20 +302,85 @@ Modelled on the camera relay (`design.md` D4).
   (23.1, 27.1)
 - [ ] 3.2 Prove the RPC multiplexes onto the existing mTLS HTTP/2
   connection: assert no second TCP or TLS session is opened. (23.2)
-- [ ] 3.3 Implement `go/pkg/agent/netprobe/capture.go`: receive the gRPC
-  stream, open the netprobe `CaptureSessions` UDS RPC, forward
-  `PcapngBlock` frames between them without re-encoding. (23.3)
+- [x] 3.3 **CORRECTED while implementing**, in two ways. The file split:
+  routing a block to its session and pumping a session onto the gateway
+  are different concerns with different failure modes, so this landed as
+  `capture_session.go` (the read-loop side) and `capture_forwarder.go`
+  (the gateway side) rather than one `capture.go`. And the direction:
+  "receive the gRPC stream" was written under 3.1's original
+  server-streaming shape; with the corrected bidirectional RPC the agent
+  is the gRPC CLIENT, so it OPENS the stream and receives credit and
+  cancellation on it.
+
+  What landed: `Client.StartCapture` registers the session BEFORE the
+  `StartRemoteCapture` request goes out -- netprobe may begin streaming
+  the moment it accepts, and a sink registered afterwards would lose that
+  race and count real blocks as a version skew. `routeCaptureBlock` is
+  deliberately NOT the `select`/`default: drop` shape every other arm of
+  the read loop uses: a dropped fingerprint event is a missing
+  observation, a dropped pcapng block is UNDETECTABLE corruption, so this
+  arm applies backpressure for `CaptureBlockTimeout` and then ENDS the
+  session rather than dropping. Block bytes are copied from the netprobe
+  frame into `CaptureBlock` untouched; no hop re-encodes. (23.3)
 - [ ] 3.4 Add the gateway-side server and forwarder, mirroring
   `camera_media_server.ex` and `camera_media_forwarder.ex`: one
   `:rpc.call` into core-elx on session open with `:nodedown` retry, then
   stream to the returned ingress pid over ERTS.
-- [ ] 3.5 Count bytes per session in the agent and emit
-  `SessionStateChanged` at 1 Hz so upstream tracks `bytes_streamed`
-  without decoding pcapng. (23.4)
-- [ ] 3.6 Propagate gateway-initiated cancellation to netprobe within
-  1 s. (23.5)
+- [x] 3.5 Byte accounting per session, emitted at `AccountingInterval`
+  (1 Hz) while the session is ACTIVE and once more as the terminal
+  message, which is the LAST client message on the stream -- so upstream
+  learns why a capture ended even when it ended badly. Counters come from
+  `len(block.bytes)` while streaming and are replaced by netprobe's own
+  cumulative totals on the terminal block, so no hop parses pcapng to
+  report `bytes_streamed`. `complete` is false whenever netprobe counted a
+  ring drop: a capture missing packets must never present as a whole one.
+
+  The cadence is driven by an injected clock, so the test asserts the
+  exact number of heartbeats instead of sleeping and hoping. (23.4)
+- [x] 3.6 Gateway cancellation, for the AGENT hop, within 1 s -- and see
+  3.8 for the hop this does not cover.
+
+  The gateway's channel is read on its own goroutine, so a `CaptureCancel`
+  lands while the send loop is parked on credit or on a silent netprobe.
+  Piggybacking it on the send path would have made cancellation latency a
+  function of traffic volume, and a capture matching nothing -- which
+  produces no traffic at all -- is exactly the session most likely to need
+  stopping. That case is the test: no blocks are sent at all, and the
+  measured cancel-to-terminal-state time is asserted under one second. The
+  terminal `SessionStateChanged` goes out on the ORIGINAL context, not the
+  cancelled one, because the point of a terminal frame is that it survives
+  the thing that ended the session.
+
+  **CORRECTED while implementing.** Credit is seeded at zero, NOT from
+  `start.initial_credit_bytes`. The agent composes that message, so
+  spending it would let the agent grant itself up to 4 GiB before the
+  gateway had accepted the session -- the one thing a credit scheme exists
+  to prevent. The gateway sends 0 inbound and grants for real in its first
+  ack. A cancel that arrives while the send loop is waiting for credit
+  therefore unwinds with `context.Canceled`, which is the cancel working
+  and is reported as `CLIENT_CANCEL`, not as a transport fault. (23.5)
 - [ ] 3.7 Surface an active-capture indicator in the agent status
   response. (23.6)
+- [ ] 3.8 **FOUND while implementing 3.6, and deliberately left open.**
+  3.6 as written says cancellation reaches *netprobe*; the agent hop meets
+  that budget, but the last hop does not exist yet. netprobe has NO
+  in-band stop: `StartRemoteCapture` has no `Stop` counterpart, and
+  `handle_connection` holds the session in a per-connection
+  `Option<StartedSession>` whose `Drop` is the only cancel path
+  (`rust/netprobe/src/server.rs`, `capture/service.rs`). So a capture on
+  the host today ends when a cap fires or when the whole netprobe IPC
+  connection closes -- and that connection is SHARED with fingerprint,
+  DPI, flow-attribution and census delivery, so the agent cannot close it
+  to stop one capture.
+
+  Until this is closed, a cancelled session stops being forwarded while
+  the ring on the captured host keeps filling to its duration or byte cap.
+  For a surveillance capability that is the wrong direction to fail, so it
+  is recorded here rather than hidden behind 3.6's checkmark. Closing it
+  means either a `StopRemoteCapture` frame on the netprobe IPC surface
+  (a netprobe add-on version bump, so its own slice) or a dedicated IPC
+  connection per capture session, whose close netprobe already treats as a
+  stop -- measured at 112 ms and 360 ms against a 5 s budget in 2.5.
 
 ## S4. core-elx ingress session, lifecycle and RBAC
 
