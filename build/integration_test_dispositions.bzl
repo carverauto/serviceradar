@@ -429,7 +429,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/observability/capacity_forecasting/worker_test.exs": 36,
     "test/serviceradar/observability/log_promotion_test.exs": 12,
     "test/serviceradar/observability/mtr_graph_integration_test.exs": 5,
-    "test/serviceradar/observability/netflow_dataset_refresh_worker_integration_test.exs": 3,
+    "test/serviceradar/observability/netflow_dataset_refresh_worker_integration_test.exs": 4,
     "test/serviceradar/observability/netflow_dataset_refresh_worker_test.exs": 5,
     "test/serviceradar/observability/plugin_result_assignment_lifecycle_race_test.exs": 2,
     "test/serviceradar/observability/plugin_result_assignment_lifecycle_test.exs": 4,
