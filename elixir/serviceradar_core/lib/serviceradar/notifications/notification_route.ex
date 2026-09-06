@@ -230,7 +230,7 @@ defmodule ServiceRadar.Notifications.NotificationRoute do
   end
 
   validations do
-    validate {MatchExpression, attribute: :match_expression}
+    validate {MatchExpression, attribute: :match_expression, reject_empty_equals?: true}
 
     validate {MatchFieldAllowList,
               attribute: :match_expression,

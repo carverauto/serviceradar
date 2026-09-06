@@ -2,6 +2,7 @@ defmodule ServiceRadar.Notifications.MatchExpressionEmptyEqualsTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Notifications.MatchExpression
+  alias ServiceRadar.Notifications.NotificationSilence
   alias ServiceRadar.Notifications.NotificationRoute
   alias ServiceRadar.Notifications.MatchExpression.Evaluator
   alias ServiceRadar.Notifications.Router
@@ -19,13 +20,35 @@ defmodule ServiceRadar.Notifications.MatchExpressionEmptyEqualsTest do
       )
 
     assert {:error, field: :match_expression, message: message} =
-             MatchExpression.validate(changeset, [attribute: :match_expression], %{})
+             MatchExpression.validate(
+               changeset,
+               [attribute: :match_expression, reject_empty_equals?: true],
+               %{}
+             )
 
     assert {:error, field: :match_expression, message: ^message} =
-             MatchExpression.atomic(changeset, [attribute: :match_expression], %{})
+             MatchExpression.atomic(
+               changeset,
+               [attribute: :match_expression, reject_empty_equals?: true],
+               %{}
+             )
 
     assert message =~ ~s("equals" cannot be an empty string)
     assert message =~ "{}"
+  end
+
+  test "silence saves still accept empty equality" do
+    expr = %{"all" => [%{"field" => "alert.metadata.optional", "equals" => ""}]}
+
+    changeset =
+      Ash.Changeset.force_change_attribute(
+        Ash.Changeset.new(NotificationSilence),
+        :matchers,
+        expr
+      )
+
+    assert :ok = MatchExpression.validate(changeset, [attribute: :matchers], %{})
+    assert :ok = MatchExpression.atomic(changeset, [attribute: :matchers], %{})
   end
 
   test "legacy empty equality remains evaluable inside a disjunction" do

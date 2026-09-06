@@ -48,7 +48,7 @@ defmodule ServiceRadar.Notifications.MatchExpression do
   Operand rules:
 
     * `"equals"` - a non-empty string, number, boolean, or null.
-      An empty string is rejected when saving: `%{}` matches every alert, and
+      Routes reject an empty string when saving: `%{}` matches every alert, and
       `equals: ""` matches only a blank value.
     * `"in"` - a non-empty list of those scalars
     * `"contains"` - a string or a number
@@ -96,7 +96,7 @@ defmodule ServiceRadar.Notifications.MatchExpression do
 
   @combinators ~w(all any not)
   @operators ~w(equals in contains exists matches)
-  @known_opts [:attribute, :operators]
+  @known_opts [:attribute, :operators, :reject_empty_equals?]
 
   @max_depth 10
   @max_nodes 200
@@ -272,11 +272,15 @@ defmodule ServiceRadar.Notifications.MatchExpression do
 
   defp check(value, attribute, opts) do
     with :ok <- validate_expression(value, Keyword.take(opts, [:operators])),
-         :ok <- reject_empty_equals(value) do
+         :ok <- validate_empty_equals(value, opts) do
       :ok
     else
       {:error, message} -> {:error, field: attribute, message: message}
     end
+  end
+
+  defp validate_empty_equals(value, opts) do
+    if Keyword.get(opts, :reject_empty_equals?, false), do: reject_empty_equals(value), else: :ok
   end
 
   defp reject_empty_equals(expression) when is_map(expression) do

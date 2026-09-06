@@ -230,9 +230,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   def handle_call({:evaluate_logs, rows}, _from, state) do
     {state, rules} = load_rules_if_needed(state)
 
-    Enum.each(rows, &StateMachine.process_log_rules(&1, rules, state))
+    result = process_records(rows, &StateMachine.process_log_rules(&1, rules, state))
 
-    {:reply, :ok, state}
+    {:reply, result, state}
   rescue
     error ->
       Logger.warning("Stateful alert evaluation failed: #{inspect(error)}")
@@ -243,9 +243,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   def handle_call({:evaluate_events, events}, _from, state) do
     {state, rules} = load_rules_if_needed(state)
 
-    Enum.each(events, &StateMachine.process_event_rules(&1, rules, state))
+    result = process_records(events, &StateMachine.process_event_rules(&1, rules, state))
 
-    {:reply, :ok, state}
+    {:reply, result, state}
   rescue
     error ->
       Logger.warning("Stateful alert evaluation failed: #{inspect(error)}")
@@ -256,9 +256,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   def handle_call({:evaluate_metrics, rows}, _from, state) do
     {state, rules} = load_rules_if_needed(state)
 
-    Enum.each(rows, &StateMachine.process_metric_rules(&1, rules, state))
+    result = process_records(rows, &StateMachine.process_metric_rules(&1, rules, state))
 
-    {:reply, :ok, state}
+    {:reply, result, state}
   rescue
     error ->
       Logger.warning("Stateful alert evaluation failed: #{inspect(error)}")
@@ -299,6 +299,15 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   @impl true
   def handle_call({:resolve_stale_anomalies, {rule_name, cutoff, now}}, from, state) do
     handle_call({:resolve_stale_anomalies, {rule_name, cutoff, now, MapSet.new()}}, from, state)
+  end
+
+  defp process_records(records, process) do
+    Enum.reduce_while(records, :ok, fn record, :ok ->
+      case process.(record) do
+        :ok -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp call(shard, message) do

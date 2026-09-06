@@ -21,11 +21,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
   require Logger
 
   def process_log_rules(log, rules, state) do
-    Enum.each(rules, &maybe_process_log_rule(log, &1, state))
+    process_rules(rules, &maybe_process_log_rule(log, &1, state))
   end
 
   defp maybe_process_log_rule(log, %{signal: :log} = rule, state) do
-    if rule_matches_log?(log, rule), do: process_log(rule, log, state)
+    if rule_matches_log?(log, rule), do: process_log(rule, log, state), else: :ok
   end
 
   defp maybe_process_log_rule(_log, _rule, _state), do: :ok
@@ -34,7 +34,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
     if skip_engine_event?(event) do
       :ok
     else
-      Enum.each(rules, &maybe_process_event_rule(event, &1, state))
+      process_rules(rules, &maybe_process_event_rule(event, &1, state))
     end
   end
 
@@ -69,15 +69,33 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
   end
 
   def process_metric_rules(metric, rules, state) do
-    Enum.each(rules, &maybe_process_metric_rule(metric, &1, state))
+    process_rules(rules, &maybe_process_metric_rule(metric, &1, state))
   end
 
   defp maybe_process_metric_rule(metric, %{signal: :metric} = rule, state) do
     if rule_matches_metric?(metric, rule),
-      do: process_metric(rule, tag_metric_violation(metric, rule), state)
+      do: process_metric(rule, tag_metric_violation(metric, rule), state),
+      else: :ok
   end
 
   defp maybe_process_metric_rule(_metric, _rule, _state), do: :ok
+
+  defp process_rules(rules, process) do
+    Enum.reduce_while(rules, :ok, fn rule, :ok ->
+      case process.(rule) do
+        {:error, _} = error -> {:halt, error}
+        :ok -> {:cont, :ok}
+      end
+    end)
+  end
+
+  defp store_snapshot({:error, _} = error, _rule, _state, _key), do: error
+
+  defp store_snapshot(snapshot, rule, state, key) do
+    flushed = maybe_flush_snapshot(snapshot, rule, state)
+    :ets.insert(state.table, {key, flushed})
+    :ok
+  end
 
   defp process_log(rule, log, state), do: process_record(rule, log, state)
   defp process_event(rule, event, state), do: process_record(rule, event, state)
@@ -88,9 +106,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
       {:ok, group_key, group_values} ->
         key = {rule.id, group_key}
         snapshot = lookup_snapshot(state.table, key, rule, group_key, group_values, record)
-        updated = update_snapshot(snapshot, rule, record, state)
-        flushed = maybe_flush_snapshot(updated, rule, state)
-        :ets.insert(state.table, {key, flushed})
+
+        snapshot
+        |> update_snapshot(rule, record, state)
+        |> store_snapshot(rule, state, key)
 
       :error ->
         :ok
@@ -117,8 +136,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
               |> Map.put(:diagnostics, update_diagnostics(snapshot.diagnostics, record, now))
               |> handle_recovery(rule, record, now, state)
 
-            flushed = maybe_flush_snapshot(snapshot, rule, state)
-            :ets.insert(state.table, {key, flushed})
+            store_snapshot(snapshot, rule, state, key)
 
           _ ->
             :ok
@@ -239,7 +257,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
 
           {:error, reason} ->
             Logger.warning("Failed to create alert for rule #{rule.id}: #{inspect(reason)}")
-            snapshot
+            {:error, reason}
         end
     end
   end
@@ -273,13 +291,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
             inspect(reason)
         )
 
-        # Keep the pre-gap timestamp as the retry marker. `update_snapshot/4`
-        # otherwise advances `last_seen_at` before resolution, so the next
-        # continuously arriving record no longer crosses the cooldown gap and
-        # the old incident remains open forever. This value is also what the
-        # durable snapshot persists, preserving the retry across a shard
-        # restart without introducing a second lifecycle flag.
-        Map.put(snapshot, :last_seen_at, snapshot.previous_last_seen_at)
+        {:error, reason}
     end
   end
 
@@ -296,7 +308,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
           "Keeping alert #{snapshot.alert_id} open after recovery failed: #{inspect(reason)}"
         )
 
-        snapshot
+        {:error, reason}
     end
   end
 
@@ -345,19 +357,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
 
         acc
       else
-        resolved = handle_recovery(snapshot, rule, nil, now, state)
+        case handle_recovery(snapshot, rule, nil, now, state) do
+          {:error, _reason} ->
+            acc
 
-        if is_nil(resolved.alert_id) do
-          persist_snapshot(resolved, rule, state)
-          :ets.insert(state.table, {key, resolved})
-          acc + 1
-        else
-          # The lifecycle transaction rolled back (typically because its
-          # durable :resolve job could not be inserted). Leave both the ETS and
-          # durable snapshots pointing at the open alert so the next sweep can
-          # retry instead of reporting a resolution that never committed.
-          :ets.insert(state.table, {key, resolved})
-          acc
+          resolved ->
+            persist_snapshot(resolved, rule, state)
+            :ets.insert(state.table, {key, resolved})
+            acc + 1
         end
       end
     end)

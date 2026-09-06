@@ -3,6 +3,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
 
   import ExUnit.CaptureLog
 
+  alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.StatefulAlertEngine.Bucketing
   alias ServiceRadar.Observability.StatefulAlertEngine.Diagnostics
   alias ServiceRadar.Observability.StatefulAlertEngine.StateMachine
@@ -61,7 +62,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
 
     log =
       capture_log(fn ->
-        assert :ok = StateMachine.process_event_rules(event(now), [rule], state)
+        assert {:error, {:routing_enqueue_failed, :queue_down}} =
+                 StateMachine.process_event_rules(event(now), [rule], state)
       end)
 
     assert log =~ "Keeping alert #{@alert_id} open after rollover resolution failed"
@@ -110,7 +112,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
       |> Map.put(:persist_snapshot, fn _snapshot, _rule, _state -> :ok end)
 
     capture_log(fn ->
-      assert :ok = StateMachine.process_event_rules(event(now), [rule], state)
+      assert {:error, {:routing_enqueue_failed, :queue_down}} =
+               StateMachine.process_event_rules(event(now), [rule], state)
+
       assert :ok = StateMachine.process_event_rules(event(next_seen_at), [rule], state)
     end)
 
@@ -119,6 +123,64 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
     assert [{^key, replacement}] = :ets.lookup(table, key)
     assert replacement.alert_id == "replacement-alert"
     assert replacement.last_fired_at == next_seen_at
+  end
+
+  test "engine replies with alert creation failure without consuming the record", %{table: table} do
+    now = ~U[2026-08-11 12:00:00Z]
+    rule = rule()
+
+    state = %{
+      table: table,
+      rules: [rule],
+      rules_loaded_at: System.monotonic_time(:millisecond),
+      create_event_and_alert: fn _, _, _, _ -> {:error, :alert_insert_failed} end
+    }
+
+    capture_log(fn ->
+      assert {:reply, {:error, :alert_insert_failed}, ^state} =
+               StatefulAlertEngine.handle_call(
+                 {:evaluate_events, [event(now)]},
+                 {self(), make_ref()},
+                 state
+               )
+    end)
+
+    assert [] = :ets.tab2list(table)
+  end
+
+  test "engine replies with recovery failure and retains the original snapshot", %{table: table} do
+    now = ~U[2026-08-11 12:00:00Z]
+
+    rule = %{
+      rule()
+      | match: %{
+          "subject_prefix" => "test.down",
+          "recovery" => %{"subject_prefix" => "test.rollover"}
+        }
+    }
+
+    key = {rule.id, "global"}
+    snapshot = snapshot(rule, now, [])
+    :ets.insert(table, {key, snapshot})
+    calls = :counters.new(1, [])
+
+    state =
+      Map.merge(state(table, failing_resolver(calls)), %{
+        rules: [rule],
+        rules_loaded_at: System.monotonic_time(:millisecond)
+      })
+
+    capture_log(fn ->
+      assert {:reply, {:error, {:routing_enqueue_failed, :queue_down}}, ^state} =
+               StatefulAlertEngine.handle_call(
+                 {:evaluate_events, [event(now)]},
+                 {self(), make_ref()},
+                 state
+               )
+    end)
+
+    assert [{^key, ^snapshot}] = :ets.lookup(table, key)
+    assert :counters.get(calls, 1) == 1
   end
 
   defp state(table, resolver) do
