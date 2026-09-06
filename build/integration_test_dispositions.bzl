@@ -383,7 +383,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/integrations/armis_dire_e2e_test.exs": 2,
     "test/serviceradar/integrations/composite_northbound_values_test.exs": 10,
     "test/serviceradar/inventory/advisory_feeds/acquisition_test.exs": 1,
-    "test/serviceradar/inventory/advisory_feeds/feed_definition_seeder_test.exs": 13,
+    "test/serviceradar/inventory/advisory_feeds/feed_definition_seeder_test.exs": 15,
     "test/serviceradar/inventory/advisory_feeds/feed_worker_scheduling_test.exs": 2,
     "test/serviceradar/inventory/bumblebee_catalog_refresh_worker_test.exs": 3,
     "test/serviceradar/inventory/device_identifier_cache_invalidation_test.exs": 2,
