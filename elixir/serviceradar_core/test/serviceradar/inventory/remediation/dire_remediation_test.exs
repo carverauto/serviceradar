@@ -476,14 +476,18 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     refute Enum.any?(second.merge_plan, &(&1.hostname == hostname))
   end
 
-  test "proxmox-dups: merges multi-homed candidate rows corroborated by a shared host ref",
+  test "proxmox-dups: merges multi-homed rows corroborated by a shared strong ref",
        %{actor: actor} do
     seed = test_seed()
     hostname = "remtest-pmx-candidate-#{seed}"
-    host_ref = "proxmox:hypervisor:#{hostname}"
+    # Vmid-scoped ref: keyed on stable Proxmox identity, unique within its
+    # scope, so sharing it is same-host evidence. (A shared bare-name ref
+    # such as `proxmox:hypervisor:<node>` no longer corroborates — GitHub
+    # #4051 — covered by the shared-name pair in the cross-cluster test.)
+    host_ref = "proxmox:v2:lab:node:pve-a-#{seed}"
 
     # Two network-probed candidate rows for the SAME multi-homed node (shared
-    # host reference) collapse; a same-hostname row that is neither
+    # strong host reference) collapse; a same-hostname row that is neither
     # proxmox-sourced nor a candidate is out of scope entirely.
     {:ok, candidate_a} =
       create_device(actor, %{
@@ -550,12 +554,40 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
         last_seen_time: DateTime.utc_now()
       })
 
+    # A third pair shares the SAME bare-name host reference
+    # (`proxmox:hypervisor:<name>`) with no shared MAC. Guest and node names
+    # are reused across clusters (GitHub #4051), so a shared name token is
+    # not same-host evidence and must never corroborate a merge either.
+    {:ok, shared_a} =
+      create_device(actor, %{
+        hostname: "#{hostname}-shared",
+        discovery_sources: ["sweep"],
+        metadata: %{
+          "proxmox_candidate" => true,
+          "integration_id" => "proxmox:hypervisor:#{hostname}-shared"
+        },
+        last_seen_time: ~U[2026-05-09 02:21:03Z]
+      })
+
+    {:ok, shared_b} =
+      create_device(actor, %{
+        hostname: "#{hostname}-shared",
+        discovery_sources: ["sweep"],
+        metadata: %{
+          "proxmox_candidate" => true,
+          "integration_id" => "proxmox:hypervisor:#{hostname}-shared"
+        },
+        last_seen_time: DateTime.utc_now()
+      })
+
     assert {:ok, %{reports: %{"proxmox-dups" => dry}}} =
              DireRemediation.run(steps: ["proxmox-dups"], actor: actor)
 
     refute Enum.any?(dry.merge_plan, &(&1.from in [farm_pve02.uid, tonka_pve02.uid]))
     refute Enum.any?(dry.merge_plan, &(&1.to in [farm_pve02.uid, tonka_pve02.uid]))
-    assert dry.skipped_unrelated >= 2
+    refute Enum.any?(dry.merge_plan, &(&1.from in [shared_a.uid, shared_b.uid]))
+    refute Enum.any?(dry.merge_plan, &(&1.to in [shared_a.uid, shared_b.uid]))
+    assert dry.skipped_unrelated >= 4
 
     # Executing the step must not delete/merge either device.
     assert {:ok, %{reports: %{"proxmox-dups" => _}}} =
@@ -571,6 +603,12 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
 
     assert {:ok, %Device{deleted_at: nil}} =
              Device.get_by_uid(tonka_pve02.uid, false, actor: actor)
+
+    assert {:ok, %Device{deleted_at: nil}} =
+             Device.get_by_uid(shared_a.uid, false, actor: actor)
+
+    assert {:ok, %Device{deleted_at: nil}} =
+             Device.get_by_uid(shared_b.uid, false, actor: actor)
   end
 
   test "proxmox-dups: does NOT merge same-hostname candidates lacking any strong identity",

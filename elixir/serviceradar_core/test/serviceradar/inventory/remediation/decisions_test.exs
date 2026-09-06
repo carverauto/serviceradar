@@ -207,9 +207,31 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
   defp dev(macs, refs), do: %{macs: MapSet.new(macs), host_refs: MapSet.new(refs)}
 
   describe "same_physical_host?/2 (proxmox merge corroboration)" do
-    test "corroborated by a shared host reference" do
+    test "corroborated by a shared vmid-scoped reference" do
+      a = dev([], ["proxmox:v2:farm01:node:pve02"])
+      b = dev([], ["proxmox:v2:farm01:node:pve02"])
+      assert Decisions.same_physical_host?(a, b)
+    end
+
+    test "a shared bare-name token never corroborates (GitHub #4051)" do
+      # pve02 names a node in two different clusters: sharing the
+      # name-keyed token is the cross-cluster fusion, not same-host evidence.
       a = dev([], ["proxmox:hypervisor:pve02"])
       b = dev([], ["proxmox:hypervisor:pve02"])
+      refute Decisions.same_physical_host?(a, b)
+
+      c = dev([], ["proxmox:vm:k8s-cp3-worker1"])
+      d = dev([], ["proxmox:vm:k8s-cp3-worker1"])
+      refute Decisions.same_physical_host?(c, d)
+
+      e = dev([], ["proxmox:node:pve01"])
+      f = dev([], ["proxmox:node:pve01"])
+      refute Decisions.same_physical_host?(e, f)
+    end
+
+    test "an ambiguous token alongside a shared strong token still corroborates" do
+      a = dev([], ["proxmox:hypervisor:pve02", "proxmox:v2:farm01:node:pve02"])
+      b = dev([], ["proxmox:hypervisor:pve02", "proxmox:v2:farm01:node:pve02"])
       assert Decisions.same_physical_host?(a, b)
     end
 
@@ -278,6 +300,120 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
 
       assert [component] = Decisions.identity_components([a, b, c])
       assert MapSet.new(Enum.map(component, & &1.uid)) == MapSet.new(["sr:a", "sr:b", "sr:c"])
+    end
+  end
+
+  describe "plan_proxmox_unfuse/3 (proxmox-unfuse step, GitHub #4051)" do
+    defp fused_device(overrides \\ %{}) do
+      Map.merge(
+        %{uid: "sr:fused", partition: "default", tombstoned?: false},
+        overrides
+      )
+    end
+
+    defp v2_row(id, value, source_id, first_seen) do
+      %{id: id, value: value, partition: "default", first_seen: first_seen, source_id: source_id}
+    end
+
+    defp mac_row(id, value, source_id) do
+      %{id: id, value: value, partition: "default", source_id: source_id}
+    end
+
+    @farm_v2 "proxmox:v2:farm01:vm:113"
+    @tonka_v2 "proxmox:v2:tonka:vm:117"
+    @farm_source "proxmox-farm01"
+    @tonka_source "proxmox-tonka"
+    @farm_seen ~U[2026-05-01 00:00:00Z]
+    @tonka_seen ~U[2026-06-01 00:00:00Z]
+
+    defp fused_rows do
+      {[
+         v2_row(1, @farm_v2, @farm_source, @farm_seen),
+         v2_row(2, @tonka_v2, @tonka_source, @tonka_seen)
+       ], [mac_row(10, "BC241176DF7E", @farm_source), mac_row(11, "BC2411AABBCC", @tonka_source)]}
+    end
+
+    test "splits cross-cluster v2 groups; earliest cluster survives" do
+      {v2_rows, mac_rows} = fused_rows()
+
+      assert {:split, plan} = Decisions.plan_proxmox_unfuse(fused_device(), v2_rows, mac_rows)
+
+      assert plan.device_uid == "sr:fused"
+      assert plan.survivor == %{cluster: "farm01", uid: "sr:fused", row_ids: [1]}
+      assert [split] = plan.splits
+      assert split.cluster == "tonka"
+      assert split.v2_values == [@tonka_v2]
+      assert split.row_ids == [2]
+      assert split.mac_row_ids == [11]
+
+      expected_uid =
+        Ids.generate_deterministic_device_id(%{integration_id: @tonka_v2, partition: "default"})
+
+      assert split.new_uid == expected_uid
+      refute split.new_uid == "sr:fused"
+    end
+
+    test "single-cluster devices are not over-merges" do
+      {[farm_row, _], [_farm_mac, _]} = fused_rows()
+
+      assert {:skip, :single_cluster} =
+               Decisions.plan_proxmox_unfuse(fused_device(), [farm_row], [])
+    end
+
+    test "tombstoned fused devices wait for operator judgment" do
+      {v2_rows, mac_rows} = fused_rows()
+
+      assert {:skip, :tombstoned} =
+               Decisions.plan_proxmox_unfuse(
+                 fused_device(%{tombstoned?: true}),
+                 v2_rows,
+                 mac_rows
+               )
+    end
+
+    test "unparseable v2 values fail closed" do
+      assert {:skip, :unexpected_identifier_shape} =
+               Decisions.plan_proxmox_unfuse(
+                 fused_device(),
+                 [
+                   v2_row(1, @farm_v2, @farm_source, @farm_seen),
+                   v2_row(2, "proxmox:vm:k8s-cp3-worker1", @tonka_source, @tonka_seen)
+                 ],
+                 []
+               )
+
+      assert {:skip, :no_v2_identifiers} = Decisions.plan_proxmox_unfuse(fused_device(), [], [])
+    end
+
+    test "MAC rows without attributable provenance fail closed" do
+      # one sync source behind both clusters: every MAC matches both groups
+      shared_v2 = [
+        v2_row(1, @farm_v2, "shared-src", @farm_seen),
+        v2_row(2, @tonka_v2, "shared-src", @tonka_seen)
+      ]
+
+      assert {:skip, :ambiguous_mac_attribution} =
+               Decisions.plan_proxmox_unfuse(fused_device(), shared_v2, [
+                 mac_row(10, "BC241176DF7E", "shared-src")
+               ])
+
+      # missing source: unattributable
+      {v2_rows, _} = fused_rows()
+
+      assert {:skip, :ambiguous_mac_attribution} =
+               Decisions.plan_proxmox_unfuse(fused_device(), v2_rows, [
+                 mac_row(10, "BC241176DF7E", @farm_source),
+                 mac_row(11, "BC2411AABBCC", nil)
+               ])
+    end
+
+    test "partition drift fails closed" do
+      {v2_rows, mac_rows} = fused_rows()
+      [farm_row, tonka_row] = v2_rows
+      drifted = %{tonka_row | partition: "other"}
+
+      assert {:skip, :multiple_partitions} =
+               Decisions.plan_proxmox_unfuse(fused_device(), [farm_row, drifted], mac_rows)
     end
   end
 

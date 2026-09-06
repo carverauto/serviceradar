@@ -17,9 +17,11 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     4. `agent-links`  — rebuild agent->device links from ocsf_agents ground
        truth, fix stranded identifiers/poisoned aliases/ip literal (4.3)
     5. `proxmox-dups` — collapse intra-Proxmox duplicate hostname groups (4.4)
-    6. `armis-unmerge` — explicit-only Armis split planning/disposition
+    6. `proxmox-unfuse` — explicit-only Proxmox cross-cluster split
+       planning/disposition (GitHub #4051; execute gated; see below)
+    7. `armis-unmerge` — explicit-only Armis split planning/disposition
        (execute gated; see below)
-    7. `armis-dups`   — collapse Armis rows onto their armis_device_id owner
+    8. `armis-dups`   — collapse Armis rows onto their armis_device_id owner
        (DISABLED by default — see `@armis_dups_step` below)
 
   ## `armis-dups` is disabled by default
@@ -50,6 +52,20 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   Enabling the gate does not add the step to the default run. It remains an
   explicit-request-only operation.
+
+  ## `proxmox-unfuse` execute mode is gated
+
+  Operators may explicitly request `proxmox-unfuse` in dry-run mode to collect
+  the fused-device report (cluster grouping plus per-cluster MAC attribution
+  for operator review against the live clusters). Execute mode is rejected
+  until the split plan has been reviewed and the following runtime
+  configuration is deliberately enabled:
+
+      config :serviceradar_core, ServiceRadar.Inventory.Remediation.DireRemediation,
+        enable_proxmox_unfuse_execute: true
+
+  Enabling the gate does not add the step to the default run. It remains an
+  explicit-request-only operation.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -61,6 +77,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   alias ServiceRadar.Inventory.Remediation.Manifest
   alias ServiceRadar.Inventory.Remediation.NetprobeAliasDebris
   alias ServiceRadar.Inventory.Remediation.ProxmoxDups
+  alias ServiceRadar.Inventory.Remediation.ProxmoxUnfuse
   alias ServiceRadar.Inventory.Remediation.StaleAgentDevices
   alias ServiceRadar.Inventory.Remediation.TestDebris
 
@@ -79,6 +96,17 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   # the live scoping that excludes the faker fleet); it is otherwise dormant.
   @armis_unmerge_step "armis-unmerge"
 
+  # The proxmox cross-cluster over-merge DISPOSITION (GitHub #4051): split
+  # devices whose registered v2 ids span clusters back into per-cluster
+  # devices. Omitted from the default order so it only runs when an operator
+  # explicitly requests `steps: ["proxmox-unfuse"]` (after reviewing the
+  # dry-run cluster/MAC attribution report); it is otherwise dormant.
+  @proxmox_unfuse_step "proxmox-unfuse"
+
+  # Split-disposition steps are always explicit-request-only (dormant): they
+  # mutate live devices and each has its own execute gate below.
+  @explicit_only_steps [@armis_unmerge_step, @proxmox_unfuse_step]
+
   @step_order [
     "blob-purge",
     "test-debris",
@@ -88,6 +116,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     "netprobe-alias-debris",
     "agent-links",
     "proxmox-dups",
+    @proxmox_unfuse_step,
     @armis_unmerge_step,
     @armis_dups_step
   ]
@@ -95,9 +124,9 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   @doc """
   Ordered list of steps included by a default `all` run.
 
-  `armis-unmerge` is always omitted. `armis-dups` is omitted unless explicitly
-  re-enabled via config (it is the armis-overmerge re-collapse vector — see the
-  moduledoc).
+  Split-disposition steps (`armis-unmerge`, `proxmox-unfuse`) are always
+  omitted. `armis-dups` is omitted unless explicitly re-enabled via config
+  (it is the armis-overmerge re-collapse vector — see the moduledoc).
   """
   @spec steps() :: [String.t()]
   def steps, do: default_steps()
@@ -105,9 +134,9 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   @doc """
   Ordered list of steps accepted by an explicit invocation in `mode`.
 
-  This is distinct from `steps/0`: `armis-unmerge` is available for explicit
-  dry-runs but never belongs to a default `all` run. Execute availability also
-  reflects the live-scoping runtime gate.
+  This is distinct from `steps/0`: split-disposition steps are available for
+  explicit dry-runs but never belong to a default `all` run. Execute
+  availability also reflects each step's live-scoping runtime gate.
   """
   @spec available_steps(:dry_run | :execute) :: [String.t()]
   def available_steps(mode \\ :dry_run)
@@ -115,18 +144,17 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   def available_steps(:dry_run), do: configured_steps()
 
   def available_steps(:execute) do
-    if armis_unmerge_execute_enabled?() do
-      configured_steps()
-    else
-      configured_steps() -- [@armis_unmerge_step]
-    end
+    Enum.reject(configured_steps(), fn step ->
+      step in @explicit_only_steps and not split_execute_enabled?(step)
+    end)
   end
 
   # Default run order with armis-dups gated off unless config opts back in.
-  # armis-unmerge is always excluded from the default order — it is
-  # explicit-request-only (dormant) until live scoping confirms the population.
+  # Split-disposition steps are always excluded from the default order — they
+  # are explicit-request-only (dormant) until live scoping confirms the
+  # population.
   defp default_steps do
-    configured_steps() -- [@armis_unmerge_step]
+    configured_steps() -- @explicit_only_steps
   end
 
   defp configured_steps do
@@ -149,6 +177,16 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     |> Keyword.get(:enable_armis_unmerge_execute, false)
   end
 
+  defp split_execute_enabled?(@armis_unmerge_step), do: armis_unmerge_execute_enabled?()
+
+  defp split_execute_enabled?(@proxmox_unfuse_step) do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:enable_proxmox_unfuse_execute, false)
+  end
+
+  defp split_execute_enabled?(_step), do: false
+
   @doc """
   Run the remediation.
 
@@ -167,7 +205,9 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
       `:proxmox_source`, `:hostname_denylist`, `:armis_plan_sample_limit`,
       `:armis_unmerge_candidate_limit`, `:armis_unmerge_plan_sample_limit`,
       `:armis_unmerge_include_live`, `:armis_unmerge_live_device_uids`,
-      `:armis_unmerge_live_source_ids`
+      `:armis_unmerge_live_source_ids`, `:proxmox_unfuse_candidate_limit`,
+      `:proxmox_unfuse_plan_sample_limit`, `:proxmox_unfuse_include_live`,
+      `:proxmox_unfuse_live_device_uids`, `:proxmox_unfuse_live_source_ids`
 
   Returns `{:ok, result}` when all selected steps complete without reported
   failures. If any report contains a positive `errors` or `*_failures` count,
@@ -266,6 +306,10 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
           not armis_unmerge_execute_enabled?() ->
         {:error, {:execute_disabled, [@armis_unmerge_step]}}
 
+      mode == :execute and @proxmox_unfuse_step in steps and
+          not split_execute_enabled?(@proxmox_unfuse_step) ->
+        {:error, {:execute_disabled, [@proxmox_unfuse_step]}}
+
       Enum.all?(steps, &(&1 in @step_order)) ->
         {:ok, Enum.filter(@step_order, &(&1 in steps))}
 
@@ -290,9 +334,18 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   # Do not trust caller-supplied values for the destructive execution gate.
   # Only release runtime configuration may enable the exact option consumed by
-  # ArmisUnmerge, giving both the orchestrator and the step fail-closed checks.
+  # each split-disposition step, giving both the orchestrator and the step
+  # fail-closed checks.
   defp runtime_step_opts("armis-unmerge", opts) do
     Keyword.put(opts, :armis_unmerge_execute_enabled, armis_unmerge_execute_enabled?())
+  end
+
+  defp runtime_step_opts("proxmox-unfuse", opts) do
+    Keyword.put(
+      opts,
+      :proxmox_unfuse_execute_enabled,
+      split_execute_enabled?(@proxmox_unfuse_step)
+    )
   end
 
   defp runtime_step_opts(_step, opts), do: opts
@@ -311,6 +364,9 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   defp run_step("proxmox-dups", mode, opts, manifest, actor),
     do: ProxmoxDups.run(mode, opts, manifest, actor)
+
+  defp run_step("proxmox-unfuse", mode, opts, manifest, actor),
+    do: ProxmoxUnfuse.run(mode, opts, manifest, actor)
 
   defp run_step("netprobe-alias-debris", mode, opts, manifest, actor),
     do: NetprobeAliasDebris.run(mode, opts, manifest, actor)

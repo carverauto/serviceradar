@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   alias ServiceRadar.Inventory.Identity.HardwareSerial
   alias ServiceRadar.Inventory.Identity.Mac
+  alias ServiceRadar.Inventory.IntegrationIdentity
 
   require Logger
 
@@ -416,13 +417,30 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   def get_identifier_values(:mac, ids), do: mac_lookup_values(ids)
 
+  # Ambiguous name-keyed Proxmox values (`proxmox:vm:<name>` and kin) are
+  # never lookup values: names are not unique across clusters, so matching on
+  # one fused devices from different clusters into a single row (GitHub #4051).
+  # This filters every resolution path at once (Resolver, BatchResolver,
+  # Registrar conflict checks, sync lookups), including stale
+  # `legacy_integration_ids` metadata from producers that predate the
+  # bridge removal in `IntegrationIdentity.legacy_candidates/2`.
+  #
+  # Deliberately lookup-only: the primary still seeds deterministic UID
+  # derivation and registration. A stale producer reporting a legacy primary
+  # keeps resolving to its own stable row (no duplicate storm for MAC-less,
+  # IP-less placeholders), while the value can no longer match — and therefore
+  # fuse — any other device. Historical ambiguous rows themselves are archived
+  # by migration (see `ArchiveProxmoxNameKeyedIdentifiers`).
   def get_identifier_values(:integration_id, ids) do
     primary = List.wrap(ids_get(ids, :integration_id))
 
-    case ids_get(ids, :legacy_integration_ids) do
-      list when is_list(list) -> Enum.uniq(primary ++ list)
-      _ -> primary
-    end
+    values =
+      case ids_get(ids, :legacy_integration_ids) do
+        list when is_list(list) -> Enum.uniq(primary ++ list)
+        _ -> primary
+      end
+
+    Enum.reject(values, &IntegrationIdentity.ambiguous_name_keyed?/1)
   end
 
   def get_identifier_values(id_type, ids) do
