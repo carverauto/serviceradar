@@ -264,6 +264,40 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
     assert :counters.get(calls, 1) == 2
   end
 
+  test "redelivery persists the newly opened incident without creating a duplicate", %{table: table} do
+    now = ~U[2026-08-11 12:00:00Z]
+    rule = rule()
+    key = {rule.id, "global"}
+    calls = :counters.new(2, [])
+
+    state = %{
+      table: table,
+      create_event_and_alert: fn _, _, _, _ ->
+        :counters.add(calls, 1, 1)
+        {:ok, "synthetic-pending-incident"}
+      end,
+      persist_snapshot: fn snapshot, _, _ ->
+        assert snapshot.alert_id == "synthetic-pending-incident"
+        :counters.add(calls, 2, 1)
+        if :counters.get(calls, 2) == 1, do: :error, else: :ok
+      end
+    }
+
+    assert {:error, :snapshot_persistence_failed} =
+             StateMachine.process_event_rules(event(now), [rule], state)
+
+    assert [{^key, %{alert_id: "synthetic-pending-incident", flush_required: true}}] =
+             :ets.lookup(table, key)
+
+    assert :ok = StateMachine.process_event_rules(event(now), [rule], state)
+
+    assert [{^key, %{alert_id: "synthetic-pending-incident", flush_required: false}}] =
+             :ets.lookup(table, key)
+
+    assert :counters.get(calls, 1) == 1
+    assert :counters.get(calls, 2) == 2
+  end
+
   test "failed recovery persistence retains the resolved snapshot for redelivery", %{table: table} do
     now = ~U[2026-08-11 12:00:00Z]
     rule = rule()

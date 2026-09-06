@@ -61,17 +61,6 @@ defmodule ServiceRadar.Notifications.NotificationEscalationStep do
     :condition
   ]
 
-  json_api do
-    type "notification_escalation_step"
-
-    routes do
-      base "/notification-escalation-steps"
-
-      index :read
-      post :create
-    end
-  end
-
   postgres do
     table "notification_escalation_steps"
     repo ServiceRadar.Repo
@@ -93,6 +82,17 @@ defmodule ServiceRadar.Notifications.NotificationEscalationStep do
     store_action_inputs? true
     create_version_on_destroy? false
     ignore_attributes [:inserted_at, :updated_at]
+  end
+
+  json_api do
+    type "notification_escalation_step"
+
+    routes do
+      base "/notification-escalation-steps"
+
+      index :read
+      post :create
+    end
   end
 
   code_interface do

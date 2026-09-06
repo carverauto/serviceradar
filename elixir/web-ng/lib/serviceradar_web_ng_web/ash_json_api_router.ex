@@ -32,20 +32,10 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
   - POST /api/v2/alerts - Trigger new alert
   - PATCH /api/v2/alerts/:id/acknowledge - Acknowledge alert
   - PATCH /api/v2/alerts/:id/resolve - Resolve alert
-  - POST /api/v2/alerts/k8s-node-not-ready-test - Publish a node.not_ready probe
-  - POST /api/v2/alerts/k8s-node-ready-test - Publish the matching node.ready clear
 
-  ### Notifications Domain
-  - GET /api/v2/notification-channels - List channels
-  - GET /api/v2/notification-routes - List routes
-  - POST /api/v2/notification-routes - Create a route
-  - PATCH /api/v2/notification-routes/:id - Update a route
-  - PATCH /api/v2/notification-routes/:id/enable - Enable a route
-  - GET /api/v2/notification-escalation-policies - List escalation policies
-  - POST /api/v2/notification-escalation-policies - Create a policy
-  - GET /api/v2/notification-escalation-steps - List steps
-  - POST /api/v2/notification-escalation-steps - Create a step
-  - POST /api/v2/notification-escalation-step-channels - Attach a channel to a step
+  Node probe actions and notification routes are defined by the resources'
+  JSON:API DSL. Consult the generated OpenAPI document below for their paths,
+  request schemas, and supported operations.
 
   ## Authentication
 

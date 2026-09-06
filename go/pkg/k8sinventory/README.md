@@ -2,6 +2,8 @@
 
 Discovers **public / edge Kubernetes endpoint ownership** and builds
 **VIP → backend socket** correlation hints.
+Optional Node readiness collection is described in the
+[operator RBAC guide](../../../docs/docs/k8s-public-endpoint-inventory.md#helm-serviceaccount-and-rbac).
 
 **Operator documentation:** [docs/docs/k8s-public-endpoint-inventory.md](../../../docs/docs/k8s-public-endpoint-inventory.md)
 (ServiceAccount/RBAC via Helm, Argo CD notes, IR workflow).

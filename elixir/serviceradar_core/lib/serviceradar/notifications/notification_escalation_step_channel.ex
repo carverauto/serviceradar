@@ -38,16 +38,6 @@ defmodule ServiceRadar.Notifications.NotificationEscalationStepChannel do
     :channel_id
   ]
 
-  json_api do
-    type "notification_escalation_step_channel"
-
-    routes do
-      base "/notification-escalation-step-channels"
-
-      post :attach
-    end
-  end
-
   postgres do
     table "notification_escalation_step_channels"
     repo ServiceRadar.Repo
@@ -58,6 +48,16 @@ defmodule ServiceRadar.Notifications.NotificationEscalationStepChannel do
     references do
       reference :step, on_delete: :delete
       reference :channel, on_delete: :delete
+    end
+  end
+
+  json_api do
+    type "notification_escalation_step_channel"
+
+    routes do
+      base "/notification-escalation-step-channels"
+
+      post :attach
     end
   end
 

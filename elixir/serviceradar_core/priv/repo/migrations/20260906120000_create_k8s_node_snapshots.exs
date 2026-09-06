@@ -1,4 +1,5 @@
 defmodule ServiceRadar.Repo.Migrations.CreateK8sNodeSnapshots do
+  @moduledoc false
   use Ecto.Migration
 
   def up do

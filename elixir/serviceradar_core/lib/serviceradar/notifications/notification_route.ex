@@ -109,19 +109,6 @@ defmodule ServiceRadar.Notifications.NotificationRoute do
     :continue
   ]
 
-  json_api do
-    type "notification_route"
-
-    routes do
-      base "/notification-routes"
-
-      index :read
-      post :create
-      patch :update
-      patch :enable, route: "/:id/enable"
-    end
-  end
-
   postgres do
     table "notification_routes"
     repo ServiceRadar.Repo
@@ -144,6 +131,19 @@ defmodule ServiceRadar.Notifications.NotificationRoute do
     store_action_inputs? true
     create_version_on_destroy? false
     ignore_attributes [:inserted_at, :updated_at]
+  end
+
+  json_api do
+    type "notification_route"
+
+    routes do
+      base "/notification-routes"
+
+      index :read
+      post :create
+      patch :update
+      patch :enable, route: "/:id/enable"
+    end
   end
 
   code_interface do

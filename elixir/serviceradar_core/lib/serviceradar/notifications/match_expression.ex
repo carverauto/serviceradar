@@ -47,9 +47,10 @@ defmodule ServiceRadar.Notifications.MatchExpression do
 
   Operand rules:
 
-    * `"equals"` - a non-empty string, number, boolean, or null.
-      Routes reject an empty string when saving: `%{}` matches every alert, and
-      `equals: ""` matches only a blank value.
+    * `"equals"` - a string, number, boolean, or null.
+      Routes additionally reject an empty string when saving: `%{}` matches
+      every alert, and `equals: ""` matches only a blank value. Evaluation of
+      existing routes and silence validation retain empty-string support.
     * `"in"` - a non-empty list of those scalars
     * `"contains"` - a string or a number
     * `"exists"` - a boolean

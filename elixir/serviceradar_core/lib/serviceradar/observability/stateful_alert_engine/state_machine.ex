@@ -408,6 +408,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
   defp maybe_flush_snapshot(snapshot, rule, state) do
     if Map.get(snapshot, :bucket_changed, false) || Map.get(snapshot, :flush_required, false) do
       persister = Map.get(state, :persist_snapshot, &persist_snapshot/3)
+
       case persister.(snapshot, rule, state) do
         :ok ->
           {:ok, snapshot |> Map.put(:bucket_changed, false) |> Map.put(:flush_required, false)}

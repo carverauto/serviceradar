@@ -86,12 +86,21 @@ public endpoint row for that cluster, silently.
 ### Requirement: Node inventory persistence
 EventWriter SHALL upsert each node snapshot into `platform.k8s_nodes_current`
 and SHALL soft-delete rows for that cluster that are absent from the snapshot.
+It SHALL accept only snapshots whose `generated_at` is newer than the cluster
+watermark in `platform.k8s_node_snapshots`, including for empty snapshots.
+The watermark and node writes SHALL share the snapshot transaction.
 
 #### Scenario: Snapshot replaces prior generation
 - **WHEN** a snapshot for cluster `demo` contains node `node-worker-1.example.com`
   and omits a previously current node
 - **THEN** the current table SHALL contain the listed node
 - **AND** the omitted node SHALL have `deleted_at` set
+
+#### Scenario: A stale snapshot cannot restore old readiness
+- **GIVEN** a newer snapshot has already committed for a cluster
+- **WHEN** an equal or older snapshot is delivered
+- **THEN** it SHALL change neither node rows nor the watermark
+- **AND** it SHALL emit no readiness or deletion-recovery events
 
 ### Requirement: Ready condition transition events
 When a persisted Node's `Ready` condition flips, the system SHALL emit an
@@ -129,7 +138,12 @@ NOT deliver a notification from the EventWriter processor.
 ### Requirement: A readiness event that cannot be published SHALL NOT be consumed
 The processor SHALL abort the transaction that applied a snapshot when
 publishing a `node.not_ready` or `node.ready` event fails, rather than logging
-the failure and committing. Committing the upserted row while dropping the
+the failure and committing. Success SHALL require synchronous stateful
+evaluation, not queue admission alone. Promotion-rule load, initial stateful-rule
+load, incident-state restoration, alert lifecycle, and required incident-state
+persistence failures SHALL propagate to the snapshot caller. A failed state
+write SHALL retain the pending snapshot and flush flag for retry.
+Committing the upserted row while dropping the
 event makes the transition unrecoverable: the next snapshot compares the new `ready` value
 against itself, emits nothing, and the incident never opens. The apply is
 idempotent, so aborting lets JetStream redeliver against the prior state, and
@@ -142,6 +156,12 @@ silently losing a page.
 - **THEN** the snapshot transaction SHALL roll back, leaving the stored
   `ready` value unchanged
 - **AND** the processor SHALL report the failure so the message is redelivered
+
+#### Scenario: Failed incident-state persistence is not acknowledged
+- **GIVEN** a readiness event creates an incident but its state write fails
+- **WHEN** synchronous evaluation returns that persistence failure
+- **THEN** the node writes and cluster watermark SHALL roll back
+- **AND** the engine SHALL retain the incident snapshot with its flush pending
 
 ### Requirement: Public-endpoints ingest stays isolated
 EventWriter SHALL continue to ingest `inventory.k8s.public_endpoints` with the

@@ -9,7 +9,7 @@ import {normalizeInstanceUrl} from "../auth/credentials.js"
 import {formatFetchFailure} from "../tls_ca.js"
 
 const JSON_API = "application/vnd.api+json"
-// Envoy/Kong in front of demo 406s when Accept is only vnd.api+json.
+// Some API gateways reject requests that accept only the JSON:API media type.
 const ACCEPT = `${JSON_API}, application/json`
 const RULE_NAME = "k8s_node_not_ready"
 const ROUTE_NAME = "k8s-node-not-ready"

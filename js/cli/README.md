@@ -11,6 +11,7 @@ React/JS surface customer dashboards depend on).
 serviceradar-cli auth      <login|status|logout>
 serviceradar-cli dashboard <init|build|dev|validate|manifest|publish|import>
 serviceradar-cli plugin    <init|validate|publish|status|assignments|secrets|rules|controllers|apply>
+serviceradar-cli notifications <ensure-k8s-alerts>
 ```
 
 Help for any group:
@@ -20,7 +21,11 @@ serviceradar-cli help
 serviceradar-cli auth help
 serviceradar-cli dashboard --help     # delegates through to the dashboard subgroup
 serviceradar-cli plugin --help
+serviceradar-cli notifications help
 ```
+
+For Kubernetes node alert setup, prerequisites, and the fire/clear probe,
+see [Kubernetes node NotReady](../../docs/docs/notifications.md#kubernetes-node-notready).
 
 ## Single install for developers
 

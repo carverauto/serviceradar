@@ -133,6 +133,8 @@ func NodeFromCore(node *corev1.Node) NodeView {
 			if out.ExternalIP == "" {
 				out.ExternalIP = addr.Address
 			}
+		case corev1.NodeHostName, corev1.NodeInternalDNS, corev1.NodeExternalDNS:
+			// DNS names are not IP addresses; node identity comes from metadata.Name.
 		}
 	}
 	return out

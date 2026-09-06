@@ -97,18 +97,6 @@ defmodule ServiceRadar.Notifications.NotificationChannel do
     :metadata
   ]
 
-  json_api do
-    type "notification_channel"
-
-    hide_fields [:secret_refs]
-
-    routes do
-      base "/notification-channels"
-
-      index :read
-    end
-  end
-
   postgres do
     table "notification_channels"
     repo ServiceRadar.Repo
@@ -149,6 +137,18 @@ defmodule ServiceRadar.Notifications.NotificationChannel do
       :last_failure_at,
       :last_error
     ]
+  end
+
+  json_api do
+    type "notification_channel"
+
+    hide_fields [:secret_refs]
+
+    routes do
+      base "/notification-channels"
+
+      index :read
+    end
   end
 
   code_interface do

@@ -62,17 +62,6 @@ defmodule ServiceRadar.Notifications.NotificationEscalationPolicy do
     :resolve_notifies
   ]
 
-  json_api do
-    type "notification_escalation_policy"
-
-    routes do
-      base "/notification-escalation-policies"
-
-      index :read
-      post :create
-    end
-  end
-
   postgres do
     table "notification_escalation_policies"
     repo ServiceRadar.Repo
@@ -90,6 +79,17 @@ defmodule ServiceRadar.Notifications.NotificationEscalationPolicy do
     store_action_inputs? true
     create_version_on_destroy? false
     ignore_attributes [:inserted_at, :updated_at]
+  end
+
+  json_api do
+    type "notification_escalation_policy"
+
+    routes do
+      base "/notification-escalation-policies"
+
+      index :read
+      post :create
+    end
   end
 
   code_interface do

@@ -227,11 +227,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   @impl true
   def handle_call({:evaluate_logs, rows}, _from, state) do
-    with {:ok, state, rules} <- load_rules_if_needed(state) do
-      result = process_records(rows, &StateMachine.process_log_rules(&1, rules, state))
-      {:reply, result, state}
-    else
-      {:error, reason, state} -> {:reply, {:error, reason}, state}
+    case load_rules_if_needed(state) do
+      {:ok, state, rules} ->
+        result = process_records(rows, &StateMachine.process_log_rules(&1, rules, state))
+        {:reply, result, state}
+
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, state}
     end
   rescue
     error ->
@@ -241,11 +243,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   @impl true
   def handle_call({:evaluate_events, events}, _from, state) do
-    with {:ok, state, rules} <- load_rules_if_needed(state) do
-      result = process_records(events, &StateMachine.process_event_rules(&1, rules, state))
-      {:reply, result, state}
-    else
-      {:error, reason, state} -> {:reply, {:error, reason}, state}
+    case load_rules_if_needed(state) do
+      {:ok, state, rules} ->
+        result = process_records(events, &StateMachine.process_event_rules(&1, rules, state))
+        {:reply, result, state}
+
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, state}
     end
   rescue
     error ->
@@ -255,11 +259,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   @impl true
   def handle_call({:evaluate_metrics, rows}, _from, state) do
-    with {:ok, state, rules} <- load_rules_if_needed(state) do
-      result = process_records(rows, &StateMachine.process_metric_rules(&1, rules, state))
-      {:reply, result, state}
-    else
-      {:error, reason, state} -> {:reply, {:error, reason}, state}
+    case load_rules_if_needed(state) do
+      {:ok, state, rules} ->
+        result = process_records(rows, &StateMachine.process_metric_rules(&1, rules, state))
+        {:reply, result, state}
+
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, state}
     end
   rescue
     error ->
@@ -273,17 +279,19 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         _from,
         state
       ) do
-    with {:ok, state, rules} <- load_rules_if_needed(state) do
-      # Only the shard that owns the rule will find it in its loaded set.
-      resolved =
-        case Enum.find(rules, fn rule -> rule.name == rule_name end) do
-          nil -> 0
-          rule -> StateMachine.sweep_stale_anomalies(rule, cutoff, now, state, live_series_keys)
-        end
+    case load_rules_if_needed(state) do
+      {:ok, state, rules} ->
+        # Only the shard that owns the rule will find it in its loaded set.
+        resolved =
+          case Enum.find(rules, fn rule -> rule.name == rule_name end) do
+            nil -> 0
+            rule -> StateMachine.sweep_stale_anomalies(rule, cutoff, now, state, live_series_keys)
+          end
 
-      {:reply, {:ok, resolved}, state}
-    else
-      {:error, reason, state} -> {:reply, {:error, reason}, state}
+        {:reply, {:ok, resolved}, state}
+
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, state}
     end
   rescue
     error ->

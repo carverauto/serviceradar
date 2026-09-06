@@ -411,19 +411,6 @@ defmodule ServiceRadar.EventWriter.Config do
     end
   end
 
-  @doc """
-  The dedicated ANALYTICS_PREDICTIONS stream/consumer definition.
-
-  Dedicated verdict stream (restore-anomaly-alerting design D9): the shared
-  `events` stream is byte-capped and the otel collector pins its MaxAge to
-  30m, so anomaly/capacity verdicts died in any core outage >30m.
-  1 GiB / 24h, discard old. Existing deployments keep consuming from `events`
-  until the operator releases `signals.analytics.>` there (see the change
-  runbook); fresh installs converge automatically.
-
-  Shared by `default_streams/0` and both runtime.exs stream lists so the
-  retention stanza cannot drift.
-  """
   @spec k8s_nodes_stream() :: stream_config()
   def k8s_nodes_stream do
     %{
@@ -441,6 +428,19 @@ defmodule ServiceRadar.EventWriter.Config do
     }
   end
 
+  @doc """
+  The dedicated ANALYTICS_PREDICTIONS stream/consumer definition.
+
+  Dedicated verdict stream (restore-anomaly-alerting design D9): the shared
+  `events` stream is byte-capped and the otel collector pins its MaxAge to
+  30m, so anomaly/capacity verdicts died in any core outage >30m.
+  1 GiB / 24h, discard old. Existing deployments keep consuming from `events`
+  until the operator releases `signals.analytics.>` there (see the change
+  runbook); fresh installs converge automatically.
+
+  Shared by `default_streams/0` and both runtime.exs stream lists so the
+  retention stanza cannot drift.
+  """
   @spec analytics_predictions_stream() :: stream_config()
   def analytics_predictions_stream do
     %{

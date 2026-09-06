@@ -518,8 +518,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          _service_instance,
          _resource_attributes,
          _metadata
-       ),
-       do: []
+       ), do: []
 
   defp parse_scope(%InstrumentationScope{name: name, version: version}), do: {name, version}
   defp parse_scope(_), do: {nil, nil}

@@ -142,6 +142,27 @@
         },
         "type": "object"
       },
+      "notification_channel-filter-last_failure_at": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {}
+        },
+        "type": "object"
+      },
       "interface_classification_rule-filter-if_name_pattern": {
         "additionalProperties": false,
         "description": "Regex pattern for interface name match",
@@ -291,6 +312,46 @@
               "unhealthy"
             ],
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_escalation_step-filter-delay_seconds": {
+        "additionalProperties": false,
+        "description": "Offset from the ALERT FIRE TIME at which this step fires, never an offset from the previous step's dispatch. The one exception, applied by the dispatch scheduler rather than by this resource, is that after a snooze expires the remaining delays are measured from the snooze expiry instant.",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -731,6 +792,93 @@
         },
         "type": "deepObject"
       },
+      "notification_escalation_step-filter-id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_channel-filter-enabled": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "poll-job-filter-failure_count": {
         "additionalProperties": false,
         "description": "Number of failed checks",
@@ -921,9 +1069,103 @@
         },
         "type": "object"
       },
+      "notification_channel-filter-name": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_escalation_policy-filter-repeat_count": {
+        "additionalProperties": false,
+        "description": "How many times the policy replays after its last step; 0 disables repeats",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "interface-filter-timestamp": {
         "additionalProperties": false,
-        "description": "When interface was discovered/updated",
+        "description": "When interface was last observed",
         "properties": {
           "eq": {
             "format": "date-time",
@@ -1833,6 +2075,46 @@
         ],
         "type": "object"
       },
+      "notification_route-filter-match_expression": {
+        "additionalProperties": false,
+        "description": "Declarative predicate document over alert attributes. Shape validated at save time against the allowed combinators, operators, and field paths; never evaluated as code. An empty document matches every alert.",
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "service-check-filter-name": {
         "additionalProperties": false,
         "description": "Human-readable check name",
@@ -1884,6 +2166,46 @@
           },
           "string_starts_with": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_channel-filter-max_attempts": {
+        "additionalProperties": false,
+        "description": "Retry bound for deliveries on this channel; defaults from the provider",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -2212,6 +2534,55 @@
         },
         "type": "object"
       },
+      "notification_channel-filter-fallback_channel_id": {
+        "additionalProperties": false,
+        "description": "Transport failover target; one hop, never taken when fail_closed is set",
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "agent-filter-pushed_config_version": {
         "additionalProperties": false,
         "description": "Config version most recently pushed to the agent over the control stream",
@@ -2356,6 +2727,162 @@
         },
         "type": "object"
       },
+      "notification_route": {
+        "additionalProperties": false,
+        "description": "A \"Resource object\" representing a notification_route",
+        "properties": {
+          "attributes": {
+            "additionalProperties": false,
+            "description": "An attributes object for a notification_route",
+            "properties": {
+              "continue": {
+                "description": "Alertmanager semantics. When false the first matching route wins and evaluation stops; when true evaluation falls through to lower priority routes. Field included by default.",
+                "type": "boolean"
+              },
+              "dedupe_key_template": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "OPTIONAL override. When nil the engine uses the existing {rule_id, group_key} incident identity; deduplication is not re-authored here. Set this only for cases the rule grouping does not cover. Field included by default."
+              },
+              "description": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "enabled": {
+                "description": "Only enabled routes are evaluated. Field included by default.",
+                "type": "boolean"
+              },
+              "escalation_policy_id": {
+                "description": "Ladder this route hands the alert to. Field included by default.",
+                "format": "uuid",
+                "type": "string"
+              },
+              "group_interval_seconds": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Minimum seconds before an already-notified group may notify again. Field included by default."
+              },
+              "group_wait_seconds": {
+                "description": "Hold a new group this long so related alerts arrive as one notification. Field included by default.",
+                "type": "integer"
+              },
+              "match_expression": {
+                "description": "Declarative predicate document over alert attributes. Shape validated at save time against the allowed combinators, operators, and field paths; never evaluated as code. An empty document matches every alert. Field included by default.",
+                "type": "object"
+              },
+              "name": {
+                "description": "Field included by default.",
+                "type": "string"
+              },
+              "priority": {
+                "description": "Evaluation order, ascending. Lower numbers are considered first. Field included by default.",
+                "type": "integer"
+              },
+              "schedule_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Optional time window; outside it the dispatch is suppressed with :schedule. Field included by default."
+              },
+              "throttle_seconds": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Minimum seconds between repeat notifications for the same dedupe key. Field included by default."
+              }
+            },
+            "required": [
+              "name",
+              "enabled",
+              "priority",
+              "match_expression",
+              "escalation_policy_id",
+              "group_wait_seconds",
+              "continue"
+            ],
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationships": {
+            "additionalProperties": false,
+            "description": "A relationships object for a notification_route",
+            "properties": {
+              "escalation_policy": {
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "description": "An identifier for escalation_policy",
+                    "nullable": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "meta": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
       "device-filter-is_compliant": {
         "additionalProperties": false,
         "description": "Compliance status",
@@ -2395,6 +2922,55 @@
           }
         },
         "type": "object"
+      },
+      "notification_escalation_policy-filter": {
+        "additionalProperties": false,
+        "description": "Filters the query to results matching the given filter object",
+        "example": "",
+        "properties": {
+          "and": {
+            "items": {
+              "$ref": "#/components/schemas/notification_escalation_policy-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "description": {
+            "$ref": "#/components/schemas/notification_escalation_policy-filter-description"
+          },
+          "enabled": {
+            "$ref": "#/components/schemas/notification_escalation_policy-filter-enabled"
+          },
+          "id": {
+            "$ref": "#/components/schemas/notification_escalation_policy-filter-id"
+          },
+          "name": {
+            "$ref": "#/components/schemas/notification_escalation_policy-filter-name"
+          },
+          "not": {
+            "$ref": "#/components/schemas/notification_escalation_policy-filter"
+          },
+          "or": {
+            "items": {
+              "$ref": "#/components/schemas/notification_escalation_policy-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "repeat_count": {
+            "$ref": "#/components/schemas/notification_escalation_policy-filter-repeat_count"
+          },
+          "repeat_interval_seconds": {
+            "$ref": "#/components/schemas/notification_escalation_policy-filter-repeat_interval_seconds"
+          },
+          "resolve_notifies": {
+            "$ref": "#/components/schemas/notification_escalation_policy-filter-resolve_notifies"
+          },
+          "steps": {
+            "$ref": "#/components/schemas/notification_escalation_step-filter"
+          }
+        },
+        "type": "deepObject"
       },
       "poll-job-filter-success_count": {
         "additionalProperties": false,
@@ -2805,6 +3381,55 @@
         },
         "type": "object"
       },
+      "notification_route-filter-escalation_policy_id": {
+        "additionalProperties": false,
+        "description": "Ladder this route hands the alert to",
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "service-check-filter-enabled": {
         "additionalProperties": false,
         "description": "Whether this check is active",
@@ -2841,6 +3466,54 @@
           },
           "not_eq": {
             "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "notification_route-filter-id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
           }
         },
         "type": "object"
@@ -2890,6 +3563,46 @@
           "not_eq": {
             "format": "date-time",
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_route-filter-group_wait_seconds": {
+        "additionalProperties": false,
+        "description": "Hold a new group this long so related alerts arrive as one notification",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -3206,6 +3919,152 @@
         },
         "type": "object"
       },
+      "notification_escalation_step_channel-filter-step_id": {
+        "additionalProperties": false,
+        "description": "Escalation step this membership belongs to",
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_escalation_step_channel": {
+        "additionalProperties": false,
+        "description": "A \"Resource object\" representing a notification_escalation_step_channel",
+        "properties": {
+          "attributes": {
+            "additionalProperties": false,
+            "description": "An attributes object for a notification_escalation_step_channel",
+            "properties": {
+              "channel_id": {
+                "description": "Channel notified when the step fires. Field included by default.",
+                "format": "uuid",
+                "type": "string"
+              },
+              "step_id": {
+                "description": "Escalation step this membership belongs to. Field included by default.",
+                "format": "uuid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "step_id",
+              "channel_id"
+            ],
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationships": {
+            "additionalProperties": false,
+            "description": "A relationships object for a notification_escalation_step_channel",
+            "properties": {
+              "channel": {
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "description": "An identifier for channel",
+                    "nullable": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "meta": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                }
+              },
+              "step": {
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "description": "An identifier for step",
+                    "nullable": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "meta": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                }
+              }
+            },
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
       "device-filter-vendor_name": {
         "additionalProperties": false,
         "description": "Device vendor/manufacturer",
@@ -3389,6 +4248,54 @@
           },
           "not_eq": {
             "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_escalation_policy-filter-id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
             "type": "string"
           }
         },
@@ -3618,6 +4525,94 @@
           },
           "not_eq": {
             "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_channel-filter-rate_limit_per_minute": {
+        "additionalProperties": false,
+        "description": "Shared, restart-surviving send budget for this destination",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "notification_escalation_step_channel-filter-id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
             "type": "string"
           }
         },
@@ -4115,6 +5110,76 @@
         },
         "type": "object"
       },
+      "notification_channel-filter-last_success_at": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {},
+          "greater_than": {},
+          "greater_than_or_equal": {},
+          "in": {
+            "items": {},
+            "type": "array"
+          },
+          "is_distinct_from": {},
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {},
+          "less_than": {},
+          "less_than_or_equal": {},
+          "not_eq": {}
+        },
+        "type": "object"
+      },
+      "notification_escalation_step-filter": {
+        "additionalProperties": false,
+        "description": "Filters the query to results matching the given filter object",
+        "example": "",
+        "properties": {
+          "and": {
+            "items": {
+              "$ref": "#/components/schemas/notification_escalation_step-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "channels": {
+            "$ref": "#/components/schemas/notification_channel-filter"
+          },
+          "condition": {
+            "$ref": "#/components/schemas/notification_escalation_step-filter-condition"
+          },
+          "delay_seconds": {
+            "$ref": "#/components/schemas/notification_escalation_step-filter-delay_seconds"
+          },
+          "id": {
+            "$ref": "#/components/schemas/notification_escalation_step-filter-id"
+          },
+          "not": {
+            "$ref": "#/components/schemas/notification_escalation_step-filter"
+          },
+          "or": {
+            "items": {
+              "$ref": "#/components/schemas/notification_escalation_step-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "policy": {
+            "$ref": "#/components/schemas/notification_escalation_policy-filter"
+          },
+          "policy_id": {
+            "$ref": "#/components/schemas/notification_escalation_step-filter-policy_id"
+          },
+          "step_channels": {
+            "$ref": "#/components/schemas/notification_escalation_step_channel-filter"
+          },
+          "step_number": {
+            "$ref": "#/components/schemas/notification_escalation_step-filter-step_number"
+          }
+        },
+        "type": "deepObject"
+      },
       "agent-filter-desired_version": {
         "additionalProperties": false,
         "description": "Desired version assigned by release management",
@@ -4166,6 +5231,45 @@
           },
           "string_starts_with": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_escalation_policy-filter-enabled": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -4261,6 +5365,46 @@
           },
           "string_starts_with": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_route-filter-priority": {
+        "additionalProperties": false,
+        "description": "Evaluation order, ascending. Lower numbers are considered first",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -4491,6 +5635,60 @@
         },
         "type": "object"
       },
+      "notification_channel-filter-last_error": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "service-check-filter-device_uid": {
         "additionalProperties": false,
         "description": "Device being monitored",
@@ -4601,6 +5799,70 @@
         },
         "type": "object"
       },
+      "notification_escalation_step-filter-condition": {
+        "additionalProperties": false,
+        "description": ":if_unacknowledged fires the step only while the alert is still unacknowledged; :always fires it regardless, for ladders that must reach a downstream system even after a human has taken the page.",
+        "properties": {
+          "eq": {
+            "enum": [
+              "always",
+              "if_unacknowledged"
+            ],
+            "type": "string"
+          },
+          "greater_than": {
+            "enum": [
+              "always",
+              "if_unacknowledged"
+            ],
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "enum": [
+              "always",
+              "if_unacknowledged"
+            ],
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "enum": [
+              "always",
+              "if_unacknowledged"
+            ],
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "enum": [
+              "always",
+              "if_unacknowledged"
+            ],
+            "type": "string"
+          },
+          "not_eq": {
+            "enum": [
+              "always",
+              "if_unacknowledged"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "device-group-filter-id": {
         "additionalProperties": false,
         "properties": {
@@ -4645,6 +5907,45 @@
           "not_eq": {
             "format": "uuid",
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_channel-filter-fail_closed": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -5623,6 +6924,73 @@
         },
         "type": "object"
       },
+      "notification_route-filter": {
+        "additionalProperties": false,
+        "description": "Filters the query to results matching the given filter object",
+        "example": "",
+        "properties": {
+          "and": {
+            "items": {
+              "$ref": "#/components/schemas/notification_route-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "continue": {
+            "$ref": "#/components/schemas/notification_route-filter-continue"
+          },
+          "dedupe_key_template": {
+            "$ref": "#/components/schemas/notification_route-filter-dedupe_key_template"
+          },
+          "description": {
+            "$ref": "#/components/schemas/notification_route-filter-description"
+          },
+          "enabled": {
+            "$ref": "#/components/schemas/notification_route-filter-enabled"
+          },
+          "escalation_policy": {
+            "$ref": "#/components/schemas/notification_escalation_policy-filter"
+          },
+          "escalation_policy_id": {
+            "$ref": "#/components/schemas/notification_route-filter-escalation_policy_id"
+          },
+          "group_interval_seconds": {
+            "$ref": "#/components/schemas/notification_route-filter-group_interval_seconds"
+          },
+          "group_wait_seconds": {
+            "$ref": "#/components/schemas/notification_route-filter-group_wait_seconds"
+          },
+          "id": {
+            "$ref": "#/components/schemas/notification_route-filter-id"
+          },
+          "match_expression": {
+            "$ref": "#/components/schemas/notification_route-filter-match_expression"
+          },
+          "name": {
+            "$ref": "#/components/schemas/notification_route-filter-name"
+          },
+          "not": {
+            "$ref": "#/components/schemas/notification_route-filter"
+          },
+          "or": {
+            "items": {
+              "$ref": "#/components/schemas/notification_route-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "priority": {
+            "$ref": "#/components/schemas/notification_route-filter-priority"
+          },
+          "schedule_id": {
+            "$ref": "#/components/schemas/notification_route-filter-schedule_id"
+          },
+          "throttle_seconds": {
+            "$ref": "#/components/schemas/notification_route-filter-throttle_seconds"
+          }
+        },
+        "type": "deepObject"
+      },
       "alert-filter-acknowledged_by": {
         "additionalProperties": false,
         "description": "User who acknowledged",
@@ -5769,6 +7137,61 @@
           },
           "not_eq": {
             "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "device-filter-partition": {
+        "additionalProperties": false,
+        "description": "Network partition. The same IP may exist in more than one partition.",
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -5968,6 +7391,60 @@
           },
           "not_eq": {
             "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "notification_channel-filter-description": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -6832,6 +8309,61 @@
         },
         "type": "object"
       },
+      "notification_route-filter-dedupe_key_template": {
+        "additionalProperties": false,
+        "description": "OPTIONAL override. When nil the engine uses the existing {rule_id, group_key} incident identity; deduplication is not re-authored here. Set this only for cases the rule grouping does not cover.",
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "device-filter-ip": {
         "additionalProperties": false,
         "description": "Primary IP address",
@@ -7256,6 +8788,61 @@
         },
         "type": "object"
       },
+      "notification_channel-filter-partition_id": {
+        "additionalProperties": false,
+        "description": "Immutable mTLS-derived partition bound server-side from the agent control session",
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "alert-filter-escalation_reason": {
         "additionalProperties": false,
         "description": "Reason for escalation",
@@ -7311,9 +8898,210 @@
         },
         "type": "object"
       },
+      "notification_escalation_policy": {
+        "additionalProperties": false,
+        "description": "A \"Resource object\" representing a notification_escalation_policy",
+        "properties": {
+          "attributes": {
+            "additionalProperties": false,
+            "description": "An attributes object for a notification_escalation_policy",
+            "properties": {
+              "description": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "enabled": {
+                "description": "Field included by default.",
+                "type": "boolean"
+              },
+              "name": {
+                "description": "Field included by default.",
+                "type": "string"
+              },
+              "repeat_count": {
+                "description": "How many times the policy replays after its last step; 0 disables repeats. Field included by default.",
+                "type": "integer"
+              },
+              "repeat_interval_seconds": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Gap between repeats; required when repeat_count > 0, floored by the rule. Field included by default."
+              },
+              "resolve_notifies": {
+                "description": "Whether resolution closes the loop on the channels that were paged. Field included by default.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "name",
+              "enabled",
+              "repeat_count",
+              "resolve_notifies"
+            ],
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationships": {
+            "additionalProperties": false,
+            "description": "A relationships object for a notification_escalation_policy",
+            "properties": {
+              "steps": {
+                "properties": {
+                  "data": {
+                    "description": "Relationship data for steps",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "Resource identifiers for steps",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "meta": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                }
+              }
+            },
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
+      "notification_escalation_policy-filter-description": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "device-filter-risk_score": {
         "additionalProperties": false,
         "description": "Numeric risk score",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "notification_route-filter-group_interval_seconds": {
+        "additionalProperties": false,
+        "description": "Minimum seconds before an already-notified group may notify again",
         "properties": {
           "eq": {
             "type": "integer"
@@ -7697,6 +9485,109 @@
         },
         "type": "deepObject"
       },
+      "notification_route-filter-enabled": {
+        "additionalProperties": false,
+        "description": "Only enabled routes are evaluated",
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "notification_channel-filter-execution_route": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "enum": [
+              "control_plane",
+              "edge_agent"
+            ],
+            "type": "string"
+          },
+          "greater_than": {
+            "enum": [
+              "control_plane",
+              "edge_agent"
+            ],
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "enum": [
+              "control_plane",
+              "edge_agent"
+            ],
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "enum": [
+              "control_plane",
+              "edge_agent"
+            ],
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "enum": [
+              "control_plane",
+              "edge_agent"
+            ],
+            "type": "string"
+          },
+          "not_eq": {
+            "enum": [
+              "control_plane",
+              "edge_agent"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "device-filter-created_time": {
         "additionalProperties": false,
         "description": "Record creation time",
@@ -7741,6 +9632,55 @@
           },
           "not_eq": {
             "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_escalation_step_channel-filter-channel_id": {
+        "additionalProperties": false,
+        "description": "Channel notified when the step fires",
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
             "type": "string"
           }
         },
@@ -8169,6 +10109,279 @@
         },
         "type": "object"
       },
+      "notification_escalation_policy-filter-name": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_channel-filter-health": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "enum": [
+              "unknown",
+              "healthy",
+              "degraded",
+              "failing"
+            ],
+            "type": "string"
+          },
+          "greater_than": {
+            "enum": [
+              "unknown",
+              "healthy",
+              "degraded",
+              "failing"
+            ],
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "enum": [
+              "unknown",
+              "healthy",
+              "degraded",
+              "failing"
+            ],
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "enum": [
+              "unknown",
+              "healthy",
+              "degraded",
+              "failing"
+            ],
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "enum": [
+              "unknown",
+              "healthy",
+              "degraded",
+              "failing"
+            ],
+            "type": "string"
+          },
+          "not_eq": {
+            "enum": [
+              "unknown",
+              "healthy",
+              "degraded",
+              "failing"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_escalation_step": {
+        "additionalProperties": false,
+        "description": "A \"Resource object\" representing a notification_escalation_step",
+        "properties": {
+          "attributes": {
+            "additionalProperties": false,
+            "description": "An attributes object for a notification_escalation_step",
+            "properties": {
+              "condition": {
+                "description": ":if_unacknowledged fires the step only while the alert is still unacknowledged; :always fires it regardless, for ladders that must reach a downstream system even after a human has taken the page. Field included by default.",
+                "enum": [
+                  "always",
+                  "if_unacknowledged"
+                ],
+                "type": "string"
+              },
+              "delay_seconds": {
+                "description": "Offset from the ALERT FIRE TIME at which this step fires, never an offset from the previous step's dispatch. The one exception, applied by the dispatch scheduler rather than by this resource, is that after a snooze expires the remaining delays are measured from the snooze expiry instant. Field included by default.",
+                "type": "integer"
+              },
+              "policy_id": {
+                "description": "Field included by default.",
+                "format": "uuid",
+                "type": "string"
+              },
+              "step_number": {
+                "description": "1-based position in the ladder, unique per escalation policy. Field included by default.",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "policy_id",
+              "step_number",
+              "delay_seconds",
+              "condition"
+            ],
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationships": {
+            "additionalProperties": false,
+            "description": "A relationships object for a notification_escalation_step",
+            "properties": {
+              "channels": {
+                "properties": {
+                  "data": {
+                    "description": "Relationship data for channels",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "Resource identifiers for channels",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "meta": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                }
+              },
+              "policy": {
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "description": "An identifier for policy",
+                    "nullable": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "meta": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                }
+              },
+              "step_channels": {
+                "properties": {
+                  "data": {
+                    "description": "Relationship data for step_channels",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "Resource identifiers for step_channels",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "meta": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                }
+              }
+            },
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
       "agent-filter-plugin_engine_max_cpu_ms": {
         "additionalProperties": false,
         "description": "Max total CPU time window (ms) for Wasm plugins on this agent",
@@ -8205,6 +10418,100 @@
           },
           "not_eq": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "device-filter-switch_port_attachment": {
+        "additionalProperties": false,
+        "description": "Canonical access-switch attachment promoted from source facts",
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "notification_route-filter-name": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -8680,7 +10987,7 @@
                 "description": "Interface speed in bits per second. Field included by default."
               },
               "timestamp": {
-                "description": "When interface was discovered/updated. Field included by default.",
+                "description": "When interface was last observed. Field included by default.",
                 "format": "date-time",
                 "type": "string"
               }
@@ -8736,6 +11043,54 @@
           "type",
           "id"
         ],
+        "type": "object"
+      },
+      "notification_escalation_step-filter-policy_id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "device-group-filter-metadata": {
@@ -9291,6 +11646,281 @@
         },
         "type": "deepObject"
       },
+      "notification_channel": {
+        "additionalProperties": false,
+        "description": "A \"Resource object\" representing a notification_channel",
+        "properties": {
+          "attributes": {
+            "additionalProperties": false,
+            "description": "An attributes object for a notification_channel",
+            "properties": {
+              "agent_uid": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Site agent this channel egresses from; required when execution_route is edge_agent. Field included by default."
+              },
+              "config": {
+                "description": "Provider configuration, validated against the provider config_schema. Field included by default.",
+                "type": "object"
+              },
+              "description": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "enabled": {
+                "description": "Field included by default.",
+                "type": "boolean"
+              },
+              "execution_route": {
+                "description": "Field included by default.",
+                "enum": [
+                  "control_plane",
+                  "edge_agent"
+                ],
+                "type": "string"
+              },
+              "fail_closed": {
+                "description": "Field included by default.",
+                "type": "boolean"
+              },
+              "fallback_channel_id": {
+                "anyOf": [
+                  {
+                    "format": "uuid",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Transport failover target; one hop, never taken when fail_closed is set. Field included by default."
+              },
+              "health": {
+                "description": "Field included by default.",
+                "enum": [
+                  "unknown",
+                  "healthy",
+                  "degraded",
+                  "failing"
+                ],
+                "type": "string"
+              },
+              "last_error": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "last_failure_at": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "last_success_at": {
+                "anyOf": [
+                  {},
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Field included by default."
+              },
+              "max_attempts": {
+                "description": "Retry bound for deliveries on this channel; defaults from the provider. Field included by default.",
+                "type": "integer"
+              },
+              "metadata": {
+                "description": "Field included by default.",
+                "type": "object"
+              },
+              "name": {
+                "description": "Field included by default.",
+                "type": "string"
+              },
+              "partition_id": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Immutable mTLS-derived partition bound server-side from the agent control session. Field included by default."
+              },
+              "provider_id": {
+                "description": "Field included by default.",
+                "format": "uuid",
+                "type": "string"
+              },
+              "rate_limit_per_minute": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Shared, restart-surviving send budget for this destination. Field included by default."
+              }
+            },
+            "required": [
+              "name",
+              "provider_id",
+              "enabled",
+              "config",
+              "execution_route",
+              "fail_closed",
+              "max_attempts",
+              "health",
+              "metadata"
+            ],
+            "type": "object"
+          },
+          "id": {
+            "type": "string"
+          },
+          "relationships": {
+            "additionalProperties": false,
+            "description": "A relationships object for a notification_channel",
+            "properties": {
+              "fallback_channel": {
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "description": "An identifier for fallback_channel",
+                    "nullable": true,
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "meta": {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      "type": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                }
+              },
+              "fallback_for": {
+                "properties": {
+                  "data": {
+                    "description": "Relationship data for fallback_for",
+                    "items": {
+                      "additionalProperties": false,
+                      "description": "Resource identifiers for fallback_for",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "meta": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "type": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "type",
+                        "id"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                }
+              }
+            },
+            "type": "object"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
+      "notification_channel-filter-metadata": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
       "device-filter-mac": {
         "additionalProperties": false,
         "description": "Primary MAC address",
@@ -9669,6 +12299,54 @@
         },
         "type": "object"
       },
+      "notification_channel-filter-id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "alert-filter-suppressed_until": {
         "additionalProperties": false,
         "description": "Suppress notifications until this time",
@@ -9809,6 +12487,46 @@
           },
           "string_starts_with": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_channel-filter-config": {
+        "additionalProperties": false,
+        "description": "Provider configuration, validated against the provider config_schema",
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
           }
         },
         "type": "object"
@@ -10203,6 +12921,46 @@
         ],
         "type": "object"
       },
+      "notification_escalation_step-filter-step_number": {
+        "additionalProperties": false,
+        "description": "1-based position in the ladder, unique per escalation policy",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "agent-filter-ip": {
         "additionalProperties": false,
         "description": "Source IP address for the agent connection when known",
@@ -10462,6 +13220,46 @@
           }
         },
         "type": "object"
+      },
+      "notification_escalation_step_channel-filter": {
+        "additionalProperties": false,
+        "description": "Filters the query to results matching the given filter object",
+        "example": "",
+        "properties": {
+          "and": {
+            "items": {
+              "$ref": "#/components/schemas/notification_escalation_step_channel-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "channel": {
+            "$ref": "#/components/schemas/notification_channel-filter"
+          },
+          "channel_id": {
+            "$ref": "#/components/schemas/notification_escalation_step_channel-filter-channel_id"
+          },
+          "id": {
+            "$ref": "#/components/schemas/notification_escalation_step_channel-filter-id"
+          },
+          "not": {
+            "$ref": "#/components/schemas/notification_escalation_step_channel-filter"
+          },
+          "or": {
+            "items": {
+              "$ref": "#/components/schemas/notification_escalation_step_channel-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "step": {
+            "$ref": "#/components/schemas/notification_escalation_step-filter"
+          },
+          "step_id": {
+            "$ref": "#/components/schemas/notification_escalation_step_channel-filter-step_id"
+          }
+        },
+        "type": "deepObject"
       },
       "alert-filter-source_id": {
         "additionalProperties": false,
@@ -10965,6 +13763,46 @@
         },
         "type": "object"
       },
+      "notification_route-filter-continue": {
+        "additionalProperties": false,
+        "description": "Alertmanager semantics. When false the first matching route wins and evaluation stops; when true evaluation falls through to lower priority routes.",
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "interface-filter-interface_kind": {
         "additionalProperties": false,
         "description": "Interface classification (physical, virtual, loopback, tunnel, etc.)",
@@ -11109,6 +13947,91 @@
         },
         "type": "object"
       },
+      "notification_channel-filter": {
+        "additionalProperties": false,
+        "description": "Filters the query to results matching the given filter object",
+        "example": "",
+        "properties": {
+          "agent_uid": {
+            "$ref": "#/components/schemas/notification_channel-filter-agent_uid"
+          },
+          "and": {
+            "items": {
+              "$ref": "#/components/schemas/notification_channel-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "config": {
+            "$ref": "#/components/schemas/notification_channel-filter-config"
+          },
+          "description": {
+            "$ref": "#/components/schemas/notification_channel-filter-description"
+          },
+          "enabled": {
+            "$ref": "#/components/schemas/notification_channel-filter-enabled"
+          },
+          "execution_route": {
+            "$ref": "#/components/schemas/notification_channel-filter-execution_route"
+          },
+          "fail_closed": {
+            "$ref": "#/components/schemas/notification_channel-filter-fail_closed"
+          },
+          "fallback_channel": {
+            "$ref": "#/components/schemas/notification_channel-filter"
+          },
+          "fallback_channel_id": {
+            "$ref": "#/components/schemas/notification_channel-filter-fallback_channel_id"
+          },
+          "fallback_for": {
+            "$ref": "#/components/schemas/notification_channel-filter"
+          },
+          "health": {
+            "$ref": "#/components/schemas/notification_channel-filter-health"
+          },
+          "id": {
+            "$ref": "#/components/schemas/notification_channel-filter-id"
+          },
+          "last_error": {
+            "$ref": "#/components/schemas/notification_channel-filter-last_error"
+          },
+          "last_failure_at": {
+            "$ref": "#/components/schemas/notification_channel-filter-last_failure_at"
+          },
+          "last_success_at": {
+            "$ref": "#/components/schemas/notification_channel-filter-last_success_at"
+          },
+          "max_attempts": {
+            "$ref": "#/components/schemas/notification_channel-filter-max_attempts"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/notification_channel-filter-metadata"
+          },
+          "name": {
+            "$ref": "#/components/schemas/notification_channel-filter-name"
+          },
+          "not": {
+            "$ref": "#/components/schemas/notification_channel-filter"
+          },
+          "or": {
+            "items": {
+              "$ref": "#/components/schemas/notification_channel-filter"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "partition_id": {
+            "$ref": "#/components/schemas/notification_channel-filter-partition_id"
+          },
+          "provider_id": {
+            "$ref": "#/components/schemas/notification_channel-filter-provider_id"
+          },
+          "rate_limit_per_minute": {
+            "$ref": "#/components/schemas/notification_channel-filter-rate_limit_per_minute"
+          }
+        },
+        "type": "deepObject"
+      },
       "device-filter-deleted_reason": {
         "additionalProperties": false,
         "description": "Optional reason for device deletion",
@@ -11239,6 +14162,18 @@
                 ],
                 "description": "Geographic region. Field included by default."
               },
+              "switch_port_attachment": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Canonical access-switch attachment promoted from source facts. Field included by default."
+              },
               "gateway_id": {
                 "anyOf": [
                   {
@@ -11338,6 +14273,10 @@
                 ],
                 "description": "Primary MAC address. Field included by default."
               },
+              "partition": {
+                "description": "Network partition. The same IP may exist in more than one partition. Field included by default.",
+                "type": "string"
+              },
               "org": {
                 "anyOf": [
                   {
@@ -11406,7 +14345,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Agent whose sweep results drive canonical device availability; nil keeps legacy fallback behavior. Field included by default."
+                "description": "Agent whose sweep results drive canonical device availability. Required for All-agents sweep groups; nil lets an assigned group's scanner write the bit. Field included by default."
               },
               "vendor_name": {
                 "anyOf": [
@@ -11776,6 +14715,7 @@
               }
             },
             "required": [
+              "partition",
               "is_active"
             ],
             "type": "object"
@@ -12353,6 +15293,60 @@
         ],
         "type": "object"
       },
+      "notification_route-filter-description": {
+        "additionalProperties": false,
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "agent-filter-type": {
         "additionalProperties": false,
         "description": "OCSF agent type name",
@@ -12552,6 +15546,46 @@
         },
         "type": "object"
       },
+      "notification_escalation_policy-filter-repeat_interval_seconds": {
+        "additionalProperties": false,
+        "description": "Gap between repeats; required when repeat_count > 0, floored by the rule",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "gateway-filter-partition_id": {
         "additionalProperties": false,
         "description": "Partition this gateway is assigned to",
@@ -12645,6 +15679,54 @@
           },
           "not_eq": {
             "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_channel-filter-provider_id": {
+        "additionalProperties": false,
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
             "type": "string"
           }
         },
@@ -12775,6 +15857,9 @@
           "region": {
             "$ref": "#/components/schemas/device-filter-region"
           },
+          "switch_port_attachment": {
+            "$ref": "#/components/schemas/device-filter-switch_port_attachment"
+          },
           "gateway_id": {
             "$ref": "#/components/schemas/device-filter-gateway_id"
           },
@@ -12808,6 +15893,9 @@
           },
           "mac": {
             "$ref": "#/components/schemas/device-filter-mac"
+          },
+          "partition": {
+            "$ref": "#/components/schemas/device-filter-partition"
           },
           "org": {
             "$ref": "#/components/schemas/device-filter-org"
@@ -12999,7 +16087,7 @@
       },
       "device-filter-availability_source_agent_id": {
         "additionalProperties": false,
-        "description": "Agent whose sweep results drive canonical device availability; nil keeps legacy fallback behavior",
+        "description": "Agent whose sweep results drive canonical device availability. Required for All-agents sweep groups; nil lets an assigned group's scanner write the bit.",
         "properties": {
           "contains": {
             "type": "string"
@@ -14276,6 +17364,46 @@
         },
         "type": "object"
       },
+      "notification_escalation_policy-filter-resolve_notifies": {
+        "additionalProperties": false,
+        "description": "Whether resolution closes the loop on the channels that were paged",
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
       "alert-filter-resolved_by": {
         "additionalProperties": false,
         "description": "User or system that resolved",
@@ -14800,6 +17928,61 @@
         },
         "type": "object"
       },
+      "notification_channel-filter-agent_uid": {
+        "additionalProperties": false,
+        "description": "Site agent this channel egresses from; required when execution_route is edge_agent",
+        "properties": {
+          "contains": {
+            "type": "string"
+          },
+          "eq": {
+            "type": "string"
+          },
+          "greater_than": {
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "type": "string"
+          },
+          "ilike": {
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "type": "string"
+          },
+          "like": {
+            "type": "string"
+          },
+          "not_eq": {
+            "type": "string"
+          },
+          "string_ends_with": {
+            "type": "string"
+          },
+          "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "interface_classification_rule-filter-vendor_pattern": {
         "additionalProperties": false,
         "description": "Regex pattern for device vendor match",
@@ -14850,6 +18033,55 @@
             "type": "string"
           },
           "string_starts_with": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "notification_route-filter-schedule_id": {
+        "additionalProperties": false,
+        "description": "Optional time window; outside it the dispatch is suppressed with :schedule",
+        "properties": {
+          "eq": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "uuid",
             "type": "string"
           }
         },
@@ -15132,6 +18364,46 @@
           }
         },
         "type": "object"
+      },
+      "notification_route-filter-throttle_seconds": {
+        "additionalProperties": false,
+        "description": "Minimum seconds between repeat notifications for the same dedupe key",
+        "properties": {
+          "eq": {
+            "type": "integer"
+          },
+          "greater_than": {
+            "type": "integer"
+          },
+          "greater_than_or_equal": {
+            "type": "integer"
+          },
+          "in": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "integer"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "integer"
+          },
+          "less_than": {
+            "type": "integer"
+          },
+          "less_than_or_equal": {
+            "type": "integer"
+          },
+          "not_eq": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -15172,7 +18444,7 @@
             "name": "sort",
             "required": false,
             "schema": {
-              "pattern": "^(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|tags|-tags|\\+\\+tags|--tags|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id)(,(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|tags|-tags|\\+\\+tags|--tags|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id))*$",
+              "pattern": "^(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|tags|-tags|\\+\\+tags|--tags|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id)(,(uid|-uid|\\+\\+uid|--uid|type_id|-type_id|\\+\\+type_id|--type_id|type|-type|\\+\\+type|--type|name|-name|\\+\\+name|--name|hostname|-hostname|\\+\\+hostname|--hostname|ip|-ip|\\+\\+ip|--ip|partition|-partition|\\+\\+partition|--partition|mac|-mac|\\+\\+mac|--mac|uid_alt|-uid_alt|\\+\\+uid_alt|--uid_alt|vendor_name|-vendor_name|\\+\\+vendor_name|--vendor_name|model|-model|\\+\\+model|--model|domain|-domain|\\+\\+domain|--domain|zone|-zone|\\+\\+zone|--zone|subnet_uid|-subnet_uid|\\+\\+subnet_uid|--subnet_uid|vlan_uid|-vlan_uid|\\+\\+vlan_uid|--vlan_uid|switch_port_attachment|-switch_port_attachment|\\+\\+switch_port_attachment|--switch_port_attachment|region|-region|\\+\\+region|--region|first_seen_time|-first_seen_time|\\+\\+first_seen_time|--first_seen_time|last_seen_time|-last_seen_time|\\+\\+last_seen_time|--last_seen_time|created_time|-created_time|\\+\\+created_time|--created_time|modified_time|-modified_time|\\+\\+modified_time|--modified_time|risk_level_id|-risk_level_id|\\+\\+risk_level_id|--risk_level_id|risk_level|-risk_level|\\+\\+risk_level|--risk_level|risk_score|-risk_score|\\+\\+risk_score|--risk_score|is_managed|-is_managed|\\+\\+is_managed|--is_managed|is_compliant|-is_compliant|\\+\\+is_compliant|--is_compliant|is_trusted|-is_trusted|\\+\\+is_trusted|--is_trusted|is_active|-is_active|\\+\\+is_active|--is_active|os|-os|\\+\\+os|--os|hw_info|-hw_info|\\+\\+hw_info|--hw_info|owner|-owner|\\+\\+owner|--owner|org|-org|\\+\\+org|--org|gateway_id|-gateway_id|\\+\\+gateway_id|--gateway_id|agent_id|-agent_id|\\+\\+agent_id|--agent_id|management_device_id|-management_device_id|\\+\\+management_device_id|--management_device_id|deleted_at|-deleted_at|\\+\\+deleted_at|--deleted_at|deleted_by|-deleted_by|\\+\\+deleted_by|--deleted_by|deleted_reason|-deleted_reason|\\+\\+deleted_reason|--deleted_reason|tags|-tags|\\+\\+tags|--tags|is_available|-is_available|\\+\\+is_available|--is_available|availability_source_agent_id|-availability_source_agent_id|\\+\\+availability_source_agent_id|--availability_source_agent_id|availability_source_profile_id|-availability_source_profile_id|\\+\\+availability_source_profile_id|--availability_source_profile_id|metadata|-metadata|\\+\\+metadata|--metadata|group_id|-group_id|\\+\\+group_id|--group_id))*$",
               "type": "string"
             },
             "style": "form"
@@ -15226,12 +18498,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device": "uid,type_id,type,name,hostname,ip,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id"
+                "device": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id"
               },
               "properties": {
                 "device": {
                   "description": "Comma separated field names for device",
-                  "example": "uid,type_id,type,name,hostname,ip,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id",
+                  "example": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id",
                   "type": "string"
                 }
               },
@@ -15392,6 +18664,257 @@
         },
         "tags": [
           "poll-job"
+        ]
+      }
+    },
+    "/notification-routes/{id}": {
+      "patch": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/notification-routes/:id operation on notification_route resource",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "notification_route": "id,name,description,enabled,priority,match_expression,escalation_policy_id,schedule_id,dedupe_key_template,throttle_seconds,group_wait_seconds,group_interval_seconds,continue"
+              },
+              "properties": {
+                "notification_route": {
+                  "description": "Comma separated field names for notification_route",
+                  "example": "id,name,description,enabled,priority,match_expression,escalation_policy_id,schedule_id,dedupe_key_template,throttle_seconds,group_wait_seconds,group_interval_seconds,continue",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "continue": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Alertmanager semantics. When false the first matching route wins and evaluation stops; when true evaluation falls through to lower priority routes."
+                          },
+                          "dedupe_key_template": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "OPTIONAL override. When nil the engine uses the existing {rule_id, group_key} incident identity; deduplication is not re-authored here. Set this only for cases the rule grouping does not cover."
+                          },
+                          "description": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "escalation_policy_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Ladder this route hands the alert to"
+                          },
+                          "group_interval_seconds": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Minimum seconds before an already-notified group may notify again"
+                          },
+                          "group_wait_seconds": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Hold a new group this long so related alerts arrive as one notification"
+                          },
+                          "match_expression": {
+                            "anyOf": [
+                              {
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Declarative predicate document over alert attributes. Shape validated at save time against the allowed combinators, operators, and field paths; never evaluated as code. An empty document matches every alert."
+                          },
+                          "name": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "priority": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Evaluation order, ascending. Lower numbers are considered first"
+                          },
+                          "schedule_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional time window; outside it the dispatch is suppressed with :schedule"
+                          },
+                          "throttle_seconds": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Minimum seconds between repeat notifications for the same dedupe key"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "notification_route"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /notification-routes/:id operation on notification_route resource",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/notification_route"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "notification_route"
         ]
       }
     },
@@ -17674,6 +21197,75 @@
         ]
       }
     },
+    "/alerts/k8s-node-ready-test": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Emit a node.ready internal log that clears an open k8s_node_not_ready incident",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cluster_id": {
+                        "type": "string"
+                      },
+                      "node": {
+                        "type": "string"
+                      },
+                      "role": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "cluster_id",
+                      "node"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /alerts/k8s-node-ready-test operation on alert resource",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "alert"
+        ]
+      }
+    },
     "/device-cleanup-settings": {
       "get": {
         "callbacks": {},
@@ -19195,6 +22787,282 @@
         },
         "tags": [
           "gateway"
+        ]
+      }
+    },
+    "/notification-escalation-policies": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/notification-escalation-policies operation on notification_escalation_policy resource",
+        "parameters": [
+          {
+            "description": "Filters the query to results with attributes matching the given filter object",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/notification_escalation_policy-filter"
+            },
+            "style": "deepObject"
+          },
+          {
+            "description": "Sort order to apply to the results",
+            "explode": false,
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|repeat_count|-repeat_count|\\+\\+repeat_count|--repeat_count|repeat_interval_seconds|-repeat_interval_seconds|\\+\\+repeat_interval_seconds|--repeat_interval_seconds|resolve_notifies|-resolve_notifies|\\+\\+resolve_notifies|--resolve_notifies)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|repeat_count|-repeat_count|\\+\\+repeat_count|--repeat_count|repeat_interval_seconds|-repeat_interval_seconds|\\+\\+repeat_interval_seconds|--repeat_interval_seconds|resolve_notifies|-resolve_notifies|\\+\\+resolve_notifies|--resolve_notifies))*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "notification_escalation_policy": "id,name,description,enabled,repeat_count,repeat_interval_seconds,resolve_notifies"
+              },
+              "properties": {
+                "notification_escalation_policy": {
+                  "description": "Comma separated field names for notification_escalation_policy",
+                  "example": "id,name,description,enabled,repeat_count,repeat_interval_seconds,resolve_notifies",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "description": "An array of resource objects representing a notification_escalation_policy",
+                      "items": {
+                        "$ref": "#/components/schemas/notification_escalation_policy"
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "notification_escalation_policy"
+        ]
+      },
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/notification-escalation-policies operation on notification_escalation_policy resource",
+        "parameters": [
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "notification_escalation_policy": "id,name,description,enabled,repeat_count,repeat_interval_seconds,resolve_notifies"
+              },
+              "properties": {
+                "notification_escalation_policy": {
+                  "description": "Comma separated field names for notification_escalation_policy",
+                  "example": "id,name,description,enabled,repeat_count,repeat_interval_seconds,resolve_notifies",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "description": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "enabled": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "repeat_count": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "How many times the policy replays after its last step; 0 disables repeats"
+                          },
+                          "repeat_interval_seconds": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Gap between repeats; required when repeat_count > 0, floored by the rule"
+                          },
+                          "resolve_notifies": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Whether resolution closes the loop on the channels that were paged"
+                          }
+                        },
+                        "required": [
+                          "name"
+                        ],
+                        "type": "object"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "notification_escalation_policy"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /notification-escalation-policies operation on notification_escalation_policy resource",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/notification_escalation_policy"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "notification_escalation_policy"
         ]
       }
     },
@@ -22225,6 +26093,330 @@
         ]
       }
     },
+    "/alerts/k8s-node-not-ready-test": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "Emit a node.not_ready internal log so StatefulAlertEngine groups by cluster+node",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "cluster_id": {
+                        "type": "string"
+                      },
+                      "node": {
+                        "type": "string"
+                      },
+                      "role": {
+                        "anyOf": [
+                          {
+                            "type": "string"
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "cluster_id",
+                      "node"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /alerts/k8s-node-not-ready-test operation on alert resource",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "alert"
+        ]
+      }
+    },
+    "/notification-escalation-steps": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/notification-escalation-steps operation on notification_escalation_step resource",
+        "parameters": [
+          {
+            "description": "Filters the query to results with attributes matching the given filter object",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/notification_escalation_step-filter"
+            },
+            "style": "deepObject"
+          },
+          {
+            "description": "Sort order to apply to the results",
+            "explode": false,
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "pattern": "^(id|-id|\\+\\+id|--id|policy_id|-policy_id|\\+\\+policy_id|--policy_id|step_number|-step_number|\\+\\+step_number|--step_number|delay_seconds|-delay_seconds|\\+\\+delay_seconds|--delay_seconds|condition|-condition|\\+\\+condition|--condition)(,(id|-id|\\+\\+id|--id|policy_id|-policy_id|\\+\\+policy_id|--policy_id|step_number|-step_number|\\+\\+step_number|--step_number|delay_seconds|-delay_seconds|\\+\\+delay_seconds|--delay_seconds|condition|-condition|\\+\\+condition|--condition))*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "notification_escalation_step": "id,policy_id,step_number,delay_seconds,condition"
+              },
+              "properties": {
+                "notification_escalation_step": {
+                  "description": "Comma separated field names for notification_escalation_step",
+                  "example": "id,policy_id,step_number,delay_seconds,condition",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "description": "An array of resource objects representing a notification_escalation_step",
+                      "items": {
+                        "$ref": "#/components/schemas/notification_escalation_step"
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "notification_escalation_step"
+        ]
+      },
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/notification-escalation-steps operation on notification_escalation_step resource",
+        "parameters": [
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "notification_escalation_step": "id,policy_id,step_number,delay_seconds,condition"
+              },
+              "properties": {
+                "notification_escalation_step": {
+                  "description": "Comma separated field names for notification_escalation_step",
+                  "example": "id,policy_id,step_number,delay_seconds,condition",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "condition": {
+                            "anyOf": [
+                              {
+                                "enum": [
+                                  "always",
+                                  "if_unacknowledged"
+                                ],
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": ":if_unacknowledged fires the step only while the alert is still unacknowledged; :always fires it regardless, for ladders that must reach a downstream system even after a human has taken the page."
+                          },
+                          "delay_seconds": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Offset from the ALERT FIRE TIME at which this step fires, never an offset from the previous step's dispatch. The one exception, applied by the dispatch scheduler rather than by this resource, is that after a snooze expires the remaining delays are measured from the snooze expiry instant."
+                          },
+                          "policy_id": {
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "step_number": {
+                            "description": "1-based position in the ladder, unique per escalation policy",
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "policy_id",
+                          "step_number"
+                        ],
+                        "type": "object"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "notification_escalation_step"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /notification-escalation-steps operation on notification_escalation_step resource",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/notification_escalation_step"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "notification_escalation_step"
+        ]
+      }
+    },
     "/devices/{id}": {
       "get": {
         "callbacks": {},
@@ -22260,12 +26452,12 @@
             "schema": {
               "additionalProperties": true,
               "example": {
-                "device": "uid,type_id,type,name,hostname,ip,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id"
+                "device": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id"
               },
               "properties": {
                 "device": {
                   "description": "Comma separated field names for device",
-                  "example": "uid,type_id,type,name,hostname,ip,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id",
+                  "example": "uid,type_id,type,name,hostname,ip,partition,mac,uid_alt,vendor_name,model,domain,zone,subnet_uid,vlan_uid,switch_port_attachment,region,first_seen_time,last_seen_time,created_time,modified_time,risk_level_id,risk_level,risk_score,is_managed,is_compliant,is_trusted,is_active,os,hw_info,network_interfaces,owner,org,groups,agent_list,gateway_id,agent_id,management_device_id,discovery_sources,deleted_at,deleted_by,deleted_reason,tags,is_available,availability_source_agent_id,availability_source_profile_id,metadata,group_id",
                   "type": "string"
                 }
               },
@@ -22843,6 +27035,239 @@
         },
         "tags": [
           "poll-job"
+        ]
+      }
+    },
+    "/notification-channels": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/notification-channels operation on notification_channel resource",
+        "parameters": [
+          {
+            "description": "Filters the query to results with attributes matching the given filter object",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/notification_channel-filter"
+            },
+            "style": "deepObject"
+          },
+          {
+            "description": "Sort order to apply to the results",
+            "explode": false,
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|provider_id|-provider_id|\\+\\+provider_id|--provider_id|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|execution_route|-execution_route|\\+\\+execution_route|--execution_route|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|partition_id|-partition_id|\\+\\+partition_id|--partition_id|fallback_channel_id|-fallback_channel_id|\\+\\+fallback_channel_id|--fallback_channel_id|fail_closed|-fail_closed|\\+\\+fail_closed|--fail_closed|rate_limit_per_minute|-rate_limit_per_minute|\\+\\+rate_limit_per_minute|--rate_limit_per_minute|max_attempts|-max_attempts|\\+\\+max_attempts|--max_attempts|health|-health|\\+\\+health|--health|last_success_at|-last_success_at|\\+\\+last_success_at|--last_success_at|last_failure_at|-last_failure_at|\\+\\+last_failure_at|--last_failure_at|last_error|-last_error|\\+\\+last_error|--last_error|metadata|-metadata|\\+\\+metadata|--metadata)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|provider_id|-provider_id|\\+\\+provider_id|--provider_id|enabled|-enabled|\\+\\+enabled|--enabled|config|-config|\\+\\+config|--config|execution_route|-execution_route|\\+\\+execution_route|--execution_route|agent_uid|-agent_uid|\\+\\+agent_uid|--agent_uid|partition_id|-partition_id|\\+\\+partition_id|--partition_id|fallback_channel_id|-fallback_channel_id|\\+\\+fallback_channel_id|--fallback_channel_id|fail_closed|-fail_closed|\\+\\+fail_closed|--fail_closed|rate_limit_per_minute|-rate_limit_per_minute|\\+\\+rate_limit_per_minute|--rate_limit_per_minute|max_attempts|-max_attempts|\\+\\+max_attempts|--max_attempts|health|-health|\\+\\+health|--health|last_success_at|-last_success_at|\\+\\+last_success_at|--last_success_at|last_failure_at|-last_failure_at|\\+\\+last_failure_at|--last_failure_at|last_error|-last_error|\\+\\+last_error|--last_error|metadata|-metadata|\\+\\+metadata|--metadata))*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "notification_channel": "id,name,description,provider_id,enabled,config,execution_route,agent_uid,partition_id,fallback_channel_id,fail_closed,rate_limit_per_minute,max_attempts,health,last_success_at,last_failure_at,last_error,metadata"
+              },
+              "properties": {
+                "notification_channel": {
+                  "description": "Comma separated field names for notification_channel",
+                  "example": "id,name,description,provider_id,enabled,config,execution_route,agent_uid,partition_id,fallback_channel_id,fail_closed,rate_limit_per_minute,max_attempts,health,last_success_at,last_failure_at,last_error,metadata",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "description": "An array of resource objects representing a notification_channel",
+                      "items": {
+                        "$ref": "#/components/schemas/notification_channel"
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "notification_channel"
+        ]
+      }
+    },
+    "/notification-routes/{id}/enable": {
+      "patch": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/notification-routes/:id/enable operation on notification_route resource",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "notification_route": "id,name,description,enabled,priority,match_expression,escalation_policy_id,schedule_id,dedupe_key_template,throttle_seconds,group_wait_seconds,group_interval_seconds,continue"
+              },
+              "properties": {
+                "notification_route": {
+                  "description": "Comma separated field names for notification_route",
+                  "example": "id,name,description,enabled,priority,match_expression,escalation_policy_id,schedule_id,dedupe_key_template,throttle_seconds,group_wait_seconds,group_interval_seconds,continue",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "notification_route"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /notification-routes/:id/enable operation on notification_route resource",
+          "required": false
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/notification_route"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "notification_route"
         ]
       }
     },
@@ -23542,6 +27967,474 @@
         },
         "tags": [
           "gateway"
+        ]
+      }
+    },
+    "/notification-routes": {
+      "get": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/notification-routes operation on notification_route resource",
+        "parameters": [
+          {
+            "description": "Filters the query to results with attributes matching the given filter object",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/notification_route-filter"
+            },
+            "style": "deepObject"
+          },
+          {
+            "description": "Sort order to apply to the results",
+            "explode": false,
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "pattern": "^(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|match_expression|-match_expression|\\+\\+match_expression|--match_expression|escalation_policy_id|-escalation_policy_id|\\+\\+escalation_policy_id|--escalation_policy_id|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id|dedupe_key_template|-dedupe_key_template|\\+\\+dedupe_key_template|--dedupe_key_template|throttle_seconds|-throttle_seconds|\\+\\+throttle_seconds|--throttle_seconds|group_wait_seconds|-group_wait_seconds|\\+\\+group_wait_seconds|--group_wait_seconds|group_interval_seconds|-group_interval_seconds|\\+\\+group_interval_seconds|--group_interval_seconds|continue|-continue|\\+\\+continue|--continue)(,(id|-id|\\+\\+id|--id|name|-name|\\+\\+name|--name|description|-description|\\+\\+description|--description|enabled|-enabled|\\+\\+enabled|--enabled|priority|-priority|\\+\\+priority|--priority|match_expression|-match_expression|\\+\\+match_expression|--match_expression|escalation_policy_id|-escalation_policy_id|\\+\\+escalation_policy_id|--escalation_policy_id|schedule_id|-schedule_id|\\+\\+schedule_id|--schedule_id|dedupe_key_template|-dedupe_key_template|\\+\\+dedupe_key_template|--dedupe_key_template|throttle_seconds|-throttle_seconds|\\+\\+throttle_seconds|--throttle_seconds|group_wait_seconds|-group_wait_seconds|\\+\\+group_wait_seconds|--group_wait_seconds|group_interval_seconds|-group_interval_seconds|\\+\\+group_interval_seconds|--group_interval_seconds|continue|-continue|\\+\\+continue|--continue))*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "notification_route": "id,name,description,enabled,priority,match_expression,escalation_policy_id,schedule_id,dedupe_key_template,throttle_seconds,group_wait_seconds,group_interval_seconds,continue"
+              },
+              "properties": {
+                "notification_route": {
+                  "description": "Comma separated field names for notification_route",
+                  "example": "id,name,description,enabled,priority,match_expression,escalation_policy_id,schedule_id,dedupe_key_template,throttle_seconds,group_wait_seconds,group_interval_seconds,continue",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "description": "An array of resource objects representing a notification_route",
+                      "items": {
+                        "$ref": "#/components/schemas/notification_route"
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "notification_route"
+        ]
+      },
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/notification-routes operation on notification_route resource",
+        "parameters": [
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "notification_route": "id,name,description,enabled,priority,match_expression,escalation_policy_id,schedule_id,dedupe_key_template,throttle_seconds,group_wait_seconds,group_interval_seconds,continue"
+              },
+              "properties": {
+                "notification_route": {
+                  "description": "Comma separated field names for notification_route",
+                  "example": "id,name,description,enabled,priority,match_expression,escalation_policy_id,schedule_id,dedupe_key_template,throttle_seconds,group_wait_seconds,group_interval_seconds,continue",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "continue": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Alertmanager semantics. When false the first matching route wins and evaluation stops; when true evaluation falls through to lower priority routes."
+                          },
+                          "dedupe_key_template": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "OPTIONAL override. When nil the engine uses the existing {rule_id, group_key} incident identity; deduplication is not re-authored here. Set this only for cases the rule grouping does not cover."
+                          },
+                          "description": {
+                            "anyOf": [
+                              {
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "enabled": {
+                            "anyOf": [
+                              {
+                                "type": "boolean"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Only enabled routes are evaluated"
+                          },
+                          "escalation_policy_id": {
+                            "description": "Ladder this route hands the alert to",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "group_interval_seconds": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Minimum seconds before an already-notified group may notify again"
+                          },
+                          "group_wait_seconds": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Hold a new group this long so related alerts arrive as one notification"
+                          },
+                          "match_expression": {
+                            "anyOf": [
+                              {
+                                "type": "object"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Declarative predicate document over alert attributes. Shape validated at save time against the allowed combinators, operators, and field paths; never evaluated as code. An empty document matches every alert."
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "priority": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Evaluation order, ascending. Lower numbers are considered first"
+                          },
+                          "schedule_id": {
+                            "anyOf": [
+                              {
+                                "format": "uuid",
+                                "type": "string"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Optional time window; outside it the dispatch is suppressed with :schedule"
+                          },
+                          "throttle_seconds": {
+                            "anyOf": [
+                              {
+                                "type": "integer"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Minimum seconds between repeat notifications for the same dedupe key"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "escalation_policy_id"
+                        ],
+                        "type": "object"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "notification_route"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /notification-routes operation on notification_route resource",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/notification_route"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "notification_route"
+        ]
+      }
+    },
+    "/notification-escalation-step-channels": {
+      "post": {
+        "callbacks": {},
+        "deprecated": false,
+        "description": "/notification-escalation-step-channels operation on notification_escalation_step_channel resource",
+        "parameters": [
+          {
+            "description": "Relationship paths to include in the response",
+            "explode": false,
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "pattern": "^()(,())*$",
+              "type": "string"
+            },
+            "style": "form"
+          },
+          {
+            "description": "Limits the response fields to only those listed for each type",
+            "in": "query",
+            "name": "fields",
+            "required": false,
+            "schema": {
+              "additionalProperties": true,
+              "example": {
+                "notification_escalation_step_channel": "id,step_id,channel_id"
+              },
+              "properties": {
+                "notification_escalation_step_channel": {
+                  "description": "Comma separated field names for notification_escalation_step_channel",
+                  "example": "id,step_id,channel_id",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "style": "deepObject"
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/vnd.api+json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "data": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "attributes": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "channel_id": {
+                            "description": "Channel notified when the step fires",
+                            "format": "uuid",
+                            "type": "string"
+                          },
+                          "step_id": {
+                            "description": "Escalation step this membership belongs to",
+                            "format": "uuid",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "step_id",
+                          "channel_id"
+                        ],
+                        "type": "object"
+                      },
+                      "relationships": {
+                        "additionalProperties": false,
+                        "properties": {},
+                        "type": "object"
+                      },
+                      "type": {
+                        "enum": [
+                          "notification_escalation_step_channel"
+                        ]
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "data"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "description": "Request body for the /notification-escalation-step-channels operation on notification_escalation_step_channel resource",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/vnd.api+json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/notification_escalation_step_channel"
+                    },
+                    "included": {
+                      "items": {
+                        "oneOf": []
+                      },
+                      "type": "array",
+                      "uniqueItems": true
+                    },
+                    "meta": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "default": {
+            "$ref": "#/components/responses/errors"
+          }
+        },
+        "tags": [
+          "notification_escalation_step_channel"
         ]
       }
     },

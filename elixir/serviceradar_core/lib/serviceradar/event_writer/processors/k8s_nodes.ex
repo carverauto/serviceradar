@@ -10,9 +10,9 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.Processors.Logs
-  alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.Repo
 
   require Logger
@@ -330,7 +330,8 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
   defp lookup_device_uid(_), do: nil
 
   defp node_key(cluster_id, name) do
-    :crypto.hash(:sha256, cluster_id <> "|" <> name)
+    :sha256
+    |> :crypto.hash(cluster_id <> "|" <> name)
     |> Base.encode16(case: :lower)
   end
 
