@@ -126,6 +126,23 @@ NOT deliver a notification from the EventWriter processor.
 - **AND** the event message SHALL say the node was removed from the cluster
   rather than that it recovered
 
+### Requirement: A readiness event that cannot be published SHALL NOT be consumed
+The processor SHALL abort the transaction that applied a snapshot when
+publishing a `node.not_ready` or `node.ready` event fails, rather than logging
+the failure and committing. Committing the upserted row while dropping the
+event makes the transition unrecoverable: the next snapshot compares the new `ready` value
+against itself, emits nothing, and the incident never opens. The apply is
+idempotent, so aborting lets JetStream redeliver against the prior state, and
+a persistently failing message surfaces through max-deliver instead of
+silently losing a page.
+
+#### Scenario: A failed publish is redelivered, not swallowed
+- **GIVEN** a snapshot in which a node flips from Ready to NotReady
+- **WHEN** publishing the `node.not_ready` event returns an error
+- **THEN** the snapshot transaction SHALL roll back, leaving the stored
+  `ready` value unchanged
+- **AND** the processor SHALL report the failure so the message is redelivered
+
 ### Requirement: Public-endpoints ingest stays isolated
 EventWriter SHALL continue to ingest `inventory.k8s.public_endpoints` with the
 public-endpoints processor and SHALL NOT parse node snapshots with that

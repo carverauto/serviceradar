@@ -84,26 +84,30 @@ channel silent.
   is the whole of what is left, because a partial scrub that keeps the shape
   is the failure this record exists to prevent.
 
-  Still committed, by artifact and by value class:
+  Still committed, named by artifact and by value CLASS. The values
+  themselves are deliberately not reproduced here: this file ships in the
+  public repository, so transcribing them would spread the fingerprint that
+  the follow-up change has to remove.
 
-  - `helm/serviceradar/values.yaml` (the SHIPPED DEFAULT chart, edited by this
-    change) - the full `k8s-cp{1,2,3}-{control,worker1..3}` node naming
-    scheme, `peer_asn: 401642` on every cluster peer, the `10.0.2.0/24`
-    addressing plan, the routable ISP peer `204.209.51.58` with `peer_asn:
-    10242`, and the public IPv6 prefix `2602:f678:0:ff::/64`. This is the most
-    widely distributed of the three and must be scrubbed first.
-  - `go/cmd/faker/config.json` and `go/cmd/faker/bgp_sim.go` - the same
-    hostnames, ASN, IPv4 plan and IPv6 prefix, in shipped non-test source.
-  - `helm/serviceradar/values-demo.yaml` - a live `nodeSelector` pinning a
+  - `helm/serviceradar/values.yaml`, the shipped default chart's simulated
+    BGP peer list (roughly lines 676-800) - a real cluster's node naming
+    scheme, the operator's cluster-wide peer ASN, the internal IPv4
+    addressing plan, a routable upstream peer address with its own ASN, and
+    an allocated public IPv6 prefix. This is the most widely distributed of
+    the four and should be regenerated first.
+  - `go/cmd/faker/config.json` and `go/cmd/faker/bgp_sim.go` - the same five
+    classes, in shipped non-test source.
+  - `helm/serviceradar/values-demo.yaml` - a `nodeSelector` pinning a
     workload to a real node hostname.
-  - `go/pkg/trivysidecar` fixtures - agent ids derived from the same
-    hostnames.
+  - `go/pkg/trivysidecar` fixtures - agent identifiers derived from the same
+    node naming scheme.
 
   The classes matter as much as the hostnames: an ASN plus an addressing plan
   plus a naming convention identifies an organization on its own, so a scrub
-  that replaces only the names leaves the fingerprint. Regenerating these
-  changes faker and demo behaviour and touches published chart defaults, so
-  they need their own change rather than being folded in here.
+  that replaces only the names leaves the fingerprint, and the replacements
+  must be invented rather than derived. Regenerating these changes faker and
+  demo behaviour and touches published chart defaults, so they need their own
+  change rather than being folded in here.
 
 ## Impact
 

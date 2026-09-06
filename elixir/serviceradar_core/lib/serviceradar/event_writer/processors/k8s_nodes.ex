@@ -178,11 +178,13 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
           :ok
 
         {:error, reason} ->
-          Logger.warning("k8s node readiness event publish failed",
+          Logger.error("k8s node readiness event publish failed",
             node: node.name,
             kind: kind,
             reason: inspect(reason)
           )
+
+          Repo.rollback({:readiness_publish_failed, node.name, kind, reason})
       end
     end)
   end

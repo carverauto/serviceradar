@@ -55,6 +55,11 @@
 - [x] 2.3a A NotReady node that leaves the snapshot still emits `node.ready`
       so its incident clears, but says it was removed from the cluster rather
       than that it recovered.
+- [x] 2.3b A failed readiness publish rolls the snapshot transaction back.
+      Committing the row while dropping the event would leave the next
+      snapshot comparing the new `ready` value against itself, so the incident
+      could never open; the apply is idempotent, so redelivery recomputes the
+      same transition.
 - [x] 2.4 Add EventWriter consumer `K8S_NODES` on stream `k8s_inventory`,
       subject `inventory.k8s.nodes`. Narrow the public-endpoints Broadway
       matcher to exact `inventory.k8s.public_endpoints` so node snapshots

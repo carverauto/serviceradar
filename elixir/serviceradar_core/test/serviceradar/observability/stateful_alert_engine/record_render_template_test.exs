@@ -16,13 +16,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RecordRenderTemplateTes
 
   alias ServiceRadar.Observability.StatefulAlertEngine.Record
 
+  # `LogPromotion.build_event/2` emits no `:attributes` key; the source log's
+  # attributes arrive under `unmapped.log_attributes`, which is the source
+  # `Record.group_sources/1` reads for a `signal: :event` rule.
   defp node_event(role) do
     %{
-      attributes: %{
-        "event_type" => "node.not_ready",
-        "cluster_id" => "cluster-a",
-        "node" => "node-worker-1.example.com",
-        "node.role" => role
+      unmapped: %{
+        log_attributes: %{
+          "event_type" => "node.not_ready",
+          "cluster_id" => "cluster-a",
+          "node" => "node-worker-1.example.com",
+          "node.role" => role
+        }
       }
     }
   end
