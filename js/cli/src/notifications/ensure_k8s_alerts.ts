@@ -31,6 +31,11 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
   if (!instance) {
     throw new Error("--instance is required (e.g. --instance https://demo.serviceradar.cloud)")
   }
+  if (options.fireTest && options.clearTest) {
+    throw new Error(
+      "--fire-test and --clear-test cannot be combined: the clear would resolve the alert before its routing job runs, so Discord would never be paged.\n→ run --fire-test, confirm the Discord page, then run --clear-test",
+    )
+  }
   const credential = resolveCredentialToken(instance, {token: options.token})
   if (!credential) {
     throw new Error(
@@ -82,14 +87,6 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
   })
 
   const routes = await client.list("notification-routes")
-  for (const route of routes) {
-    const expr = route.attributes?.match_expression
-    if (hasEmptyEquals(expr) && route.attributes?.enabled) {
-      await client.patch(`notification-routes/${route.id}/disable`, "notification_route", route.id, {})
-      console.log(`Disabled empty-title route ${route.id}`)
-    }
-  }
-
   let route = routes.find((row) => row.attributes?.name === ROUTE_NAME)
   const routeAttrs = {
     name: ROUTE_NAME,
@@ -138,16 +135,6 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
   }
 
   console.log(`✓ ${ROUTE_NAME} routes to ${channelName} on ${instance}`)
-}
-
-function hasEmptyEquals(expr: unknown): boolean {
-  if (!expr || typeof expr !== "object") return false
-  const record = expr as Record<string, unknown>
-  if ("equals" in record && record.equals === "") return true
-  return Object.values(record).some((value) => {
-    if (Array.isArray(value)) return value.some(hasEmptyEquals)
-    return hasEmptyEquals(value)
-  })
 }
 
 class JsonApiClient {

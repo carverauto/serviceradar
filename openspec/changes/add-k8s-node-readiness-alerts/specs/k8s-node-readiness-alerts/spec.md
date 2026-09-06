@@ -24,6 +24,22 @@ JetStream subject `inventory.k8s.nodes` of stream `k8s_inventory`.
   get/list/watch
 - **AND** host agents and netprobe SHALL NOT receive Kubernetes API credentials
 
+### Requirement: Node watching is off where Nodes RBAC is not granted
+A deployment of the collector SHALL NOT start the Node informer unless its
+ServiceAccount is granted Nodes get/list/watch. The Node informer participates
+in the startup cache sync, so a Forbidden List blocks readiness indefinitely
+and stops the endpoint snapshots that deployment already published. The
+`serviceradar-k8s-edge` chart grants only services and endpointslices, and
+supports namespace-scoped RBAC in which cluster-scoped Nodes cannot be granted
+at all, so it SHALL set `K8S_INVENTORY_NODES` to false.
+
+#### Scenario: Edge chart keeps publishing endpoints
+- **WHEN** the `serviceradar-k8s-edge` chart is installed or upgraded to an
+  image that supports Node watching
+- **THEN** the inventory container SHALL run with Node watching disabled
+- **AND** the collector SHALL become ready and continue publishing endpoint
+  snapshots
+
 ### Requirement: Node inventory persistence
 EventWriter SHALL upsert each node snapshot into `platform.k8s_nodes_current`
 and SHALL soft-delete rows for that cluster that are absent from the snapshot.

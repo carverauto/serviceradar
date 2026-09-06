@@ -14,6 +14,11 @@
 - [x] 1.4 Helm ClusterRole: add `nodes` `get/list/watch`. Keep the comment
       that this is read-only and still excludes secrets/pods/exec. Gate with
       `k8sInventory.nodes.enabled` defaulting true when inventory is enabled.
+- [x] 1.4a `helm/serviceradar-k8s-edge` ships the same image but grants no
+      Nodes RBAC (and supports namespace scope, where cluster-scoped Nodes
+      cannot be granted), so its inventory container sets
+      `K8S_INVENTORY_NODES=false`. Without it the Node informer never syncs
+      and that chart stops publishing endpoints.
 - [x] 1.5 `bazel test //go/pkg/k8sinventory:k8sinventory_test`
 
 ## 2. EventWriter ingest and readiness events
@@ -85,7 +90,10 @@
 - [x] 5a.6 Split the probe into `--fire-test` (publishes `node.not_ready`
       only) and `--clear-test` (publishes `node.ready`), backed by separate
       `/api/v2/alerts/k8s-node-{not-ready,ready}-test` actions, so the page
-      lands before anything clears it.
+      lands before anything clears it. Both helpers reject the two flags in
+      one invocation, which would restore the race the split removed.
+- [x] 5a.7 The helpers own only the `k8s-node-not-ready` route and its
+      policy/step. No sweep that disables other operator-owned routes.
 
 ## 6. Demo
 

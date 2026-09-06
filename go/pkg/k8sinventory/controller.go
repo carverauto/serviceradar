@@ -32,7 +32,6 @@ type Controller struct {
 	lastHash         string
 	lastSnapshot     Snapshot
 	lastNodeHash     string
-	lastNodeSnapshot NodeSnapshot
 	ready            atomic.Bool
 	generation       atomic.Uint64
 
@@ -240,7 +239,6 @@ func (c *Controller) publishNodesIfEnabled(ctx context.Context, opts SnapshotOpt
 	}
 	c.mu.Lock()
 	c.lastNodeHash = hash
-	c.lastNodeSnapshot = nodeSnap
 	c.mu.Unlock()
 	c.metrics.IncPublish()
 	log.Printf("k8s-inventory: published nodes count=%d bytes=%d", len(nodeSnap.Nodes), len(payload))

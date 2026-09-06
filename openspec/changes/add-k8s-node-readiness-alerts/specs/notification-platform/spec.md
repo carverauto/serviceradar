@@ -94,3 +94,22 @@ incident that has not yet opened.
 - **WHEN** a caller posts to `/api/v2/alerts/k8s-node-ready-test` with the
   same `cluster_id`, `node` and `role`
 - **THEN** a `node.ready` event SHALL be published for that group
+
+#### Scenario: One invocation cannot both fire and clear
+- **WHEN** an operator passes both `--fire-test` and `--clear-test` to an
+  ensure helper
+- **THEN** the helper SHALL fail with an actionable error before contacting
+  the instance, naming the two-step order
+
+### Requirement: The ensure helpers touch only the node route they own
+The ensure helpers SHALL create or update only the `k8s-node-not-ready` route,
+its escalation policy, and that policy's first step, and SHALL NOT disable,
+delete, or otherwise mutate any other operator-owned NotificationRoute. A
+disabled route is skipped by the Router entirely and nothing re-enables it, so
+a sweep run by an idempotent "ensure" command would silently stop unrelated
+paging.
+
+#### Scenario: Unrelated routes survive an ensure run
+- **GIVEN** an enabled route unrelated to `k8s_node_not_ready`
+- **WHEN** an operator runs an ensure helper
+- **THEN** that route SHALL remain enabled and unmodified

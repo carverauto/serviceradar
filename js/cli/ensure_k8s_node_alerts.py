@@ -39,6 +39,15 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    if args.fire_test and args.clear_test:
+        print(
+            "error: --fire-test and --clear-test cannot be combined; the clear resolves the "
+            "alert before its routing job runs, so Discord is never paged. Run --fire-test, "
+            "confirm the Discord page, then run --clear-test",
+            file=sys.stderr,
+        )
+        return 2
+
     token = args.token or os.environ.get("SERVICERADAR_TOKEN", "")
     if not token:
         print("error: pass --token or set SERVICERADAR_TOKEN", file=sys.stderr)
@@ -94,11 +103,6 @@ def main() -> int:
     )
 
     routes = client.list("notification-routes")
-    for route in routes:
-        expr = route["attributes"].get("match_expression") or {}
-        if _has_empty_equals(expr) and route["attributes"].get("enabled"):
-            client.patch(f"notification-routes/{route['id']}/disable", "notification_route", route["id"], {})
-            print(f"Disabled empty-title route {route['id']}")
 
     route_attrs = {
         "name": ROUTE_NAME,
@@ -175,21 +179,6 @@ class JsonApiClient:
             detail = exc.read().decode("utf-8", errors="replace")[:400]
             raise SystemExit(f"{method} {path} -> {exc.code}: {detail}") from exc
         return json.loads(raw) if raw else {"data": {}}
-
-
-def _has_empty_equals(expr: object) -> bool:
-    if not isinstance(expr, dict):
-        return False
-    if expr.get("equals") == "":
-        return True
-    return any(
-        _has_empty_equals(value)
-        if isinstance(value, dict)
-        else any(_has_empty_equals(item) for item in value if isinstance(item, dict))
-        if isinstance(value, list)
-        else False
-        for value in expr.values()
-    )
 
 
 if __name__ == "__main__":
