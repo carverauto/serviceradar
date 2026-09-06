@@ -27,7 +27,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: :incomplete]
+    unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Observability.OtelPubSub
@@ -226,6 +226,33 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   @impl Oban.Worker
   def perform(_job) do
+    ServiceRadar.Repo.checkout(
+      fn ->
+        case SQL.query!(
+               ServiceRadar.Repo,
+               "SELECT pg_try_advisory_lock(hashtextextended($1, 0))",
+               [@watermark_key]
+             ) do
+          %{rows: [[true]]} ->
+            try do
+              refresh_summaries()
+            after
+              SQL.query!(
+                ServiceRadar.Repo,
+                "SELECT pg_advisory_unlock(hashtextextended($1, 0))",
+                [@watermark_key]
+              )
+            end
+
+          %{rows: [[false]]} ->
+            {:snooze, 1}
+        end
+      end,
+      timeout: :infinity
+    )
+  end
+
+  defp refresh_summaries do
     now = DateTime.utc_now()
     watermark = read_watermark(now)
     window_start = DateTime.add(watermark, -@watermark_overlap_seconds, :second)

@@ -516,37 +516,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
     send(lv.pid, {:ocsf_event, %{}})
     send(lv.pid, {:debounced_refresh, "alerts"})
-    send(lv.pid, {:causal_signal_ingested, %{count: 2}})
-    send(lv.pid, {:debounced_refresh, "alerts"})
     render(lv)
 
     assert drain_srql_calls() == []
     assert has_element?(lv, "#alerts-live-status", "Off")
   end
 
-  test "enabling live mode allows alert-ingest refreshes", %{conn: conn} do
+  test "unrelated events do not schedule live alert refreshes", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/alerts")
-
-    _ = drain_srql_calls()
 
     lv
     |> element("#alerts-live-toggle")
     |> render_click()
 
-    assert has_element?(lv, "#alerts-live-status", "On")
-    assert [%{cursor: nil} | _] = drain_srql_calls()
-
+    _ = drain_srql_calls()
     send(lv.pid, {:ocsf_event, %{}})
-    send(lv.pid, {:debounced_refresh, "alerts"})
     render(lv)
 
-    assert [%{cursor: nil} | _] = drain_srql_calls()
-
-    send(lv.pid, {:causal_signal_ingested, %{count: 2}})
-    send(lv.pid, {:debounced_refresh, "alerts"})
-    render(lv)
-
-    assert [%{cursor: nil} | _] = drain_srql_calls()
+    assert drain_srql_calls() == []
+    timers = :sys.get_state(lv.pid).socket.assigns[:_refresh_timers] || %{}
+    refute Map.has_key?(timers, "alerts")
   end
 
   test "alert creation drives live mode", %{conn: conn} do

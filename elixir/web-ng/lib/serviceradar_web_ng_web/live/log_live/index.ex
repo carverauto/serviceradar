@@ -16,7 +16,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.IpThreatIntelCache
   alias ServiceRadar.Observability.AlertPubSub
-  alias ServiceRadar.Observability.CausalPubSub
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
@@ -71,7 +70,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, EventsPubSub.topic())
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, FlowPubSub.topic())
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, OtelPubSub.topic())
-      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, CausalPubSub.topic())
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, AlertPubSub.topic())
     end
 
@@ -1441,14 +1439,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   @impl true
   def handle_info({:ocsf_event, _event}, socket) do
-    # OCSF events feed the events tab; alert rules also evaluate them, so an
-    # event pulse can surface newly raised alerts as well.
-    socket =
-      socket
-      |> maybe_schedule_tab_live_refresh("events", :events_live?)
-      |> maybe_schedule_tab_live_refresh("alerts", :alerts_live?)
-
-    {:noreply, socket}
+    {:noreply, maybe_schedule_tab_live_refresh(socket, "events", :events_live?)}
   end
 
   @impl true
@@ -1468,12 +1459,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @impl true
   def handle_info({:otel_metrics_ingested, _event}, socket) do
     {:noreply, maybe_schedule_tab_live_refresh(socket, "metrics", :metrics_live?)}
-  end
-
-  @impl true
-  def handle_info({:causal_signal_ingested, _event}, socket) do
-    # Causal signal batches evaluate alert rules, so they can raise alerts.
-    {:noreply, maybe_schedule_tab_live_refresh(socket, "alerts", :alerts_live?)}
   end
 
   @impl true

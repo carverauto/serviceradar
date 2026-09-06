@@ -7,6 +7,29 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorkerTest do
   # Use ServiceRadar.Repo directly for SQL adapter operations
   @repo ServiceRadar.Repo
 
+  test "ingest queues one pending refresh while a refresh is executing" do
+    worker = ServiceRadar.Jobs.RefreshTraceSummariesWorker
+
+    Oban.Testing.with_testing_mode(:manual, fn ->
+      @repo.delete_all(from(job in Oban.Job, where: job.worker == ^inspect(worker)))
+
+      executing =
+        %{}
+        |> worker.new()
+        |> Ecto.Changeset.change(state: "executing", attempted_at: DateTime.utc_now(), attempt: 1)
+        |> @repo.insert!()
+
+      assert {:ok, follow_up} = %{} |> worker.new() |> Oban.insert()
+      refute follow_up.conflict?
+      refute follow_up.id == executing.id
+      assert follow_up.state == "available"
+
+      assert {:ok, duplicate} = %{} |> worker.new() |> Oban.insert()
+      assert duplicate.conflict?
+      assert duplicate.id == follow_up.id
+    end)
+  end
+
   test "exposes upsert SQL" do
     sql = RefreshTraceSummariesWorker.upsert_sql()
     assert sql =~ "INSERT INTO otel_trace_summaries"
