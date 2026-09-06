@@ -55,7 +55,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineRepoUnavailableTest do
   test "warns once per shard process and emits telemetry on every repo-less load", %{pid: pid} do
     first_log =
       capture_log(fn ->
-        assert :ok = GenServer.call(pid, {:evaluate_events, []})
+        assert {:error, :repo_unavailable} = GenServer.call(pid, {:evaluate_events, []})
       end)
 
     assert first_log =~ "StatefulAlertEngine shard 3"
@@ -66,7 +66,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineRepoUnavailableTest do
 
     second_log =
       capture_log(fn ->
-        assert :ok = GenServer.call(pid, {:evaluate_events, []})
+        assert {:error, :repo_unavailable} = GenServer.call(pid, {:evaluate_events, []})
       end)
 
     refute second_log =~ "has no repo available"
@@ -76,7 +76,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineRepoUnavailableTest do
 
   test "does not report rules as loaded when the repo is unavailable", %{pid: pid} do
     capture_log(fn ->
-      assert :ok = GenServer.call(pid, {:evaluate_metrics, []})
+      assert {:error, :repo_unavailable} = GenServer.call(pid, {:evaluate_metrics, []})
     end)
 
     assert_receive {:telemetry, @repo_unavailable_event, %{count: 1}, %{shard: 3}}

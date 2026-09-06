@@ -156,7 +156,7 @@ Use the bidirectional helpers instead:
 
 ```srql
 in:flows time:last_24h port:22 sort:time:desc limit:50
-in:flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
+in:flows time:last_24h ip:198.51.100.10 sort:time:desc limit:50
 ```
 
 `port:` matches either endpoint port; `ip:` matches either endpoint address.

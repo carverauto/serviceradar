@@ -25,6 +25,7 @@ defmodule ServiceRadar.Notifications.NotificationEscalationStepChannel do
   use Ash.Resource,
     domain: ServiceRadar.Notifications,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -47,6 +48,16 @@ defmodule ServiceRadar.Notifications.NotificationEscalationStepChannel do
     references do
       reference :step, on_delete: :delete
       reference :channel, on_delete: :delete
+    end
+  end
+
+  json_api do
+    type "notification_escalation_step_channel"
+
+    routes do
+      base "/notification-escalation-step-channels"
+
+      post :attach
     end
   end
 

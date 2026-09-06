@@ -46,7 +46,7 @@ defmodule ServiceRadar.Notifications.NotificationChannel do
   use Ash.Resource,
     domain: ServiceRadar.Notifications,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshPaperTrail.Resource],
+    extensions: [AshPaperTrail.Resource, AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Notifications.Changes.ApplyProviderContract
@@ -137,6 +137,18 @@ defmodule ServiceRadar.Notifications.NotificationChannel do
       :last_failure_at,
       :last_error
     ]
+  end
+
+  json_api do
+    type "notification_channel"
+
+    hide_fields [:secret_refs]
+
+    routes do
+      base "/notification-channels"
+
+      index :read
+    end
   end
 
   code_interface do

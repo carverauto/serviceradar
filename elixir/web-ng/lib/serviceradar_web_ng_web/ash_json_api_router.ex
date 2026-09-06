@@ -33,6 +33,10 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
   - PATCH /api/v2/alerts/:id/acknowledge - Acknowledge alert
   - PATCH /api/v2/alerts/:id/resolve - Resolve alert
 
+  Node probe actions and notification routes are defined by the resources'
+  JSON:API DSL. Consult the generated OpenAPI document below for their paths,
+  request schemas, and supported operations.
+
   ## Authentication
 
   Access is authorized by each resource's Ash policies. The actor is extracted
@@ -57,7 +61,8 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
     domains: [
       ServiceRadar.Inventory,
       ServiceRadar.Infrastructure,
-      ServiceRadar.Monitoring
+      ServiceRadar.Monitoring,
+      ServiceRadar.Notifications
     ],
     open_api_title: "ServiceRadar API",
     open_api_version: "2.0.0"

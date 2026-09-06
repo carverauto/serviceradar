@@ -13,6 +13,7 @@
 {{- $resync := default (dict) $inv.resync -}}
 {{- $gateway := default (dict) $inv.gatewayAPI -}}
 {{- $envoyProxy := default (dict) $inv.envoyProxyCRD -}}
+{{- $nodes := default (dict) $inv.nodes -}}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -30,10 +31,15 @@ metadata:
     app.kubernetes.io/part-of: serviceradar
     app.kubernetes.io/component: k8s-inventory
 rules:
-  # Public endpoint ownership only — read-only, no secrets/pods/exec.
+  # Public endpoint ownership and Node Ready inventory — read-only, no secrets/pods/exec.
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list", "watch"]
+  {{- if or (not (hasKey $nodes "enabled")) $nodes.enabled }}
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
   - apiGroups: ["discovery.k8s.io"]
     resources: ["endpointslices"]
     verbs: ["get", "list", "watch"]
@@ -136,6 +142,8 @@ spec:
               value: {{ default "2s" $resync.debounce | quote }}
             - name: K8S_INVENTORY_GATEWAY_API
               value: {{ default true $gateway.enabled | quote }}
+            - name: K8S_INVENTORY_NODES
+              value: {{ (or (not (hasKey $nodes "enabled")) $nodes.enabled) | quote }}
             - name: K8S_INVENTORY_PUBLISH_MAX_RETRIES
               value: {{ default 5 $publish.maxRetries | quote }}
             - name: K8S_INVENTORY_PUBLISH_TIMEOUT

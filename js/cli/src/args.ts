@@ -16,6 +16,8 @@ export const BOOLEAN_FLAGS: Set<string> = new Set([
   // Switches `auth login` from the device-code flow (default) to the
   // PKCE-with-localhost-callback browser flow (RFC 7636 + RFC 8252).
   "web",
+  "fire-test",
+  "clear-test",
 ])
 
 export interface ParsedArgs {

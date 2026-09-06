@@ -11,6 +11,7 @@ import (
 
 const (
 	defaultNATSSubjectPrefix = "inventory.k8s.public_endpoints"
+	defaultNodeSubject       = "inventory.k8s.nodes"
 	defaultNATSStreamName    = "k8s_inventory"
 	defaultMetricsAddr       = ":9109"
 	defaultPublishTimeout    = 5 * time.Second
@@ -36,6 +37,9 @@ var (
 	errResyncNonPositive     = errors.New("K8S_INVENTORY_RESYNC must be > 0")
 	errDebounceNonPositive   = errors.New("K8S_INVENTORY_DEBOUNCE must be > 0")
 	errPublishTimeoutInvalid = errors.New("K8S_INVENTORY_PUBLISH_TIMEOUT must be > 0")
+	errNodesUnsupportedSpool = errors.New(
+		"K8S_INVENTORY_NODES cannot be enabled when PUBLISH_MODE=agent_spool: the spool sink ignores the subject and keeps one snapshot file",
+	)
 )
 
 // Config is runtime configuration for the inventory collector.
@@ -45,6 +49,7 @@ type Config struct {
 	Namespaces     []string // empty = all
 
 	EnableGatewayAPI bool
+	EnableNodes      bool
 	PublishMode      string // nats | agent_spool | stdout | none
 	Subject          string // full subject for snapshot publish
 	SpoolDir         string // required for agent_spool
@@ -73,6 +78,7 @@ func LoadConfigFromEnv() (Config, error) {
 		ClusterID:            strings.TrimSpace(os.Getenv("CLUSTER_ID")),
 		KubeConfigPath:       strings.TrimSpace(os.Getenv("KUBECONFIG")),
 		EnableGatewayAPI:     parseBoolEnv("K8S_INVENTORY_GATEWAY_API", true),
+		EnableNodes:          parseBoolEnv("K8S_INVENTORY_NODES", false),
 		PublishMode:          strings.ToLower(strings.TrimSpace(os.Getenv("PUBLISH_MODE"))),
 		Subject:              strings.TrimSpace(os.Getenv("K8S_INVENTORY_SUBJECT")),
 		SpoolDir:             strings.TrimSpace(os.Getenv("K8S_INVENTORY_SPOOL_DIR")),
@@ -187,6 +193,9 @@ func (c Config) Validate() error {
 		dir := strings.TrimSpace(c.SpoolDir)
 		if dir == "" || dir == "." {
 			return errSpoolDirRequired
+		}
+		if c.EnableNodes {
+			return errNodesUnsupportedSpool
 		}
 	}
 	return nil

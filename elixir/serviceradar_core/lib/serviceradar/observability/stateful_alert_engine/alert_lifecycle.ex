@@ -355,8 +355,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     message_override = rule.event["message"] || rule.event[:message]
 
     message =
-      message_override ||
+      if is_binary(message_override) do
+        render_template(message_override, record)
+      else
         "Stateful rule #{rule.name} triggered for #{snapshot.group_key} (#{snapshot.window_count}/#{rule.threshold} in #{rule.window_seconds}s)"
+      end
 
     source = source_record_details(record)
     diagnostics = diagnostic_summary(rule, snapshot, now, source)

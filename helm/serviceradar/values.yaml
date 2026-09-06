@@ -132,6 +132,10 @@ k8sInventory:
   namespaces: []
   gatewayAPI:
     enabled: true
+  nodes:
+    # Watch Kubernetes Nodes (Ready condition) and publish inventory.k8s.nodes.
+    # Absent means enabled. Set enabled: false to drop Nodes RBAC.
+    enabled: true
   envoyProxyCRD:
     enabled: false
   nats:

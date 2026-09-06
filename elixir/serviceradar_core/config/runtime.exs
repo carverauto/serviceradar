@@ -1750,6 +1750,7 @@ if config_env() == :prod do
           stream_max_bytes: 1_073_741_824,
           stream_max_age: 86_400_000_000_000
         },
+        Config.k8s_nodes_stream(),
         %{
           name: "OTEL_METRICS",
           subject: "otel.metrics.>",

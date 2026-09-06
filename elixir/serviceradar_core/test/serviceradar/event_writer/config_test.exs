@@ -112,6 +112,12 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert inv.stream_name == "k8s_inventory"
       assert inv.subject == "inventory.k8s.public_endpoints"
       assert inv.processor == ServiceRadar.EventWriter.Processors.K8sPublicEndpoints
+
+      assert Enum.any?(Config.default_streams(), &(&1.name == "K8S_NODES"))
+      nodes = Enum.find(Config.default_streams(), &(&1.name == "K8S_NODES"))
+      assert nodes.stream_name == "k8s_inventory"
+      assert nodes.subject == "inventory.k8s.nodes"
+      assert nodes.processor == ServiceRadar.EventWriter.Processors.K8sNodes
     end
 
     test "load_flow uses long-poll and independent demand knobs" do

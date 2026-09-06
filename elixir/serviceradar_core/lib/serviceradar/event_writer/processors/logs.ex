@@ -65,7 +65,9 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   def table_name, do: "logs"
 
   @impl true
-  def process_batch(messages) do
+  def process_batch(messages), do: process_batch(messages, [])
+
+  def process_batch(messages, opts) do
     SignalTelemetry.emit(:logs, :received, length(messages))
 
     # DB connection's search_path determines the schema
@@ -75,7 +77,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     if Enum.empty?(rows) do
       {:ok, 0}
     else
-      insert_log_rows(rows)
+      insert_log_rows(rows, opts)
     end
   rescue
     e ->
@@ -119,7 +121,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     {rows, rejected}
   end
 
-  defp insert_log_rows(rows) do
+  defp insert_log_rows(rows, opts) do
     {rows_for_insert, placeholders} = prepare_rows_for_insert(rows)
     insert_opts = insert_options(placeholders)
 
@@ -131,10 +133,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         insert_opts
       )
 
-    maybe_promote_logs(rows)
-    SignalTelemetry.emit(:logs, :written, count)
-    LogPubSub.broadcast_ingest(%{count: count})
-    {:ok, count}
+    with {:ok, _promoted} <- maybe_promote_logs(rows, opts) do
+      SignalTelemetry.emit(:logs, :written, count)
+      LogPubSub.broadcast_ingest(%{count: count})
+      {:ok, count}
+    end
   end
 
   defp parse_log_payload({:ok, json}, _data, metadata) do
@@ -773,11 +776,10 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     [on_conflict: :nothing, returning: false, placeholders: placeholders]
   end
 
-  defp maybe_promote_logs(rows) do
+  defp maybe_promote_logs(rows, opts) do
     # DB connection's search_path determines the schema
     promotion_rows = Enum.map(rows, &canonicalize_generated_log_id/1)
-    _ = LogPromotion.promote(promotion_rows)
-    :ok
+    LogPromotion.promote(promotion_rows, opts)
   end
 
   # Log rows use raw UUID bytes for PostgreSQL inserts. Promotion metadata is

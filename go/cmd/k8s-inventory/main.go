@@ -1,7 +1,7 @@
 // Command k8s-inventory lists or continuously publishes public Kubernetes
 // endpoint ownership.
 //
-//	k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22
+//	k8s-inventory snapshot --cluster-id demo --ip 198.51.100.10 --port 22
 //	k8s-inventory run   # long-running; config from env (see package docs)
 package main
 
@@ -80,7 +80,7 @@ run:
   See go/pkg/k8sinventory/README.md
 
 Examples:
-  k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22
+  k8s-inventory snapshot --cluster-id demo --ip 198.51.100.10 --port 22
   PUBLISH_MODE=stdout CLUSTER_ID=demo k8s-inventory run
 `)
 }

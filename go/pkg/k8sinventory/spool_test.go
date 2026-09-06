@@ -2,6 +2,7 @@ package k8sinventory
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -81,5 +82,31 @@ func TestConfigAcceptsAgentSpool(t *testing.T) {
 	defer pub.Close()
 	if err := pub.Publish(context.Background(), cfg.Subject, []byte(`{}`)); err != nil {
 		t.Fatalf("Publish: %v", err)
+	}
+}
+
+func TestConfigRejectsNodesWithAgentSpool(t *testing.T) {
+	t.Setenv("CLUSTER_ID", "demo")
+	t.Setenv("PUBLISH_MODE", publishModeAgentSpool)
+	t.Setenv("K8S_INVENTORY_SPOOL_DIR", t.TempDir())
+	t.Setenv("NATS_HOSTPORT", "")
+	t.Setenv("K8S_INVENTORY_NODES", "true")
+
+	if _, err := LoadConfigFromEnv(); !errors.Is(err, errNodesUnsupportedSpool) {
+		t.Fatalf("want errNodesUnsupportedSpool, got %v", err)
+	}
+}
+
+func TestNodeWatchingIsOptIn(t *testing.T) {
+	t.Setenv("CLUSTER_ID", "demo")
+	t.Setenv("PUBLISH_MODE", publishModeStdout)
+	t.Setenv("NATS_HOSTPORT", "")
+
+	cfg, err := LoadConfigFromEnv()
+	if err != nil {
+		t.Fatalf("LoadConfigFromEnv: %v", err)
+	}
+	if cfg.EnableNodes {
+		t.Fatal("EnableNodes must default false so a manifest without Nodes RBAC does not block cache sync")
 	}
 }

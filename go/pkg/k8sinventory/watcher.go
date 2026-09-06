@@ -22,17 +22,20 @@ type WatcherLister struct {
 
 	svcInformer   cache.SharedIndexInformer
 	sliceInformer cache.SharedIndexInformer
+	nodeInformer  cache.SharedIndexInformer
 	stopCh        chan struct{}
 }
 
-// StartCoreInformers starts Service and EndpointSlice informers and registers
-// the controller Notify handler. Blocks until caches sync or ctx is done.
+// StartCoreInformers starts Service, EndpointSlice, and optionally Node
+// informers and registers the controller Notify handler. Blocks until caches
+// sync or ctx is done.
 func StartCoreInformers(
 	ctx context.Context,
 	client kubernetes.Interface,
 	namespaces []string,
 	resync time.Duration,
 	onChange func(),
+	watchNodes bool,
 ) (*WatcherLister, error) {
 	if client == nil {
 		return nil, errKubeClientNil
@@ -83,14 +86,34 @@ func StartCoreInformers(
 		return nil, fmt.Errorf("endpointslice informer handler: %w", err)
 	}
 
+	synced := []cache.InformerSynced{wl.svcInformer.HasSynced, wl.sliceInformer.HasSynced}
+	if watchNodes {
+		nodeLW := &cache.ListWatch{
+			ListFunc: func(opts metav1.ListOptions) (runtime.Object, error) {
+				return client.CoreV1().Nodes().List(ctx, opts)
+			},
+			WatchFunc: func(opts metav1.ListOptions) (watch.Interface, error) {
+				return client.CoreV1().Nodes().Watch(ctx, opts)
+			},
+		}
+		wl.nodeInformer = cache.NewSharedIndexInformer(nodeLW, &corev1.Node{}, resync, cache.Indexers{})
+		if _, err := wl.nodeInformer.AddEventHandler(handler); err != nil {
+			return nil, fmt.Errorf("node informer handler: %w", err)
+		}
+		synced = append(synced, wl.nodeInformer.HasSynced)
+	}
+
 	go wl.svcInformer.Run(wl.stopCh)
 	go wl.sliceInformer.Run(wl.stopCh)
+	if wl.nodeInformer != nil {
+		go wl.nodeInformer.Run(wl.stopCh)
+	}
 
-	if !cache.WaitForCacheSync(ctx.Done(), wl.svcInformer.HasSynced, wl.sliceInformer.HasSynced) {
+	if !cache.WaitForCacheSync(ctx.Done(), synced...) {
 		close(wl.stopCh)
 		return nil, errInformerSyncTimeout
 	}
-	log.Printf("k8s-inventory: core informers synced (namespace=%q)", namespace)
+	log.Printf("k8s-inventory: core informers synced (namespace=%q nodes=%v)", namespace, watchNodes)
 	return wl, nil
 }
 
@@ -140,6 +163,19 @@ func (w *WatcherLister) ListEndpointSlices(ctx context.Context, namespace string
 			continue
 		}
 		out = append(out, EndpointSliceFromDiscovery(es))
+	}
+	return out, nil
+}
+
+// ListNodes returns Nodes from the informer store.
+func (w *WatcherLister) ListNodes(_ context.Context) ([]NodeView, error) {
+	var out []NodeView
+	for _, obj := range w.nodeInformer.GetStore().List() {
+		node, ok := obj.(*corev1.Node)
+		if !ok || node == nil {
+			continue
+		}
+		out = append(out, NodeFromCore(node))
 	}
 	return out, nil
 }
