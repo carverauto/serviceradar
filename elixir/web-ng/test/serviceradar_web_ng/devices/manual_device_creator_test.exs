@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
   use ServiceRadarWebNG.DataCase, async: false
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Devices.ManualDeviceCreator
@@ -31,6 +32,68 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     user = AshTestHelpers.admin_user_fixture()
 
     {:ok, scope: Scope.for_user(user)}
+  end
+
+  test "an unchanged explicit type is protected but provenance alone is not", %{scope: scope} do
+    ip = "192.0.2.84"
+    hostname = "manual-selection.example.com"
+
+    assert {:ok, existing} =
+             create_device(scope, %{
+               uid: "sr:" <> Ecto.UUID.generate(),
+               ip: ip,
+               hostname: hostname,
+               type: "Switch",
+               type_id: 10,
+               discovery_sources: ["armis"],
+               metadata: %{"type_manually_set" => false}
+             })
+
+    assert {:ok, provenance_only} =
+             ManualDeviceCreator.create(scope, %{ip: ip, hostname: hostname})
+
+    assert provenance_only.uid == existing.uid
+    assert "manual" in provenance_only.discovery_sources
+    assert provenance_only.metadata["type_manually_set"] == false
+
+    for type <- ["Tablet", "Switch"] do
+      assert :ok =
+               SyncIngestor.ingest_updates([
+                 %{
+                   "ip" => ip,
+                   "hostname" => hostname,
+                   "source" => "armis",
+                   "metadata" => %{"armis_type" => type}
+                 }
+               ])
+
+      assert {:ok, inferred} = Device.get_by_uid(existing.uid, false, scope: scope)
+      assert inferred.type == type
+      assert inferred.metadata["type_manually_set"] == false
+    end
+
+    assert {:ok, selected} =
+             ManualDeviceCreator.create(scope, %{ip: ip, hostname: hostname, type: "Switch"})
+
+    assert selected.uid == existing.uid
+    assert selected.type == "Switch"
+    assert selected.type_id == 10
+    assert selected.metadata["type_manually_set"] == true
+
+    assert :ok =
+             SyncIngestor.ingest_updates([
+               %{
+                 "ip" => ip,
+                 "hostname" => hostname,
+                 "source" => "armis",
+                 "metadata" => %{"armis_type" => "Tablet"}
+               }
+             ])
+
+    assert {:ok, protected} = Device.get_by_uid(existing.uid, false, scope: scope)
+    assert protected.type == "Switch"
+    assert protected.type_id == 10
+    assert protected.metadata["type_manually_set"] == true
   end
 
   test "resolves hostname-only devices and persists the resolved IP", %{scope: scope} do
@@ -347,3 +410,4 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     |> Ash.create(scope: scope)
   end
 end
+

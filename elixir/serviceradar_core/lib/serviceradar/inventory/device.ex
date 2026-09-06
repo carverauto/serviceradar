@@ -279,7 +279,10 @@ defmodule ServiceRadar.Inventory.Device do
       change(fn changeset, _context ->
         sources = Ash.Changeset.get_attribute(changeset, :discovery_sources) || []
 
-        if Ash.Changeset.changing_attribute?(changeset, :type) and "manual" in sources do
+        params = changeset.params || %{}
+        type_submitted? = Map.has_key?(params, :type) or Map.has_key?(params, "type")
+
+        if type_submitted? and "manual" in sources do
           type = Ash.Changeset.get_attribute(changeset, :type)
 
           manual_type? =
