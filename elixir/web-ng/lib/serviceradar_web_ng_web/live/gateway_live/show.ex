@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadar.Infrastructure.Gateway
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.GatewayHelpers
 
   require Logger
@@ -32,6 +33,17 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
 
   @impl true
   def handle_params(%{"gateway_id" => gateway_id}, _uri, socket) do
+    if RBAC.can?(socket.assigns.current_scope, "devices.view") do
+      load_gateway(socket, gateway_id)
+    else
+      {:noreply,
+       socket
+       |> put_flash(:error, "You do not have permission to view gateways.")
+       |> push_navigate(to: ~p"/dashboard")}
+    end
+  end
+
+  defp load_gateway(socket, gateway_id) do
     # First check Horde registry for live gateway
     # Schema context is implicit from PostgreSQL search_path in this deployment
     all_gateways = ServiceRadar.GatewayRegistry.find_gateways()
