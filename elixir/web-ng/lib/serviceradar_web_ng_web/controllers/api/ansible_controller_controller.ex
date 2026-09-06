@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleControllerController do
   alias ServiceRadarWebNG.AnsibleControllers
   alias ServiceRadarWebNG.RBAC
 
-  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
+  action_fallback(ServiceRadarWebNGWeb.Api.FallbackController)
 
   @permission "ansible.controllers.manage"
 
@@ -102,21 +102,23 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleControllerController do
     partial? = Keyword.get(opts, :partial, false)
 
     with {:ok, inventory_interval} <-
-           optional_integer(params["inventory_sync_interval_seconds"], "inventory_sync_interval_seconds"),
+           optional_integer(
+             params["inventory_sync_interval_seconds"],
+             "inventory_sync_interval_seconds"
+           ),
          {:ok, catalog_interval} <-
-           optional_integer(params["catalog_sync_interval_seconds"], "catalog_sync_interval_seconds"),
+           optional_integer(
+             params["catalog_sync_interval_seconds"],
+             "catalog_sync_interval_seconds"
+           ),
          {:ok, enabled} <- optional_boolean(params["enabled"], "enabled") do
-      sync_id =
-        params["sync_credential_secret_id"] || params["credential_secret_id"]
-
       attrs =
         %{
           name: params["name"],
           description: params["description"],
           base_url: params["base_url"],
           agent_id: params["agent_id"],
-          credential_secret_id: sync_id,
-          sync_credential_secret_id: sync_id,
+          sync_credential_secret_id: params["sync_credential_secret_id"],
           execution_credential_secret_id: params["execution_credential_secret_id"],
           callback_credential_secret_id: params["callback_credential_secret_id"],
           inventory_sync_interval_seconds: inventory_interval,
@@ -124,7 +126,11 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleControllerController do
           enabled: enabled,
           metadata: params["metadata"]
         }
-        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> Enum.reject(fn {key, value} ->
+          is_nil(value) and
+            (key not in [:execution_credential_secret_id, :callback_credential_secret_id] or
+               not Map.has_key?(params, Atom.to_string(key)))
+        end)
         |> Map.new()
 
       cond do
@@ -156,7 +162,8 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleControllerController do
     end
   end
 
-  defp optional_integer(_value, name), do: {:error, :invalid_request, "#{name} must be an integer"}
+  defp optional_integer(_value, name),
+    do: {:error, :invalid_request, "#{name} must be an integer"}
 
   defp optional_boolean(nil, _name), do: {:ok, nil}
   defp optional_boolean(value, _name) when is_boolean(value), do: {:ok, value}
@@ -173,7 +180,6 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleControllerController do
       awx_version: controller.awx_version,
       agent_id: controller.agent_id,
       enabled: controller.enabled,
-      credential_secret_id: controller.credential_secret_id,
       sync_credential_secret_id: controller.sync_credential_secret_id,
       execution_credential_secret_id: controller.execution_credential_secret_id,
       callback_credential_secret_id: controller.callback_credential_secret_id,

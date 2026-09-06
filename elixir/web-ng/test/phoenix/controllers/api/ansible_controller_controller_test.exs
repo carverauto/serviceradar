@@ -64,9 +64,28 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleControllerControllerTest do
       assert body["name"] == "lab-awx"
 
       assert_receive {:ansible_controllers_create, attrs, _opts}
+      refute Map.has_key?(attrs, :credential_secret_id)
       assert attrs[:base_url] == "https://awx.example.com"
       assert attrs[:sync_credential_secret_id] == "00000000-0000-4000-8000-000000000101"
     end
+  end
+
+  test "PATCH clears explicit optional credential bindings and preserves omitted fields", %{
+    conn: conn
+  } do
+    id = AnsibleControllersStub.controller().id
+
+    conn =
+      patch(conn, ~p"/api/admin/ansible-controllers/#{id}", %{
+        "execution_credential_secret_id" => nil,
+        "callback_credential_secret_id" => nil
+      })
+
+    assert %{"execution_credential_secret_id" => nil, "callback_credential_secret_id" => nil} =
+             json_response(conn, 200)
+
+    assert_receive {:ansible_controllers_update, ^id, attrs, _opts}
+    assert attrs == %{execution_credential_secret_id: nil, callback_credential_secret_id: nil}
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

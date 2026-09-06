@@ -195,7 +195,12 @@ defmodule ServiceRadarWebNG.Plugins.Assignments do
 
     with {:ok, assignment} <- get_raw(id, scope: scope),
          :ok <- ensure_not_legacy_unbound(assignment) do
-      schema = fetch_config_schema(%{plugin_package_id: assignment.plugin_package_id}, scope)
+      schema =
+        fetch_config_schema(
+          %{plugin_package_id: Map.get(attrs, :plugin_package_id, assignment.plugin_package_id)},
+          scope
+        )
+
       attrs = prepare_secret_params(attrs, schema, assignment.params || %{})
 
       assignment

@@ -9,7 +9,7 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialRuleController do
   alias ServiceRadarWebNG.NetworkCredentials
   alias ServiceRadarWebNG.RBAC
 
-  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
+  action_fallback(ServiceRadarWebNGWeb.Api.FallbackController)
 
   @permission "settings.credentials.manage"
   @scope_types %{
@@ -132,9 +132,9 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialRuleController do
           ca_bundle_pem: params["ca_bundle_pem"],
           server_cert_fingerprint: params["server_cert_fingerprint"],
           priority: priority,
-          enabled: enabled
+          enabled: enabled,
+          metadata: params["metadata"]
         }
-        |> maybe_put_metadata(params)
         |> Enum.reject(fn {_key, value} -> is_nil(value) end)
         |> Map.new()
 
@@ -143,37 +143,6 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialRuleController do
       else
         {:error, :invalid_request, "name is required"}
       end
-    end
-  end
-
-  defp maybe_put_metadata(attrs, params) do
-    convenience = [
-      {"host", params["controller_host"] || params["host"]},
-      {"plugin_config", params["plugin_config"]},
-      {"cadence_seconds", params["cadence_seconds"]},
-      {"schedule_enabled", params["schedule_enabled"]},
-      {"purposes", params["purposes"]},
-      {"auto_discovery_enabled", params["auto_discovery_enabled"]},
-      {"base_url", params["base_url"]},
-      {"source_id", params["source_id"]},
-      {"source_name", params["source_name"]}
-    ]
-
-    sent_metadata? = is_map(params["metadata"])
-    sent_convenience? = Enum.any?(convenience, fn {_key, value} -> not is_nil(value) end)
-
-    if sent_metadata? or sent_convenience? do
-      base = if is_map(params["metadata"]), do: params["metadata"], else: %{}
-
-      metadata =
-        Enum.reduce(convenience, base, fn
-          {_key, nil}, acc -> acc
-          {key, value}, acc -> Map.put(acc, key, value)
-        end)
-
-      Map.put(attrs, :metadata, metadata)
-    else
-      attrs
     end
   end
 
@@ -223,7 +192,8 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialRuleController do
     end
   end
 
-  defp optional_integer(_value, name), do: {:error, :invalid_request, "#{name} must be an integer"}
+  defp optional_integer(_value, name),
+    do: {:error, :invalid_request, "#{name} must be an integer"}
 
   defp optional_boolean(nil, _name), do: {:ok, nil}
   defp optional_boolean(value, _name) when is_boolean(value), do: {:ok, value}

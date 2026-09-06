@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentController do
   alias ServiceRadarWebNG.Plugins
   alias ServiceRadarWebNG.RBAC
 
-  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
+  action_fallback(ServiceRadarWebNGWeb.Api.FallbackController)
 
   def index(conn, params) do
     with :ok <- require_authenticated(conn),
@@ -68,6 +68,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentController do
       scope = get_scope(conn)
 
       attrs = %{
+        plugin_package_id: params["plugin_package_id"],
         enabled: params["enabled"],
         interval_seconds: params["interval_seconds"],
         timeout_seconds: params["timeout_seconds"],

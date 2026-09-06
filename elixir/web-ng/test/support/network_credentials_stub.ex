@@ -26,6 +26,10 @@ defmodule ServiceRadarWebNG.TestSupport.NetworkCredentialsStub do
     {:ok, Map.merge(secret(), Map.new(attrs, fn {key, value} -> {to_atom_key(key), value} end))}
   end
 
+  def rotate_secret(_id, %{"community" => ""}, _opts) do
+    {:error, :invalid_request, "missing credential field: community"}
+  end
+
   def rotate_secret(id, values, opts) do
     send(test_pid(), {:network_credentials_rotate_secret, id, values, opts})
     {:ok, secret()}

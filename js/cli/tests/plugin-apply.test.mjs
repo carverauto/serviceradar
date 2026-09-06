@@ -61,6 +61,7 @@ rules:
     scope_value: agent-site01-01
     target_query: "in:devices sort:uid:asc limit:1"
     tls_policy: verify
+    controller_host: netbox.example.com
 assignments:
   - plugin_id: netbox-inventory
     agent_uid: agent-site01-01
@@ -77,7 +78,7 @@ assignments:
     }
     if (req.method === "GET" && url.pathname === "/api/admin/network-credential-rules") {
       res.setHeader("content-type", "application/json")
-      res.end(JSON.stringify([]))
+      res.end(JSON.stringify([{id: "rule-1", name: "demo-netbox-inventory", provider: "netbox", scope_value: "agent-site01-01", metadata: {plugin_config: {sources: ["example"]}, cadence_seconds: 600}}]))
       return
     }
     if (req.method === "GET" && url.pathname === "/api/admin/plugin-packages") {
@@ -107,12 +108,16 @@ assignments:
     )
     assert.equal(code, 0, stderr)
     assert.match(stdout, /secret demo-netbox: keep secret-1/)
-    assert.match(stdout, /rule demo-netbox-inventory: created/)
+    assert.match(stdout, /rule demo-netbox-inventory: updated/)
     assert.match(stdout, /assignment netbox-inventory@agent-site01-01: created/)
-    const ruleWrite = writes.find((item) => item.path === "/api/admin/network-credential-rules")
+    const ruleWrite = writes.find((item) => item.path === "/api/admin/network-credential-rules/rule-1")
     assert.ok(ruleWrite)
     assert.equal(ruleWrite.body.secret_id, "secret-1")
     assert.equal(ruleWrite.body.tls_policy, "verify")
+    assert.deepEqual(ruleWrite.body.metadata, {
+      plugin_config: {sources: ["example"]}, cadence_seconds: 600, host: "netbox.example.com",
+    })
+    assert.equal(ruleWrite.body.controller_host, undefined)
     assert.doesNotMatch(JSON.stringify(writes), /synthetic-token/)
   })
 })
@@ -138,12 +143,14 @@ secrets:
   }, async (instance) => {
     const env = {...process.env}
     delete env.SERVICERADAR_DEMO_NETBOX_TOKEN
-    const {code, stderr} = await runCli(
-      ["plugin", "apply", "--instance", instance, "--file", playbook, "--token", "test-token"],
-      {env},
-    )
-    assert.notEqual(code, 0)
-    assert.match(stderr, /SERVICERADAR_DEMO_NETBOX_TOKEN/)
+    for (const flags of [[], ["--dry-run"]]) {
+      const {code, stderr} = await runCli(
+        ["plugin", "apply", "--instance", instance, "--file", playbook, "--token", "test-token", ...flags],
+        {env},
+      )
+      assert.notEqual(code, 0)
+      assert.match(stderr, /SERVICERADAR_DEMO_NETBOX_TOKEN/)
+    }
   })
 })
 
@@ -151,4 +158,24 @@ test("help documents plugin apply", async () => {
   const {stdout} = await runCli(["help"])
   assert.match(stdout, /plugin apply/)
   assert.match(stdout, /plugins\.manage/)
+})
+
+test("dry-run requires an approved assignment package and performs no writes", async () => {
+  const projectDir = await mkdtemp(join(tmpdir(), "sr-plugin-package-"))
+  const playbook = join(projectDir, "example.yaml")
+  await writeFile(playbook, "assignments:\n  - plugin_id: awx\n    agent_uid: agent-example\n")
+  const writes = []
+  await withServer((req, res) => {
+    if (req.method !== "GET") writes.push(req.method)
+    res.setHeader("content-type", "application/json")
+    res.end("[]")
+  }, async (instance) => {
+    const {code, stderr} = await runCli([
+      "plugin", "apply", "--instance", instance, "--file", playbook,
+      "--token", "test-token", "--dry-run",
+    ])
+    assert.notEqual(code, 0)
+    assert.match(stderr, /no approved package for plugin_id awx/)
+    assert.deepEqual(writes, [])
+  })
 })

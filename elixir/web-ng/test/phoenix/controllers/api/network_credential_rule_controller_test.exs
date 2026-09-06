@@ -87,6 +87,19 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialRuleControllerTest do
     end
   end
 
+  test "PATCH does not turn convenience inputs into metadata replacements", %{conn: conn} do
+    id = NetworkCredentialsStub.rule().id
+
+    conn =
+      patch(conn, ~p"/api/admin/network-credential-rules/#{id}", %{
+        "controller_host" => "host.example.com"
+      })
+
+    assert json_response(conn, 200)
+    assert_receive {:network_credentials_update_rule, ^id, attrs, _opts}
+    refute Map.has_key?(attrs, :metadata)
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 end

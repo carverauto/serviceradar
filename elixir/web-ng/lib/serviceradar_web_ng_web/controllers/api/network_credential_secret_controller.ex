@@ -12,7 +12,7 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialSecretController do
   alias ServiceRadarWebNG.NetworkCredentials
   alias ServiceRadarWebNG.RBAC
 
-  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
+  action_fallback(ServiceRadarWebNGWeb.Api.FallbackController)
 
   @permission "settings.credentials.manage"
 
@@ -79,9 +79,19 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialSecretController do
 
       if is_map(values) do
         case credentials().rotate_secret(id, values, scope: get_scope(conn)) do
-          {:ok, secret} -> json(conn, secret_to_json(secret))
-          {:error, :not_found} -> {:error, :not_found}
-          {:error, error} -> {:error, error}
+          {:ok, secret} ->
+            json(conn, secret_to_json(secret))
+
+          {:error, :invalid_request, message} ->
+            conn
+            |> put_status(:bad_request)
+            |> json(%{error: "invalid_request", message: message})
+
+          {:error, :not_found} ->
+            {:error, :not_found}
+
+          {:error, error} ->
+            {:error, error}
         end
       else
         conn

@@ -51,7 +51,7 @@ defmodule ServiceRadarWebNG.AnsibleControllers do
     scope = Keyword.fetch!(opts, :scope)
 
     with {:ok, controller} <- get(id, scope: scope) do
-      Controller.update_controller(controller, drop_nils(attrs), scope: scope)
+      Controller.update_controller(controller, attrs, scope: scope)
     end
   end
 
@@ -112,10 +112,4 @@ defmodule ServiceRadarWebNG.AnsibleControllers do
   end
 
   defp normalize_limit(_), do: @default_limit
-
-  defp drop_nils(attrs) when is_map(attrs) do
-    attrs
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new()
-  end
 end

@@ -74,7 +74,6 @@ export async function applyCommand(options: Record<string, any>): Promise<void> 
   const playbook = await loadPlaybook(resolve(file))
   const session = await requireAdminSession(options)
   const dryRun = Boolean(options.dryRun)
-  const rotateSecrets = Boolean(options.rotateSecrets)
 
   const secretIds = new Map<string, string>()
   const summary: string[] = []
@@ -86,26 +85,16 @@ export async function applyCommand(options: Record<string, any>): Promise<void> 
     })
     if (existing) {
       secretIds.set(secret.name, existing.id)
-      if (rotateSecrets) {
-        const values = readValues(secret.values_from, `secret ${secret.name}`)
-        if (!dryRun) {
-          await adminRequest(session, "POST", `/api/admin/network-credential-secrets/${existing.id}/rotate`, {
-            values,
-          })
-        }
-        summary.push(`secret ${secret.name}: rotate`)
-      } else {
-        summary.push(`secret ${secret.name}: keep ${existing.id}`)
-      }
+      summary.push(`secret ${secret.name}: keep ${existing.id}`)
       continue
     }
 
+    const values = readValues(secret.values_from, `secret ${secret.name}`)
     if (dryRun) {
       summary.push(`secret ${secret.name}: create`)
       secretIds.set(secret.name, "dry-run")
       continue
     }
-    const values = readValues(secret.values_from, `secret ${secret.name}`)
     const {payload} = await adminRequest(session, "POST", "/api/admin/network-credential-secrets", {
       name: secret.name,
       description: secret.description,
@@ -137,10 +126,8 @@ export async function applyCommand(options: Record<string, any>): Promise<void> 
       allowed_ports: rule.allowed_ports,
       enabled: rule.enabled,
       priority: rule.priority,
-      controller_host: optionalFrom(rule.controller_host, rule.controller_host_from),
       ca_bundle_pem: optionalEnv(rule.ca_bundle_from),
       server_cert_fingerprint: rule.server_cert_fingerprint,
-      metadata: rule.metadata,
     }
 
     const existing = await findOne(session, "/api/admin/network-credential-rules", {
@@ -148,6 +135,10 @@ export async function applyCommand(options: Record<string, any>): Promise<void> 
       provider: rule.provider,
       scope_value: scopeValue,
     })
+    const host = optionalFrom(rule.controller_host, rule.controller_host_from)
+    if (rule.metadata !== undefined || host !== undefined) {
+      body.metadata = {...existing?.metadata, ...rule.metadata, ...(host === undefined ? {} : {host})}
+    }
     if (dryRun) {
       summary.push(`rule ${rule.name}: ${existing ? "update" : "create"}`)
       continue
@@ -204,6 +195,11 @@ export async function applyCommand(options: Record<string, any>): Promise<void> 
       `assignment ${assignment.plugin_id} agent_uid`,
     )
     const packageId = await resolveApprovedPackage(session, assignment.plugin_id)
+    if (!packageId) {
+      throw new Error(
+        `no approved package for plugin_id ${assignment.plugin_id}; import and approve it before apply`,
+      )
+    }
     const body: Record<string, unknown> = {
       agent_uid: agentUid,
       plugin_package_id: packageId,
@@ -224,11 +220,6 @@ export async function applyCommand(options: Record<string, any>): Promise<void> 
       await adminRequest(session, "PATCH", `/api/admin/plugin-assignments/${existing.id}`, dropUndefined(body))
       summary.push(`assignment ${assignment.plugin_id}@${agentUid}: updated ${existing.id}`)
     } else {
-      if (!packageId) {
-        throw new Error(
-          `no approved package for plugin_id ${assignment.plugin_id}; import and approve it before apply`,
-        )
-      }
       const {payload} = await adminRequest(session, "POST", "/api/admin/plugin-assignments", dropUndefined(body))
       summary.push(`assignment ${assignment.plugin_id}@${agentUid}: created ${payload.id}`)
     }
@@ -281,7 +272,7 @@ function readValues(valuesFrom: Record<string, string> | undefined, label: strin
   const values: Record<string, string> = {}
   for (const [field, envName] of Object.entries(valuesFrom)) {
     const value = process.env[envName]
-    if (!value) {
+    if (!value || !value.trim()) {
       throw new Error(`${label} missing ${envName} (field ${field})`)
     }
     values[field] = value

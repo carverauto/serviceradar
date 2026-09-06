@@ -76,6 +76,37 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialSecretControllerTest do
     end
   end
 
+  test "create maps descriptor validation failures to bad requests", %{conn: conn} do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :network_credentials,
+      ServiceRadarWebNG.NetworkCredentials
+    )
+
+    conn =
+      post(conn, ~p"/api/admin/network-credential-secrets", %{
+        "name" => "example-snmp",
+        "provider" => "snmp",
+        "auth_method" => "community",
+        "values" => %{}
+      })
+
+    assert %{"error" => "invalid_request", "message" => "missing credential field: community"} =
+             json_response(conn, 400)
+  end
+
+  test "rotate renders normalized field errors as bad requests", %{conn: conn} do
+    id = NetworkCredentialsStub.secret().id
+
+    conn =
+      post(conn, ~p"/api/admin/network-credential-secrets/#{id}/rotate", %{
+        "values" => %{"community" => ""}
+      })
+
+    assert %{"error" => "invalid_request", "message" => "missing credential field: community"} =
+             json_response(conn, 400)
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 end

@@ -31,7 +31,8 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
     Ash.read(query, scope: scope)
   end
 
-  @spec get_secret(String.t(), keyword()) :: {:ok, struct()} | {:error, :not_found} | {:error, term()}
+  @spec get_secret(String.t(), keyword()) ::
+          {:ok, struct()} | {:error, :not_found} | {:error, term()}
   def get_secret(id, opts \\ []) when is_binary(id) do
     scope = Keyword.fetch!(opts, :scope)
 
@@ -50,6 +51,7 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
     with {:ok, built} <- build_secret_attrs(attrs) do
       NetworkCredentialSecret.create_secret(built, scope: scope)
     end
+    |> normalize_credential_error()
   end
 
   @spec update_secret_details(String.t(), map(), keyword()) ::
@@ -70,6 +72,7 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
     with {:ok, secret} <- get_secret(id, scope: scope) do
       CredentialRotation.rotate(secret, stringify_keys(values), scope)
     end
+    |> normalize_credential_error()
   end
 
   @spec list_rules(keyword()) :: {:ok, [struct()]} | {:error, term()}
@@ -90,7 +93,8 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
     Ash.read(query, scope: scope)
   end
 
-  @spec get_rule(String.t(), keyword()) :: {:ok, struct()} | {:error, :not_found} | {:error, term()}
+  @spec get_rule(String.t(), keyword()) ::
+          {:ok, struct()} | {:error, :not_found} | {:error, term()}
   def get_rule(id, opts \\ []) when is_binary(id) do
     scope = Keyword.fetch!(opts, :scope)
 
@@ -130,6 +134,16 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
       |> Ash.update(scope: scope)
     end
   end
+
+  defp normalize_credential_error({:error, {:missing_credential_field, field}}) do
+    {:error, :invalid_request, "missing credential field: #{field}"}
+  end
+
+  defp normalize_credential_error({:error, {:invalid_credential_field, field}}) do
+    {:error, :invalid_request, "invalid credential field: #{field}"}
+  end
+
+  defp normalize_credential_error(result), do: result
 
   defp build_secret_attrs(attrs) do
     provider = required_string(attrs, "provider") || required_string(attrs, :provider)

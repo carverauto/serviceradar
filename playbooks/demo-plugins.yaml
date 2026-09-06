@@ -42,6 +42,18 @@ secrets:
     values_from:
       api_token: SERVICERADAR_DEMO_AWX_TOKEN
 
+  - name: demo-vulncheck
+    provider: vulncheck
+    auth_method: api_token
+    values_from:
+      api_token: SERVICERADAR_DEMO_VULNCHECK_TOKEN
+
+  - name: demo-snmp
+    provider: snmp
+    auth_method: community
+    values_from:
+      community: SERVICERADAR_DEMO_SNMP_COMMUNITY
+
 rules:
   - name: demo-proxmox-inventory
     provider: proxmox
@@ -95,6 +107,30 @@ rules:
     controller_host_from: SERVICERADAR_DEMO_AXIS_HOST
     enabled: true
 
+  - name: demo-unifi-protect-stream
+    provider: unifi-protect
+    auth_method: api_key
+    purpose: camera_stream
+    secret: demo-unifi-protect
+    scope_type: agent
+    scope_value_from: SERVICERADAR_DEMO_AGENT_UID
+    target_query: 'in:devices vendor:"Ubiquiti"'
+    tls_policy: verify
+    allowed_ports: [443, 7447]
+    controller_host_from: SERVICERADAR_DEMO_UNIFI_PROTECT_HOST
+    enabled: true
+
+  - name: demo-snmp-monitoring
+    provider: snmp
+    auth_method: community
+    purpose: snmp_monitoring
+    secret: demo-snmp
+    scope_type: agent
+    scope_value_from: SERVICERADAR_DEMO_AGENT_UID
+    target_query: "in:devices metadata.snmp_candidate:true"
+    allowed_ports: [161]
+    enabled: true
+
 ansible_controllers:
   - name: demo-awx
     base_url_from: SERVICERADAR_DEMO_AWX_BASE_URL
@@ -105,14 +141,5 @@ ansible_controllers:
 
 assignments:
   - plugin_id: awx
-    agent_uid_from: SERVICERADAR_DEMO_AGENT_UID
-    enabled: true
-  - plugin_id: netbox-inventory
-    agent_uid_from: SERVICERADAR_DEMO_AGENT_UID
-    enabled: true
-  - plugin_id: unifi-protect-camera
-    agent_uid_from: SERVICERADAR_DEMO_AGENT_UID
-    enabled: true
-  - plugin_id: proxmox-inventory
     agent_uid_from: SERVICERADAR_DEMO_AGENT_UID
     enabled: true
