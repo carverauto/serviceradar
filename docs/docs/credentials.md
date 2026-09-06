@@ -316,18 +316,21 @@ not authenticators, so an operator can read back what a rule trusts and the
 values never go through the credential broker.
 
 The Credential Rules form renders both fields wherever a provider declares
-transport controls, the Proxmox manifest passes `ca_bundle_pem` to the host as
-`$source: rule`, and the agent verifies against it. Unlike
+transport controls. The Proxmox manifest passes the selected trust material as
+`$source: rule` into the agent's host-authority binding. Unlike
 `plugin_http_trusted_ca_files` above, a rule's trust material **replaces** the
 system trust store for that rule's destinations rather than widening it: a rule
 pinning a private CA is asking for that anchor, and keeping the public roots
 would still accept any publicly-trusted certificate for the same origin. The
-bundle never reaches the Wasm guest.
+bundle or fingerprint never reaches the Wasm guest. A bundle retains normal
+certificate-chain and hostname verification; a fingerprint instead accepts only
+the exact leaf certificate whose SHA-256 digest matches the pin, without chain,
+hostname, or expiry verification.
 
 Proxmox is the case that forced this. Inventory enrichment mandates `verify`, the
 controller origin is always an IP literal, and a binding carrying
-`insecure_skip_verify` is rejected outright -- so pinning the cluster CA is the
-only way to reach a node behind it. See the Proxmox provider section for the
+`insecure_skip_verify` is rejected outright. Pinning the cluster CA allows normal
+TLS verification against that private CA. See the Proxmox provider section for the
 procedure.
 
 First release containing these: `<first-release>`.

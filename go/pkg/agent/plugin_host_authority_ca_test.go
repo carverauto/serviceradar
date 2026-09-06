@@ -104,10 +104,12 @@ func TestPinnedRootsVerifyAPrivateCAByIPAndRejectOthers(t *testing.T) {
 		}
 		resp, err := client.Do(req)
 		if err != nil {
+			t.Logf("HTTPS request rejected: %v", err)
 			return 0, err
 		}
 		defer func() { _ = resp.Body.Close() }()
 
+		t.Logf("HTTPS response: %s", resp.Status)
 		return resp.StatusCode, nil
 	}
 
