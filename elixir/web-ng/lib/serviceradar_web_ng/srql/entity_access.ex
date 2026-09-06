@@ -123,8 +123,10 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
   Unknown entities and dashboards are `:ok` so the compiler / Ash search
   remain the source of those errors.
 
-  A missing scope on a mapped entity is forbidden on every path: LiveView
-  detail loaders, HTTP, and MCP all pass the principal explicitly.
+  A missing scope on a mapped entity is forbidden by default. LiveView,
+  HTTP, and MCP execution paths use this default and pass the principal
+  explicitly. The helper's `optional_scope: true` option permits a nil
+  scope, but is not used by those execution paths.
   """
   @spec authorize(term(), term(), keyword()) :: :ok | {:error, :forbidden}
   def authorize(query, scope, opts \\ [])
