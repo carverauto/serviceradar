@@ -13,13 +13,6 @@ import (
 // variable so tests can capture what the plugin emits without a live host.
 var submitResult = submitPluginResult
 
-// runProxmoxCheck enumerates every configured target and streams inventory to
-// the host one node at a time. Each node's guests are fetched, enriched, emitted
-// as their own result, and then dropped before the next node is processed, so
-// peak memory (and the per-result payload) stays bounded to a single node
-// regardless of how many guests the cluster has. Partial progress survives a
-// mid-run cancellation because every node's batch is submitted as it completes.
-// It returns a small final status result carrying only aggregate counts.
 // clusterFingerprint identifies a cluster by its sorted member node names so
 // duplicate targets pointing at the same cluster enumerate it only once.
 func clusterFingerprint(nodes []proxmoxNode) string {
@@ -31,6 +24,11 @@ func clusterFingerprint(nodes []proxmoxNode) string {
 	return strings.Join(names, ",")
 }
 
+// runProxmoxCheck submits all hosts before guest enrichment so slow guest
+// probes cannot prevent host inventory progress. Guest batches carry their
+// owning host in details for downstream identity resolution, but do not count
+// it again or repeat its discovery and telemetry. Only one node's guests are
+// retained at a time. Encode or submission failures stop the run.
 func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 	cfg.applyDefaults()
 	applyHTTPClientLimits(cfg)

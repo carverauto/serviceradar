@@ -5,7 +5,7 @@ title: Remote Access
 
 # Remote Access
 
-ServiceRadar remote access routes interactive sessions through the same edge topology used for monitoring. The current implementation is focused on agent-routed SSH sessions and SSH-backed Proxmox VE host shells. Native Proxmox VM/LXC `termproxy` or `vncwebsocket` consoles, SFTP/SCP, database access, Kubernetes access, and application access are follow-up capabilities. For the experimental graphical desktop/RDP path, see [Remote Access: RDP](./remote-access-rdp).
+ServiceRadar remote access routes interactive sessions through the same edge topology used for monitoring. The current implementation is focused on agent-routed SSH sessions and SSH-backed Proxmox VE host shells. For native Proxmox host and guest consoles, see [Proxmox Console Access](./proxmox#console-access). SFTP/SCP, database access, Kubernetes access, and application access are follow-up capabilities. For the experimental graphical desktop/RDP path, see [Remote Access: RDP](./remote-access-rdp).
 
 The intended enterprise model is short-lived SSH user certificates backed by your identity provider, ServiceRadar RBAC, and an edge agent that can reach the target. Operators should avoid reusable agent-local SSH secrets.
 
@@ -23,7 +23,7 @@ For Proxmox host shells, the final target is the PVE host SSH service. For ordin
 
 Before enabling remote access, make sure these pieces are in place:
 
-- The target devices are in ServiceRadar inventory and assigned to an agent, gateway, or partition that can reach TCP `22`.
+- The target devices are in ServiceRadar inventory and assigned to an agent, gateway, or partition that can reach TCP `22`. When the device has no owning agent column, SSH routing can use its discovery metadata (`sync_service_id`, then agent/source-agent metadata). This routing fallback does not bypass certificate policy or authorization.
 - Users authenticate through the normal ServiceRadar login path. For enterprise testing, Authentik OIDC works well as the identity provider.
 - RBAC grants only the intended users the remote access actions. Use `devices.remote_access.ssh.open` for generic SSH and `devices.console.open` for Proxmox console entry points.
 - The ServiceRadar SSH user CA public key is installed on each Linux or PVE target that should accept certificate login.

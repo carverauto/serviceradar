@@ -18,9 +18,9 @@ on assets/** and the HEEx templates, so an .ex-only change is a cache hit.
 
 load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
 load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_library", "js_run_binary", "js_test")
+load("@web_ng_npm//:defs.bzl", "npm_link_all_packages")
 load("@web_ng_npm//elixir/web-ng/assets:@tailwindcss/cli/package_json.bzl", tailwind_bin = "bin")
 load("@web_ng_npm//elixir/web-ng/assets:vitest/package_json.bzl", vitest_bin = "bin")
-load("@web_ng_npm//:defs.bzl", "npm_link_all_packages")
 load("//build:phoenix_digest.bzl", "phoenix_digest")
 
 package(default_visibility = ["//visibility:public"])
@@ -55,6 +55,7 @@ filegroup(
             "js/**/*.ts",
             "js/**/*.tsx",
         ],
+        allow_empty = True,
         exclude = [
             "component/**/*.test.js",
             "component/**/*.test.jsx",
@@ -87,7 +88,6 @@ filegroup(
             "js/**/static/**",
             "js/**/vendor/**",
         ],
-        allow_empty = True,
     ),
 )
 
@@ -181,8 +181,8 @@ js_test(
         "js/utils/timezone_options.test.js",
         "js/utils/user_time.test.js",
     ]) + [
-        ":timestamp_formatter_test_srcs",
         ":node_modules",
+        ":timestamp_formatter_test_srcs",
     ],
     entry_point = "timestamp_formatter_test_runner.mjs",
     tags = ["unit_test"],
@@ -226,14 +226,14 @@ js_test(
         "js/lib/deckgl/**/*.js",
         "js/wasm/god_view_exec_runtime.js",
     ]) + [
-        ":bundle_srcs",
-        ":node_modules",
         "god_view_acceptance_geometry_observer.js",
         "god_view_acceptance_geometry_observer.test.js",
         "god_view_acceptance_timeline.js",
         "god_view_acceptance_timeline.test.js",
         "god_view_production_bundle_contract.test.js",
         "js/lib/GodViewRenderer.js",
+        ":bundle_srcs",
+        ":node_modules",
     ],
     entry_point = "god_view_scene_test_runner.mjs",
     tags = ["unit_test"],
@@ -247,9 +247,9 @@ vitest_bin.vitest_test(
     ],
     chdir = package_name(),
     data = [
-        ":node_modules",
         "js/hooks/CredentialDeepLinkFocus.js",
         "js/hooks/CredentialDeepLinkFocus.test.js",
+        ":node_modules",
     ],
     tags = ["unit_test"],
 )
@@ -262,9 +262,9 @@ vitest_bin.vitest_test(
     ],
     chdir = package_name(),
     data = [
-        ":node_modules",
         "js/hooks/DetailsState.js",
         "js/hooks/DetailsState.test.js",
+        ":node_modules",
     ],
     tags = ["unit_test"],
 )
@@ -277,10 +277,10 @@ vitest_bin.vitest_test(
     ],
     chdir = package_name(),
     data = [
-        ":node_modules",
         "component/src/RemoteAccessSSHConsole.jsx",
         "js/hooks/RemoteAccessSSHConsole.js",
         "js/hooks/RemoteAccessSSHConsole.test.js",
+        ":node_modules",
     ],
     tags = ["unit_test"],
 )
@@ -294,13 +294,13 @@ vitest_bin.vitest_test(
     ],
     chdir = package_name(),
     data = [
-        ":node_modules",
         "component/src/RemoteAccessSSHConsole.jsx",
         "component/src/RemoteAccessTerminal.jsx",
         "component/src/renderText.js",
         "component/src/sshEphemeralKeypair.js",
         "component/test/RemoteAccessSSHConsole.test.jsx",
         "component/test/RemoteAccessSSHConsoleSession.test.jsx",
+        ":node_modules",
     ],
     tags = ["unit_test"],
 )
@@ -314,16 +314,16 @@ js_binary(
 js_run_binary(
     name = "god_view_elk_scene_bundle",
     srcs = [
+        "god_view_elk_scene_harness.js",
         ":god_view_scene_test_srcs",
         ":node_modules",
-        "god_view_elk_scene_harness.js",
     ],
+    outs = ["god_view_elk_scene.bundle.js"],
     args = [
         "god_view_elk_scene_harness.js",
         "god_view_elk_scene.bundle.js",
     ],
     chdir = package_name(),
-    outs = ["god_view_elk_scene.bundle.js"],
     tool = ":god_view_elk_scene_bundler",
 )
 
