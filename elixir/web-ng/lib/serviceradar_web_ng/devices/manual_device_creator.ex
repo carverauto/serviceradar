@@ -451,13 +451,18 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
                  AND lower(COALESCE(NULLIF(btrim(type), ''), 'unknown')) <> 'unknown'
              ))
            WHERE uid = $1
-           RETURNING metadata
+           RETURNING metadata, type, type_id
            """,
            [device.uid, submitted_ownership]
          ) do
-      {:ok, %{rows: [[metadata]]}} -> {:ok, %{device | metadata: metadata}}
-      {:ok, %{rows: []}} -> {:error, :not_found}
-      {:error, reason} -> {:error, reason}
+      {:ok, %{rows: [[metadata, type, type_id]]}} ->
+        {:ok, %{device | metadata: metadata, type: type, type_id: type_id}}
+
+      {:ok, %{rows: []}} ->
+        {:error, :not_found}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

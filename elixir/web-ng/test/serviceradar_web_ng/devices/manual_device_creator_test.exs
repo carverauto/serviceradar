@@ -80,6 +80,50 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     assert persisted.metadata["new_identity_fact"] == "retained"
   end
 
+  test "manual selection replaces an inference committed after the import read", %{scope: scope} do
+    ip = "192.0.2.86"
+    hostname = "classification-race.example.com"
+
+    assert {:ok, stale} =
+             create_device(scope, %{
+               uid: "sr:" <> Ecto.UUID.generate(),
+               ip: ip,
+               hostname: hostname,
+               type: "Switch",
+               type_id: 10,
+               discovery_sources: ["armis"],
+               metadata: %{"type_manually_set" => false}
+             })
+
+    integration_update = %{
+      "ip" => ip,
+      "hostname" => hostname,
+      "source" => "armis",
+      "metadata" => %{"armis_type" => "Tablet"}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([integration_update])
+    assert {:ok, inferred} = Device.get_by_uid(stale.uid, false, scope: scope)
+    assert {inferred.type, inferred.type_id} == {"Tablet", 4}
+
+    assert {:ok, selected} =
+             ManualDeviceCreator.update_existing_device(
+               stale,
+               %{type: "Switch", type_id: 10},
+               scope
+             )
+
+    assert {selected.type, selected.type_id} == {"Switch", 10}
+    assert selected.metadata["type_manually_set"] == true
+    assert {:ok, persisted} = Device.get_by_uid(stale.uid, false, scope: scope)
+    assert {persisted.type, persisted.type_id} == {"Switch", 10}
+
+    assert :ok = SyncIngestor.ingest_updates([integration_update])
+    assert {:ok, protected} = Device.get_by_uid(stale.uid, false, scope: scope)
+    assert {protected.type, protected.type_id} == {"Switch", 10}
+    assert protected.metadata["type_manually_set"] == true
+  end
+
   test "an unchanged explicit type is protected but provenance alone is not", %{scope: scope} do
     ip = "192.0.2.84"
     hostname = "manual-selection.example.com"
