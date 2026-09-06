@@ -827,6 +827,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     }
 
     duplicate_update = %{
+      "ip" => "192.0.2.85",
       "hostname" => hostname,
       "source" => "netbox",
       "metadata" => %{
@@ -848,6 +849,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
              )
 
     refute duplicate_uid == holder.uid
+
+    # Reproduce a previously persisted duplicate whose address was cleared.
+    assert %{num_rows: 1} =
+             Repo.query!("UPDATE platform.ocsf_devices SET ip = NULL WHERE uid = $1", [
+               duplicate_uid
+             ])
 
     followup =
       duplicate_update
@@ -992,6 +999,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     integration_id = "synthetic-snapshot-#{System.unique_integer([:positive])}"
 
     existing_update = %{
+      "ip" => "192.0.2.84",
       "hostname" => "other-switch.example.com",
       "mac" => "00:00:5e:00:53:81",
       "source" => "netbox",

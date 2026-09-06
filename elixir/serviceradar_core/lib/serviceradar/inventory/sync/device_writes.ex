@@ -707,7 +707,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   defp record_identity_pairs(%{identity_claims: claims}, _partition), do: claims
 
   defp record_identity_pairs(map, partition) do
-    identity_pairs(Ids.extract_strong_identifiers(map), partition)
+    ids = map |> Map.put(:partition, partition) |> Ids.extract_strong_identifiers()
+    identity_pairs(ids, ids.partition)
   end
 
   defp identity_pairs(ids, partition) do
@@ -726,6 +727,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # re-pointed integration id) the fork rule exists to refuse.
   defp adopt_on_hostname_agreement?(record, holder, holder_uid, identity_regs) do
     hostnames_agree?(Map.get(record, :hostname), Map.get(holder, :hostname)) and
+      compatible_identity_claims?(record, holder) and
       not third_party_identity_claim?(
         record,
         holder,
@@ -733,6 +735,20 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         record_partition(record),
         identity_regs
       )
+  end
+
+  defp compatible_identity_claims?(record, holder) do
+    partition = record_partition(record)
+    incoming = record_identity_pairs(record, partition)
+    existing = record_identity_pairs(holder, partition)
+
+    partitions = Enum.uniq(Enum.map(incoming ++ existing, &elem(&1, 2)))
+    incoming_serials = for {"hardware_serial", value, _} <- incoming, do: value
+    existing_serials = for {"hardware_serial", value, _} <- existing, do: value
+
+    length(partitions) <= 1 and
+      (incoming_serials == [] or existing_serials == [] or
+         Enum.any?(incoming_serials, &(&1 in existing_serials)))
   end
 
   defp hostnames_agree?(a, b) when is_binary(a) and is_binary(b) do
