@@ -480,3 +480,50 @@ func (s fakeProxmoxConsoleSSHStdin) Write(p []byte) (int, error) {
 }
 
 func (s fakeProxmoxConsoleSSHStdin) Close() error { return nil }
+
+func TestProxmoxConsoleSSHTargetAddressPrefersAddressOverHostname(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		target   proxmoxConsoleSSHTarget
+		wantHost string
+		wantPort int
+	}{
+		{
+			name:     "address wins over a hostname the agent cannot resolve",
+			target:   proxmoxConsoleSSHTarget{Hostname: "pve-node", IP: "192.0.2.10"},
+			wantHost: "192.0.2.10",
+			wantPort: 22,
+		},
+		{
+			name:     "hostname is used when no address is known",
+			target:   proxmoxConsoleSSHTarget{Hostname: "pve-node.example.com", SSHPort: 2222},
+			wantHost: "pve-node.example.com",
+			wantPort: 2222,
+		},
+		{
+			name:     "base URL host remains the last resort",
+			target:   proxmoxConsoleSSHTarget{BaseURL: "https://192.0.2.11:8006"},
+			wantHost: "192.0.2.11",
+			wantPort: 22,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			host, port, err := proxmoxConsoleSSHTargetAddress(tt.target)
+			if err != nil {
+				t.Fatalf("proxmoxConsoleSSHTargetAddress returned error: %v", err)
+			}
+			if host != tt.wantHost {
+				t.Fatalf("host = %q, want %q", host, tt.wantHost)
+			}
+			if port != tt.wantPort {
+				t.Fatalf("port = %d, want %d", port, tt.wantPort)
+			}
+		})
+	}
+}

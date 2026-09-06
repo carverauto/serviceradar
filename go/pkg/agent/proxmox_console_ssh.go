@@ -386,7 +386,13 @@ func validateProxmoxConsoleSSHConfig(cfg proxmoxConsoleSSHConfig) error {
 }
 
 func proxmoxConsoleSSHTargetAddress(target proxmoxConsoleSSHTarget) (string, int, error) {
-	host := strings.TrimSpace(firstNonEmpty(target.Hostname, target.IP))
+	// The address comes first: it is the address ServiceRadar already reached the
+	// host on, while the hostname is a label the node reports about itself and is
+	// not necessarily resolvable from this agent. Preferring the label produced
+	// "dial tcp: lookup <name>: server misbehaving" for hosts whose short name has
+	// no DNS record. This matches consoleSpecCanonicalOrigin, which authorizes the
+	// controller origin by address for the same reason.
+	host := strings.TrimSpace(firstNonEmpty(target.IP, target.Hostname))
 	if host == "" && strings.TrimSpace(target.BaseURL) != "" {
 		if len(strings.TrimSpace(target.BaseURL)) > maxProxmoxSSHTargetHostBytes*2 {
 			return "", 0, errInvalidProxmoxSSHFieldSize

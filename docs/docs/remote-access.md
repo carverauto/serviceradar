@@ -19,6 +19,12 @@ browser -> web-ng -> agent-gateway -> edge agent -> target SSH server
 
 For Proxmox host shells, the final target is the PVE host SSH service. For ordinary Linux hosts and VMs, the final target is the host or guest SSH service. A Proxmox VM does not need to use the Proxmox API console path if it has normal network reachability, `sshd`, a local or LDAP-backed account, and the ServiceRadar SSH CA installed.
 
+### Connection Address
+
+The agent dials the device address recorded in inventory, not the device hostname. The address is the one ServiceRadar's own collectors already reached the device on, so the agent can reach it too. A device hostname is a label the device reports about itself -- an SNMP `sysName`, a Proxmox node name -- and a short name of that kind frequently has no DNS record at all, which is why it is only the fallback for a device inventory knows by name and has no address for. Proxmox host shells resolve the same way: the console authorizes the controller by address, and the SSH transport dials that same address.
+
+An operator-supplied target host still wins for a single session. That override is the escape hatch for a device whose inventory address is not the one to connect through, and it is deliberately narrow: `remote_access_target_host_override_enabled` must be set, the actor needs the SSH target-override permission, and the host must appear in `remote_access_target_host_override_allowlist`.
+
 ## Operator Checklist
 
 Before enabling remote access, make sure these pieces are in place:
@@ -823,6 +829,7 @@ Common failures:
 - User exists in ServiceRadar but not on the host: create the account locally or fix LDAP/AD/NSS/PAM integration on the target.
 - Route denied: the device is not assigned to an eligible agent or gateway, or the remote access policy does not allow that target.
 - Connection timeout: the selected edge agent cannot reach the target on TCP `22`.
+- `dial tcp: lookup <name>: server misbehaving` or `no such host`: the session is connecting by name rather than by address. The device row has no address, or the target-host field was set to a name the edge agent's resolver cannot answer. Give the device an address in inventory, or supply a name that agent can resolve.
 - Host key rejected: the target host key is absent from known-hosts or changed since the last trusted connection.
 - Signer failure: check the signer binary path, CA key secret mount, `SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON`, policy file syntax, and signer logs.
 

@@ -1209,6 +1209,58 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert denial_audit[:details][:failure_reason] == "approval_denied"
   end
 
+  test "an inventory-device session dials the device address rather than its hostname" do
+    uid = unique_uid("dial-target")
+
+    insert_device!(uid,
+      agent_id: "agent-dial-target",
+      gateway_id: "gateway-dial-target",
+      hostname: "host01",
+      ip: "192.0.2.10"
+    )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: :ssh, credential_custody_mode: :user_present},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert session.target_host == "192.0.2.10"
+    assert session.metadata["target"]["hostname"] == "host01"
+    assert session.metadata["target"]["ip"] == "192.0.2.10"
+  end
+
+  test "an operator-supplied target host still overrides the device address" do
+    uid = unique_uid("dial-target-override")
+
+    insert_device!(uid,
+      agent_id: "agent-dial-override",
+      gateway_id: "gateway-dial-override",
+      hostname: "host01",
+      ip: "192.0.2.10"
+    )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :user_present,
+                 target_host: "jump01.example.com"
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert session.target_host == "jump01.example.com"
+  end
+
   test "lifecycle transitions write sanitized terminal outcomes" do
     uid = unique_uid("lifecycle")
     insert_device!(uid, agent_id: "agent-life", gateway_id: "gateway-life")
@@ -2090,7 +2142,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
       %{
         uid: uid,
         type_id: 0,
-        hostname: uid,
+        hostname: Keyword.get(opts, :hostname, uid),
+        ip: Keyword.get(opts, :ip),
         vendor_name: "Linux",
         agent_id: Keyword.get(opts, :agent_id),
         gateway_id: Keyword.get(opts, :gateway_id),
