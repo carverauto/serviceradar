@@ -125,7 +125,7 @@ func TestAuthBcryptGenMatchesHelmHookInvocation(t *testing.T) {
 		t.Skip("production-cost bcrypt generation and verification are exercised in the non-short suite")
 	}
 
-	const password = "s3cret-admin-pw"
+	password := t.Name()
 
 	cfg := &CmdConfig{}
 	if err := (AuthHandler{}).Parse([]string{"bcrypt-gen", "--password", password}, cfg); err != nil {
@@ -259,9 +259,9 @@ func (c *deviceTestClock) sleep(d time.Duration) {
 	c.current = c.current.Add(d)
 }
 
-func runTestDeviceCodeFlow(client *http.Client, instance, scope string, openBrowser bool, writer io.Writer) (authCredentialEntry, error) {
+func runTestDeviceCodeFlow(client *http.Client, instance string, openBrowser bool, writer io.Writer) (authCredentialEntry, error) {
 	clock := &deviceTestClock{}
-	return runDeviceCodeFlowWithClock(client, instance, scope, openBrowser, writer, clock.now, clock.sleep)
+	return runDeviceCodeFlowWithClock(client, instance, authDefaultScope, openBrowser, writer, clock.now, clock.sleep)
 }
 
 func TestDeviceCodeFlowSuccess(t *testing.T) {
@@ -270,7 +270,7 @@ func TestDeviceCodeFlowSuccess(t *testing.T) {
 		successTokenAnswer(),
 	})
 
-	entry, err := runTestDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, false, io.Discard)
+	entry, err := runTestDeviceCodeFlow(srv.server.Client(), srv.server.URL, false, io.Discard)
 	if err != nil {
 		t.Fatalf("device flow: %v", err)
 	}
@@ -356,7 +356,7 @@ func TestDeviceCodeFlowTerminalStates(t *testing.T) {
 				{status: http.StatusBadRequest, body: map[string]string{"error": tc.code}},
 			})
 
-			_, err := runTestDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, false, io.Discard)
+			_, err := runTestDeviceCodeFlow(srv.server.Client(), srv.server.URL, false, io.Discard)
 			if err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -374,7 +374,7 @@ func TestDeviceCodeFlowDeviceNotFound(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	_, err := runTestDeviceCodeFlow(srv.Client(), srv.URL, authDefaultScope, false, io.Discard)
+	_, err := runTestDeviceCodeFlow(srv.Client(), srv.URL, false, io.Discard)
 	if !errors.Is(err, errAuthFlowFailed) {
 		t.Fatalf("err = %v, want %v", err, errAuthFlowFailed)
 	}
@@ -390,7 +390,7 @@ func TestDeviceCodeFlowRejectsNonHTTPVerificationURI(t *testing.T) {
 	srv.mu.Unlock()
 
 	var out bytes.Buffer
-	_, err := runTestDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, true, &out)
+	_, err := runTestDeviceCodeFlow(srv.server.Client(), srv.server.URL, true, &out)
 	if !errors.Is(err, errAuthFlowFailed) {
 		t.Fatalf("err = %v, want %v", err, errAuthFlowFailed)
 	}
@@ -404,7 +404,7 @@ func TestDeviceCodeFlowPrintsVerificationURL(t *testing.T) {
 	srv := newDeviceTestServer(t, []tokenAnswer{successTokenAnswer()})
 
 	var out bytes.Buffer
-	_, err := runTestDeviceCodeFlow(srv.server.Client(), srv.server.URL, authDefaultScope, false, &out)
+	_, err := runTestDeviceCodeFlow(srv.server.Client(), srv.server.URL, false, &out)
 	if err != nil {
 		t.Fatalf("device flow: %v", err)
 	}
