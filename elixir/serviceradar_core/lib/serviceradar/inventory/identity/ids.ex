@@ -509,4 +509,3 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   def partition_from_device_id(_), do: "default"
 end
-

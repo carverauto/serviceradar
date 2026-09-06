@@ -18,16 +18,13 @@ defmodule ServiceRadar.Repo.Migrations.ArchiveProxmoxNameKeyedIdentifiers do
   gen-1 primaries anymore and ambiguous values never match), so the archive
   cannot refill from the same cause.
 
-  `proxmox:node:<name>` / `proxmox:pve:<name>` rows are deliberately LEFT in
-  place: those shapes are still minted as degraded-mode (cluster-status
-  unknown) fallback primaries, so archiving them would self-revive on the next
-  sync. They are neutralized instead by the lookup guard, which refuses to
-  match any value `IntegrationIdentity.ambiguous_name_keyed?/1` flags.
+  This migration archives only the gen-1 bare-name families selected by
+  `ambiguous_predicate/1`. Other unscoped forms remain in storage; storage
+  retention does not make them admissible under `IntegrationIdentity`.
 
-  The same pass scrubs ambiguous tokens out of
-  `ocsf_devices.metadata.legacy_integration_ids` arrays so the
-  `proxmox-dups` remediation step (which corroborates on those tokens) cannot
-  re-fuse already-split devices from stale metadata.
+  The same predicate removes matching tokens from
+  `ocsf_devices.metadata.legacy_integration_ids` arrays. It is deliberately
+  narrower than the current runtime admissibility guard.
   """
   use Ecto.Migration
 
@@ -102,14 +99,9 @@ defmodule ServiceRadar.Repo.Migrations.ArchiveProxmoxNameKeyedIdentifiers do
     raise "cannot restore archived Proxmox name-keyed identifiers"
   end
 
-  # Gen-1 bare-name family only (GitHub #4051): `proxmox:vm:<name>` /
-  # `proxmox:container:<name>` with a trailing segment that is neither a vmid
-  # (all digits, the `proxmox:<kind>:<vmid>` placeholder shape), nor an
-  # id-as-name resource id (`qemu/132`, always vmid-scoped), nor a MAC (its
-  # colons cannot match `[^:/]+`); plus `proxmox:hypervisor:<node>`, which is
-  # always a bare node name. Mirrors
-  # `IntegrationIdentity.ambiguous_name_keyed?/1` minus the still-minted
-  # `proxmox:node:` / `proxmox:pve:` fallbacks (see moduledoc).
+  # Preserve the migration's bounded archive population: bare guest names
+  # and hypervisor names, excluding numeric guest refs and slash/MAC forms.
+  # Runtime admissibility is owned by IntegrationIdentity and is stricter.
   @doc false
   def ambiguous_predicate(column) do
     """

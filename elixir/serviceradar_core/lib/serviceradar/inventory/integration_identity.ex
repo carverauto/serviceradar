@@ -27,7 +27,10 @@ defmodule ServiceRadar.Inventory.IntegrationIdentity do
   the source cannot rotate the identifier.
 
   `legacy_candidates/2` bridges v3 references to cluster-scoped v2 values.
-  Unscoped legacy values cannot establish identity across clusters.
+  `Ids` rejects unscoped Proxmox values before strength classification,
+  registration, deterministic UID derivation, and identifier lookup. Only
+  valid cluster-scoped v2 or v3 values are admissible; names, VMIDs,
+  node-plus-VMID forms, and embedded MACs do not establish cluster scope.
   Convergence also uses atomic NIC MACs and the IP/hostname adopt/merge rules.
 
   The v3 format is the authoritative virtualization identity. It adds the
@@ -525,4 +528,3 @@ defmodule ServiceRadar.Inventory.IntegrationIdentity do
     Map.get(ids, key) || Map.get(ids, Atom.to_string(key))
   end
 end
-

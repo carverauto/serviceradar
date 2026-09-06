@@ -345,4 +345,3 @@ defmodule ServiceRadar.Inventory.IntegrationIdentityTest do
     end
   end
 end
-

@@ -53,19 +53,10 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   Enabling the gate does not add the step to the default run. It remains an
   explicit-request-only operation.
 
-  ## `proxmox-unfuse` execute mode is gated
+  ## `proxmox-unfuse`
 
-  Operators may explicitly request `proxmox-unfuse` in dry-run mode to collect
-  the fused-device report (cluster grouping plus per-cluster MAC attribution
-  for operator review against the live clusters). Execute mode is rejected
-  until the split plan has been reviewed and the following runtime
-  configuration is deliberately enabled:
-
-      config :serviceradar_core, ServiceRadar.Inventory.Remediation.DireRemediation,
-        enable_proxmox_unfuse_execute: true
-
-  Enabling the gate does not add the step to the default run. It remains an
-  explicit-request-only operation.
+  See `Mix.Tasks.Serviceradar.DireRemediation` for the authoritative operator
+  workflow, runtime execute gate, and live device/source scoping options.
   """
 
   alias ServiceRadar.Actors.SystemActor

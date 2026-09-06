@@ -13,7 +13,7 @@ translators, never identity engines).
 |---|---|---|
 | `agent_id` | strong | mTLS-validated agent identity; at most one connected agent per device (co-location is refused and alerted) |
 | `armis_device_id` | strong | External platform id |
-| `integration_id` | strong | Versioned + stable per external object (e.g. `proxmox:v2:<cluster>:<kind>:<vmid>`); legacy format generations are lookup-only bridge values, never re-registered |
+| `integration_id` | strong | Versioned + stable per external object; Proxmox admissibility and bridge formats are defined by [`IntegrationIdentity`](../elixir/serviceradar_core/lib/serviceradar/inventory/integration_identity.ex) |
 | `netbox_device_id` | strong | External platform id |
 | `mac` | strong / medium | Atomic, validated 12-hex values only; locally-administered MACs (IEEE bit) are medium and never merge on their own |
 | IP | weak | Never an identifier; resolves a device only when **no** strong identifier is present |
@@ -52,6 +52,10 @@ Merged-away device IDs are never resurrected: resolution follows the
 - Identifier ownership never changes silently: upserts do not re-point
   `device_id` on conflict; moves happen via merges or the explicit
   `:reassign_device` action.
+
+For deliberate cross-cluster Proxmox splits, use the
+[`serviceradar.dire_remediation` command help](../elixir/serviceradar_core/lib/mix/tasks/serviceradar.dire_remediation.ex)
+for dry-run review, execution gates, and device/source allowlists.
 
 ## Lifecycle
 

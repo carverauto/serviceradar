@@ -245,13 +245,8 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   candidates with no MAC and no enrichment ref), no corroboration exists and the
   pair is treated as distinct.
 
-  Ambiguous name-keyed Proxmox tokens (`proxmox:vm:<name>`,
-  `proxmox:hypervisor:<node>`, … — see
-  `IntegrationIdentity.ambiguous_name_keyed?/1`) never corroborate, even when
-  shared: guest and node names are reused across clusters, so a shared name
-  token is the cross-cluster fusion of GitHub #4051, not same-host evidence.
-  Vmid-scoped (`proxmox:vm:132`), node+vmid-scoped, MAC-keyed and
-  cluster-scoped v2/v3 references still corroborate as before.
+  Proxmox host references must satisfy the admissibility contract in
+  `IntegrationIdentity`. Shared atomic MACs remain separate evidence.
   """
   @spec same_physical_host?(map(), map()) :: boolean()
   def same_physical_host?(a, b) do

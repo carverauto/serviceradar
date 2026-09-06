@@ -241,10 +241,10 @@ defmodule ServiceRadar.Inventory.Remediation.DecisionsTest do
       assert Decisions.same_physical_host?(a, b)
     end
 
-    test "integration_id churn corroborated via a legacy reference token" do
-      old = dev([], ["proxmox:vm:12345"])
-      new = dev([], ["proxmox:hypervisor:pve02", "proxmox:vm:12345"])
-      assert Decisions.same_physical_host?(old, new)
+    test "a shared unscoped VMID cannot corroborate integration_id churn" do
+      old = dev([], ["proxmox:vm:901"])
+      new = dev([], ["proxmox:hypervisor:host01.example.com", "proxmox:vm:901"])
+      refute Decisions.same_physical_host?(old, new)
     end
 
     test "distinct cluster references are NOT the same host" do

@@ -75,4 +75,3 @@ defmodule ServiceRadar.Inventory.Identity.IdsProxmoxGuardTest do
     assert Ids.get_identifier_values(:integration_id, ids) == [ids.integration_id]
   end
 end
-
