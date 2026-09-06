@@ -430,7 +430,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
       "ttl_seconds" => 1800,
       "targets" => %{
         listed_uid => %{
-          "accounts" => [%{"name" => "mfreeman", "principals" => [@target_principal]}],
+          "accounts" => [%{"name" => "opsuser", "principals" => [@target_principal]}],
           "ttl_seconds" => 1800
         }
       }

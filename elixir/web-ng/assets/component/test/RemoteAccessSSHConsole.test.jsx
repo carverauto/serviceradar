@@ -57,7 +57,7 @@ describe("RemoteAccessSSHConsole certificate policy readiness", () => {
   })
 
   it("allows certificate connect when the policy grants an account", () => {
-    expect(sshCertificatePolicyState({...loaded, accountNames: ["mfreeman"]})).toEqual({
+    expect(sshCertificatePolicyState({...loaded, accountNames: ["opsuser"]})).toEqual({
       status: "ready",
       blocksConnect: false,
     })
