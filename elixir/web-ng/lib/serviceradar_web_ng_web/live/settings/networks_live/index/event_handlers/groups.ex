@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups 
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.MapperPersistence
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Messages
 
+  require Logger
+
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     active_tab =
       case tab do
@@ -68,8 +70,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups 
              |> assign(:sweep_group_summary_agents, summary_agents)
              |> put_flash(:info, "Sweep group deleted")}
 
-          {:error, _} ->
-            {:noreply, put_flash(socket, :error, "Failed to delete sweep group")}
+          {:error, reason} ->
+            Logger.error("Failed to delete sweep group",
+              sweep_group_id: id,
+              reason: inspect(reason)
+            )
+
+            {:noreply, put_flash(socket, :error, sweep_group_delete_error_message(reason))}
         end
     end
   end
