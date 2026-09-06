@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"os"
@@ -122,6 +123,85 @@ type staticHTTPClient struct {
 	response *sdk.HTTPResponse
 }
 
+type inventoryHTTPFunc func(sdk.HTTPRequest) (*sdk.HTTPResponse, error)
+
+func (f inventoryHTTPFunc) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+	return f(req)
+}
+
+func TestInventoryBatchesIncludeOwnersBeforeNextNode(t *testing.T) {
+	oldHTTP, oldSubmit := proxmoxHTTP, submitResult
+	t.Cleanup(func() { proxmoxHTTP, submitResult = oldHTTP, oldSubmit })
+	var batches []proxmoxDetails
+	proxmoxHTTP = inventoryHTTPFunc(func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		body := `{"data":[]}`
+		switch {
+		case strings.HasSuffix(req.URL, "/version"):
+			body = `{"data":{"version":"1.0-example"}}`
+		case strings.HasSuffix(req.URL, "/nodes"):
+			body = `{"data":[{"node":"host01","status":"online"},{"node":"host02","status":"online"}]}`
+		case strings.Contains(req.URL, "/nodes/host02/"):
+			if len(batches) != 1 {
+				t.Fatalf("first node must be submitted before polling second node: %d batches", len(batches))
+			}
+		case strings.HasSuffix(req.URL, "/host01/network"):
+			body = `{"data":[{"iface":"vmbr0","address":"192.0.2.41","cidr":"192.0.2.41/24"}]}`
+		case strings.HasSuffix(req.URL, "/host01/qemu"):
+			body = `{"data":[{"vmid":501,"name":"guest01","status":"stopped"}]}`
+		case strings.HasSuffix(req.URL, "/501/config"):
+			body = `{"data":{"net0":"virtio=00:00:5e:00:53:41,ip=192.0.2.42/24"}}`
+		}
+		return &sdk.HTTPResponse{Status: http.StatusOK, Body: []byte(body)}, nil
+	})
+	submitResult = func(result *pluginResult) error {
+		var batch proxmoxDetails
+		if err := json.Unmarshal([]byte(result.Details), &batch); err != nil {
+			t.Fatal(err)
+		}
+		batches = append(batches, batch)
+		return nil
+	}
+	result, err := runProxmoxCheck(Config{
+		BaseURL:       "https://controller.example.com:8006",
+		APIToken:      hostCredentialSentinel,
+		IncludeGuests: boolPtr(true),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(batches) != 2 {
+		t.Fatalf("expected one batch per node, got %d", len(batches))
+	}
+	first := batches[0].Targets[0]
+	if len(first.Nodes) != 1 || len(first.Guests) != 1 || first.Guests[0].Node != first.Nodes[0].Node {
+		t.Fatalf("batch must contain guest and owner: %#v", first)
+	}
+	if first.Nodes[0].IP != "192.0.2.41" {
+		t.Fatalf("standalone host lost network IP: %q", first.Nodes[0].IP)
+	}
+	if !strings.Contains(result.Summary, "2 node(s), 1 guest(s)") {
+		t.Fatalf("unexpected totals: %s", result.Summary)
+	}
+}
+
+func TestInventorySubmissionFailureStopsExecution(t *testing.T) {
+	oldHTTP, oldSubmit := proxmoxHTTP, submitResult
+	t.Cleanup(func() { proxmoxHTTP, submitResult = oldHTTP, oldSubmit })
+	proxmoxHTTP = staticHTTPClient{response: &sdk.HTTPResponse{Status: http.StatusOK,
+		Body: []byte(`{"data":[{"node":"host01"}]}`)}}
+	submitErr := errors.New("inventory queue unavailable")
+	calls := 0
+	submitResult = func(*pluginResult) error {
+		calls++
+		return submitErr
+	}
+	result, err := runProxmoxCheck(Config{BaseURL: "https://controller.example.com:8006",
+		APIToken: hostCredentialSentinel, IncludeGuests: boolPtr(false)})
+	if result != nil || !errors.Is(err, submitErr) || calls != 1 {
+		t.Fatalf("submission failure must fail the run: result=%v err=%v calls=%d", result, err, calls)
+	}
+}
+
 func (s staticHTTPClient) Do(sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	return s.response, nil
 }
@@ -169,8 +249,8 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 	if client.requests[0].Headers["Authorization"] != hostCredentialSentinel {
 		t.Fatalf("authorization header was not set")
 	}
-	if len(batches) < 2 {
-		t.Fatalf("expected streamed node + guest batches, got %d", len(batches))
+	if len(batches) != 1 {
+		t.Fatalf("expected one self-contained node batch, got %d", len(batches))
 	}
 
 	// Locate the node-bearing and guest-bearing batches, and the streamed guest
@@ -186,11 +266,9 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 			continue
 		}
 		tgt := d.Targets[0]
-		switch {
-		case len(tgt.Guests) > 0:
+		if len(tgt.Guests) > 0 {
 			g := tgt
 			guestDetails = &g
-			// Guest batches carry only guest devices in their discovery.
 			for _, disc := range b.DeviceDiscovery {
 				for _, dev := range disc.Devices {
 					if dev.IP != "" {
@@ -198,7 +276,8 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 					}
 				}
 			}
-		case len(tgt.Nodes) > 0 && nodeDetails == nil:
+		}
+		if len(tgt.Nodes) > 0 && nodeDetails == nil {
 			n := tgt
 			nodeDetails = &n
 		}

@@ -72,42 +72,29 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 		}
 		totals.Targets++
 
-		// Batch 1: the target's nodes (always a small set) + topology details.
-		// Each batch's status summary reports the RUNNING cumulative total (not
-		// the per-batch count) so the /services card shows a growing "N node(s),
-		// M guest(s)" rather than a misleading "0 guest(s)" from the node batch.
-		emitProxmoxBatch(observedAt, target, version, cluster, nodes, nil, warnings, &totals)
-
-		if !cfg.includeGuests() {
-			continue
-		}
-
-		// Batches 2..N: one per node. Fetch + enrich only that node's guests,
-		// emit them, then let the slice fall out of scope so the conservative GC
-		// reclaims it before the next node — peak memory is one node's worth.
-		// Each node gets a hard time budget so one slow/remote node can't starve
-		// the rest of the cluster of enumeration time within the poll window.
 		remaining := cfg.MaxGuests
 		for _, node := range nodes {
 			if strings.TrimSpace(node.Node) == "" {
 				continue
 			}
 
-			// Guest batches carry cluster + version (so the v2 guest identity can
-			// still be minted) but NOT the node object — the node was already
-			// emitted and counted in its own batch, and re-including it here would
-			// double-count nodes and re-emit the node discovery.
-			guests, truncated := fetchNodeGuestsEnriched(cfg, target, token, node.Node, remaining, nodeEnrichDeadline(), warnings)
-			if len(guests) > 0 {
-				emitProxmoxBatch(observedAt, target, version, cluster, nil, guests, warnings, &totals)
+			enrichedNodes := annotateNodesWithClusterStatus(
+				enrichNodes(cfg, target, token, []proxmoxNode{node}, warnings), cluster)
+			var guests []proxmoxGuest
+			if cfg.includeGuests() && (cfg.MaxGuests <= 0 || remaining > 0) {
+				var truncated bool
+				guests, truncated = fetchNodeGuestsEnriched(cfg, target, token, node.Node, remaining, nodeEnrichDeadline(), warnings)
+				if cfg.MaxGuests > 0 {
+					remaining -= len(guests)
+					if remaining <= 0 || truncated {
+						remaining = 0
+						warnings["guests:limit"] = fmt.Sprintf("guest listing truncated at max_guests=%d", cfg.MaxGuests)
+					}
+				}
 			}
 
-			if cfg.MaxGuests > 0 {
-				remaining -= len(guests)
-				if remaining <= 0 || truncated {
-					warnings["guests:limit"] = fmt.Sprintf("guest listing truncated at max_guests=%d", cfg.MaxGuests)
-					break
-				}
+			if err := emitProxmoxBatch(observedAt, target, version, cluster, enrichedNodes, guests, warnings, &totals); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -138,9 +125,6 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 	return result, nil
 }
 
-// fetchTargetTopology fetches the small, bounded per-target data: version,
-// cluster status, and the enriched node list. Returns nil nodes only when the
-// node listing itself failed (a hard target error).
 func fetchTargetTopology(cfg Config, target Target, token string) (*proxmoxVersion, []proxmoxClusterNode, []proxmoxNode, map[string]string) {
 	warnings := map[string]string{}
 
@@ -167,8 +151,6 @@ func fetchTargetTopology(cfg Config, target Target, token string) (*proxmoxVersi
 		warnings["nodes"] = sanitizeError(err)
 		return version, cluster, nil, warnings
 	}
-
-	nodes = annotateNodesWithClusterStatus(enrichNodes(cfg, target, token, nodes, warnings), cluster)
 
 	return version, cluster, nodes, warnings
 }
@@ -219,7 +201,7 @@ func emitProxmoxBatch(
 	guests []proxmoxGuest,
 	warnings map[string]string,
 	totals *checkSummary,
-) {
+) error {
 	// Each batch must carry its OWN observation timestamp. service_status rows
 	// are keyed by (timestamp, gateway_id, service_name); when every streamed
 	// batch of one run shared the run-start observedAt, batch 1 (nodes)
@@ -267,8 +249,7 @@ func emitProxmoxBatch(
 
 	body, err := marshalProxmoxDetails(details)
 	if err != nil {
-		// Never let one batch's encode failure sink the whole run.
-		return
+		return fmt.Errorf("encode Proxmox inventory batch: %w", err)
 	}
 
 	batchSummary := fmt.Sprintf(
@@ -286,7 +267,10 @@ func emitProxmoxBatch(
 		result.AddDeviceDiscovery(*discovery)
 	}
 
-	_ = submitResult(result)
+	if err := submitResult(result); err != nil {
+		return fmt.Errorf("submit Proxmox inventory batch: %w", err)
+	}
+	return nil
 }
 
 func accumulateSummary(acc *checkSummary, add checkSummary) {

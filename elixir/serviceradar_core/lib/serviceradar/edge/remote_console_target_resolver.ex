@@ -495,26 +495,15 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolver do
   end
 
   defp normalize_identity_scope(%{integration_id: integration_id, controller_id: controller_id}) do
-    with {:ok, integration_id} <- present_string(to_string_or_nil(integration_id)),
-         {:ok, controller_id} <- present_string(to_string_or_nil(controller_id)) do
+    with {:ok, integration_id} <- present_string(integration_id),
+         {:ok, controller_id} <- present_string(controller_id) do
       %{integration_id: integration_id, controller_id: controller_id}
     else
       _ -> nil
     end
   end
 
-  defp normalize_identity_scope(%{
-         "integration_id" => integration_id,
-         "controller_id" => controller_id
-       }) do
-    normalize_identity_scope(%{integration_id: integration_id, controller_id: controller_id})
-  end
-
   defp normalize_identity_scope(_scope), do: nil
-
-  defp to_string_or_nil(value) when is_binary(value), do: value
-  defp to_string_or_nil(value) when is_atom(value), do: Atom.to_string(value)
-  defp to_string_or_nil(_value), do: nil
 
   defp select_single_candidate([row]), do: {:ok, row}
   defp select_single_candidate([]), do: {:error, :not_found}

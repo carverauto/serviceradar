@@ -1,7 +1,6 @@
-import {describe, expect, it, vi} from "vitest"
+import {describe, expect, it} from "vitest"
 
 import {buildSshAttachCredential} from "../src/RemoteAccessSSHConsole.jsx"
-import {renderText} from "../src/renderText.js"
 
 describe("RemoteAccessSSHConsole credential boundary", () => {
   it("sends only the Unix username and key material for certificate sessions", () => {
@@ -29,29 +28,6 @@ describe("RemoteAccessSSHConsole credential boundary", () => {
       "ssh_accounts",
     ]) {
       expect(credential).not.toHaveProperty(policyKey)
-    }
-  })
-
-  it("coerces non-string values for JSX children instead of crashing React", () => {
-    expect(renderText("already a string")).toBe("already a string")
-    expect(renderText("")).toBe("")
-    expect(renderText(null)).toBe("")
-    expect(renderText(undefined)).toBe("")
-    expect(renderText({message: "broker says no"})).toBe('{"message":"broker says no"}')
-    expect(renderText(42)).toBe("42")
-  })
-
-  it("warns with the live value when coercing", () => {
-    const warn = vi.fn()
-    vi.stubGlobal("window", {console: {warn}})
-
-    try {
-      renderText({message: "broker says no"})
-      expect(warn).toHaveBeenCalledWith("renderText: coerced non-string render value", {
-        message: "broker says no",
-      })
-    } finally {
-      vi.unstubAllGlobals()
     }
   })
 

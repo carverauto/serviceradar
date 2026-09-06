@@ -165,19 +165,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceStateData do
 
   def display_name(_), do: "Device"
 
-  def proxmox_console_target?(%{kind: :host, host: host}), do: proxmox_provider?(host)
-  def proxmox_console_target?(%{kind: :guest, guest: guest}), do: proxmox_provider?(guest)
+  def proxmox_console_target?(%{kind: :host, host: %{provider: "proxmox"}}), do: true
+  def proxmox_console_target?(%{kind: :guest, guest: %{provider: "proxmox"}}), do: true
   def proxmox_console_target?(_summary), do: false
-
-  defp proxmox_provider?(row) when is_map(row) do
-    case Map.get(row, :provider) || Map.get(row, "provider") do
-      "proxmox" -> true
-      :proxmox -> true
-      _other -> false
-    end
-  end
-
-  defp proxmox_provider?(_row), do: false
 
   def proxmox_console_action_label(%{kind: :host}), do: "Open PVE shell"
   def proxmox_console_action_label(_summary), do: "Open console"

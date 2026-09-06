@@ -1,7 +1,5 @@
 import React, {useEffect, useRef, useState} from "react"
 
-import {renderText} from "./renderText.js"
-
 function websocketUrl(path) {
   if (typeof window === "undefined") {
     return path
@@ -282,11 +280,11 @@ export function Component({
           <div className="truncate font-medium">{title}</div>
           {subtitle ? <div className="truncate text-xs text-slate-400">{subtitle}</div> : null}
         </div>
-        <span className={statusClass(status)}>{renderText(status)}</span>
+        <span className={statusClass(status)}>{status}</span>
       </div>
       {error ? (
         <div className="border-b border-red-900/50 bg-red-950 px-4 py-2 text-sm text-red-100">
-          {renderText(error)}
+          {error}
         </div>
       ) : null}
       <div ref={containerRef} className="min-h-0 flex-1 overflow-hidden p-2" />
