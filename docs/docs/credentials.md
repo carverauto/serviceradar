@@ -316,18 +316,21 @@ not authenticators, so an operator can read back what a rule trusts and the
 values never go through the credential broker.
 
 The Credential Rules form renders both fields wherever a provider declares
-transport controls, the Proxmox manifest passes `ca_bundle_pem` to the host as
-`$source: rule`, and the agent verifies against it. Unlike
+transport controls. The Proxmox manifest passes the selected trust material as
+`$source: rule` into the agent's host-authority binding. Unlike
 `plugin_http_trusted_ca_files` above, a rule's trust material **replaces** the
 system trust store for that rule's destinations rather than widening it: a rule
 pinning a private CA is asking for that anchor, and keeping the public roots
 would still accept any publicly-trusted certificate for the same origin. The
-bundle never reaches the Wasm guest.
+bundle or fingerprint never reaches the Wasm guest. A bundle retains normal
+certificate-chain and hostname verification; a fingerprint instead accepts only
+the exact leaf certificate whose SHA-256 digest matches the pin, without chain,
+hostname, or expiry verification.
 
 Proxmox is the case that forced this. Inventory enrichment mandates `verify`, the
 controller origin is always an IP literal, and a binding carrying
-`insecure_skip_verify` is rejected outright -- so pinning the cluster CA is the
-only way to reach a node behind it. See the Proxmox provider section for the
+`insecure_skip_verify` is rejected outright. Pinning the cluster CA allows normal
+TLS verification against that private CA. See the Proxmox provider section for the
 procedure.
 
 First release containing these: `<first-release>`.
@@ -657,32 +660,18 @@ there is no plugin package and no rule.
    (`/settings/security/vulnerability-feeds`) -> pick the credential in the feed's
    credential select.
 
-On 1.4.49 the credential reference is the *primary* source, not the only one.
-When no VulnCheck-backed feed row carries one, core falls back to the
-`VULNCHECK_API_TOKEN` environment variable, then to
-`SERVICERADAR_VULNCHECK_TOKEN`, then to the `:vulncheck_token` application
-setting. A deployment that sets one of those keeps working with the feed's
-credential select left empty.
+The feed row's `credential_ref` is the only source. There is no environment or
+application-config fallback: `VULNCHECK_API_TOKEN`, `SERVICERADAR_VULNCHECK_TOKEN`,
+and `:vulncheck_token` are unread. A feed with no credential reference fails with
+a message naming both halves of the job -- create a `vulncheck` API token
+credential at `/settings/networks/credentials`, then select it on the
+`vulncheck-kev` or `nist-nvd2` row at `/settings/security/vulnerability-feeds`.
+The message is recorded, inside the inspected error tuple, in the feed row's
+`last_error`, and core logs the same warning at boot.
 
-:::caution Not in 1.4.49
-**The environment fallback is removed.** Merged work deletes all three fallbacks
-from `ServiceRadar.Inventory.AdvisoryFeeds.Config.vulncheck_token/1`, leaving a
-VulnCheck-backed feed row's `credential_ref` as the only source. A feed with no
-credential reference then fails with a message naming both halves of the job --
-create a `vulncheck` API token credential at `/settings/networks/credentials`,
-then select it on the `vulncheck-kev` or `nist-nvd2` row at
-`/settings/security/vulnerability-feeds` -- rather than silently reading a token
-from the process environment. The message is recorded, inside the inspected
-error tuple, in the feed row's
-`last_error`.
-
-Attach the credential *before* upgrading if a deployment relies on the
-environment variable today: after the upgrade the variable is read by nothing,
-and the feed fails until a credential is selected. The Compose stack no longer
-passes `VULNCHECK_API_TOKEN` for the same reason.
-
-First release containing the removal: `<first-release>`.
-:::
+Attach the credential *before* upgrading a deployment that still relied on the
+old environment variables: after the upgrade those variables are read by nothing,
+and the feed fails until a credential is selected.
 
 ### SNMP
 

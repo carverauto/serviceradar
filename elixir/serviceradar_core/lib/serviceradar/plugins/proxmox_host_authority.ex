@@ -49,6 +49,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
                  insecure_skip_verify
                  ssh_host_key_policy
                  ca_bundle_pem
+                 server_cert_fingerprint
                ))
 
   @target_id_keys ~w(
@@ -294,6 +295,7 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
         }
         |> maybe_put("ssh_host_key_policy", ssh_host_key_policy)
         |> maybe_put("ca_bundle_pem", ca_bundle_pem(params))
+        |> maybe_put("server_cert_fingerprint", server_cert_fingerprint(params))
       else
         _ -> nil
       end
@@ -302,6 +304,31 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
     |> Enum.uniq_by(fn binding ->
       {binding["origin"], binding["credential_rule_id"], binding["target_ids"]}
     end)
+    |> single_origin_fingerprint(server_cert_fingerprint(params), plugin_id, assignment_id)
+  end
+
+  # A cluster CA signs every node leaf, so one ca_bundle_pem legitimately anchors
+  # every target. A server_cert_fingerprint names one certificate, and therefore
+  # one host: stamped across sibling origins it yields anchors that can only ever
+  # fail the handshake. Refuse the assignment and name the remedy instead of
+  # shipping bindings that are known-broken for every origin but the first.
+  defp single_origin_fingerprint(bindings, nil, _plugin_id, _assignment_id), do: bindings
+
+  defp single_origin_fingerprint(bindings, _fingerprint, plugin_id, assignment_id) do
+    origins = bindings |> Enum.map(& &1["origin"]) |> Enum.uniq()
+
+    if length(origins) > 1 do
+      Logger.warning(
+        "Proxmox host authority: server_cert_fingerprint pins a single certificate but " <>
+          "assignment #{inspect(assignment_id)} (plugin=#{plugin_id}) resolves to " <>
+          "#{length(origins)} origins (#{Enum.join(origins, ", ")}); pin the cluster CA " <>
+          "with ca_bundle_pem to cover every node"
+      )
+
+      []
+    else
+      bindings
+    end
   end
 
   defp binding_targets(params, plugin_id) do
@@ -628,6 +655,13 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
     first_string([
       value(map_value(params, "template"), "ca_bundle_pem"),
       value(params, "ca_bundle_pem")
+    ])
+  end
+
+  defp server_cert_fingerprint(params) do
+    first_string([
+      value(map_value(params, "template"), "server_cert_fingerprint"),
+      value(params, "server_cert_fingerprint")
     ])
   end
 

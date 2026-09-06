@@ -1,6 +1,6 @@
 id: proxmox-inventory
 name: Proxmox Inventory
-version: 0.1.7
+version: 0.1.8
 description: Enriches Proxmox PVE hosts and guests using the Proxmox VE REST API
 entrypoint: run_check
 runtime: wasi-preview1
@@ -189,6 +189,10 @@ integrations:
                 $source: rule
                 field: ca_bundle_pem
                 omit_if_blank: true
+              server_cert_fingerprint:
+                $source: rule
+                field: server_cert_fingerprint
+                omit_if_blank: true
           - purpose: console_access
             plugin_id: proxmox-console
             auth_methods:
@@ -226,6 +230,10 @@ integrations:
               ca_bundle_pem:
                 $source: rule
                 field: ca_bundle_pem
+                omit_if_blank: true
+              server_cert_fingerprint:
+                $source: rule
+                field: server_cert_fingerprint
                 omit_if_blank: true
               api_token_secret_ref:
                 $source: secret_ref
@@ -267,6 +275,10 @@ integrations:
               ca_bundle_pem:
                 $source: rule
                 field: ca_bundle_pem
+                omit_if_blank: true
+              server_cert_fingerprint:
+                $source: rule
+                field: server_cert_fingerprint
                 omit_if_blank: true
               credential_secret:
                 $source: secret_ref

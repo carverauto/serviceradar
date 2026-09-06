@@ -2,6 +2,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
   use ServiceRadar.DataCase, async: false
   use Oban.Testing, repo: ServiceRadar.Repo, prefix: "platform"
 
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Inventory.AdvisoryFeeds.Config
   alias ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder
@@ -29,6 +30,42 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
     destroy_seeded_definitions(actor)
 
     {:ok, actor: actor}
+  end
+
+  test "seed_defaults/0 warns when no VulnCheck credential_ref is attached" do
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert :ok = FeedDefinitionSeeder.seed_defaults()
+      end)
+
+    assert log =~ "advisory_feeds:"
+    assert log =~ "/settings/networks/credentials"
+    assert log =~ "vulncheck-kev"
+  end
+
+  test "seed_defaults/0 does not broker the secret when a credential_ref is attached", %{
+    actor: actor
+  } do
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    vulncheck = fetch(actor, "vulncheck", "vulncheck-kev")
+    secret = create_vulncheck_secret!(actor, "boot check", "boot-check-token")
+
+    {:ok, _edited} =
+      vulncheck
+      |> Ash.Changeset.for_update(:update, %{credential_ref: to_string(secret.id)}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    grants_before = advisory_feed_grants(actor)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert :ok = FeedDefinitionSeeder.seed_defaults()
+      end)
+
+    refute log =~ "/settings/networks/credentials"
+
+    assert advisory_feed_grants(actor) == grants_before
   end
 
   test "seed_defaults/0 creates one feed definition per FeedWorker feed", %{actor: actor} do
@@ -373,6 +410,16 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
         _ -> :ok
       end
     end)
+  end
+
+  defp advisory_feed_grants(actor) do
+    {:ok, grants} =
+      CredentialBrokerGrant
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(grant_type == "advisory_feed_credential")
+      |> Ash.read(actor: actor)
+
+    grants |> Enum.map(& &1.id) |> Enum.sort()
   end
 
   defp create_vulncheck_secret!(actor, name, token) do

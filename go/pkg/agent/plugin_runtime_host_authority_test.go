@@ -51,23 +51,25 @@ var (
 )
 
 type testProxmoxHostAuthorityOptions struct {
-	assignmentID       string
-	pluginID           string
-	entrypoint         string
-	policyVersion      uint64
-	paramsJSON         string
-	origin             string
-	insecureSkipVerify bool
-	sshHostKeyPolicy   string
-	targetIDs          map[string]string
-	grantID            string
-	secretRef          string
-	expiresAt          string
-	ttlSeconds         int
-	methods            []string
-	paths              []string
-	hosts              []string
-	ports              []int
+	assignmentID          string
+	pluginID              string
+	entrypoint            string
+	policyVersion         uint64
+	paramsJSON            string
+	origin                string
+	insecureSkipVerify    bool
+	sshHostKeyPolicy      string
+	targetIDs             map[string]string
+	grantID               string
+	secretRef             string
+	expiresAt             string
+	ttlSeconds            int
+	methods               []string
+	paths                 []string
+	hosts                 []string
+	ports                 []int
+	caBundlePEM           string
+	serverCertFingerprint string
 }
 
 func TestProxmoxAssignmentPolicyFingerprintGoldenVector(t *testing.T) {
@@ -1463,6 +1465,8 @@ func testProxmoxHostAuthorityJSON(t *testing.T, options testProxmoxHostAuthority
 			AssignmentPolicyVersion:     policyVersion,
 			AssignmentPolicyFingerprint: policyFingerprint,
 			SSHHostKeyPolicy:            options.sshHostKeyPolicy,
+			CABundlePEM:                 options.caBundlePEM,
+			ServerCertFingerprint:       options.serverCertFingerprint,
 			CredentialBroker: credentialBrokerGrant{
 				Schema:              "serviceradar.edge_credential_broker_grant.v1",
 				GrantID:             grantID,

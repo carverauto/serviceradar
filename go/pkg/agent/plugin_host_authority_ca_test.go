@@ -4,23 +4,25 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
+	"io"
 	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
 // Mirrors the shape a Proxmox VE node presents: a certificate issued by the
 // cluster's own CA, carrying the node address as an IP SAN because
-// ProxmoxHostAuthority.canonical_origin/3 forces an IP-literal origin. Verified
-// against demo pve02 (10.0.0.3), whose stock certificate carries
-// "IP Address:10.0.0.3" alongside its DNS names.
+// ProxmoxHostAuthority.canonical_origin/3 forces an IP-literal origin.
 func newPrivateCAAndLeaf(t *testing.T, ip net.IP) (caPEM string, leaf tls.Certificate) {
 	t.Helper()
 
@@ -102,10 +104,12 @@ func TestPinnedRootsVerifyAPrivateCAByIPAndRejectOthers(t *testing.T) {
 		}
 		resp, err := client.Do(req)
 		if err != nil {
+			t.Logf("HTTPS request rejected: %v", err)
 			return 0, err
 		}
 		defer func() { _ = resp.Body.Close() }()
 
+		t.Logf("HTTPS response: %s", resp.Status)
 		return resp.StatusCode, nil
 	}
 
@@ -142,7 +146,7 @@ func TestPinnedRootsVerifyAPrivateCAByIPAndRejectOthers(t *testing.T) {
 func TestValidPluginHostAuthorityCABundle(t *testing.T) {
 	t.Parallel()
 
-	caPEM, _ := newPrivateCAAndLeaf(t, net.ParseIP("10.0.0.3"))
+	caPEM, _ := newPrivateCAAndLeaf(t, net.ParseIP("192.0.2.10"))
 
 	tests := []struct {
 		name   string
@@ -169,6 +173,188 @@ func TestValidPluginHostAuthorityCABundle(t *testing.T) {
 			t.Parallel()
 			if got := validPluginHostAuthorityCABundle(tc.bundle); got != tc.want {
 				t.Fatalf("validPluginHostAuthorityCABundle() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func leafFingerprint(t *testing.T, leaf tls.Certificate) string {
+	t.Helper()
+	if len(leaf.Certificate) == 0 {
+		t.Fatal("leaf has no certificate")
+	}
+	sum := sha256.Sum256(leaf.Certificate[0])
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func TestPinnedFingerprintVerifiesMatchingLeafAndRejectsOthers(t *testing.T) {
+	loopback := net.ParseIP("127.0.0.1")
+	_, leaf := newPrivateCAAndLeaf(t, loopback)
+	_, otherLeaf := newPrivateCAAndLeaf(t, loopback)
+
+	server := httptest.NewUnstartedServer(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+	)
+	server.TLS = &tls.Config{Certificates: []tls.Certificate{leaf}, MinVersion: tls.VersionTLS12}
+	server.StartTLS()
+	defer server.Close()
+
+	base := &http.Client{Transport: http.DefaultTransport}
+	get := func(t *testing.T, client *http.Client) error {
+		t.Helper()
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+		if err != nil {
+			t.Fatalf("build request: %v", err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = resp.Body.Close() }()
+		return nil
+	}
+
+	t.Run("the pinned leaf fingerprint reaches it", func(t *testing.T) {
+		client := pluginHTTPClientWithPinnedFingerprint(
+			pluginHTTPClient(base, false, 5*time.Second),
+			leafFingerprint(t, leaf),
+		)
+		if err := get(t, client); err != nil {
+			t.Fatalf("pinned fingerprint should verify the node certificate: %v", err)
+		}
+	})
+
+	t.Run("an unrelated fingerprint does not", func(t *testing.T) {
+		client := pluginHTTPClientWithPinnedFingerprint(
+			pluginHTTPClient(base, false, 5*time.Second),
+			leafFingerprint(t, otherLeaf),
+		)
+		if err := get(t, client); err == nil {
+			t.Fatal("pinning an unrelated fingerprint must not verify this server")
+		}
+	})
+}
+
+func TestValidPluginHostAuthorityFingerprint(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		fingerprint string
+		want        bool
+	}{
+		{name: "absent is allowed", fingerprint: "", want: true},
+		{name: "sha256 lowercase hex", fingerprint: "sha256:" + hex.EncodeToString(make([]byte, 32)), want: true},
+		{name: "missing prefix", fingerprint: hex.EncodeToString(make([]byte, 32)), want: false},
+		{name: "uppercase hex", fingerprint: "sha256:" + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", want: false},
+		{name: "too short", fingerprint: "sha256:abcd", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := validPluginHostAuthorityFingerprint(tc.fingerprint); got != tc.want {
+				t.Fatalf("validPluginHostAuthorityFingerprint() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPluginHostAuthorityAcceptsFingerprintAlone(t *testing.T) {
+	t.Parallel()
+
+	_, leaf := newPrivateCAAndLeaf(t, net.ParseIP("192.0.2.10"))
+	opts := testInventoryAuthorityOptions()
+	opts.serverCertFingerprint = leafFingerprint(t, leaf)
+
+	assignment := newTestProxmoxHostAuthorityAssignment(t, opts)
+	bindings, _ := assignment.pluginHostAuthoritySnapshot()
+	if len(bindings) != 1 {
+		t.Fatalf("host bindings = %d, want 1", len(bindings))
+	}
+	if bindings[0].serverCertFingerprint != opts.serverCertFingerprint {
+		t.Fatalf("fingerprint = %q, want %q", bindings[0].serverCertFingerprint, opts.serverCertFingerprint)
+	}
+}
+
+func TestPluginHostAuthorityRejectsCABundleAndFingerprintTogether(t *testing.T) {
+	t.Parallel()
+
+	caPEM, leaf := newPrivateCAAndLeaf(t, net.ParseIP("192.0.2.10"))
+	opts := testInventoryAuthorityOptions()
+	opts.caBundlePEM = caPEM
+	opts.serverCertFingerprint = leafFingerprint(t, leaf)
+
+	assignment := newTestProxmoxHostAuthorityAssignment(t, opts)
+	bindings, _ := assignment.pluginHostAuthoritySnapshot()
+	if len(bindings) != 0 {
+		t.Fatalf("host bindings = %d, want 0 when both trust-material forms are set", len(bindings))
+	}
+}
+
+// pluginHTTPClientForBinding runs once per plugin HTTP request, so a pinning
+// path that rebuilds its transport hands every request an empty connection
+// pool: a full handshake each time, plus an idle connection stranded in each
+// discarded transport until IdleConnTimeout.
+func TestPinnedBindingReusesOneConnectionAcrossRequests(t *testing.T) {
+	loopback := net.ParseIP("127.0.0.1")
+	caPEM, leaf := newPrivateCAAndLeaf(t, loopback)
+
+	for _, tc := range []struct {
+		name    string
+		binding *pluginHostAuthorityBinding
+	}{
+		{
+			name:    "pinned CA bundle",
+			binding: &pluginHostAuthorityBinding{caBundlePEM: caPEM},
+		},
+		{
+			name:    "pinned leaf fingerprint",
+			binding: &pluginHostAuthorityBinding{serverCertFingerprint: leafFingerprint(t, leaf)},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var handshakes atomic.Int64
+
+			server := httptest.NewUnstartedServer(
+				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					w.WriteHeader(http.StatusOK)
+				}),
+			)
+			server.TLS = &tls.Config{
+				Certificates: []tls.Certificate{leaf},
+				MinVersion:   tls.VersionTLS12,
+				GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
+					handshakes.Add(1)
+					return nil, nil
+				},
+			}
+			server.StartTLS()
+			defer server.Close()
+
+			// A base transport of this test's own so the shared pinned-transport
+			// cache is keyed away from every other test in the package.
+			base := &http.Client{Transport: &http.Transport{}}
+
+			for range 3 {
+				client := pluginHTTPClientForBinding(base, false, 5*time.Second, tc.binding)
+
+				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+				if err != nil {
+					t.Fatalf("build request: %v", err)
+				}
+				resp, err := client.Do(req)
+				if err != nil {
+					t.Fatalf("pinned request: %v", err)
+				}
+				_, _ = io.Copy(io.Discard, resp.Body)
+				_ = resp.Body.Close()
+			}
+
+			if got := handshakes.Load(); got != 1 {
+				t.Fatalf("TLS handshakes = %d, want 1: the binding must keep one connection pool across requests", got)
 			}
 		})
 	}

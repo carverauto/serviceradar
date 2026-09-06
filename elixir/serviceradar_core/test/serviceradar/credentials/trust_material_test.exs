@@ -5,45 +5,28 @@ defmodule ServiceRadar.Credentials.Validations.TrustMaterialTest do
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.Validations.TrustMaterial
 
-  # A real Proxmox VE cluster CA, captured from demo pve02
-  # (/etc/pve/pve-root-ca.pem). It is a public trust anchor, not a secret, and
-  # using the genuine article is the point: the hand-rolled RFC 5280 validity
-  # parsing below is exercised against a certificate PVE actually issues rather
-  # than one shaped to suit the parser.
-  @pve_cluster_ca """
+  # Invented self-signed CA used only as a valid PEM CERTIFICATE fixture.
+  # Not captured from a deployment.
+  @synthetic_cluster_ca """
   -----BEGIN CERTIFICATE-----
-  MIIFzTCCA7WgAwIBAgIUHue7uth6SOpAAeulaimp/rF9m74wDQYJKoZIhvcNAQEL
-  BQAwdjEkMCIGA1UEAwwbUHJveG1veCBWaXJ0dWFsIEVudmlyb25tZW50MS0wKwYD
-  VQQLDCQyNDYxMzQ4NS1jYjI5LTRiMGUtOTViMi00YWEyOTVjMjI3MmExHzAdBgNV
-  BAoMFlBWRSBDbHVzdGVyIE1hbmFnZXIgQ0EwHhcNMjUwNTI0MTYzNTQzWhcNMzUw
-  NTIyMTYzNTQzWjB2MSQwIgYDVQQDDBtQcm94bW94IFZpcnR1YWwgRW52aXJvbm1l
-  bnQxLTArBgNVBAsMJDI0NjEzNDg1LWNiMjktNGIwZS05NWIyLTRhYTI5NWMyMjcy
-  YTEfMB0GA1UECgwWUFZFIENsdXN0ZXIgTWFuYWdlciBDQTCCAiIwDQYJKoZIhvcN
-  AQEBBQADggIPADCCAgoCggIBAKhu65kvsNBe6lTMzIWinpHMZ/Ft6ank1y1wrUmM
-  sek87dNEVemjpEeJrjOag50EnnKI5Uhghp/PbvGvyVTE8zewAr9/R1POgusOTJxR
-  T7bW+Iwc30kmnO7zHIipVlN7vH59NJi8kTPeBUlcT/O1wYQbOsNYGET9it95PVKq
-  jQUPq0tU3irntqmf9PYfu0U4x4ct8LCi76fZ2tl5zY7S6eQccJE3/D1o/n2+NUJ5
-  O7+L7xcVgjJYAXGQ0YVoODztV9tXGXZK9/cHz7dd3/gBOphddYqc1zp8E0IziFZ2
-  /x9gQClPo/5E/tG0u2mh+jC9oaazh5NzdylvgnUs3GhZibTBLo7arh8pcnLuNenW
-  0HBVvWGJHJTEE3c5jbtth+vFMht9blfBjbAavpfSO6OpK5w0SvcEOb0VNZxuaLnC
-  fNAejUyO83EIFI3sMGn6g4+ui9UhUOsfQTkvZv7N7YDowM2EFL1kSgW9a0K3Kbza
-  7/EqgTMmXntqiqcUiX2lKRujypt68v7KDBVKIGhryaLqpA0cfbkStPxjHyYH52ag
-  /kWjRkx6NqplPB9o4NHQewcCKmLn43+FO503msVjd4kKiUmdxjK/0k6rVsHyWZ+5
-  DZ95MkQRzZWk8GCxB+L3bJegMv/W8TNtgJIZoPc4GEkJ/l5fC0ZHolKHGRzxq9EQ
-  qVl1AgMBAAGjUzBRMB0GA1UdDgQWBBQC3I7UVO2akE2n3bBFt9jn0qCMqDAfBgNV
-  HSMEGDAWgBQC3I7UVO2akE2n3bBFt9jn0qCMqDAPBgNVHRMBAf8EBTADAQH/MA0G
-  CSqGSIb3DQEBCwUAA4ICAQCNT4e2Fd452xKQmwbBBtVRT66+ddXp7QmXcsJ4vM7X
-  Wl+eAcxqkdqB/wtNmHe3BMuv+o4uSPooZdlujIVUfn+VHrP2jB9DqULEiModQ3sr
-  s17gzIGCUd388+/ywyueQNph7VStiYe8jm+WdMmQFaxPKpnRvaqUGsEnI6VVoFKD
-  71ZOpMujDwEwTsI6LqpRlX24oqRMHB7PkAFljS4p47n1jtphM6VXKUlC8fgmqbSP
-  hG2xXzydzn1QKDdzTgsktpDUswfSZlj/CFaU6aYkm5foieC8kz7IjavmbNexcnT+
-  KcnVcDaAkpruWl0lrleITd/StUO4ztrPPrc9p0tdkIKsRUc9hm18gzfwDhuAGrrX
-  aWIIlQwF3fY44fjQQebIlShjTdPAx1hM+K9QvlcToZuu44ipl7blV92z5pboi3/a
-  FyYkBniYpLivaiWyQ0CP6vn3sf2odN+IavlUKJcnGXnFo61GmOxRbI1Z5gzvttPt
-  iWWUZ3679Xv6Kr46MX1caYt6GpjXiRxHY5ADOlCwT0vFrPQw/XiAV3sd0Hq21oTp
-  P5G2xn+hDnvP9I2Rtrq9qjAQfyo45RIontII2dn2RK4xrJ4pA2gHbZN6M+BiKT+N
-  Vwvr29zb9Cdhx6/+KqWY9rA3Lt2bxJpXiO5DcJt2cjWArTOjz1mXjrcl4e3OcCSv
-  gw==
+  MIIDUTCCAjmgAwIBAgIUKUZwSCVIDKvZGoamLzkMXzJs9Z0wDQYJKoZIhvcNAQEL
+  BQAwODEgMB4GA1UEAwwXVGVzdCBDbHVzdGVyIE1hbmFnZXIgQ0ExFDASBgNVBAoM
+  C0V4YW1wbGUgT3JnMB4XDTI2MDkwNTEwMTAxM1oXDTM2MDkwMjEwMTAxM1owODEg
+  MB4GA1UEAwwXVGVzdCBDbHVzdGVyIE1hbmFnZXIgQ0ExFDASBgNVBAoMC0V4YW1w
+  bGUgT3JnMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0YIpcYqFn0Ff
+  l0biMHv6hgcbfxItJ66/cICfrrRypBkEUnPMC0j3Zt8Za8TUkMSs05fA0HcK4IMN
+  4zcy3axUZa8xi4C1EdhwNbQ2Lb9fMUhCBdy/CYzbX/UFh67G/mc2PLo6Ut/D0BXj
+  g93PQBgRJp9/2dU9Lbg4r01Jisb46xwj2ag70Wxul9iok14s4wemnwLiLVxI3T/N
+  7cIzrbI8XqwLVKbT8b56hpB2PlCw4QaBIMnmGADGEKAgPYzffaO4Y/lx84wPQUKy
+  l0MRjXjh7o8XnEqf0s7zdL+zpRtFdlWu5LV22Z9W6XPaXBoU1xrN8JwozLeGmQwM
+  /9tw/8L6hQIDAQABo1MwUTAdBgNVHQ4EFgQUWbYdBESaLWUifO7OZgIIJ3ga0SAw
+  HwYDVR0jBBgwFoAUWbYdBESaLWUifO7OZgIIJ3ga0SAwDwYDVR0TAQH/BAUwAwEB
+  /zANBgkqhkiG9w0BAQsFAAOCAQEAMdYVgV3P3Ku/FpuTlaWk6SfckmtnveBNp2J7
+  ql7yO3sc5TMY/RH59hDdA7qb7JDQCCLgzgU1OfSQ3WATw0cFwiGR7Ms4NUq3cnYa
+  N91Zw39hfNYZS7iiMjAc/u1KfOeGO19wsyMfWf4cJCgEHVp2ixFnfEHvBTLBu72J
+  /g8AgzTHy8L7EW0rY2QfiLozKhvNuTKf/pL+YyOcazWbtGH07DfSJgrHu+025h3h
+  T0opheaYh9j1yhgaiMCAIoveAWJYaRWDRz8SsPBPlbwLGmjptNI2eCjvMmde9L6m
+  kwxElYAKzP7iL0DAiomV14hpww2FwS9ZLX3li6Lp/K/S0UZocw==
   -----END CERTIFICATE-----
   """
 
@@ -85,8 +68,8 @@ defmodule ServiceRadar.Credentials.Validations.TrustMaterialTest do
   end
 
   describe "ca_bundle_pem" do
-    test "accepts a real Proxmox cluster CA" do
-      assert :ok = validate(%{ca_bundle_pem: @pve_cluster_ca})
+    test "accepts a valid PEM certificate chain" do
+      assert :ok = validate(%{ca_bundle_pem: @synthetic_cluster_ca})
     end
 
     test "rejects text that is not PEM at all" do
@@ -110,7 +93,7 @@ defmodule ServiceRadar.Credentials.Validations.TrustMaterialTest do
     test "supplying both forms is rejected" do
       assert {:error, opts} =
                validate(%{
-                 ca_bundle_pem: @pve_cluster_ca,
+                 ca_bundle_pem: @synthetic_cluster_ca,
                  server_cert_fingerprint: "sha256:" <> String.duplicate("a1", 32)
                })
 

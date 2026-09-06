@@ -30,7 +30,7 @@
 
 ## 5. Remaining environment-sourced credentials (PR: fix/netbox-proxmox-credential-delivery)
 - [x] 5.1 Remove the `VULNCHECK_API_TOKEN` / `SERVICERADAR_VULNCHECK_TOKEN` fallback from `advisory_feeds/config.ex`; require a `credential_ref`.
-- [ ] 5.2 Add a migration note and a startup warning for any feed row still lacking a `credential_ref`.
+- [x] 5.2 Add a migration note and a startup warning for any feed row still lacking a `credential_ref`.
 - [ ] 5.3 Document the agent `/etc/serviceradar/snmp.json` path as the one remaining file-based credential source, with its migration path to broker-backed SNMP references.
 
 ## 6. Documentation (PR: docs/credential-management-guide)
@@ -42,7 +42,7 @@
 - [ ] 6.6 Add the new page to the docs sidebar.
 
 ## 7. Supersede the stale change
-- [ ] 7.1 Archive `unify-plugin-credential-rules-db-surface` as superseded by this change.
+- [x] 7.1 Archive `unify-plugin-credential-rules-db-surface` as superseded by this change.
 
 ## 8. Verification
 - [ ] 8.1 `make test` green.
