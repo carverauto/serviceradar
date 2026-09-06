@@ -296,7 +296,6 @@ vitest_bin.vitest_test(
     data = [
         "component/src/RemoteAccessSSHConsole.jsx",
         "component/src/RemoteAccessTerminal.jsx",
-        "component/src/renderText.js",
         "component/src/sshEphemeralKeypair.js",
         "component/test/RemoteAccessSSHConsole.test.jsx",
         "component/test/RemoteAccessSSHConsoleSession.test.jsx",
