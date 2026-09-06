@@ -582,22 +582,33 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
   end
 
   defp create_legacy_virtualization_host!(device_uid, node, cluster) do
-    VirtualizationHost
-    |> Ash.Changeset.for_create(
-      :create,
-      %{
-        provider: "proxmox",
-        provider_ref: "proxmox:node:#{node}",
-        device_uid: device_uid,
-        name: node,
-        identity_state: :legacy,
-        native_cluster_id: cluster,
-        object_kind: "node",
-        native_object_id: node,
-        metadata: %{}
-      }
+    # Model a row that predates the v3 insert guard; restore the guard before opening the console.
+    Repo.query!(
+      "ALTER TABLE platform.virtualization_hosts DISABLE TRIGGER virtualization_hosts_identity_immutable_guard"
     )
-    |> Ash.create!(actor: @system_actor)
+
+    try do
+      VirtualizationHost
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:node:#{node}",
+          device_uid: device_uid,
+          name: node,
+          identity_state: :legacy,
+          native_cluster_id: cluster,
+          object_kind: "node",
+          native_object_id: node,
+          metadata: %{}
+        }
+      )
+      |> Ash.create!(actor: @system_actor)
+    after
+      Repo.query!(
+        "ALTER TABLE platform.virtualization_hosts ENABLE TRIGGER virtualization_hosts_identity_immutable_guard"
+      )
+    end
   end
 
   defp create_virtualization_guest!(device_uid, host, vmid, _cluster) do
