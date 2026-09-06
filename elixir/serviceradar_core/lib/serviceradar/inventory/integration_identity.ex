@@ -26,21 +26,9 @@ defmodule ServiceRadar.Inventory.IntegrationIdentity do
   downcased, `:`/whitespace replaced with `-`) so case or formatting churn in
   the source cannot rotate the identifier.
 
-  `legacy_candidates/2` produces every legacy-format value that could
-  identify the same object so resolution can consult them at lookup time,
-  exactly like `IdentityReconciler.mac_lookup_values/1` does for the legacy
-  MAC blob. Legacy values are **lookup-only bridges**: they must never be
-  registered as new identifiers.
-
-  Bare name-keyed forms (`proxmox:vm:<name>`,
-  `proxmox:container:<name>`, `proxmox:hypervisor:<node>`,
-  `proxmox:node:<name>`, `proxmox:pve:<name>`) are NEVER emitted as
-  candidates and NEVER honored as strong identifiers (see
-  `ambiguous_name_keyed?/1`): names are not unique across Proxmox clusters,
-  so a name-keyed value fused devices from different clusters into one row
-  (GitHub #4051). Convergence with pre-change rows happens through the
-  vmid-scoped and MAC-keyed bridges, host NIC MACs, and the IP/hostname
-  adopt/merge rules instead.
+  `legacy_candidates/2` bridges v3 references to cluster-scoped v2 values.
+  Unscoped legacy values cannot establish identity across clusters.
+  Convergence also uses atomic NIC MACs and the IP/hostname adopt/merge rules.
 
   The v3 format is the authoritative virtualization identity. It adds the
   immutable ServiceRadar integration and controller UUIDs to the native
@@ -59,8 +47,6 @@ defmodule ServiceRadar.Inventory.IntegrationIdentity do
   characters left literal. Structured fields remain authoritative; rendered
   refs are a canonical projection for joins and external contracts.
   """
-
-  alias ServiceRadar.Inventory.IdentityReconciler
 
   @proxmox_v2_prefix "proxmox:v2:"
   @proxmox_v3_prefix "proxmox:v3:"
@@ -310,65 +296,25 @@ defmodule ServiceRadar.Inventory.IntegrationIdentity do
   ## Strength guard
 
   @doc """
-  True when a `proxmox` integration id is keyed on a bare guest/host name
-  and therefore cannot be shown unique within its scope.
-
-  Two clusters routinely reuse guest names (`k8s-cp3-worker1`) and node
-  names (`pve01`), so `proxmox:vm:<name>`, `proxmox:container:<name>`,
-  `proxmox:hypervisor:<node>`, `proxmox:node:<name>` and `proxmox:pve:<name>`
-  are ambiguous by construction. Callers must never resolve, merge, or
-  register on such a value (GitHub #4051).
-
-  Vmid-scoped (`proxmox:vm:132`, `proxmox:vm:qemu/132`), node+vmid-scoped
-  (`proxmox:guest:pve01:qemu:132`), MAC-keyed (`proxmox:vm:BC:24:11:BD:DA:44`)
-  and cluster-scoped v2/v3 values are NOT ambiguous: the trailing segment
-  carries a vmid, a MAC, or a cluster scope. Plain all-digit trailing
-  segments are vmids (`proxmox:<kind>:<vmid>` placeholder shape), never names.
+  True when a Proxmox identifier lacks a valid cluster-scoped v2 or v3 identity.
   """
   @spec ambiguous_name_keyed?(term()) :: boolean()
   def ambiguous_name_keyed?(value) when is_binary(value) do
-    case value |> String.trim() |> String.downcase() |> String.split(":") do
-      ["proxmox", kind, tail] when kind in ["vm", "container"] -> bare_name?(tail)
-      ["proxmox", kind, tail] when kind in ["hypervisor", "node", "pve"] -> tail != ""
-      _ -> false
-    end
+    normalized = value |> String.trim() |> String.downcase()
+
+    String.starts_with?(normalized, "proxmox:") and
+      not (match?({:ok, _}, parse_v2(value)) or v3?(value))
   end
 
   def ambiguous_name_keyed?(_value), do: false
 
-  # A bare name: present, not a vmid (`proxmox:<kind>:<vmid>` placeholder),
-  # and not an id-as-name resource id (`qemu/132`, always vmid-scoped).
-  # MAC-keyed values never reach here: the colons in the MAC split into more
-  # than three segments.
-  defp bare_name?(tail) do
-    tail != "" and not String.contains?(tail, "/") and not vmid_segment?(tail)
-  end
-
-  defp vmid_segment?(tail), do: Regex.match?(~r/^\d+$/, tail)
-
   ## Legacy bridging
 
   @doc """
-  All legacy-format integration_id values that could identify the same object
-  as `v2_integration_id`.
+  Cluster-scoped v2 lookup candidates for a v3 identity.
 
-  `record_fields` supplies source attributes the legacy generations keyed on
-  (atom or string keys are accepted):
-
-    * `:node` — Proxmox node hosting the guest (current-gen node-scoped ids)
-    * `:vmid` — guest vmid (defaults to the vmid parsed from the v2 id)
-    * `:guest_type` / `:type` — raw Proxmox type (`"qemu"`/`"lxc"`)
-    * `:guest_id` — raw Proxmox resource id (e.g. `"qemu/132"`)
-    * `:macs` / `:mac` — guest NIC MAC(s), any common format (gen-2 MAC-keyed ids)
-
-  A `:name` key is accepted and ignored: gen-1 bare-name ids
-  (`proxmox:vm:<name>`, `proxmox:container:<name>`,
-  `proxmox:hypervisor:<node>`) are ambiguous across clusters and are never
-  emitted (GitHub #4051).
-
-  Candidates are ordered strongest-first (vmid-scoped current-gen forms, then
-  MAC-keyed last) and never include the v2 id itself. They are lookup-only:
-  never register them as new identifiers.
+  Optional cluster fields supply the legacy cluster name. Candidates are
+  lookup-only and must never be registered as new identifiers.
   """
   @spec legacy_candidates(String.t() | nil, record_fields()) :: [String.t()]
   def legacy_candidates(v2_integration_id, record_fields \\ %{})
@@ -384,11 +330,8 @@ defmodule ServiceRadar.Inventory.IntegrationIdentity do
         when kind in ["qemu", "lxc"] ->
           v3_guest_legacy_candidates(parsed, kind, ref, record_fields)
 
-        {:ok, %{object_kind: "cluster", native_cluster_id: cluster}} ->
-          ["proxmox:cluster:#{legacy_cluster_name(cluster, record_fields)}"]
-
-        :error ->
-          v2_legacy_candidates(v2_integration_id, record_fields)
+        _ ->
+          []
       end
 
     case_result
@@ -399,24 +342,11 @@ defmodule ServiceRadar.Inventory.IntegrationIdentity do
 
   def legacy_candidates(_v2_integration_id, _record_fields), do: []
 
-  defp v2_legacy_candidates(v2_integration_id, record_fields) do
-    case parse_v2(v2_integration_id) do
-      {:ok, %{kind: "node", ref: node}} ->
-        node_legacy_candidates(node, record_fields)
-
-      {:ok, %{kind: kind, ref: ref}} ->
-        guest_legacy_candidates(kind, ref, record_fields)
-
-      :error ->
-        []
-    end
-  end
-
   defp v3_node_legacy_candidates(parsed, node, fields) do
     cluster = legacy_cluster_name(parsed.native_cluster_id, fields)
     v2 = proxmox_node_id(cluster, node)
 
-    [v2 | v2_legacy_candidates(v2, Map.put(fields, :node, node))]
+    [v2]
   end
 
   defp v3_guest_legacy_candidates(parsed, kind, ref, fields) do
@@ -424,12 +354,7 @@ defmodule ServiceRadar.Inventory.IntegrationIdentity do
     raw_kind = if kind == "qemu", do: "qemu", else: "lxc"
     v2 = proxmox_guest_id(cluster, raw_kind, ref)
 
-    fields =
-      fields
-      |> Map.put_new(:guest_type, raw_kind)
-      |> Map.put_new(:vmid, ref)
-
-    [v2 | v2_legacy_candidates(v2, fields)]
+    [v2]
   end
 
   defp legacy_cluster_name(native_cluster_id, fields) do
@@ -468,125 +393,6 @@ defmodule ServiceRadar.Inventory.IntegrationIdentity do
   end
 
   def lookup_values(_ids), do: []
-
-  ## Internal — node candidates
-
-  # Node legacy bridges are all bare-name forms (`proxmox:node:<name>`,
-  # `proxmox:pve:<name>`, `proxmox:hypervisor:<name>`): a node has no vmid to
-  # key on, so none of them can be shown unique across clusters sharing node
-  # names (GitHub #4051 fused `pve01`/`pve02` across clusters this way). Emit
-  # nothing: node convergence continues through the cluster-scoped v2 id, the
-  # exact provider ref, host NIC MACs, and the IP/hostname adopt/merge rules.
-  defp node_legacy_candidates(_node, _fields), do: []
-
-  ## Internal — guest candidates
-
-  defp guest_legacy_candidates(kind, ref, fields) do
-    vmid = normalize_vmid(field_value(fields, [:vmid])) || normalize_vmid(ref)
-    raw_type = raw_guest_type(fields, kind)
-    name_prefix = legacy_name_prefix(kind)
-    node = field_string(fields, [:node])
-    guest_id = field_string(fields, [:guest_id]) || default_guest_id(raw_type, vmid)
-    macs = legacy_mac_values(fields)
-
-    # No name_forms: gen-1 bare-name ids (`proxmox:vm:<name>`,
-    # `proxmox:container:<name>`) are ambiguous across clusters and must never
-    # resolve (GitHub #4051). Same-cluster rename convergence continues through
-    # the vmid-scoped forms below.
-    vmid_forms(kind, raw_type, name_prefix, node, vmid) ++
-      id_as_name_forms(name_prefix, guest_id) ++
-      mac_forms(name_prefix, macs)
-  end
-
-  # Current-gen forms keyed on the stable vmid: provider refs written as
-  # integration_id by the hypervisor placeholder path, and device-uid shaped
-  # ids minted by the plugin/ingestor.
-  defp vmid_forms(_kind, _raw_type, _name_prefix, _node, nil), do: []
-
-  defp vmid_forms(kind, raw_type, name_prefix, node, vmid) do
-    node_scoped =
-      if present?(node) do
-        for_result =
-          for type <- Enum.uniq([raw_type, kind, name_prefix]) do
-            ["proxmox:guest:#{node}:#{type}:#{vmid}", "proxmox:#{type}:#{node}:#{vmid}"]
-          end
-
-        List.flatten(for_result)
-      else
-        []
-      end
-
-    plain =
-      for type <- Enum.uniq([raw_type, kind, name_prefix]) do
-        "proxmox:#{type}:#{vmid}"
-      end
-
-    node_scoped ++ plain
-  end
-
-  # Gen-1 fallback where the raw resource id was used as the name
-  # (live: proxmox:vm:qemu/132).
-  defp id_as_name_forms(name_prefix, guest_id) do
-    if present?(guest_id) do
-      ["proxmox:#{name_prefix}:#{guest_id}"]
-    else
-      []
-    end
-  end
-
-  # Gen-2 MAC-keyed ids (live: proxmox:vm:BC:24:11:BD:DA:44). MACs were
-  # stored colon-separated uppercase.
-  defp mac_forms(name_prefix, macs) do
-    Enum.map(macs, &"proxmox:#{name_prefix}:#{&1}")
-  end
-
-  defp legacy_name_prefix("lxc"), do: "container"
-  defp legacy_name_prefix("vm"), do: "vm"
-  defp legacy_name_prefix(kind), do: kind
-
-  defp raw_guest_type(fields, kind) do
-    case field_string(fields, [:guest_type, :type]) do
-      value when is_binary(value) ->
-        case String.downcase(value) do
-          "qemu" -> "qemu"
-          "vm" -> "qemu"
-          "lxc" -> "lxc"
-          "container" -> "lxc"
-          _other -> default_raw_type(kind)
-        end
-
-      _ ->
-        default_raw_type(kind)
-    end
-  end
-
-  defp default_raw_type("vm"), do: "qemu"
-  defp default_raw_type("lxc"), do: "lxc"
-  defp default_raw_type(kind), do: kind
-
-  defp default_guest_id(raw_type, vmid) when is_integer(vmid), do: "#{raw_type}/#{vmid}"
-  defp default_guest_id(_raw_type, _vmid), do: nil
-
-  defp legacy_mac_values(fields) do
-    raw_macs =
-      List.wrap(field_value(fields, [:macs])) ++ List.wrap(field_value(fields, [:mac]))
-
-    raw_macs
-    |> Enum.filter(&is_binary/1)
-    |> Enum.flat_map(&IdentityReconciler.normalize_mac_list/1)
-    |> Enum.uniq()
-    |> Enum.map(&colonize_mac/1)
-    |> Enum.filter(&present?/1)
-  end
-
-  defp colonize_mac(
-         <<a::binary-size(2), b::binary-size(2), c::binary-size(2), d::binary-size(2),
-           e::binary-size(2), f::binary-size(2)>>
-       ) do
-    Enum.join([a, b, c, d, e, f], ":")
-  end
-
-  defp colonize_mac(_value), do: nil
 
   ## Internal — helpers
 
@@ -719,3 +525,4 @@ defmodule ServiceRadar.Inventory.IntegrationIdentity do
     Map.get(ids, key) || Map.get(ids, Atom.to_string(key))
   end
 end
+

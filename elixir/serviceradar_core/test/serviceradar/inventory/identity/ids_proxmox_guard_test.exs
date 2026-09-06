@@ -1,79 +1,78 @@
 defmodule ServiceRadar.Inventory.Identity.IdsProxmoxGuardTest do
-  @moduledoc """
-  The GitHub #4051 guard: ambiguous name-keyed Proxmox integration ids are
-  never integration_id lookup values.
-
-  Two clusters reuse guest and node names, so `proxmox:vm:<name>` and kin
-  matched devices from different clusters onto one row. Filtering happens in
-  `Ids.get_identifier_values/2`, which every resolution path consults
-  (Resolver, BatchResolver, Registrar conflict checks, sync lookups).
-  """
-
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Sync.IdentifierRecords
 
-  defp ids(metadata) do
-    Ids.extract_strong_identifiers(%{
-      metadata: metadata,
-      ip: "10.0.0.1",
-      mac: nil,
-      partition: "default"
-    })
+  test "unscoped primaries cannot classify, register, or seed a device identity" do
+    for value <- [
+          "proxmox:vm:guest01.example.com",
+          "proxmox:container:guest01.example.com",
+          "proxmox:hypervisor:host01.example.com",
+          "proxmox:vm:901",
+          "proxmox:vm:qemu/901",
+          "proxmox:guest:host01.example.com:qemu:901",
+          "proxmox:qemu:host01.example.com:901"
+        ] do
+      update = %{
+        metadata: %{"integration_id" => value, "integration_type" => "proxmox"},
+        source: "proxmox",
+        ip: "192.0.2.21",
+        mac: nil,
+        partition: "default"
+      }
+
+      ids = Ids.extract_strong_identifiers(update)
+      assert ids.integration_id == nil
+      refute Ids.has_strong_identifier?(ids)
+      assert Ids.get_identifier_values(:integration_id, ids) == []
+      assert IdentifierRecords.build_identifier_records([{update, "sr:synthetic-device"}]) == []
+
+      stale_ids = Map.put(ids, :integration_id, value)
+      refute Ids.has_strong_identifier?(stale_ids)
+      assert Ids.get_identifier_value(stale_ids, :integration_id) == nil
+      assert Ids.highest_priority_identifier(stale_ids) == Ids.highest_priority_identifier(ids)
+
+      assert Ids.generate_deterministic_device_id(stale_ids) ==
+               Ids.generate_deterministic_device_id(ids)
+
+      other = Ids.extract_strong_identifiers(%{update | ip: "192.0.2.22"})
+
+      refute Ids.generate_deterministic_device_id(ids) ==
+               Ids.generate_deterministic_device_id(other)
+    end
   end
 
-  describe "get_identifier_values(:integration_id, ids)" do
-    test "drops stale bare-name bridges but keeps scoped values" do
-      values =
-        %{
-          "integration_id" => "proxmox:v2:farm01:vm:113",
-          "integration_type" => "proxmox",
-          "legacy_integration_ids" => [
-            # stale gen-1 bridge from a pre-fix producer: must never match
-            "proxmox:vm:k8s-cp3-worker1",
-            "proxmox:hypervisor:pve01",
-            # vmid-scoped and MAC-keyed bridges still resolve
-            "proxmox:vm:113",
-            "proxmox:vm:qemu/113",
-            "proxmox:guest:pve01:qemu:113",
-            "proxmox:vm:BC:24:11:BD:DA:44"
-          ]
-        }
-        |> ids()
-        |> then(&Ids.get_identifier_values(:integration_id, &1))
+  test "stale bridges cannot bypass the cluster scope requirement" do
+    ids = %{
+      integration_id: "proxmox:v2:cluster-a:vm:901",
+      legacy_integration_ids: [
+        "proxmox:vm:901",
+        "proxmox:vm:qemu/901",
+        "proxmox:guest:host01.example.com:qemu:901",
+        "proxmox:vm:guest01.example.com"
+      ]
+    }
 
-      assert "proxmox:v2:farm01:vm:113" in values
-      assert "proxmox:vm:113" in values
-      assert "proxmox:vm:qemu/113" in values
-      assert "proxmox:guest:pve01:qemu:113" in values
-      assert "proxmox:vm:BC:24:11:BD:DA:44" in values
+    assert Ids.get_identifier_values(:integration_id, ids) == [ids.integration_id]
+    assert Ids.has_strong_identifier?(ids)
+  end
 
-      refute "proxmox:vm:k8s-cp3-worker1" in values
-      refute "proxmox:hypervisor:pve01" in values
-    end
+  test "scoped identity stays strong and distinguishes clusters" do
+    left = %{integration_id: "proxmox:v2:cluster-a:vm:901"}
+    right = %{integration_id: "proxmox:v2:cluster-b:vm:901"}
 
-    test "an ambiguous primary never resolves either" do
-      values =
-        %{
-          "integration_id" => "proxmox:vm:k8s-cp3-worker1",
-          "integration_type" => "proxmox"
-        }
-        |> ids()
-        |> then(&Ids.get_identifier_values(:integration_id, &1))
+    assert Ids.has_strong_identifier?(left)
+    assert Ids.get_identifier_value(left, :integration_id) == left.integration_id
 
-      assert values == []
-    end
+    refute Ids.generate_deterministic_device_id(left) ==
+             Ids.generate_deterministic_device_id(right)
+  end
 
-    test "leaves other sources untouched" do
-      values =
-        %{
-          "integration_id" => "netbox:device:42",
-          "integration_type" => "netbox"
-        }
-        |> ids()
-        |> then(&Ids.get_identifier_values(:integration_id, &1))
-
-      assert values == ["netbox:device:42"]
-    end
+  test "other providers remain strong" do
+    ids = %{integration_id: "netbox:device:42"}
+    assert Ids.has_strong_identifier?(ids)
+    assert Ids.get_identifier_values(:integration_id, ids) == [ids.integration_id]
   end
 end
+

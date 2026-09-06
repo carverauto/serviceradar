@@ -199,7 +199,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
   end
 
   defp get_integration_id(metadata) when is_map(metadata) do
-    raw = get_trimmed(metadata, "integration_id")
+    raw = ids_get(%{integration_id: get_trimmed(metadata, "integration_id")}, :integration_id)
     integration_type = metadata["integration_type"] |> to_string() |> String.downcase()
 
     case integration_type do
@@ -395,6 +395,11 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     "sr:" <> uuid
   end
 
+  def ids_get(ids, :integration_id) when is_map(ids) do
+    value = Map.get(ids, :integration_id)
+    if IntegrationIdentity.ambiguous_name_keyed?(value), do: nil, else: value
+  end
+
   def ids_get(ids, key) when is_map(ids), do: Map.get(ids, key)
   def ids_get(_ids, _key), do: nil
 
@@ -417,20 +422,6 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   def get_identifier_values(:mac, ids), do: mac_lookup_values(ids)
 
-  # Ambiguous name-keyed Proxmox values (`proxmox:vm:<name>` and kin) are
-  # never lookup values: names are not unique across clusters, so matching on
-  # one fused devices from different clusters into a single row (GitHub #4051).
-  # This filters every resolution path at once (Resolver, BatchResolver,
-  # Registrar conflict checks, sync lookups), including stale
-  # `legacy_integration_ids` metadata from producers that predate the
-  # bridge removal in `IntegrationIdentity.legacy_candidates/2`.
-  #
-  # Deliberately lookup-only: the primary still seeds deterministic UID
-  # derivation and registration. A stale producer reporting a legacy primary
-  # keeps resolving to its own stable row (no duplicate storm for MAC-less,
-  # IP-less placeholders), while the value can no longer match — and therefore
-  # fuse — any other device. Historical ambiguous rows themselves are archived
-  # by migration (see `ArchiveProxmoxNameKeyedIdentifiers`).
   def get_identifier_values(:integration_id, ids) do
     primary = List.wrap(ids_get(ids, :integration_id))
 
@@ -518,3 +509,4 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   def partition_from_device_id(_), do: "default"
 end
+
