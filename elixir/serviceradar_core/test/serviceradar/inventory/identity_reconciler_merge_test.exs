@@ -427,4 +427,3 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
     %{ordinal: ordinal, tombstoned: tombstoned}
   end
 end
-

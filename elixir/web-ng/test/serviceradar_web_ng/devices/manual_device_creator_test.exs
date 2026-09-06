@@ -507,4 +507,3 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     |> Ash.create(scope: scope)
   end
 end
-

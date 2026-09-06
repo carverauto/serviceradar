@@ -1790,4 +1790,3 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
 
   defp restore_env_snapshot(key, :error), do: Application.delete_env(:serviceradar_core, key)
 end
-
