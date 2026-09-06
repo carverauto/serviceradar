@@ -4,6 +4,7 @@ This is a web application written using the Phoenix web framework with Ash Frame
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
+- Always set an explicit `retry` policy on outbound `Req` calls. The defaults (`retry: :safe_transient`, `max_retries: 3`, `retry_log_level: :warning`) turn one timeout into ~4 attempts with backoff and log a crash-like `** (Req.TransportError) ...` warning per attempt (see `Auth.OutboundURLPolicy.req_opts/0` for the shared auth policy)
 
 ## Ash Framework guidelines
 

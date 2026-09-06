@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundURLPolicyTest do
 
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
 
+  @moduletag :db_free
+
   setup do
     previous = Application.get_env(:serviceradar_web_ng, :allow_insecure_metadata_urls)
 
@@ -37,5 +39,33 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundURLPolicyTest do
     assert {:error, :disallowed_host} = OutboundURLPolicy.validate("https://10.1.2.3/jwks")
     assert {:error, :disallowed_host} = OutboundURLPolicy.validate("https://192.168.10.8/jwks")
     assert {:error, :disallowed_host} = OutboundURLPolicy.validate("https://127.0.0.1/jwks")
+  end
+
+  test "req_opts keeps conservative timeouts and no redirects" do
+    opts = OutboundURLPolicy.req_opts()
+
+    assert opts[:connect_options] == [timeout: 5_000]
+    assert opts[:receive_timeout] == 10_000
+    assert opts[:redirect] == false
+  end
+
+  test "req_opts retries a closed pooled connection" do
+    retry = OutboundURLPolicy.req_opts()[:retry]
+
+    assert is_function(retry, 2)
+    assert retry.(%{}, %Req.TransportError{reason: :closed})
+  end
+
+  test "req_opts does not retry a timeout - retrying only stalls the user" do
+    retry = OutboundURLPolicy.req_opts()[:retry]
+
+    refute retry.(%{}, %Req.TransportError{reason: :timeout})
+    refute retry.(%{}, %Req.TransportError{reason: :econnrefused})
+    refute retry.(%{}, %Req.Response{status: 503})
+    refute retry.(%{}, :dns_resolution_failed)
+  end
+
+  test "req_opts disables Req retry chatter" do
+    assert OutboundURLPolicy.req_opts()[:retry_log_level] == false
   end
 end
