@@ -11,6 +11,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.EventWriter.BulkInsert
+  alias ServiceRadar.EventWriter.Processors.Logs
   alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.Repo
 
@@ -186,7 +187,9 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
     transitions = readiness_transitions(previous, rows) ++ disappeared_not_ready(previous, rows)
 
     Enum.each(transitions, fn {kind, node} ->
-      case InternalLogPublisher.publish("k8s", transition_payload(kind, node)) do
+      case InternalLogPublisher.publish("k8s", transition_payload(kind, node),
+             log_processor: {Logs, :process_batch, [[stateful_evaluation: :sync]]}
+           ) do
         :ok ->
           :ok
 

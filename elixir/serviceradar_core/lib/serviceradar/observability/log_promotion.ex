@@ -34,8 +34,8 @@ defmodule ServiceRadar.Observability.LogPromotion do
     "trace" => OCSF.severity_low()
   }
 
-  @spec promote([map()]) :: {:ok, non_neg_integer()} | {:error, term()}
-  def promote(rows) when is_list(rows) do
+  @spec promote([map()], keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def promote(rows, opts \\ []) when is_list(rows) do
     # DB connection's search_path determines the schema
     rules = active_log_rules()
     promotions = build_promotions(rows, rules)
@@ -46,7 +46,11 @@ defmodule ServiceRadar.Observability.LogPromotion do
         {:ok, 0}
 
       {:ok, count} ->
-        with :ok <- maybe_evaluate_stateful_rules(events) do
+        with :ok <-
+               maybe_evaluate_stateful_rules(
+                 events,
+                 Keyword.get(opts, :stateful_evaluation, :async)
+               ) do
           maybe_create_alerts(promotions)
           Logger.debug("Promoted #{count} logs to OCSF events")
           {:ok, count}
@@ -523,9 +527,12 @@ defmodule ServiceRadar.Observability.LogPromotion do
     end
   end
 
-  defp maybe_evaluate_stateful_rules([]), do: :ok
+  defp maybe_evaluate_stateful_rules(events, :sync),
+    do: StatefulAlertEngine.evaluate_events(events)
 
-  defp maybe_evaluate_stateful_rules(events) do
+  defp maybe_evaluate_stateful_rules([], :async), do: :ok
+
+  defp maybe_evaluate_stateful_rules(events, :async) do
     case alert_evaluation_queue().enqueue_events(events) do
       :ok ->
         :ok

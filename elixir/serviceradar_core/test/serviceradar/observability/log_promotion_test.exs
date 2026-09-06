@@ -24,14 +24,35 @@ defmodule ServiceRadar.Observability.LogPromotionTest.RejectingAlertQueue do
   end
 end
 
+defmodule ServiceRadar.Observability.LogPromotionTest.AcknowledgingEngine do
+  use GenServer
+
+  def start_link(test_pid) do
+    GenServer.start_link(__MODULE__, test_pid,
+      name: ServiceRadar.ProcessRegistry.via(:stateful_alert_engine)
+    )
+  end
+
+  @impl true
+  def init(test_pid), do: {:ok, test_pid}
+
+  @impl true
+  def handle_call({:evaluate_events, events}, from, test_pid) do
+    send(test_pid, {:evaluation_requested, from, events})
+    {:noreply, test_pid}
+  end
+end
+
 defmodule ServiceRadar.Observability.LogPromotionTest do
   use ServiceRadar.DataCase, async: false
 
   alias Ecto.Adapters.SQL, as: SQL
   alias Postgrex.Result
+  alias ServiceRadar.EventWriter.Processors.K8sNodes
   alias ServiceRadar.EventWriter.Processors.Logs
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.LogPromotion
+  alias ServiceRadar.Observability.LogPromotionTest.AcknowledgingEngine
   alias ServiceRadar.Observability.LogPromotionTest.BlockingAlertQueue
   alias ServiceRadar.Observability.LogPromotionTest.RejectingAlertQueue
   alias ServiceRadar.ProcessRegistry
@@ -101,6 +122,68 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
 
     send(queue_pid, :release_stateful_alert_enqueue)
     assert Task.await(promotion_task, 2_000) == {:ok, 1}
+  end
+
+  test "node transitions wait for evaluation and roll back failed acknowledgements" do
+    configure_rejecting_alert_queue(:unexpected_async_admission)
+    create_queue_probe("node-ack", ServiceRadar.NATS.Channels.build("logs.internal.k8s"))
+    LogPromotion.invalidate_rules_cache()
+    start_supervised!({AcknowledgingEngine, self()})
+
+    cluster = "cluster-#{Ash.UUID.generate()}"
+    initial_time = ~U[2026-09-05 12:00:00.000000Z]
+
+    initial = %{
+      data: %{
+        "cluster_id" => cluster,
+        "generated_at" => initial_time,
+        "nodes" => [%{"name" => "node1.example.com", "ready" => true}]
+      }
+    }
+
+    down = %{
+      data: %{
+        initial.data
+        | "generated_at" => DateTime.add(initial_time, 1, :second),
+          "nodes" => [%{"name" => "node1.example.com", "ready" => false}]
+      }
+    }
+
+    assert {:ok, 1} = K8sNodes.process_batch([initial])
+    failed = Task.async(fn -> K8sNodes.process_batch([down]) end)
+    assert_receive {:evaluation_requested, from, [_ | _]}, 2_000
+    assert Task.yield(failed, 0) == nil
+    GenServer.reply(from, {:error, :engine_restarting})
+
+    assert {:error,
+            {:readiness_publish_failed, "node1.example.com", :not_ready, :engine_restarting}} =
+             Task.await(failed, 2_000)
+
+    assert %{rows: [[true]]} =
+             Repo.query!(
+               "SELECT ready FROM platform.k8s_nodes_current WHERE cluster_id = $1",
+               [cluster]
+             )
+
+    assert %{rows: [[^initial_time]]} =
+             Repo.query!(
+               "SELECT snapshot_at FROM platform.k8s_node_snapshots WHERE cluster_id = $1",
+               [cluster]
+             )
+
+    retry = Task.async(fn -> K8sNodes.process_batch([down]) end)
+    assert_receive {:evaluation_requested, retry_from, [_ | _]}, 2_000
+    assert Task.yield(retry, 0) == nil
+    GenServer.reply(retry_from, :ok)
+    assert {:ok, 1} = Task.await(retry, 2_000)
+
+    assert %{rows: [[false]]} =
+             Repo.query!(
+               "SELECT ready FROM platform.k8s_nodes_current WHERE cluster_id = $1",
+               [cluster]
+             )
+
+    refute_receive {:stateful_alert_enqueue_rejected, _, _}
   end
 
   test "falls back to synchronous evaluation when the queue is full" do
@@ -733,9 +816,9 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     end)
   end
 
-  defp create_queue_probe(label) do
+  defp create_queue_probe(label, subject \\ nil) do
     actor = %{id: "system", role: :admin}
-    subject = "logs.#{label}.#{System.unique_integer([:positive])}"
+    subject = subject || "logs.#{label}.#{System.unique_integer([:positive])}"
 
     {:ok, _rule} =
       EventRule

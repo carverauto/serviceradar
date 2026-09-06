@@ -37,7 +37,6 @@ defmodule ServiceRadar.Inventory do
   end
 
   resources do
-    resource ServiceRadar.Inventory.K8sNodeSnapshot
     resource ServiceRadar.Inventory.AvailabilitySourceProfile
     resource ServiceRadar.Inventory.BumblebeeCatalogEntry
     resource ServiceRadar.Inventory.BumblebeeCatalogSnapshot

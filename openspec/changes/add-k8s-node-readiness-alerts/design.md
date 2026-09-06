@@ -59,8 +59,10 @@ endpoint inventory).
   cluster, including empty snapshots. Node rows alone cannot retain a watermark
   for an initially empty cluster. A conditional upsert serializes application
   per cluster and rejects equal or older timestamps before node writes,
-  deletions, or readiness events. The watermark and those effects share one
-  transaction, so publication failure rolls them all back for redelivery.
+  deletions, or readiness events. The watermark and node writes share one
+  transaction. Readiness transitions use synchronous stateful evaluation through
+  the existing log-promotion path; queue admission is insufficient. Evaluation
+  errors roll back the node writes and watermark for redelivery.
   Timestamp precision is retained to microseconds; collectors must have
   synchronized clocks. The migration seeds watermarks from existing node rows
   and deletion timestamps.
