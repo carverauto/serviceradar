@@ -27,9 +27,10 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: :incomplete]
+    unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Observability.OtelPubSub
 
   require Logger
 
@@ -225,11 +226,40 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   @impl Oban.Worker
   def perform(_job) do
+    result =
+      ServiceRadar.Repo.transact(
+        fn ->
+          case SQL.query!(
+                 ServiceRadar.Repo,
+                 "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))",
+                 [@watermark_key]
+               ) do
+            %{rows: [[true]]} -> refresh_summaries()
+            %{rows: [[false]]} -> {:error, :refresh_in_progress}
+          end
+        end,
+        timeout: :infinity
+      )
+
+    case result do
+      {:ok, changed} ->
+        OtelPubSub.broadcast_trace_summaries(%{count: changed})
+        :ok
+
+      {:error, :refresh_in_progress} ->
+        {:snooze, 1}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp refresh_summaries do
     now = DateTime.utc_now()
     watermark = read_watermark(now)
     window_start = DateTime.add(watermark, -@watermark_overlap_seconds, :second)
 
-    with :ok <- run_chunked_upsert(window_start, now),
+    with {:ok, changed} <- run_chunked_upsert(window_start, now),
          :ok <- advance_watermark(window_start, now),
          :ok <- cleanup_old_summaries() do
       Logger.info(
@@ -238,7 +268,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
         window_end: DateTime.to_iso8601(now)
       )
 
-      :ok
+      {:ok, changed}
     end
   rescue
     error ->
@@ -264,9 +294,9 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   defp run_chunked_upsert(window_start, window_end) do
     window_start
     |> build_windows(window_end)
-    |> Enum.reduce_while(:ok, fn {chunk_start, chunk_end}, :ok ->
+    |> Enum.reduce_while({:ok, 0}, fn {chunk_start, chunk_end}, {:ok, total} ->
       case run_upsert(chunk_start, chunk_end) do
-        :ok -> {:cont, :ok}
+        {:ok, changed} -> {:cont, {:ok, total + changed}}
         error -> {:halt, error}
       end
     end)
@@ -294,19 +324,22 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
              [window_start, window_end, retention_days()],
              timeout: upsert_timeout_ms()
            ) do
+        {:ok, %{num_rows: changed}} when is_integer(changed) ->
+          {:ok, changed}
+
         {:ok, _result} ->
-          :ok
+          {:ok, 0}
 
         {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} ->
           Logger.debug("otel_trace_summaries or otel_traces table missing; skipping refresh")
-          :ok
+          {:ok, 0}
 
         {:error, error} ->
           Logger.error("Failed to upsert otel_trace_summaries: #{Exception.message(error)}")
           {:error, error}
       end
     else
-      :ok
+      {:ok, 0}
     end
   end
 

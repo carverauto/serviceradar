@@ -70,6 +70,9 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.OtlpAttributes
   alias ServiceRadar.EventWriter.SignalTelemetry
+  alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+  alias ServiceRadar.Observability.OtelPubSub
+  alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
 
@@ -137,7 +140,20 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
       )
 
     SignalTelemetry.emit(:traces, :written, count)
+    OtelPubSub.broadcast_traces(%{count: count})
+    if count > 0, do: request_summary_refresh()
     {:ok, count}
+  end
+
+  defp request_summary_refresh do
+    case %{} |> RefreshTraceSummariesWorker.new() |> ObanSupport.safe_insert() do
+      {:ok, _job} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.debug("Trace summaries prompt refresh unavailable: #{inspect(reason)}")
+        :ok
+    end
   end
 
   defp parse_json_trace(json, _metadata) do

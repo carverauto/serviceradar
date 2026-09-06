@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias Phoenix.LiveView.JS
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.Integrations.MapboxSettings
+  alias ServiceRadar.Observability.AlertPubSub
   alias ServiceRadar.Observability.EventTitle
   alias ServiceRadar.Observability.FlowPubSub
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
@@ -18,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
+  alias ServiceRadar.Observability.OtelPubSub
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadarWebNG.AlertActions
   alias ServiceRadarWebNG.RBAC
@@ -67,6 +69,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, LogPubSub.topic())
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, EventsPubSub.topic())
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, FlowPubSub.topic())
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, OtelPubSub.topic())
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, AlertPubSub.topic())
     end
 
     {:ok,
@@ -128,6 +132,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      })
      |> assign(:logs_live?, false)
      |> assign(:netflows_live?, false)
+     |> assign(:events_live?, false)
+     |> assign(:traces_live?, false)
+     |> assign(:metrics_live?, false)
+     |> assign(:alerts_live?, false)
      |> assign(:current_params, %{})
      |> assign(:log_view_params, %{})
      |> assign(:logs_rollup_status, Stats.empty_logs_rollup_status())
@@ -196,6 +204,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     logs_live? = next_logs_live_state(socket, tab, params)
     netflows_live? = next_netflows_live_state(socket, tab, params)
+    events_live? = next_tab_live_state(socket, tab, params, "events", :events_live?)
+    traces_live? = next_tab_live_state(socket, tab, params, "traces", :traces_live?)
+    metrics_live? = next_tab_live_state(socket, tab, params, "metrics", :metrics_live?)
+    alerts_live? = next_tab_live_state(socket, tab, params, "alerts", :alerts_live?)
     log_view_params = if tab == "logs", do: tracked_log_view_params(params), else: %{}
 
     # For same-tab query changes (stat card clicks), keep current data visible.
@@ -206,6 +218,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:active_tab, tab)
         |> assign(:logs_live?, logs_live?)
         |> assign(:netflows_live?, netflows_live?)
+        |> assign(:events_live?, events_live?)
+        |> assign(:traces_live?, traces_live?)
+        |> assign(:metrics_live?, metrics_live?)
+        |> assign(:alerts_live?, alerts_live?)
         |> assign(:current_params, params)
         |> assign(:log_view_params, log_view_params)
         |> assign(:netflow_compact?, netflow_compact?)
@@ -230,6 +246,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:active_tab, tab)
         |> assign(:logs_live?, logs_live?)
         |> assign(:netflows_live?, netflows_live?)
+        |> assign(:events_live?, events_live?)
+        |> assign(:traces_live?, traces_live?)
+        |> assign(:metrics_live?, metrics_live?)
+        |> assign(:alerts_live?, alerts_live?)
         |> assign(:current_params, params)
         |> assign(:log_view_params, log_view_params)
         |> assign(:logs, [])
@@ -321,6 +341,34 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     {:noreply, socket}
   end
 
+  def handle_event("toggle_events_live", _params, socket) do
+    {:noreply, toggle_tab_live(socket, "events", :events_live?)}
+  end
+
+  def handle_event("toggle_traces_live", _params, socket) do
+    {:noreply, toggle_tab_live(socket, "traces", :traces_live?)}
+  end
+
+  def handle_event("toggle_metrics_live", _params, socket) do
+    {:noreply, toggle_tab_live(socket, "metrics", :metrics_live?)}
+  end
+
+  def handle_event("toggle_alerts_live", _params, socket) do
+    {:noreply, toggle_tab_live(socket, "alerts", :alerts_live?)}
+  end
+
+  # Shared live-toggle behavior: flip the flag, and when turning live on,
+  # reload the head of the current result set so the tail starts fresh.
+  defp toggle_tab_live(socket, tab, flag) do
+    socket = assign(socket, flag, !Map.get(socket.assigns, flag, false))
+
+    if socket.assigns.active_tab == tab and Map.get(socket.assigns, flag, false) do
+      refresh_tab(socket, tab)
+    else
+      socket
+    end
+  end
+
   def handle_event("srql_paginate", params, socket) do
     tab = socket.assigns.active_tab
     {_entity, list_key} = tab_entity(tab)
@@ -331,6 +379,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       # Paging is session position — leave the shareable URL alone and drop live tailing.
       |> assign(:logs_live?, false)
       |> assign(:netflows_live?, false)
+      |> assign(:events_live?, false)
+      |> assign(:traces_live?, false)
+      |> assign(:metrics_live?, false)
+      |> assign(:alerts_live?, false)
       |> then(fn sock ->
         SRQLPage.handle_event(sock, "srql_paginate", params,
           list_assign_key: list_key,
@@ -1387,7 +1439,30 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   @impl true
   def handle_info({:ocsf_event, _event}, socket) do
-    {:noreply, schedule_debounced_refresh(socket, "events")}
+    {:noreply, maybe_schedule_tab_live_refresh(socket, "events", :events_live?)}
+  end
+
+  @impl true
+  def handle_info({:otel_traces_ingested, _event}, socket) do
+    {:noreply, maybe_schedule_tab_live_refresh(socket, "traces", :traces_live?)}
+  end
+
+  @impl true
+  def handle_info({:otel_trace_summaries_refreshed, _event}, socket) do
+    # Span ingest can precede summary availability; the worker's post-commit
+    # pulse lets the tail read the completed summaries.
+    {:noreply, maybe_schedule_tab_live_refresh(socket, "traces", :traces_live?)}
+  end
+
+  @impl true
+  def handle_info({:otel_metrics_ingested, _event}, socket) do
+    {:noreply, maybe_schedule_tab_live_refresh(socket, "metrics", :metrics_live?)}
+  end
+
+  @impl true
+  def handle_info({:alert_created, _event}, socket) do
+    # See ServiceRadar.Monitoring.AlertNotifier for the shared creation boundary.
+    {:noreply, maybe_schedule_tab_live_refresh(socket, "alerts", :alerts_live?)}
   end
 
   @impl true
@@ -1476,10 +1551,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             <:header>
               <div class="min-w-0">
                 <div class="text-sm font-semibold tracking-tight text-sr-ink">
-                  {panel_title(@active_tab, panel_live?(@active_tab, @logs_live?, @netflows_live?))}
+                  {panel_title(@active_tab, panel_live?(@active_tab, assigns))}
                 </div>
                 <div class="text-xs leading-relaxed text-sr-muted">
-                  {panel_subtitle(@active_tab, panel_live?(@active_tab, @logs_live?, @netflows_live?))}
+                  {panel_subtitle(@active_tab, panel_live?(@active_tab, assigns))}
                 </div>
               </div>
 
@@ -1489,13 +1564,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 limit={@limit}
                 live?={@logs_live?}
               />
-              <.traces_panel_controls :if={@active_tab == "traces"} srql={@srql} limit={@limit} />
+              <.traces_panel_controls
+                :if={@active_tab == "traces"}
+                srql={@srql}
+                limit={@limit}
+                live?={@traces_live?}
+              />
               <.metrics_panel_controls
                 :if={@active_tab == "metrics"}
                 view={@metrics_view}
                 srql={@srql}
                 limit={@limit}
+                live?={@metrics_live?}
               />
+              <.events_panel_controls :if={@active_tab == "events"} live?={@events_live?} />
+              <.alerts_panel_controls :if={@active_tab == "alerts"} live?={@alerts_live?} />
               <.netflow_presets
                 :if={@active_tab == "netflows"}
                 srql={@srql}
@@ -3631,6 +3714,77 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
+  # Shared Live on/off toggle matching the logs live-feed pattern. Each
+  # observability tab passes its own DOM id and toggle event; the flag assign
+  # carries that tab's live state.
+  attr(:id, :string, required: true)
+  attr(:toggle_event, :string, required: true)
+  attr(:live?, :boolean, default: false)
+  attr(:start_title, :string, required: true)
+  attr(:pause_title, :string, required: true)
+
+  defp live_toggle_button(assigns) do
+    assigns =
+      assigns
+      |> assign(:toggle_title, if(assigns.live?, do: assigns.pause_title, else: assigns.start_title))
+      |> assign(:toggle_badge_variant, if(assigns.live?, do: "success", else: "ghost"))
+      |> assign(:toggle_variant, if(assigns.live?, do: "primary", else: "outline"))
+      # The badge id drops the button's "-toggle" suffix so `id="logs-live-toggle"`
+      # renders badge `id="logs-live-status"`, matching the established convention.
+      |> assign(:toggle_badge_id, String.replace_suffix(assigns.id, "-toggle", "-status"))
+
+    ~H"""
+    <.ui_button
+      id={@id}
+      phx-click={@toggle_event}
+      variant={@toggle_variant}
+      size="xs"
+      active={@live?}
+      class="rounded-full gap-2"
+      title={@toggle_title}
+    >
+      <span class="text-xs font-medium">Live</span>
+      <.ui_badge id={@toggle_badge_id} size="xs" variant={@toggle_badge_variant}>
+        {if @live?, do: "On", else: "Off"}
+      </.ui_badge>
+    </.ui_button>
+    """
+  end
+
+  # The events and alerts panes have no other header filters, so their panel
+  # controls are just the live toggle, right-aligned like the logs pane.
+  attr(:live?, :boolean, default: false)
+
+  defp events_panel_controls(assigns) do
+    ~H"""
+    <div class="flex flex-wrap items-center justify-end gap-2">
+      <.live_toggle_button
+        id="events-live-toggle"
+        toggle_event="toggle_events_live"
+        live?={@live?}
+        start_title="Start live event streaming"
+        pause_title="Pause live event streaming"
+      />
+    </div>
+    """
+  end
+
+  attr(:live?, :boolean, default: false)
+
+  defp alerts_panel_controls(assigns) do
+    ~H"""
+    <div class="flex flex-wrap items-center justify-end gap-2">
+      <.live_toggle_button
+        id="alerts-live-toggle"
+        toggle_event="toggle_alerts_live"
+        live?={@live?}
+        start_title="Start live alert streaming"
+        pause_title="Pause live alert streaming"
+      />
+    </div>
+    """
+  end
+
   attr(:srql, :map, required: true)
   attr(:limit, :integer, required: true)
   attr(:compact?, :boolean, default: false)
@@ -3802,6 +3956,37 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         false
     end
   end
+
+  # Generic live-tail state for the events/traces/metrics/alerts tabs, mirroring
+  # the logs/netflows rules: live survives only on the head of the same result
+  # set — same tab, same tracked query params, no cursor or paged position.
+  defp next_tab_live_state(socket, tab, params, expected_tab, flag) do
+    cond do
+      tab != expected_tab ->
+        false
+
+      has_cursor_param?(params) or paged_away_from_head?(socket) ->
+        false
+
+      manual_tab_navigation?(socket, tab, params) ->
+        false
+
+      true ->
+        Map.get(socket.assigns, flag, false)
+    end
+  end
+
+  defp manual_tab_navigation?(socket, tab, params) do
+    socket.assigns[:_initial_load_done] &&
+      socket.assigns.active_tab == tab &&
+      tracked_tab_view_params(params) != tracked_tab_view_params(Map.get(socket.assigns, :current_params, %{}))
+  end
+
+  defp tracked_tab_view_params(params) when is_map(params) do
+    Map.take(params, ["q", "limit", "cursor", "page", "tab"])
+  end
+
+  defp tracked_tab_view_params(_), do: %{}
 
   defp has_cursor_param?(params) when is_map(params) do
     value = Map.get(params, "cursor")
@@ -4344,6 +4529,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:srql, :map, required: true)
   attr(:limit, :integer, required: true)
 
+  attr(:live?, :boolean, default: false)
+
   defp traces_panel_controls(assigns) do
     query = Map.get(assigns.srql, :query) || ""
 
@@ -4354,6 +4541,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div class="flex items-center gap-2">
+      <.live_toggle_button
+        id="traces-live-toggle"
+        toggle_event="toggle_traces_live"
+        live?={@live?}
+        start_title="Start live trace streaming"
+        pause_title="Pause live trace streaming"
+      />
       <span class="text-[10px] uppercase tracking-wider text-sr-muted">Filter</span>
       <.ui_button
         id="traces-multi-span-toggle"
@@ -4572,6 +4766,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:view, :string, required: true)
   attr(:srql, :map, required: true)
   attr(:limit, :integer, required: true)
+  attr(:live?, :boolean, default: false)
 
   # Toggle between the legacy span-sample exemplars and real OTLP metric
   # points (in:otel_metric_points). Patch links keep the toggle URL-driven,
@@ -4579,6 +4774,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp metrics_panel_controls(assigns) do
     ~H"""
     <div id="metrics-view-toggle" class="flex items-center gap-1">
+      <.live_toggle_button
+        id="metrics-live-toggle"
+        toggle_event="toggle_metrics_live"
+        live?={@live?}
+        start_title="Start live metric streaming"
+        pause_title="Pause live metric streaming"
+      />
       <.ui_button
         patch={metrics_view_href(@srql, @limit, "samples")}
         size="xs"
@@ -7881,27 +8083,41 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp compute_netflow_summary(_), do: empty_netflow_summary()
 
-  defp panel_live?("logs", logs_live?, _netflows_live?), do: logs_live?
-  defp panel_live?("netflows", _logs_live?, netflows_live?), do: netflows_live?
-  defp panel_live?(_, _logs_live?, _netflows_live?), do: false
+  defp panel_live?("logs", assigns), do: Map.get(assigns, :logs_live?, false)
+  defp panel_live?("netflows", assigns), do: Map.get(assigns, :netflows_live?, false)
+  defp panel_live?("events", assigns), do: Map.get(assigns, :events_live?, false)
+  defp panel_live?("traces", assigns), do: Map.get(assigns, :traces_live?, false)
+  defp panel_live?("metrics", assigns), do: Map.get(assigns, :metrics_live?, false)
+  defp panel_live?("alerts", assigns), do: Map.get(assigns, :alerts_live?, false)
+  defp panel_live?(_, _), do: false
 
   defp panel_title("logs", true), do: "Log Stream"
   defp panel_title("logs", false), do: "Logs"
-  defp panel_title("traces", _), do: "Traces"
-  defp panel_title("metrics", _), do: "Metrics"
-  defp panel_title("events", _), do: "Events"
-  defp panel_title("alerts", _), do: "Alerts"
+  defp panel_title("traces", true), do: "Trace Stream"
+  defp panel_title("traces", false), do: "Traces"
+  defp panel_title("metrics", true), do: "Metric Stream"
+  defp panel_title("metrics", false), do: "Metrics"
+  defp panel_title("events", true), do: "Event Stream"
+  defp panel_title("events", false), do: "Events"
+  defp panel_title("alerts", true), do: "Alert Stream"
+  defp panel_title("alerts", false), do: "Alerts"
   defp panel_title("netflows", true), do: "Flow Stream"
   defp panel_title("netflows", false), do: "Flows"
   defp panel_title(_, _), do: "Logs"
 
   defp panel_subtitle("logs", true), do: "Streaming newest log updates. Click any log entry to view full details."
   defp panel_subtitle("logs", false), do: "Click any log entry to view full details."
+  defp panel_subtitle("traces", true), do: "Streaming newest trace updates. Click a trace to open the span waterfall."
   defp panel_subtitle("traces", _), do: "Click a trace to open the span waterfall."
+
+  defp panel_subtitle("metrics", true),
+    do: "Streaming newest metric updates. Click a metric to jump to correlated logs (if trace_id is present)."
 
   defp panel_subtitle("metrics", _), do: "Click a metric to jump to correlated logs (if trace_id is present)."
 
+  defp panel_subtitle("events", true), do: "Streaming newest event updates. Click any event to view full details."
   defp panel_subtitle("events", _), do: "Click any event to view full details."
+  defp panel_subtitle("alerts", true), do: "Streaming newest alert updates. Click any alert to view full details."
   defp panel_subtitle("alerts", _), do: "Click any alert to view full details."
   defp panel_subtitle("netflows", true), do: "Refreshing newest network flow data from NetFlow collectors."
   defp panel_subtitle("netflows", false), do: "Network flow data from NetFlow collectors."
@@ -8253,9 +8469,51 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  # Generic live-tail gate shared by the events/traces/metrics/alerts tabs:
+  # schedule a debounced head refresh only while the tab is active and live.
+  defp maybe_schedule_tab_live_refresh(socket, tab, flag) do
+    if socket.assigns.active_tab == tab and Map.get(socket.assigns, flag, false) do
+      schedule_debounced_refresh(socket, tab)
+    else
+      socket
+    end
+  end
+
   defp maybe_refresh_tab(socket, "logs") do
     if socket.assigns.active_tab == "logs" and Map.get(socket.assigns, :logs_live?, false) do
       refresh_tab(socket, "logs")
+    else
+      socket
+    end
+  end
+
+  defp maybe_refresh_tab(socket, "events") do
+    if socket.assigns.active_tab == "events" and Map.get(socket.assigns, :events_live?, false) do
+      refresh_tab(socket, "events")
+    else
+      socket
+    end
+  end
+
+  defp maybe_refresh_tab(socket, "traces") do
+    if socket.assigns.active_tab == "traces" and Map.get(socket.assigns, :traces_live?, false) do
+      refresh_tab(socket, "traces")
+    else
+      socket
+    end
+  end
+
+  defp maybe_refresh_tab(socket, "metrics") do
+    if socket.assigns.active_tab == "metrics" and Map.get(socket.assigns, :metrics_live?, false) do
+      refresh_tab(socket, "metrics")
+    else
+      socket
+    end
+  end
+
+  defp maybe_refresh_tab(socket, "alerts") do
+    if socket.assigns.active_tab == "alerts" and Map.get(socket.assigns, :alerts_live?, false) do
+      refresh_tab(socket, "alerts")
     else
       socket
     end

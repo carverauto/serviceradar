@@ -45,8 +45,9 @@ If `raw_latest` is materially newer than `summary_latest` or `rollup_latest`, tr
 
 ## Check the Scheduler
 
-The trace summary refresh runs as a periodic Oban job, and a separate reaper
-clears stale periodic jobs. Inspect their recent runs:
+See the [OTel storage model](./otel.md#storage-model) for trace summary refresh
+triggers and scheduling. A separate reaper clears stale periodic jobs. Inspect
+their recent runs:
 
 ```sql
 SELECT worker, state, queue, attempt, attempted_at, completed_at, scheduled_at
