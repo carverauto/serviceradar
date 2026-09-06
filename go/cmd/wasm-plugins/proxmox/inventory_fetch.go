@@ -160,7 +160,7 @@ func enrichNodes(cfg Config, target Target, token string, nodes []proxmoxNode, w
 }
 
 func annotateNodesWithClusterStatus(nodes []proxmoxNode, cluster []proxmoxClusterNode) []proxmoxNode {
-	if len(nodes) == 0 || len(cluster) == 0 {
+	if len(nodes) == 0 {
 		return nodes
 	}
 

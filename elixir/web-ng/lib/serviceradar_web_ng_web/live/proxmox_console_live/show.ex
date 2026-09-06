@@ -157,6 +157,9 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLive.Show do
   defp format_error(:unsupported_console_target),
     do: "This device is not currently recognized as a Proxmox host, VM, or LXC target."
 
+  defp format_error(:proxmox_tls_verification_required),
+    do: "The matching Proxmox credential rule must verify TLS to open a native console."
+
   defp format_error(:unsupported_console_mode), do: "The requested console mode is not supported for this target."
   defp format_error(:no_console_credential_rule), do: "No scoped console credential rule matched this device."
 

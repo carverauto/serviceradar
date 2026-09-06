@@ -347,11 +347,17 @@ Unauthenticated fingerprinting can still identify likely PVE candidates without 
 
 ## Console Access
 
-Proxmox console access is intentionally configured separately from Proxmox inventory. Inventory uses a read-only PVE API token. Console access currently supports SSH-backed PVE host shells through the edge agent; native Proxmox VM and LXC console modes such as `termproxy` and `vncwebsocket` are reserved for a later connector and return an unsupported-console response today.
+Proxmox console access is intentionally configured separately from Proxmox inventory. Inventory uses a read-only PVE API token. Native consoles use `termproxy` for PVE hosts and LXC containers and `vncwebsocket` for QEMU guests through the edge agent. SSH-backed PVE host shells remain available with a separate SSH credential rule.
 
 For the broader SSH CA setup, Linux target enrollment, and user workflow for Proxmox VMs that are reachable over normal SSH, see [Remote Access](./remote-access).
 
-### What The Console Plugin Fields Mean
+### Native Console Setup
+
+Create a dedicated Proxmox API-token credential with the PVE permissions needed for the intended console targets. Bind it to a `proxmox` / `proxmox_api_token` rule with purpose `console_access`, TLS policy `verify`, and a narrow target query and agent, gateway, or partition scope. Inventory's read-only token does not grant console access. The user also needs `devices.console.open`.
+
+Guest consoles resolve through their owning virtualization host and canonical PVE device, not the guest IP. Missing or ambiguous ownership prevents launch. Legacy inventory rows with native Proxmox identity fields can have their identity completed for the session when enabled scoped rules provide one unambiguous integration/controller scope; this does not rewrite stored inventory.
+
+### Legacy SSH Console Plugin Fields
 
 If you import or assign the `Proxmox Console` plugin, do not hand-enter these runtime fields:
 
@@ -364,12 +370,12 @@ Those fields are not Proxmox values and are not values from the PVE UI. The norm
 The assignment fields an operator may configure are:
 
 - `timeout_ms`: connector timeout for opening the SSH path from the edge agent to the PVE host. The default is usually sufficient.
-- `ssh_host_key_policy`: how the agent verifies the PVE host key. Use `known_hosts` when the agent has a managed known-hosts file, `trust_on_first_use` for first-connection pinning, and `skip_verify` only for temporary testing.
-- `insecure_skip_verify`: only applies to future Proxmox API console transports. Leave it disabled for SSH-backed host consoles.
+- `ssh_host_key_policy`: how the agent verifies the PVE host key. Use `known_hosts` when the agent has a managed known-hosts file or `trust_on_first_use` for first-connection pinning. Console rules reject `skip_verify`.
+- `insecure_skip_verify`: leave disabled; native console API-token rules require TLS verification as described in [Native Console Setup](#native-console-setup).
 
 ### Proxmox Host Preparation
 
-For the current SSH-backed host console mode:
+For the legacy SSH-backed host console mode:
 
 1. Prefer enrolling the PVE node with the ServiceRadar SSH user CA so users can open short-lived certificate-backed sessions as their approved Linux account.
 2. If the deployment cannot use SSH certificates yet, create a dedicated operating-system account or dedicated SSH key on each PVE node.
@@ -385,7 +391,7 @@ ssh -i ./serviceradar-pve-console-key serviceradar-console@pve01
 
 If you use root login for an initial lab test, keep it temporary and rotate the key before wider use.
 
-### Central Credential Rule Setup
+### Legacy SSH Credential Rule Setup
 
 Use this mode when storing the console key in the ServiceRadar control plane is acceptable.
 
@@ -409,17 +415,17 @@ Console rules and inventory rules should not be reused. A read-only PVE API toke
 
 ### Opening A Console
 
-From a PVE host device details page, click **Open Console**. ServiceRadar will:
+From a Proxmox host or guest device details page, use the console action. ServiceRadar will:
 
 1. Verify RBAC permission.
-2. Resolve the device as a Proxmox PVE host.
+2. Resolve the target and its owning PVE controller from virtualization inventory.
 3. Find a matching `console_access` credential rule.
 4. Check that the rule target query includes the device.
 5. Check that the rule scope includes the device's assigned agent or gateway.
 6. Issue a short-lived single-use browser ticket.
 7. Stream terminal frames through web-ng, agent-gateway, the selected edge agent, and the console plugin.
 
-If the UI says `No scoped console credential rule matched this device`, verify that the rule purpose is `console_access`, the target query includes the exact device, the device has an assigned agent, and the scope value matches that agent or gateway.
+If the UI says `No scoped console credential rule matched this device`, verify that the rule purpose is `console_access`, the target query includes the exact device, the owning controller has a reachable edge route, and the scope value matches that route.
 
 ## SSH Key Guidance
 
@@ -429,7 +435,7 @@ When SSH-backed console access is enabled, use a dedicated key and a dedicated o
 
 Store reusable SSH private keys only through encrypted credential rules when this legacy custody mode is acceptable. High-sensitivity deployments should prefer ServiceRadar-issued short-lived SSH certificates backed by SSO/LDAP identity and RBAC rather than agent-local reusable private keys. Display only the public fingerprint, track rotation metadata, and never render the private key or passphrase back in the UI.
 
-Console credentials should be separate from Proxmox API tokens. API tokens remain read-only for inventory; SSH keys are only released to the console broker after RBAC approval, short-lived session ticket issuance, and agent-scope checks.
+For native console credentials, see [Native Console Setup](#native-console-setup). Legacy SSH keys are only released to the console broker after RBAC approval, short-lived session ticket issuance, and agent-scope checks.
 
 ## Console Session Security Model
 
@@ -437,12 +443,12 @@ Console access is separate from inventory enrichment. A user who can view a Prox
 
 The control plane should treat console launch as a short-lived, audited session:
 
-1. The operator opens a PVE host shell from device details. VM and LXC console requests remain unavailable until a native Proxmox guest console connector is enabled.
+1. The operator opens the host or guest console from device details using the modes described in [Console Access](#console-access).
 2. Web-ng authorizes the user, resolves the canonical target, checks the credential rule scope, and selects the eligible edge path.
 3. Web-ng creates a short-lived, single-use console ticket bound to the user, target device or guest, console mode, selected agent/gateway, credential reference, issue time, and expiration time.
 4. The browser attaches to the web terminal websocket with the ticket. The ticket is consumed on first successful attach and cannot be reused.
 5. Web-ng proxies terminal frames to the edge console broker over the authenticated edge channel.
-6. The edge broker resolves only the scoped credential needed for that session and opens the requested SSH path. Proxmox `termproxy` and `vncwebsocket` modes must return an unsupported-console response until a native guest connector is enabled.
+6. The edge broker resolves only the scoped credential needed for that session and opens the server-selected native console transport or legacy host SSH path.
 
 The browser, URL, websocket metadata, audit payload, and UI errors must never contain SSH private keys, SSH passphrases, Proxmox API tokens, Proxmox tickets, cookies, or CSRF tokens. The WASM Proxmox inventory plugin is not part of the interactive console path and must not receive SSH private key material for console sessions.
 

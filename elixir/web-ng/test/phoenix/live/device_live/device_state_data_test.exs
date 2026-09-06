@@ -4,6 +4,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceStateDataTest do
 
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
 
+  describe "proxmox_console_target?/1" do
+    test "recognizes Proxmox hosts and guests" do
+      assert DeviceStateData.proxmox_console_target?(%{kind: :host, host: %{provider: "proxmox"}})
+      assert DeviceStateData.proxmox_console_target?(%{kind: :guest, guest: %{provider: "proxmox"}})
+      refute DeviceStateData.proxmox_console_target?(%{kind: :host, host: %{provider: "vsphere"}})
+      refute DeviceStateData.proxmox_console_target?(%{kind: :guest, guest: %{provider: "vsphere"}})
+      refute DeviceStateData.proxmox_console_target?(nil)
+    end
+  end
+
   describe "agent?/1 (render-time flag reader)" do
     test "is true only when the injected agent flag is set" do
       assert DeviceStateData.agent?(%{"agent_device" => true})

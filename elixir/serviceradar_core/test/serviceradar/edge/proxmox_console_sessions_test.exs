@@ -431,6 +431,37 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
     assert session.metadata["remote_console"]["agent_id"] == "agent-from-proxmox-discovery"
   end
 
+  test "legacy native host inventory is completed from the matching credential-rule source scope" do
+    uid = unique_uid("legacy-host")
+    secret = create_secret!("legacy-host")
+    rule = create_rule!(secret, scope_value: "agent-legacy-host")
+
+    insert_device!(uid,
+      agent_id: "agent-legacy-host",
+      gateway_id: "gateway-legacy-host",
+      source_rule: rule,
+      identity: :legacy
+    )
+
+    Process.put(:proxmox_console_test_device_uid, uid)
+
+    assert {:ok, %{session: session}} =
+             ProxmoxConsoleSessions.request_open(
+               uid,
+               %{},
+               previewer: Previewer,
+               assignment_resolver: AssignmentResolver,
+               actor: @console_actor
+             )
+
+    assert session.metadata["remote_console"]["target_type"] == "host"
+    assert session.metadata["remote_console"]["protocol"] == "proxmox-termproxy"
+    assert session.metadata["target"]["identity_version"] == 3
+    assert session.metadata["target"]["identity_state"] == "authoritative"
+    assert session.metadata["target"]["integration_id"] == rule.integration_id
+    assert session.metadata["target"]["controller_id"] == rule.controller_id
+  end
+
   test "system actors cannot substitute for the current console user" do
     assert {:error, :forbidden} =
              ProxmoxConsoleSessions.request_open("not-used", %{}, actor: @system_actor)
@@ -497,8 +528,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
     source_rule = if proxmox?, do: Keyword.fetch!(opts, :source_rule)
     cluster = Keyword.get(opts, :cluster, "test-cluster")
 
+    identity_mode = Keyword.get(opts, :identity, :authoritative)
+
     identity =
-      if proxmox? do
+      if proxmox? and identity_mode != :legacy do
         proxmox_identity!(source_rule, cluster, "node", hostname)
       end
 
@@ -526,7 +559,11 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
     ])
 
     if proxmox? do
-      create_virtualization_host!(uid, hostname, identity)
+      if identity do
+        create_virtualization_host!(uid, hostname, identity)
+      else
+        create_legacy_virtualization_host!(uid, hostname, cluster)
+      end
     end
   end
 
@@ -542,6 +579,36 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
       })
     )
     |> Ash.create!(actor: @system_actor)
+  end
+
+  defp create_legacy_virtualization_host!(device_uid, node, cluster) do
+    # Model a row that predates the v3 insert guard; restore the guard before opening the console.
+    Repo.query!(
+      "ALTER TABLE platform.virtualization_hosts DISABLE TRIGGER virtualization_hosts_identity_immutable_guard"
+    )
+
+    try do
+      VirtualizationHost
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:node:#{node}",
+          device_uid: device_uid,
+          name: node,
+          identity_state: :legacy,
+          native_cluster_id: cluster,
+          object_kind: "node",
+          native_object_id: node,
+          metadata: %{}
+        }
+      )
+      |> Ash.create!(actor: @system_actor)
+    after
+      Repo.query!(
+        "ALTER TABLE platform.virtualization_hosts ENABLE TRIGGER virtualization_hosts_identity_immutable_guard"
+      )
+    end
   end
 
   defp create_virtualization_guest!(device_uid, host, vmid, _cluster) do

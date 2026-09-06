@@ -135,6 +135,49 @@ defmodule ServiceRadar.Edge.RemoteConsoleTargetResolverTest do
              )
   end
 
+  test "legacy native inventory is completed from a unique credential-rule source scope" do
+    host = %{
+      provider: "proxmox",
+      provider_ref: "proxmox:node:pve02",
+      device_uid: "sr:host-legacy",
+      name: "pve02",
+      identity_state: :legacy,
+      native_cluster_id: "tonka",
+      object_kind: "node",
+      native_object_id: "pve02",
+      metadata: %{}
+    }
+
+    lookup = fn
+      VirtualizationHost, "sr:host-legacy", _ash_opts -> {:ok, [host]}
+      VirtualizationGuest, "sr:host-legacy", _ash_opts -> flunk("guest lookup must not run")
+    end
+
+    assert {:ok, target} =
+             RemoteConsoleTargetResolver.resolve_proxmox(
+               %{
+                 uid: "sr:host-legacy",
+                 hostname: "pve02",
+                 ip: "192.0.2.10",
+                 agent_id: "agent-dusk01",
+                 metadata: %{}
+               },
+               %{},
+               virtualization_lookup: lookup,
+               identity_scope: %{
+                 integration_id: @integration_id,
+                 controller_id: @farm_controller_id
+               }
+             )
+
+    assert target.target_kind == :pve_host
+    assert target.identity_version == 3
+    assert target.identity_state == :authoritative
+    assert target.integration_id == @integration_id
+    assert target.controller_id == @farm_controller_id
+    assert target.controller.base_url == "https://192.0.2.10:8006"
+  end
+
   test "legacy v2 aliases are never authorized for native console" do
     lookup = fn
       VirtualizationHost, _uid, _ash_opts ->
