@@ -87,6 +87,50 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
     assert {:ok, []} = list_interfaces(actor, from_uid)
   end
 
+  test "merge preserves manual classification before combining provenance", %{actor: actor} do
+    cases = [
+      {["manual", "netbox"], "Switch", 10, ["armis"], "Tablet", 4, {"Switch", 10}},
+      {["manual"], "Switch", 10, ["manual"], "Router", 12, {"Router", 12}},
+      {["manual"], "Switch", 10, ["manual"], "Unknown", 0, {"Switch", 10}},
+      {["manual"], " Unknown ", 0, ["armis"], "Tablet", 4, {"Tablet", 4}},
+      {["netbox"], "Switch", 10, ["armis"], "Tablet", 4, {"Tablet", 4}}
+    ]
+
+    Enum.each(cases, fn {from_sources, from_type, from_type_id, to_sources, to_type, to_type_id,
+                         expected} ->
+      from_uid = "sr:" <> Ecto.UUID.generate()
+      to_uid = "sr:" <> Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               create_device(actor, from_uid, "source.example.com", %{
+                 type: from_type,
+                 type_id: from_type_id,
+                 discovery_sources: from_sources
+               })
+
+      assert {:ok, _} =
+               create_device(actor, to_uid, "survivor.example.com", %{
+                 type: to_type,
+                 type_id: to_type_id,
+                 discovery_sources: to_sources
+               })
+
+      assert :ok =
+               IdentityReconciler.merge_devices(from_uid, to_uid,
+                 actor: actor,
+                 reason: "sync_ip_hostname_agreement"
+               )
+
+      assert {:ok, survivor} = Device.get_by_uid(to_uid, false, actor: actor)
+      assert {survivor.type, survivor.type_id} == expected
+
+      assert Enum.sort(survivor.discovery_sources) ==
+               Enum.sort(Enum.uniq(from_sources ++ to_sources))
+
+      assert {:error, _} = Device.get_by_uid(from_uid, false, actor: actor)
+    end)
+  end
+
   test "manual merge reason emits manual override telemetry", %{actor: actor} do
     from_uid = "sr:" <> Ecto.UUID.generate()
     to_uid = "sr:" <> Ecto.UUID.generate()
@@ -382,3 +426,4 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
     %{ordinal: ordinal, tombstoned: tombstoned}
   end
 end
+
