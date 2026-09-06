@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias Phoenix.LiveView.JS
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.Integrations.MapboxSettings
+  alias ServiceRadar.Observability.AlertPubSub
   alias ServiceRadar.Observability.EventTitle
   alias ServiceRadar.Observability.FlowPubSub
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
@@ -15,7 +16,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Observability.IpIpinfoCache
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.IpThreatIntelCache
-  alias ServiceRadar.Observability.AlertPubSub
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag

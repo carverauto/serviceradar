@@ -69,8 +69,8 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.OtlpAttributes
   alias ServiceRadar.EventWriter.SignalTelemetry
-  alias ServiceRadar.Observability.OtelPubSub
   alias Serviceradar.Metric.V1.MetricBatch, as: ServiceRadarMetricBatch
+  alias ServiceRadar.Observability.OtelPubSub
 
   require Logger
 
