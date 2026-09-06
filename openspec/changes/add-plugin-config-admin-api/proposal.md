@@ -33,7 +33,8 @@ that schema and does not re-fix those ingest paths.
   (device-code auth) can manage those surfaces without a second control plane.
 - Extend `serviceradar-cli plugin` with assignment, secret, rule, controller,
   and idempotent `apply` commands. Playbooks talk to the API; secret values
-  come from environment variables or an existing secret id, never from git.
+  come from environment variables for new secrets; existing secrets are reused
+  by provider and name, never copied into git.
 - Check in a non-secret demo playbook that configures the credential-backed
   demo plugin set through that API.
 

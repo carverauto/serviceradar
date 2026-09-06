@@ -3,7 +3,7 @@
 ### Requirement: Credential secret admin API
 The system SHALL expose authenticated JSON endpoints under `/api/admin/network-credential-secrets` that list, get, create, update details of, and rotate reusable network credential secrets, using the same authentication pipeline as `/api/admin/plugin-assignments`.
 
-List and get responses SHALL omit `secret_payload` and `encrypted_secret_payload`. Create and rotate SHALL accept descriptor-backed field values (`provider`, `auth_method`, and a `values` map) and persist them through `CredentialSecretBuilder`. Managing these endpoints SHALL require the `settings.credentials.manage` permission.
+List and get responses SHALL omit `secret_payload` and `encrypted_secret_payload`. Create SHALL accept `provider`, `auth_method`, and a descriptor-backed `values` map through `CredentialSecretBuilder`. Rotate SHALL accept a `values` map for the existing credential type through `CredentialRotation`. Managing these endpoints SHALL require the `settings.credentials.manage` permission.
 
 #### Scenario: Operator creates a secret through the API
 - **GIVEN** an authenticated caller with `settings.credentials.manage`
@@ -50,12 +50,12 @@ Create and update SHALL accept `name`, `base_url`, `agent_id`, purpose-specific 
 
 The CLI SHALL support listing and applying plugin assignments, credential secrets, credential rules, and Ansible controllers. `plugin apply --file` SHALL be idempotent: match secrets by `provider`+`name`, rules by `provider`+`scope_type`+`scope_value`+`name`, controllers by `name`, and assignments by `agent_uid`+`plugin_id`, then create or update.
 
-A playbook file SHALL NOT contain secret values. Secret field values SHALL be read from environment variables named in the playbook (`values_from`) or from an already-stored secret id.
+A playbook file SHALL NOT contain secret values. New secret field values SHALL be read from environment variables named in the playbook (`values_from`). Matching stored secrets SHALL be reused without reading or rotating their values. Secret reference names SHALL be unique within a playbook.
 
 #### Scenario: Apply is idempotent
 - **GIVEN** a playbook that names a secret `demo-proxmox-readonly` and a matching rule
 - **WHEN** `serviceradar-cli plugin apply --file playbooks/demo-plugins.yaml` runs twice against the same instance
-- **THEN** the second run SHALL update the existing rows rather than creating duplicates
+- **THEN** the second run SHALL keep matching secrets and update existing rules, controllers, and assignments rather than creating duplicates
 
 #### Scenario: Playbook refuses to embed secrets
 - **GIVEN** a playbook whose secret `values_from` names `SERVICERADAR_DEMO_PROXMOX_TOKEN_SECRET`
@@ -64,7 +64,7 @@ A playbook file SHALL NOT contain secret values. Secret field values SHALL be re
 - **AND** SHALL NOT write a secret value into any file
 
 ### Requirement: Narrow CLI scope for plugin configuration
-The CLI device-code flow SHALL accept a `plugins.manage` scope that reaches the plugin-assignment, credential-secret, credential-rule, and ansible-controller admin routes, and those routes only, for a token that holds only that scope.
+The CLI device-code flow SHALL accept a `plugins.manage` scope that reaches the plugin-assignment, credential-secret, credential-rule, and ansible-controller admin routes, plus read-only plugin and package routes needed to resolve assignments, for a token that holds only that scope.
 
 Coarse OAuth client credentials (`admin`, `write`, `read`) and unscoped API keys SHALL continue to reach those routes when the caller's RBAC allows it. A `plugin.publish` token SHALL NOT reach assignment or credential routes.
 

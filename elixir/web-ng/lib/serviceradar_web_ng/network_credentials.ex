@@ -48,10 +48,12 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
   def create_secret(attrs, opts \\ []) when is_map(attrs) do
     scope = Keyword.fetch!(opts, :scope)
 
-    with {:ok, built} <- build_secret_attrs(attrs) do
-      NetworkCredentialSecret.create_secret(built, scope: scope)
-    end
-    |> normalize_credential_error()
+    with_result =
+      with {:ok, built} <- build_secret_attrs(attrs) do
+        NetworkCredentialSecret.create_secret(built, scope: scope)
+      end
+
+    normalize_credential_error(with_result)
   end
 
   @spec update_secret_details(String.t(), map(), keyword()) ::
@@ -69,10 +71,12 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
   def rotate_secret(id, values, opts \\ []) when is_binary(id) and is_map(values) do
     scope = Keyword.fetch!(opts, :scope)
 
-    with {:ok, secret} <- get_secret(id, scope: scope) do
-      CredentialRotation.rotate(secret, stringify_keys(values), scope)
-    end
-    |> normalize_credential_error()
+    with_result =
+      with {:ok, secret} <- get_secret(id, scope: scope) do
+        CredentialRotation.rotate(secret, stringify_keys(values), scope)
+      end
+
+    normalize_credential_error(with_result)
   end
 
   @spec list_rules(keyword()) :: {:ok, [struct()]} | {:error, term()}

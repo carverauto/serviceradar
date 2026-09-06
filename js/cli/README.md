@@ -135,26 +135,15 @@ permission.
 
 ## Plugin configuration playbooks
 
-Everything an operator can set in Settings for credential-backed plugins is
-also settable through the authenticated admin API, so demo and lab spin-up is
-a repeatable apply from git instead of clicking through LiveView:
-
-- `GET/POST/PATCH /api/admin/network-credential-secrets`, plus
-  `POST .../{id}/rotate`. List and get responses never include secret
-  material; secret values are write-only.
-- `GET/POST/PATCH /api/admin/network-credential-rules`, plus
-  `POST .../{id}/enable|disable`. Rules carry the TLS policy, CA bundle, and
-  server fingerprint alongside provider, purpose, scope, and target query.
-- `GET/POST/PATCH /api/admin/ansible-controllers`, plus
-  `POST .../{id}/enable|disable`. Controllers bind credentials by secret id;
-  tokens are never echoed.
-- `GET /api/admin/plugin-assignments/{id}` alongside the existing assignment
-  CRUD; assignment JSON includes `plugin_id`.
+Use the authenticated admin API to manage credential-backed plugin configuration.
+See [Credential Management](../../docs/docs/credentials.md#managing-credentials-from-the-api)
+for the API contract, permissions, and upgrade prerequisites.
 
 `serviceradar-cli plugin` wraps those surfaces one by one
 (`assignments|secrets|rules|controllers <list|get|create|update|enable|disable|rotate>
 --instance <url> --body '<json>'`), and `plugin apply` applies a whole
-playbook idempotently:
+playbook idempotently. Start from the
+[example playbook](../../playbooks/demo-plugins.yaml):
 
 ```bash
 serviceradar-cli auth login --instance https://serviceradar.example.com --scope plugins.manage
@@ -162,11 +151,16 @@ serviceradar-cli plugin apply --instance https://serviceradar.example.com --file
 ```
 
 The playbook holds non-secret params only. Secret values are read from the
-environment variables named in each entry's `values_from` map at apply time
-and are never stored in git. The token needs the `plugins.manage` scope; each
-call is still authorized by the caller's RBAC permission
-(`settings.credentials.manage`, `plugins.assign`,
-`ansible.controllers.manage`).
+environment variables named in each entry's `values_from` map when creating a
+missing secret; matching secrets are kept without reading or rotating their
+values. Secret reference names must be unique within the playbook, even across
+providers. Rules and controllers refer to these names, not literal secret IDs.
+
+Add `--dry-run` to preview operations without writes. It checks environment
+values needed for new secrets and approved packages needed for manual
+assignments, but does not submit payloads for server-side validation. Apply
+writes sequentially; an error can leave earlier operations applied. Correct
+the error and rerun to converge the remaining configuration.
 
 ## Repository structure
 

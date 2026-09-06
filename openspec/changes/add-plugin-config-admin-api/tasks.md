@@ -19,7 +19,7 @@
 
 - [x] 4. CLI device-code scope
   - [x] 4.1 Add `plugins.manage` to `Auth.NarrowScopes` for the new routes plus assignment CRUD
-  - [x] 4.2 Migration: append `plugins.manage` to `cli_allowed_scopes` default and existing rows
+  - [x] 4.2 Migration: add `plugins.manage` to the default for new policy rows; preserve existing rows
   - [x] 4.3 Update CLI auth fallback lists and NarrowScopes tests
 
 - [x] 5. Extend `serviceradar-cli`
@@ -36,7 +36,7 @@
 - [x] 7. Docs
   - [x] 7.1 Update `docs/docs/credentials.md` so it no longer claims there is no REST surface
 
-## Verification so far (branch, pre-merge)
+## Verification recorded before subsequent review fixes
 
 - `openspec validate add-plugin-config-admin-api --strict`: valid.
 - `js/cli`: `npm run ci` green (typecheck, build, 53 node tests incl. new
@@ -47,8 +47,8 @@
   `20260905120000`): 21 tests, 0 failures across the four new controller
   test files plus the OpenAPI spec test.
 - Real `playbooks/demo-plugins.yaml` dry-run through the built CLI against a
-  stub admin API: all 5 secrets, 4 rules, 1 controller, and 4 assignments
-  plan correctly; no secret value leaves the environment.
+  stub admin API: the playbook at that revision
+  planned correctly; this is not verification of the current playbook.
 
 ## Why 6.3 stays open
 

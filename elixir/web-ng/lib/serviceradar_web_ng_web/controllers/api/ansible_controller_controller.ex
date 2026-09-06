@@ -162,8 +162,7 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleControllerController do
     end
   end
 
-  defp optional_integer(_value, name),
-    do: {:error, :invalid_request, "#{name} must be an integer"}
+  defp optional_integer(_value, name), do: {:error, :invalid_request, "#{name} must be an integer"}
 
   defp optional_boolean(nil, _name), do: {:ok, nil}
   defp optional_boolean(value, _name) when is_boolean(value), do: {:ok, value}
