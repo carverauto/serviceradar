@@ -33,6 +33,10 @@
       and keeps one `latest.json`, so a node snapshot would overwrite the
       endpoint snapshot the agent republishes, and an endpoints processor that
       accepts it soft-deletes every public endpoint row for the cluster.
+- [x] 1.4c The resync tick rebuilds directly instead of calling `Notify()`.
+      The debounce is resetting with no max wait, so Node status events - a
+      new, cluster-size-proportional source - could otherwise hold it open and
+      starve the public-endpoint publish that shares the same loop.
 - [x] 1.5 `bazel test //go/pkg/k8sinventory:k8sinventory_test`
 
 ## 2. EventWriter ingest and readiness events

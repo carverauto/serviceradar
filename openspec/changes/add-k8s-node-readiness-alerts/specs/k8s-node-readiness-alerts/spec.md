@@ -52,6 +52,22 @@ manifest keeps its previous behaviour rather than blocking on cache sync.
 - **AND** the collector SHALL become ready and continue publishing endpoint
   snapshots
 
+### Requirement: Watching Nodes SHALL NOT starve endpoint publishing
+The collector's periodic resync SHALL perform a rebuild rather than restart
+the debounce timer, so a rebuild happens at least once per resync period
+regardless of watch-event rate. The rebuild debounce is resetting and has no
+max wait, and Node status is a cluster-size-proportional event source that
+kubelet emits continuously, so routing Node events through the same notify
+channel as Services and EndpointSlices would otherwise let a large cluster
+hold the timer open indefinitely and stop the public-endpoint snapshots that
+deployment already published.
+
+#### Scenario: Sustained Node churn still publishes endpoints
+- **GIVEN** watch events arriving faster than the debounce interval
+- **WHEN** the resync period elapses
+- **THEN** the collector SHALL rebuild and publish
+- **AND** the public-endpoint snapshot SHALL NOT be starved by node churn
+
 ### Requirement: Node publishing is refused on a subject-blind sink
 The collector SHALL reject a configuration that enables Node watching while
 `PUBLISH_MODE` is `agent_spool`. That sink ignores the publish subject and

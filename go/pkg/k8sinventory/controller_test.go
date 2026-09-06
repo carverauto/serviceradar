@@ -3,6 +3,7 @@ package k8sinventory
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -232,5 +233,82 @@ func TestLoadConfigFromEnv_NATSRequiresURL(t *testing.T) {
 	_, err := LoadConfigFromEnv()
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+// countingLister reports how many rebuilds actually reached the lister.
+type countingLister struct {
+	*MemoryLister
+	calls atomic.Int64
+}
+
+func (c *countingLister) ListServices(ctx context.Context, ns string) ([]ServiceView, error) {
+	c.calls.Add(1)
+	return c.MemoryLister.ListServices(ctx, ns)
+}
+
+func TestController_ResyncRebuildsUnderSustainedNotifies(t *testing.T) {
+	t.Parallel()
+
+	// Notifies arrive faster than the debounce, so the debounce timer is reset
+	// before it can ever expire. Only the resync tick can still produce a
+	// rebuild; if it merely re-notifies, endpoint publishing starves.
+	cfg := Config{
+		ClusterID:            "demo",
+		Subject:              "inventory.k8s.public_endpoints",
+		Resync:               60 * time.Millisecond,
+		Debounce:             time.Hour,
+		PublishTimeout:       time.Second,
+		PublishMaxRetries:    0,
+		PublishRetryDelay:    time.Millisecond,
+		PublishRetryMaxDelay: time.Millisecond,
+		PublishMode:          "none",
+	}
+	lister := &countingLister{MemoryLister: &MemoryLister{
+		Services: []ServiceView{{
+			Namespace: "ns",
+			Name:      "lb",
+			Type:      "LoadBalancer",
+			Ports:     []ServicePortView{{Port: 80, Protocol: "TCP", TargetPort: 80}},
+			Ingress:   []LoadBalancerIngressView{{IP: "203.0.113.1"}},
+		}},
+	}}
+	ctrl := NewController(cfg, lister, &RecordingPublisher{}, NewMetrics())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- ctrl.Run(ctx) }()
+
+	stop := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				ctrl.Notify()
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}()
+
+	// One rebuild is the unconditional initial one; anything beyond it can only
+	// have come from a resync tick.
+	deadline := time.After(2 * time.Second)
+	for lister.calls.Load() < 3 {
+		select {
+		case <-deadline:
+			close(stop)
+			t.Fatalf("rebuild starved under sustained notifies: only %d rebuilds", lister.calls.Load())
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	close(stop)
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run: %v", err)
 	}
 }

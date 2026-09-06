@@ -132,7 +132,11 @@ func (c *Controller) Run(ctx context.Context) error {
 				c.metrics.IncRebuildError()
 			}
 		case <-resync.C:
-			c.Notify()
+			stopDebounce()
+			if err := c.rebuildAndPublish(ctx); err != nil {
+				log.Printf("k8s-inventory: resync rebuild failed: %v", err)
+				c.metrics.IncRebuildError()
+			}
 		}
 	}
 }

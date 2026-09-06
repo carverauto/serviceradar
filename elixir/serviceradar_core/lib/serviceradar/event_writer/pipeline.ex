@@ -543,10 +543,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp trivy_subject?(subject),
     do: subject == "trivy.report" or String.starts_with?(subject, "trivy.report.")
 
-  defp k8s_nodes_subject?(subject),
-    do:
-      subject == "inventory.k8s.nodes" or
-        String.starts_with?(subject, "inventory.k8s.nodes.")
+  defp k8s_nodes_subject?(subject), do: subject == "inventory.k8s.nodes"
 
   defp k8s_inventory_subject?(subject),
     do:

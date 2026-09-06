@@ -80,12 +80,30 @@ channel silent.
   change regenerated the endpoint fixtures and examples in
   `go/pkg/k8sinventory`, `go/cmd/k8s-inventory` and the SRQL/netprobe docs
   pages onto documentation addresses (`198.51.100.0/24`, `192.0.2.0/24`) and
-  an invented app naming scheme. The same real node naming scheme survives in
-  `go/cmd/faker` (BGP peer list, shipped non-test source), the demo Helm
-  values (a live `nodeSelector`), and `go/pkg/trivysidecar` fixtures. Those
-  are outside this change's component and regenerating them alters demo
-  behaviour, so they need their own change; recorded here so the scrub is not
-  mistaken for complete.
+  an invented app naming scheme. It did NOT scrub the rest, and the map below
+  is the whole of what is left, because a partial scrub that keeps the shape
+  is the failure this record exists to prevent.
+
+  Still committed, by artifact and by value class:
+
+  - `helm/serviceradar/values.yaml` (the SHIPPED DEFAULT chart, edited by this
+    change) - the full `k8s-cp{1,2,3}-{control,worker1..3}` node naming
+    scheme, `peer_asn: 401642` on every cluster peer, the `10.0.2.0/24`
+    addressing plan, the routable ISP peer `204.209.51.58` with `peer_asn:
+    10242`, and the public IPv6 prefix `2602:f678:0:ff::/64`. This is the most
+    widely distributed of the three and must be scrubbed first.
+  - `go/cmd/faker/config.json` and `go/cmd/faker/bgp_sim.go` - the same
+    hostnames, ASN, IPv4 plan and IPv6 prefix, in shipped non-test source.
+  - `helm/serviceradar/values-demo.yaml` - a live `nodeSelector` pinning a
+    workload to a real node hostname.
+  - `go/pkg/trivysidecar` fixtures - agent ids derived from the same
+    hostnames.
+
+  The classes matter as much as the hostnames: an ASN plus an addressing plan
+  plus a naming convention identifies an organization on its own, so a scrub
+  that replaces only the names leaves the fingerprint. Regenerating these
+  changes faker and demo behaviour and touches published chart defaults, so
+  they need their own change rather than being folded in here.
 
 ## Impact
 
