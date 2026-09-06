@@ -79,36 +79,55 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
   end
 
   def send_input(pid, data) when is_pid(pid) and is_binary(data) do
-    GenServer.call(pid, {:send_input, data})
+    call(pid, {:send_input, data})
   end
 
   def send_application_request(pid, payload) when is_pid(pid) and is_map(payload) do
-    GenServer.call(pid, {:send_application_request, payload})
+    call(pid, {:send_application_request, payload})
   end
 
   def send_application_data(pid, payload) when is_pid(pid) and is_map(payload) do
-    GenServer.call(pid, {:send_application_data, payload})
+    call(pid, {:send_application_data, payload})
   end
 
   def send_tcp_data(pid, payload) when is_pid(pid) and is_map(payload) do
-    GenServer.call(pid, {:send_tcp_data, payload})
+    call(pid, {:send_tcp_data, payload})
   end
 
   def send_desktop_control(pid, frame) when is_pid(pid) and is_map(frame) do
-    GenServer.call(pid, {:send_desktop_control, frame})
+    call(pid, {:send_desktop_control, frame})
   end
 
   def send_file_transfer_data(pid, payload) when is_pid(pid) and is_map(payload) do
-    GenServer.call(pid, {:send_file_transfer_data, payload})
+    call(pid, {:send_file_transfer_data, payload})
   end
 
   def resize(pid, cols, rows) when is_pid(pid) and is_integer(cols) and is_integer(rows) do
-    GenServer.call(pid, {:resize, cols, rows})
+    call(pid, {:resize, cols, rows})
   end
 
   def close(pid, reason) when is_pid(pid) do
     GenServer.cast(pid, {:close, reason})
   end
+
+  # Callers run these inline in a request-serving process -- the browser's
+  # WebSocket connection for terminal traffic, the WebRTC control path for
+  # desktop frames. A broker that is stopping is ordinary: the agent reports a
+  # failed SSH handshake, the broker notifies its owner and exits. Letting that
+  # exit escape a `GenServer.call` would kill the caller too, destroying the
+  # close notice the broker just queued, so the browser learns only that the
+  # socket died. Report it instead and let the caller decide.
+  defp call(pid, request) do
+    GenServer.call(pid, request)
+  catch
+    :exit, {reason, {GenServer, :call, _args}} -> {:error, call_error(reason)}
+  end
+
+  defp call_error(:noproc), do: :broker_unavailable
+  defp call_error(:normal), do: :broker_unavailable
+  defp call_error(:shutdown), do: :broker_unavailable
+  defp call_error({:shutdown, _reason}), do: :broker_unavailable
+  defp call_error(_reason), do: :broker_call_failed
 
   @impl true
   def init({session, owner, opts}) do

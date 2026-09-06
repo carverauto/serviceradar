@@ -848,6 +848,11 @@ sudo sshd -T | grep trustedusercakeys
 sudo sshd -t
 ```
 
+When a session opens and then ends, the console banner carries the edge agent's
+own close reason as `SSH session closed: <reason>`. That string is the agent's
+verbatim failure, so match it against the list below rather than reading the
+disconnect alone.
+
 Common failures:
 
 - `Permission denied (publickey)`: the CA public key is missing, the certificate is expired, the selected Unix account is not authorized, or its `AuthorizedPrincipalsFile` does not list the opaque principal in the presented certificate.
