@@ -29,15 +29,15 @@ defmodule ServiceRadar.Observability.LogPromotionCacheTest do
 
     load_fun = fn ->
       call_count = :atomics.add_get(calls, 1, 1)
-      ["rule-#{call_count}"]
+      {:ok, ["rule-#{call_count}"]}
     end
 
-    assert ["rule-1"] = LogPromotion.active_log_rules(load_fun)
-    assert ["rule-1"] = LogPromotion.active_log_rules(load_fun)
+    assert {:ok, ["rule-1"]} = LogPromotion.active_log_rules(load_fun)
+    assert {:ok, ["rule-1"]} = LogPromotion.active_log_rules(load_fun)
     assert 1 = :atomics.get(calls, 1)
 
     assert :ok = LogPromotion.invalidate_rules_cache()
-    assert ["rule-2"] = LogPromotion.active_log_rules(load_fun)
+    assert {:ok, ["rule-2"]} = LogPromotion.active_log_rules(load_fun)
     assert 2 = :atomics.get(calls, 1)
   end
 
@@ -47,11 +47,38 @@ defmodule ServiceRadar.Observability.LogPromotionCacheTest do
 
     load_fun = fn ->
       call_count = :atomics.add_get(calls, 1, 1)
-      ["rule-#{call_count}"]
+      {:ok, ["rule-#{call_count}"]}
     end
 
-    assert ["rule-1"] = LogPromotion.active_log_rules(load_fun)
-    assert ["rule-2"] = LogPromotion.active_log_rules(load_fun)
+    assert {:ok, ["rule-1"]} = LogPromotion.active_log_rules(load_fun)
+    assert {:ok, ["rule-2"]} = LogPromotion.active_log_rules(load_fun)
     assert 2 = :atomics.get(calls, 1)
+  end
+
+  test "failed rule loads are returned and retried instead of cached" do
+    calls = :atomics.new(1, [])
+
+    reader = fn ->
+      case :atomics.add_get(calls, 1, 1) do
+        1 -> {:error, :query_unavailable}
+        _ -> {:ok, []}
+      end
+    end
+
+    assert {:error, :query_unavailable} = LogPromotion.active_log_rules(reader)
+    assert {:ok, []} = LogPromotion.active_log_rules(reader)
+    assert {:ok, []} = LogPromotion.active_log_rules(reader)
+    assert 2 == :atomics.get(calls, 1)
+  end
+
+  test "an expired successful cache does not conceal refresh errors" do
+    Application.put_env(:serviceradar_core, :log_promotion_rule_cache_ttl_ms, 0)
+    assert {:ok, ["rule"]} = LogPromotion.active_log_rules(fn -> {:ok, ["rule"]} end)
+
+    assert {:error, :query_unavailable} =
+             LogPromotion.active_log_rules(fn -> {:error, :query_unavailable} end)
+
+    assert {:ok, ["recovered-rule"]} =
+             LogPromotion.active_log_rules(fn -> {:ok, ["recovered-rule"]} end)
   end
 end

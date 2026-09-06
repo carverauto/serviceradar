@@ -37,24 +37,25 @@ defmodule ServiceRadar.Observability.LogPromotion do
   @spec promote([map()], keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
   def promote(rows, opts \\ []) when is_list(rows) do
     # DB connection's search_path determines the schema
-    rules = active_log_rules()
-    promotions = build_promotions(rows, rules)
-    events = Enum.map(promotions, & &1.event)
+    with {:ok, rules} <- active_log_rules() do
+      promotions = build_promotions(rows, rules)
+      events = Enum.map(promotions, & &1.event)
 
-    case insert_events(events) do
-      {:ok, 0} ->
-        {:ok, 0}
+      case insert_events(events) do
+        {:ok, 0} ->
+          {:ok, 0}
 
-      {:ok, count} ->
-        with :ok <-
-               maybe_evaluate_stateful_rules(
-                 events,
-                 Keyword.get(opts, :stateful_evaluation, :async)
-               ) do
-          maybe_create_alerts(promotions)
-          Logger.debug("Promoted #{count} logs to OCSF events")
-          {:ok, count}
-        end
+        {:ok, count} ->
+          with :ok <-
+                 maybe_evaluate_stateful_rules(
+                   events,
+                   Keyword.get(opts, :stateful_evaluation, :async)
+                 ) do
+            maybe_create_alerts(promotions)
+            Logger.debug("Promoted #{count} logs to OCSF events")
+            {:ok, count}
+          end
+      end
     end
   rescue
     error ->
@@ -81,12 +82,13 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
     case cached_rules() do
       {expires_at_ms, rules} when expires_at_ms > now_ms ->
-        rules
+        {:ok, rules}
 
       _ ->
-        rules = load_fun.()
-        :persistent_term.put(@rules_cache_key, {now_ms + rule_cache_ttl_ms(), rules})
-        rules
+        with {:ok, rules} <- load_fun.() do
+          :persistent_term.put(@rules_cache_key, {now_ms + rule_cache_ttl_ms(), rules})
+          {:ok, rules}
+        end
     end
   end
 
@@ -114,12 +116,12 @@ defmodule ServiceRadar.Observability.LogPromotion do
   rescue
     error ->
       Logger.warning("Failed to load log promotion rules: #{inspect(error)}")
-      []
+      {:error, error}
   end
 
-  defp unwrap_page({:ok, %Ash.Page.Keyset{results: results}}), do: results
-  defp unwrap_page({:ok, results}) when is_list(results), do: results
-  defp unwrap_page(_), do: []
+  defp unwrap_page({:ok, %Ash.Page.Keyset{results: results}}), do: {:ok, results}
+  defp unwrap_page({:ok, results}) when is_list(results), do: {:ok, results}
+  defp unwrap_page({:error, _} = error), do: error
 
   defp build_promotions(_rows, []), do: []
 

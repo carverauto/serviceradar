@@ -83,8 +83,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineRulesLoadErrorTest do
 
     first_log =
       capture_log(fn ->
-        assert {:error, {:rules_load_failed, :undefined_column}} =
-                 GenServer.call(pid, {:evaluate_events, []})
+        assert :ok = GenServer.call(pid, {:evaluate_events, []})
       end)
 
     assert first_log =~ "failed to load alert rules"
@@ -94,8 +93,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineRulesLoadErrorTest do
 
     second_log =
       capture_log(fn ->
-        assert {:error, {:rules_load_failed, :undefined_column}} =
-                 GenServer.call(pid, {:evaluate_events, []})
+        assert :ok = GenServer.call(pid, {:evaluate_events, []})
       end)
 
     refute second_log =~ "failed to load alert rules"
@@ -134,9 +132,56 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineRulesLoadErrorTest do
     assert_receive {:telemetry, @rules_loaded_event, %{count: 0}, %{shard: 3}}
   end
 
-  # A failed load leaves rules_loaded_at unstamped so recovery is retried on
-  # the next evaluation; a prior successful load stamps it, so age it out to
-  # force the reload path.
+  test "a successful empty rule cache remains usable across repeated refresh failures", %{
+    pid: pid,
+    mode: mode
+  } do
+    assert :ok = GenServer.call(pid, {:evaluate_events, []})
+    Agent.update(mode, fn _ -> {:error, :query_unavailable} end)
+    expire_rules_cache(pid)
+
+    capture_log(fn ->
+      assert :ok = GenServer.call(pid, {:evaluate_events, [%{log_name: "node.not_ready"}]})
+      assert :ok = GenServer.call(pid, {:evaluate_events, [%{log_name: "node.not_ready"}]})
+    end)
+
+    assert_receive {:telemetry, @rules_load_failed_event, _, _}
+    assert_receive {:telemetry, @rules_load_failed_event, _, _}
+  end
+
+  test "warm refresh failure still evaluates records with cached rules", %{pid: pid, mode: mode} do
+    rule = %{
+      id: rule_id_for_shard(3),
+      name: "cached-rule",
+      signal: :event,
+      match: %{"always" => true},
+      group_by: [],
+      threshold: 1,
+      window_seconds: 120,
+      bucket_seconds: 60,
+      cooldown_seconds: 0,
+      renotify_seconds: 0
+    }
+
+    Agent.update(mode, fn _ -> {:ok, [rule]} end)
+    assert :ok = GenServer.call(pid, {:evaluate_events, []})
+
+    :sys.replace_state(pid, fn state ->
+      Map.put(state, :create_event_and_alert, fn _, _, _, _ ->
+        {:error, :cached_rule_evaluated}
+      end)
+    end)
+
+    expire_rules_cache(pid)
+    Agent.update(mode, fn _ -> {:error, :query_unavailable} end)
+    event = %{time: ~U[2026-09-05 12:00:00Z], log_name: "test.node", metadata: %{}, unmapped: %{}}
+
+    capture_log(fn ->
+      assert {:error, :cached_rule_evaluated} = GenServer.call(pid, {:evaluate_events, [event]})
+      assert {:error, :cached_rule_evaluated} = GenServer.call(pid, {:evaluate_events, [event]})
+    end)
+  end
+
   defp expire_rules_cache(pid) do
     :sys.replace_state(pid, fn state ->
       %{state | rules_loaded_at: System.monotonic_time(:millisecond) - 120_000}

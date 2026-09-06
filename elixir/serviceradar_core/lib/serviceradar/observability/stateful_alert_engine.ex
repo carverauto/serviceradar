@@ -415,10 +415,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
             %{shard: state.shard, node: node()}
           )
 
-          # Reset the cache stamp so the next evaluation retries the load
-          # instead of serving the stale-success stamp for the cache window.
-          state = %{state | rules_loaded_at: nil}
-
           state =
             if state.rules_load_error_logged do
               state
@@ -431,7 +427,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
               %{state | rules_load_error_logged: true}
             end
 
-          {:error, {:rules_load_failed, error}, state}
+          rules_load_failure(state, error)
       end
     else
       {:error, :repo_unavailable, report_repo_unavailable(state)}
@@ -439,8 +435,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   rescue
     error ->
       Logger.error("Failed to load stateful alert rules: #{inspect(error)}")
-      {:error, {:rules_load_failed, error}, %{state | rules_loaded_at: nil}}
+      rules_load_failure(state, error)
   end
+
+  defp rules_load_failure(%{rules_loaded_at: nil} = state, error),
+    do: {:error, {:rules_load_failed, error}, state}
+
+  defp rules_load_failure(state, _error), do: {:ok, state, state.rules}
 
   defp read_active_rules(%{rules_reader: reader}) when is_function(reader, 0), do: reader.()
 
