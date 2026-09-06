@@ -11,6 +11,8 @@ export const BOOLEAN_FLAGS: Set<string> = new Set([
   "open",
   "force",
   "yes",
+  "json",
+  "dry-run",
   // Switches `auth login` from the device-code flow (default) to the
   // PKCE-with-localhost-callback browser flow (RFC 7636 + RFC 8252).
   "web",

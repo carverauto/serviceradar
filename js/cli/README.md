@@ -10,7 +10,7 @@ React/JS surface customer dashboards depend on).
 ```text
 serviceradar-cli auth      <login|status|logout>
 serviceradar-cli dashboard <init|build|dev|validate|manifest|publish|import>
-serviceradar-cli plugin    <init|validate|publish|status>
+serviceradar-cli plugin    <init|validate|publish|status|assignments|secrets|rules|controllers|apply>
 ```
 
 Help for any group:
@@ -132,6 +132,35 @@ The token needs the `plugin.publish` scope, which is separate from
 Request both with `--scope "dashboard.publish plugin.publish"`. The scope only
 makes the operation requestable; the account still needs the `plugins.stage`
 permission.
+
+## Plugin configuration playbooks
+
+Use the authenticated admin API to manage credential-backed plugin configuration.
+See [Credential Management](../../docs/docs/credentials.md#managing-credentials-from-the-api)
+for the API contract, permissions, and upgrade prerequisites.
+
+`serviceradar-cli plugin` wraps those surfaces one by one
+(`assignments|secrets|rules|controllers <list|get|create|update|enable|disable|rotate>
+--instance <url> --body '<json>'`), and `plugin apply` applies a whole
+playbook idempotently. Start from the
+[example playbook](../../playbooks/demo-plugins.yaml):
+
+```bash
+serviceradar-cli auth login --instance https://serviceradar.example.com --scope plugins.manage
+serviceradar-cli plugin apply --instance https://serviceradar.example.com --file playbooks/demo-plugins.yaml
+```
+
+The playbook holds non-secret params only. Secret values are read from the
+environment variables named in each entry's `values_from` map when creating a
+missing secret; matching secrets are kept without reading or rotating their
+values. Secret reference names must be unique within the playbook, even across
+providers. Rules and controllers refer to these names, not literal secret IDs.
+
+Add `--dry-run` to preview operations without writes. It checks environment
+values needed for new secrets and approved packages needed for manual
+assignments, but does not submit payloads for server-side validation. Apply
+writes sequentially; an error can leave earlier operations applied. Correct
+the error and rerun to converge the remaining configuration.
 
 ## Repository structure
 

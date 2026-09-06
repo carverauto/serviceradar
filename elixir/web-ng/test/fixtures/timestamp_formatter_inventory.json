@@ -528,6 +528,30 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/ansible_controller_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "b7b7be4a67fe8fa8c732d5274117e911e0eeec57057641f999afd1c118ac9abe",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/ansible_controller_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "a60a1e79fb962ffa384e832faa65b6b70440de4f1e98ae5eb5aa9bfb2bf1f43a",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/ansible_controller_controller.ex",
+    "matcher": "naive_datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "50539cdf7ef968ec4def1461aab09f8deef40677639892052f6c4f351c0bb98d",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/controllers/api/camera_analysis_worker_controller.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
@@ -580,6 +604,54 @@
     "matcher": "datetime_iso8601",
     "occurrence": 1,
     "fingerprint": "516a9dddacb7a726af3b2e8e7c703e7c8a26cf0335bd9e8b0d0ee6042ba086e9",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/network_credential_rule_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "b7b7be4a67fe8fa8c732d5274117e911e0eeec57057641f999afd1c118ac9abe",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/network_credential_rule_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "a60a1e79fb962ffa384e832faa65b6b70440de4f1e98ae5eb5aa9bfb2bf1f43a",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/network_credential_rule_controller.ex",
+    "matcher": "naive_datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "50539cdf7ef968ec4def1461aab09f8deef40677639892052f6c4f351c0bb98d",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/network_credential_secret_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "b7b7be4a67fe8fa8c732d5274117e911e0eeec57057641f999afd1c118ac9abe",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/network_credential_secret_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "a60a1e79fb962ffa384e832faa65b6b70440de4f1e98ae5eb5aa9bfb2bf1f43a",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/network_credential_secret_controller.ex",
+    "matcher": "naive_datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "50539cdf7ef968ec4def1461aab09f8deef40677639892052f6c4f351c0bb98d",
     "classification": "canonical_machine",
     "reason": null
   },

@@ -405,6 +405,45 @@ Each rule row on the table offers:
   references are shown as references; secret material is never resolved or
   displayed here.
 
+## Managing credentials from the API
+
+Credential secrets, rules, and AWX/AAP controller registrations can be managed
+through the authenticated admin API. See the instance's `/api/admin/openapi`
+for resource paths and methods, and the
+[CLI playbook guide](https://github.com/carverauto/serviceradar/blob/staging/js/cli/README.md#plugin-configuration-playbooks)
+for repeatable apply usage.
+
+Secret creation requires `name`, `provider`, `auth_method`, and a `values` map
+whose keys match the provider's credential descriptor. Secret updates edit
+`name` and `description`; rotation accepts a new `values` map for the existing
+credential type. Responses omit secret payloads and ciphertext.
+
+Rule create/update accepts TLS policy, `ca_bundle_pem`,
+`server_cert_fingerprint`, allowed ports, and `metadata`. Put controller hosts
+in `metadata.host` and plugin settings in `metadata.plugin_config`; the API
+does not accept top-level convenience fields for these. A supplied `metadata`
+map replaces the previous map, so merge existing keys before PATCHing it.
+Explicit JSON `null` clears `ca_bundle_pem` or `server_cert_fingerprint`;
+omitting them preserves their values.
+
+AWX/AAP controller creation requires `name`, `base_url`, `agent_id`, and
+`sync_credential_secret_id`. Optional execution and callback bindings use
+`execution_credential_secret_id` and `callback_credential_secret_id`; PATCH
+with JSON `null` clears either optional binding. Tokens are never echoed back.
+
+Assignment responses include `plugin_id` for identity matching. Assignment
+PATCH accepts `plugin_package_id` to select an approved package version.
+
+CLI device-code tokens request `plugins.manage` for these calls
+(`serviceradar-cli auth login --scope plugins.manage`). Existing authorization
+policies are preserved on upgrade: an administrator must add `plugins.manage`
+to the allowed scopes in **Settings -> CLI authentication**
+(`/settings/cli-auth`) before login can request it. New policy rows include it
+by default. The scope permits configuration calls and plugin/package reads;
+each endpoint still checks RBAC: `settings.credentials.manage` for secrets and
+rules, `ansible.controllers.manage` for controllers, `plugins.view` for plugin
+reads, and `plugins.assign` for assignment writes.
+
 ## Provider setup
 
 ### Proxmox VE
@@ -769,12 +808,11 @@ save. It is merged but unreleased.
 First release containing it: `<first-release>`.
 :::
 
-**Until then.** There is no way to save a UniFi Protect or Axis rule from the
-Credential Rules form on 1.4.49 or earlier, and no supported workaround: the
-Credential Rules page is the only route to the resource (there is no REST or
-GraphQL endpoint for `network_credential_rules`), nothing about the rule you are
-entering is wrong, and no combination of fields makes the save succeed, because
-the form cannot submit a value the validator demands. Wait for the release.
+**On affected older versions.** The Credential Rules form cannot save a UniFi
+Protect or Axis rule because it cannot submit the required policy. Releases
+with the [credential admin API](#managing-credentials-from-the-api) allow the
+rule to be created with an explicit TLS policy through that API. Earlier
+releases without this API require an upgrade.
 
 ### "AWX configuration invalid: api_token is required (resolved from credential broker grant)"
 
