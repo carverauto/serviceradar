@@ -283,7 +283,19 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
       :started_at,
       cutoff,
       batch_size,
-      fn query -> where(query, [e], e.status in [:completed, :failed]) end
+      fn query ->
+        from(e in query,
+          as: :execution,
+          where: e.status in [:completed, :failed],
+          where:
+            not exists(
+              from(r in SweepHostResult,
+                where: r.execution_id == parent_as(:execution).id,
+                select: 1
+              )
+            )
+        )
+      end
     )
   end
 
@@ -329,6 +341,8 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
           from(r in {table, resource},
             where: r.id in ^ids
           )
+
+        delete_query = if extra_filter, do: extra_filter.(delete_query), else: delete_query
 
         {count, _} = Repo.delete_all(delete_query)
         Logger.debug("SweepDataCleanupWorker: Deleted #{count} #{table} records")

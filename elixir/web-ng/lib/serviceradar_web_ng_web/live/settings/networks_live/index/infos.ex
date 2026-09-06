@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.CommandStatus
+  import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Executions
 
   def handle_info(:refresh_active_scans, socket) do
@@ -17,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos do
 
     {:noreply,
      socket
+     |> refresh_sweep_groups()
      |> assign(:running_executions, running)
      |> assign(:execution_progress, progress)
      |> assign(:recent_executions, load_recent_executions(scope))}
@@ -43,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos do
     {:noreply,
      socket
      |> assign(:execution_progress, progress)
+     |> refresh_sweep_groups()
      |> assign(:running_executions, load_running_executions(scope))}
   end
 
@@ -82,6 +85,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos do
     {:noreply,
      socket
      |> assign(:execution_progress, progress)
+     |> refresh_sweep_groups()
      |> assign(:running_executions, load_running_executions(scope))
      |> assign(:recent_executions, load_recent_executions(scope))}
   end
@@ -97,6 +101,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos do
     {:noreply,
      socket
      |> assign(:execution_progress, progress)
+     |> refresh_sweep_groups()
      |> assign(:running_executions, load_running_executions(scope))
      |> assign(:recent_executions, load_recent_executions(scope))}
   end
@@ -151,6 +156,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos do
       true ->
         {:error, "Sweep dispatch failed for #{agent_count(failures)}"}
     end
+  end
+
+  defp refresh_sweep_groups(socket) do
+    {groups, summary_agents} = load_sweep_groups_with_summary_agents(socket.assigns.current_scope)
+
+    socket
+    |> assign(:sweep_groups, groups)
+    |> assign(:sweep_group_summary_agents, summary_agents)
   end
 
   defp agent_count(1), do: "1 agent"

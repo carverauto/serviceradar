@@ -122,6 +122,29 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
     assert host_results_on(day) == 1
   end
 
+  for status <- [:completed, :failed] do
+    test "retention preserves unrolled results for an old #{status} execution" do
+      day = Date.add(Date.utc_today(), -40)
+      execution = insert_result_on(day, "192.0.2.41")
+      at = DateTime.new!(day, ~T[12:00:00.000000], "Etc/UTC")
+
+      Repo.update_all(
+        from(e in SweepGroupExecution, where: e.id == ^execution.id),
+        set: [status: unquote(status), started_at: at, completed_at: at]
+      )
+
+      assert :ok = SweepDataCleanupWorker.perform(%Oban.Job{args: %{}})
+      assert host_results_on(day) == 1
+      assert Repo.exists?(from(e in SweepGroupExecution, where: e.id == ^execution.id))
+
+      assert {:ok, 1} = SweepCoverageRollupWorker.rollup_day(day)
+      assert :ok = SweepDataCleanupWorker.perform(%Oban.Job{args: %{}})
+      assert host_results_on(day) == 0
+      refute Repo.exists?(from(e in SweepGroupExecution, where: e.id == ^execution.id))
+      assert coverage_rows_on(day) == 1
+    end
+  end
+
   defp insert_result_on(day, ip) do
     actor = SystemActor.system(:test)
     unique_id = System.unique_integer([:positive, :monotonic])
@@ -165,7 +188,7 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWatermarkDbTest do
       }
     ])
 
-    :ok
+    execution
   end
 
   defp host_results_on(day) do

@@ -225,6 +225,46 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
              Ash.get(SweepHostResult, host_result.id, scope: scope)
   end
 
+  for notification <- [
+        :refresh_active_scans,
+        :sweep_execution_started,
+        :sweep_execution_completed,
+        :sweep_execution_failed
+      ] do
+    test "refreshes deletion history on #{notification}", %{conn: conn, scope: scope} do
+      unique = System.unique_integer([:positive])
+
+      {:ok, group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(:create, %{name: "History Group #{unique}", enabled: false})
+        |> Ash.create(scope: scope)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks")
+      selector = ~s(button[phx-click="delete_group"][phx-value-id="#{group.id}"])
+      assert lv |> element(selector) |> render() =~ "no recorded executions"
+
+      {:ok, execution} =
+        SweepGroupExecution
+        |> Ash.Changeset.for_create(:start, %{
+          sweep_group_id: group.id,
+          agent_id: "agent-#{unique}"
+        })
+        |> Ash.create(scope: scope)
+
+      notification = unquote(notification)
+
+      message =
+        if notification == :refresh_active_scans do
+          notification
+        else
+          {notification, %{execution_id: execution.id, started_at: execution.started_at}}
+        end
+
+      send(lv.pid, message)
+      assert lv |> element(selector) |> render() =~ "1 execution and"
+    end
+  end
+
   test "switches to profiles tab and lists profiles", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
 
