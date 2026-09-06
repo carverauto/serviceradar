@@ -37,7 +37,13 @@ import (
 
 const fakeProxmoxConsolePrompt = "login: "
 
-var errTestProxmoxConsoleSSHDialAuthFailed = errors.New("auth failed for root using secret token")
+var (
+	errTestProxmoxConsoleSSHDialAuthFailed         = errors.New("auth failed for root using secret token")
+	errTestProxmoxConsoleSSHUnexpectedPassword     = errors.New("unexpected password")
+	errTestProxmoxConsoleSSHExpectedSessionChannel = errors.New("expected SSH session channel")
+	errTestProxmoxConsoleSSHInputNotReceived       = errors.New("terminal input did not reach SSH peer")
+	errTestProxmoxConsoleSSHShellNotRequested      = errors.New("shell was not requested")
+)
 
 func TestRunProxmoxConsoleSSHRoutesBridgeFrames(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -546,7 +552,7 @@ func TestRunProxmoxConsoleSSHAddressPreferenceOpensTerminal(t *testing.T) {
 	serverConfig := &ssh.ServerConfig{
 		PasswordCallback: func(_ ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
 			if string(password) != "synthetic-password" {
-				return nil, errors.New("unexpected password")
+				return nil, errTestProxmoxConsoleSSHUnexpectedPassword
 			}
 			return nil, nil
 		},
@@ -578,7 +584,7 @@ func TestRunProxmoxConsoleSSHAddressPreferenceOpensTerminal(t *testing.T) {
 			go ssh.DiscardRequests(requests)
 			newChannel := <-channels
 			if newChannel == nil || newChannel.ChannelType() != "session" {
-				return errors.New("expected SSH session channel")
+				return errTestProxmoxConsoleSSHExpectedSessionChannel
 			}
 			channel, channelRequests, channelErr := newChannel.Accept()
 			if channelErr != nil {
@@ -593,7 +599,7 @@ func TestRunProxmoxConsoleSSHAddressPreferenceOpensTerminal(t *testing.T) {
 						return readErr
 					}
 					if string(input) != command {
-						return errors.New("terminal input did not reach SSH peer")
+						return errTestProxmoxConsoleSSHInputNotReceived
 					}
 					if _, writeErr := io.WriteString(channel, response); writeErr != nil {
 						return writeErr
@@ -602,7 +608,7 @@ func TestRunProxmoxConsoleSSHAddressPreferenceOpensTerminal(t *testing.T) {
 					return nil
 				}
 			}
-			return errors.New("shell was not requested")
+			return errTestProxmoxConsoleSSHShellNotRequested
 		}()
 	}()
 
