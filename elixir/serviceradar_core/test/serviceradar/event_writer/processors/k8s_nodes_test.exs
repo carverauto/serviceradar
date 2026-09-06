@@ -66,7 +66,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodesTest do
   end
 
   test "snapshot timestamps retain subsecond ordering and must be present" do
-    payload = snapshot([]) |> Map.put("generated_at", "2026-09-05T12:00:00.123456Z")
+    payload = [] |> snapshot() |> Map.put("generated_at", "2026-09-05T12:00:00.123456Z")
 
     assert %{snapshot_at: ~U[2026-09-05 12:00:00.123456Z]} =
              K8sNodes.parse_message(message(payload))

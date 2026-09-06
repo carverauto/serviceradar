@@ -264,7 +264,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
     assert :counters.get(calls, 1) == 2
   end
 
-  test "redelivery persists the newly opened incident without creating a duplicate", %{table: table} do
+  test "redelivery persists the newly opened incident without creating a duplicate", %{
+    table: table
+  } do
     now = ~U[2026-08-11 12:00:00Z]
     rule = rule()
     key = {rule.id, "global"}
@@ -314,7 +316,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
       persist_snapshot: fn _, _, _ -> :error end
     }
 
-    assert {:error, :snapshot_persistence_failed} = StateMachine.recover_event(rule, event(now), state)
+    assert {:error, :snapshot_persistence_failed} =
+             StateMachine.recover_event(rule, event(now), state)
+
     assert_received {:resolved, @alert_id}
     assert [{^key, %{alert_id: nil, flush_required: true}}] = :ets.lookup(table, key)
 

@@ -42,7 +42,7 @@
 ## 2. EventWriter ingest and readiness events
 
 - [x] 2.1 HAND-WRITE migration
-      `elixir/serviceradar_core/priv/repo/migrations/20260905120000_create_k8s_nodes_current.exs`
+      `elixir/serviceradar_core/priv/repo/migrations/20260906110000_create_k8s_nodes_current.exs`
       creating `platform.k8s_nodes_current` (`prefix: "platform"`).
 - [x] 2.2 Add `ServiceRadar.EventWriter.Processors.K8sNodes` that upserts the
       snapshot and soft-deletes cluster rows absent from it.

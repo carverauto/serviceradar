@@ -2,9 +2,9 @@ defmodule ServiceRadar.Notifications.MatchExpressionEmptyEqualsTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Notifications.MatchExpression
-  alias ServiceRadar.Notifications.NotificationSilence
-  alias ServiceRadar.Notifications.NotificationRoute
   alias ServiceRadar.Notifications.MatchExpression.Evaluator
+  alias ServiceRadar.Notifications.NotificationRoute
+  alias ServiceRadar.Notifications.NotificationSilence
   alias ServiceRadar.Notifications.Router
 
   @now ~U[2026-09-05 12:00:00.000000Z]

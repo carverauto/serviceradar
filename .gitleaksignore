@@ -49,3 +49,8 @@ ddc5367687b6cbb2303b4b6a14954a3529773490:scripts/sign-wasm-plugin-publish.sh:gen
 # -- any branch far enough behind that remote_oid..local_oid spans it -- does
 # not block on it.
 75fe4330a71c9dc675ac2b1bd2a442c60775f934:MODULE.bazel.lock:generic-api-key:1998
+# Removed architecture diagrams: generic-api-key mistakes the adjacent diagram
+# node IDs "kube-api" and "k8s-inventory" for a credential. Scope to these two
+# historical findings so new content remains scanned.
+988187b9cb6d2c3ae1c5eda6bc6de08fb7914db3:openspec/changes/add-k8s-node-readiness-alerts/architecture.json:generic-api-key:13
+988187b9cb6d2c3ae1c5eda6bc6de08fb7914db3:openspec/changes/add-k8s-node-readiness-alerts/architecture.html:generic-api-key:4962

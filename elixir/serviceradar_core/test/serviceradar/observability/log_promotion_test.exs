@@ -25,6 +25,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest.RejectingAlertQueue do
 end
 
 defmodule ServiceRadar.Observability.LogPromotionTest.AcknowledgingEngine do
+  @moduledoc false
   use GenServer
 
   def start_link(test_pid) do
@@ -252,7 +253,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     subject = get_in(log, [:attributes, "serviceradar", "ingest", "subject"])
 
     message = %{
-      data: Jason.encode!(Map.drop(log, [:created_at])),
+      data: Jason.encode!(Map.delete(log, :created_at)),
       metadata: %{subject: subject}
     }
 
