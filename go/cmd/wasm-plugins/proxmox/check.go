@@ -72,20 +72,22 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 		}
 		totals.Targets++
 
+		nodes = annotateNodesWithClusterStatus(enrichNodes(cfg, target, token, nodes, warnings), cluster)
+		if err := emitProxmoxBatch(observedAt, target, version, cluster, nodes, nil, warnings, &totals); err != nil {
+			return nil, err
+		}
+		if !cfg.includeGuests() {
+			continue
+		}
+
 		remaining := cfg.MaxGuests
 		for _, node := range nodes {
 			if strings.TrimSpace(node.Node) == "" {
 				continue
 			}
 
-			enrichedNodes := annotateNodesWithClusterStatus(
-				enrichNodes(cfg, target, token, []proxmoxNode{node}, warnings), cluster)
-			if err := emitProxmoxBatch(observedAt, target, version, cluster, enrichedNodes, nil, warnings, &totals); err != nil {
-				return nil, err
-			}
-
 			var guests []proxmoxGuest
-			if cfg.includeGuests() && (cfg.MaxGuests <= 0 || remaining > 0) {
+			if cfg.MaxGuests <= 0 || remaining > 0 {
 				var truncated bool
 				guests, truncated = fetchNodeGuestsEnriched(cfg, target, token, node.Node, remaining, nodeEnrichDeadline(), warnings)
 				if cfg.MaxGuests > 0 {
@@ -98,7 +100,7 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 			}
 
 			if len(guests) > 0 {
-				if err := emitProxmoxBatch(observedAt, target, version, cluster, enrichedNodes, guests, warnings, &totals); err != nil {
+				if err := emitProxmoxBatch(observedAt, target, version, cluster, []proxmoxNode{node}, guests, warnings, &totals); err != nil {
 					return nil, err
 				}
 			}

@@ -129,31 +129,29 @@ func (f inventoryHTTPFunc) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	return f(req)
 }
 
-func TestInventoryBatchesIncludeOwnersBeforeNextNode(t *testing.T) {
+func TestInventorySubmitsAllHostsBeforeGuests(t *testing.T) {
 	oldHTTP, oldSubmit := proxmoxHTTP, submitResult
 	t.Cleanup(func() { proxmoxHTTP, submitResult = oldHTTP, oldSubmit })
 	var batches []proxmoxDetails
 	proxmoxHTTP = inventoryHTTPFunc(func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+		if strings.Contains(req.URL, "/qemu") || strings.Contains(req.URL, "/lxc") {
+			if len(batches) == 0 || len(batches[0].Targets[0].Nodes) != 2 || len(batches[0].Targets[0].Guests) != 0 {
+				t.Fatalf("all hosts must be submitted before guest request %s: %#v", req.URL, batches)
+			}
+			hosts := batches[0].Targets[0].Nodes
+			if hosts[0].Node != "host01" || hosts[1].Node != "host02" {
+				t.Fatalf("initial batch must contain both hosts: %#v", hosts)
+			}
+		}
 		body := `{"data":[]}`
 		switch {
 		case strings.HasSuffix(req.URL, "/version"):
 			body = `{"data":{"version":"1.0-example"}}`
 		case strings.HasSuffix(req.URL, "/nodes"):
 			body = `{"data":[{"node":"host01","status":"online"},{"node":"host02","status":"online"}]}`
-		case strings.Contains(req.URL, "/nodes/host02/"):
-			wantBatches := 2
-			if strings.HasSuffix(req.URL, "/qemu") || strings.HasSuffix(req.URL, "/lxc") {
-				wantBatches = 3
-			}
-			if len(batches) != wantBatches {
-				t.Fatalf("request %s: got %d submitted batches, want %d", req.URL, len(batches), wantBatches)
-			}
 		case strings.HasSuffix(req.URL, "/host01/network"):
 			body = `{"data":[{"iface":"vmbr0","address":"192.0.2.41","cidr":"192.0.2.41/24"}]}`
 		case strings.HasSuffix(req.URL, "/host01/qemu"):
-			if len(batches) != 1 || len(batches[0].Targets[0].Nodes) != 1 || len(batches[0].Targets[0].Guests) != 0 {
-				t.Fatalf("host inventory must be submitted before guest requests: %#v", batches)
-			}
 			body = `{"data":[{"vmid":501,"name":"guest01","status":"stopped"}]}`
 		case strings.HasSuffix(req.URL, "/501/config"):
 			body = `{"data":{"net0":"virtio=00:00:5e:00:53:41,ip=192.0.2.42/24"}}`
@@ -176,8 +174,8 @@ func TestInventoryBatchesIncludeOwnersBeforeNextNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(batches) != 3 {
-		t.Fatalf("expected two host batches and one guest batch, got %d", len(batches))
+	if len(batches) != 2 {
+		t.Fatalf("expected all hosts followed by one guest batch, got %d", len(batches))
 	}
 	first := batches[1].Targets[0]
 	if len(first.Nodes) != 1 || len(first.Guests) != 1 || first.Guests[0].Node != first.Nodes[0].Node {
