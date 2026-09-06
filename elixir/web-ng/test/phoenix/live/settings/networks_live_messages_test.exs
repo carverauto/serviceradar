@@ -6,6 +6,33 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveMessagesTest do
 
   @moduletag :db_free
 
+  describe "sweep_group_delete_confirm_message/1" do
+    # #4076 ships a delete that discards execution history. The operator agrees
+    # to that before it happens, with the size of it in front of them, or the
+    # confirmation is not informed consent.
+    test "names how many executions the delete discards" do
+      message = Messages.sweep_group_delete_confirm_message(1234)
+
+      assert message =~ "1234 executions"
+      assert message =~ "per-host results"
+      assert message =~ "coverage rollups are kept"
+    end
+
+    test "reads correctly for a single execution" do
+      message = Messages.sweep_group_delete_confirm_message(1)
+
+      assert message =~ "1 execution and"
+      refute message =~ "1 executions"
+    end
+
+    test "a group that has never run says nothing is discarded" do
+      message = Messages.sweep_group_delete_confirm_message(0)
+
+      assert message =~ "no recorded executions"
+      refute message =~ "discards"
+    end
+  end
+
   describe "sweep_group_delete_error_message/1" do
     # #4076: every delete failure used to render the same sentence, so an
     # operator could not tell "you lack the role" from "something in the

@@ -16,6 +16,23 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Messages do
   def sweep_group_save_message(false), do: "Sweep group saved"
 
   @doc """
+  The delete confirmation for a sweep group, sized to what the delete discards.
+
+  Deleting a group takes its executions and their per-host results with it, so
+  the operator is told how much history that is while they can still decline.
+  A group that has never run loses nothing and says so.
+  """
+  def sweep_group_delete_confirm_message(execution_count) when is_integer(execution_count) and execution_count > 0 do
+    "Delete this sweep group? This also discards #{execution_count} #{pluralize(execution_count, "execution")} and the per-host results recorded for #{pluralize(execution_count, "it", "them")}. Long-term coverage rollups are kept."
+  end
+
+  def sweep_group_delete_confirm_message(_execution_count), do: "Delete this sweep group? It has no recorded executions."
+
+  defp pluralize(1, singular, _plural), do: singular
+  defp pluralize(_count, _singular, plural), do: plural
+  defp pluralize(count, singular), do: pluralize(count, singular, singular <> "s")
+
+  @doc """
   Why a sweep group delete was refused, in terms the operator can act on.
 
   The delete path used to collapse every failure into one sentence, so an

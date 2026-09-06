@@ -215,8 +215,21 @@ The system SHALL provide an admin interface for managing sweep jobs in Settings 
 - **GIVEN** an existing sweep job
 - **WHEN** an admin deletes the job
 - **THEN** the job SHALL be removed from the database
+- **AND** its executions and their per-host results SHALL be discarded with it
+- **AND** long-term coverage rollups SHALL be retained
 - **AND** the agent config SHALL be recompiled without this job
-- **AND** historical results SHALL be retained
+
+#### Scenario: Delete names the history it discards
+- **GIVEN** an existing sweep job with recorded executions
+- **WHEN** an admin is asked to confirm the delete
+- **THEN** the confirmation SHALL state how many executions the delete discards
+- **AND** a job with no recorded executions SHALL say that nothing is discarded
+
+#### Scenario: Refused delete gives an actionable reason
+- **GIVEN** an admin deleting a sweep job
+- **WHEN** the delete is refused
+- **THEN** the UI SHALL state the reason it can distinguish rather than a single generic failure
+- **AND** the underlying reason SHALL be logged
 
 ---
 

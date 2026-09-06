@@ -204,6 +204,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     {:ok, lv, html} = live(conn, ~p"/settings/networks")
     assert html =~ group.name
 
+    # The operator agrees to discarding the history with its size in front of
+    # them, not after the fact.
+    assert html =~ "1 execution and"
+
     lv
     |> element(~s(button[phx-click="delete_group"][phx-value-id="#{group.id}"]))
     |> render_click()

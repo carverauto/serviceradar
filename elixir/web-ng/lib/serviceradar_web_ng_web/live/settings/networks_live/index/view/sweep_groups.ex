@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
 
   import ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.CommandStatus
+  import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Messages, only: [sweep_group_delete_confirm_message: 1]
 
   attr :groups, :list, required: true
   attr :summary_agents, :map, default: %{}
@@ -173,7 +174,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups do
                       size="xs"
                       phx-click="delete_group"
                       phx-value-id={group.id}
-                      data-confirm="Are you sure you want to delete this sweep group?"
+                      data-confirm={sweep_group_delete_confirm_message(group.execution_count)}
                     >
                       <.icon name="hero-trash" class="size-3" />
                     </.ui_button>

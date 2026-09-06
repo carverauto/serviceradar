@@ -201,8 +201,9 @@ agent subset.
 - **GIVEN** an existing sweep job
 - **WHEN** an admin deletes the job
 - **THEN** the job SHALL be removed from the database
+- **AND** its executions and their per-host results SHALL be discarded with it
+- **AND** long-term coverage rollups SHALL be retained
 - **AND** the agent config SHALL be recompiled without this job
-- **AND** historical results SHALL be retained
 
 #### Scenario: Choose assignment mode explicitly
 - **GIVEN** an operator creates or edits a sweep group
