@@ -14,6 +14,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.DeviceRecords
   alias ServiceRadar.Inventory.Sync.SourcePolicy
@@ -410,6 +411,16 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
     incoming_ip_owners = incoming_ip_owners(records)
 
+    # Registration owners for the hostname-agreement adoption below. Loaded
+    # once per batch and only when a strong record actually collides with a
+    # different holder; batches without such collisions pay no extra query.
+    identity_regs =
+      if Enum.any?(records, &strong_ip_collision?(&1, strong_uids, active_holders)) do
+        load_identity_registrations(records, existing_by_ip)
+      else
+        %{}
+      end
+
     {remapped_records, {remap, conflicts, _anchors}} =
       Enum.map_reduce(records, {%{}, [], :not_loaded}, fn record, acc ->
         resolve_record_active_ip(
@@ -418,6 +429,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           active_holders,
           existing_by_ip,
           incoming_ip_owners,
+          identity_regs,
           acc
         )
       end)
@@ -540,6 +552,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
          active_holders,
          existing_by_ip,
          incoming_ip_owners,
+         identity_regs,
          {remap, conflicts, anchors}
        ) do
     ip = Map.get(record, :ip)
@@ -564,23 +577,146 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             {Map.put(record, :uid, existing_uid),
              {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
           else
-            # Strong identities never adopt an arbitrary IP owner. A
-            # truly provisional seed is the sole exception and is safe
-            # only while it has no registered identity anchor.
-            Logger.info(
-              "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
-                "device #{record.uid} (held by #{existing_uid})"
-            )
+            if adopt_on_hostname_agreement?(record, existing, existing_uid, identity_regs) do
+              Logger.info(
+                "SyncIngestor: adopting active IP #{ip} holder #{existing_uid} for " <>
+                  "strong-identified device #{record.uid} (hostname agreement)"
+              )
 
-            conflict = SourceIdentityDrift.build_active_ip_conflict(record, existing_uid, ip)
+              {Map.put(record, :uid, existing_uid),
+               {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
+            else
+              # Strong identities never adopt an arbitrary IP owner. A
+              # truly provisional seed is the sole exception and is safe
+              # only while it has no registered identity anchor.
+              Logger.info(
+                "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
+                  "device #{record.uid} (held by #{existing_uid})"
+              )
 
-            {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict), anchors}}
+              conflict = SourceIdentityDrift.build_active_ip_conflict(record, existing_uid, ip)
+
+              {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict), anchors}}
+            end
           end
         else
           {Map.put(record, :uid, existing_uid),
            {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
         end
     end
+  end
+
+  # True when this record can take the strong-collision branch: it carries a
+  # strong identity and its IP is held by a different active device. Mirrors
+  # the branch condition so the registration lookup below is loaded exactly
+  # when it will be consulted.
+  defp strong_ip_collision?(record, strong_uids, active_holders) do
+    MapSet.member?(strong_uids, Map.get(record, :uid)) and
+      case Map.get(active_holders, record_ip_key(record)) do
+        %{uid: holder_uid} -> holder_uid != Map.get(record, :uid)
+        _ -> false
+      end
+  end
+
+  # Owners of every anchor identifier claimed by this batch's records and by
+  # the holders they may collide with, keyed by {type, value, partition}.
+  # One query per batch, only on batches with a strong collision.
+  defp load_identity_registrations(records, existing_by_ip) do
+    record_pairs = Enum.flat_map(records, &record_identity_pairs(&1, record_partition(&1)))
+
+    holder_pairs =
+      Enum.flat_map(existing_by_ip, fn {{partition, _ip}, holder} ->
+        record_identity_pairs(holder, partition)
+      end)
+
+    case Enum.uniq(record_pairs ++ holder_pairs) do
+      [] ->
+        %{}
+
+      pairs ->
+        # Composite `in` over a runtime pair list is not expressible to the
+        # Ecto query planner, so match the triple through unnest arrays, the
+        # same shape the release-clear below uses for (uid, ip).
+        {types, values, partitions} =
+          Enum.reduce(pairs, {[], [], []}, fn {type, value, partition},
+                                              {types, values, partitions} ->
+            {[to_string(type) | types], [value | values], [partition | partitions]}
+          end)
+
+        DeviceIdentifier
+        |> where(
+          [i],
+          fragment(
+            "(?::text, ?::text, ?::text) IN (SELECT * FROM unnest(?::text[], ?::text[], ?::text[]))",
+            i.identifier_type,
+            i.identifier_value,
+            i.partition,
+            ^types,
+            ^values,
+            ^partitions
+          )
+        )
+        |> select([i], {i.identifier_type, i.identifier_value, i.partition, i.device_id})
+        |> Repo.all()
+        |> Enum.group_by(
+          # Raw Ecto select bypasses Ash type casting, so the atom column
+          # arrives as text; key on strings to match the pairs below.
+          fn {type, value, partition, _uid} -> {to_string(type), value, partition} end,
+          fn {_type, _value, _partition, uid} -> uid end
+        )
+    end
+  end
+
+  # Anchor identifier claims on a record or holder map, extracted with the
+  # same vocabulary registrations are written in (`Ids`). Values the
+  # extractor rejects (armis `integration_id`, placeholder serials,
+  # unparseable MACs) never become claims, exactly as they never become rows.
+  defp record_identity_pairs(map, partition) do
+    ids = Ids.extract_strong_identifiers(map)
+
+    for type <- @identity_anchor_types,
+        value <- Ids.get_identifier_values(type, ids),
+        Ids.present_id?(value),
+        do: {Atom.to_string(type), value, partition}
+  end
+
+  # Hostname-agreement adoption (GitHub #4059, option 2): a strong-identified
+  # record may converge onto the holder when both sides name the same
+  # hostname and neither side's strong identity is claimed by a third
+  # device. Either hostname blank vetoes: two records that say nothing about
+  # a name do not agree, they are merely silent. Any third-device claim
+  # vetoes: that is the over-merge shape (a collector's agent_id, a
+  # re-pointed integration id) the fork rule exists to refuse.
+  defp adopt_on_hostname_agreement?(record, holder, holder_uid, identity_regs) do
+    hostnames_agree?(Map.get(record, :hostname), Map.get(holder, :hostname)) and
+      not third_party_identity_claim?(
+        record,
+        holder,
+        holder_uid,
+        record_partition(record),
+        identity_regs
+      )
+  end
+
+  defp hostnames_agree?(a, b) when is_binary(a) and is_binary(b) do
+    a = String.trim(a)
+    b = String.trim(b)
+    a != "" and b != "" and String.downcase(a) == String.downcase(b)
+  end
+
+  defp hostnames_agree?(_, _), do: false
+
+  defp third_party_identity_claim?(record, holder, holder_uid, partition, identity_regs) do
+    allowed = MapSet.new([Map.get(record, :uid), holder_uid])
+
+    [record, holder]
+    |> Enum.flat_map(&record_identity_pairs(&1, partition))
+    |> Enum.any?(fn pair ->
+      case Map.get(identity_regs, pair) do
+        nil -> false
+        uids -> Enum.any?(uids, &(not MapSet.member?(allowed, &1)))
+      end
+    end)
   end
 
   defp ensure_anchored_uids(:not_loaded, existing_by_ip) do

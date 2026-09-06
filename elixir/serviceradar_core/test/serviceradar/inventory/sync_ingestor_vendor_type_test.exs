@@ -761,6 +761,105 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert "armis" in reclassified.discovery_sources
   end
 
+  test "a later strong integration converges when hostname agrees and no third identity claims it",
+       %{actor: actor} do
+    # The reverse arrival order of the test above (GitHub #4059): armis
+    # classifies first, then a strong-identified netbox record claims the same
+    # IP. Same hostname on both sides and neither strong identifier registered
+    # anywhere else, so the netbox record adopts the armis row instead of
+    # forking an IP-less duplicate -- and the better inference lands.
+    ip = unique_ip()
+    hostname = "converge-type-test-#{System.unique_integer([:positive])}"
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => hostname,
+                   "source" => "armis",
+                   "metadata" => %{
+                     "integration_id" => "armis-converge-#{System.unique_integer([:positive])}",
+                     "integration_type" => "armis",
+                     "armis_type" => "Tablet"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    assert fetch_device_by_ip!(actor, ip).type == "Tablet"
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => hostname,
+                   "source" => "netbox",
+                   "metadata" => %{
+                     "integration_id" => "netbox-converge-#{System.unique_integer([:positive])}",
+                     "integration_type" => "netbox",
+                     "netbox_device_type" => "Switch"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    reclassified = fetch_device_by_ip!(actor, ip)
+    assert reclassified.type == "Switch"
+    assert reclassified.type_id == 10
+    assert "netbox" in reclassified.discovery_sources
+    assert "armis" in reclassified.discovery_sources
+  end
+
+  test "a later strong integration still forks when hostnames disagree", %{actor: actor} do
+    # The guardrail on the convergence above: different hostnames mean no
+    # agreement, so the strong-identity fork rule still fires and the two
+    # identities stay distinct devices.
+    ip = unique_ip()
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => "holder-#{System.unique_integer([:positive])}",
+                   "source" => "armis",
+                   "metadata" => %{
+                     "integration_id" => "armis-diverge-#{System.unique_integer([:positive])}",
+                     "integration_type" => "armis",
+                     "armis_type" => "Tablet"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => "claimer-#{System.unique_integer([:positive])}",
+                   "source" => "netbox",
+                   "metadata" => %{
+                     "integration_id" => "netbox-diverge-#{System.unique_integer([:positive])}",
+                     "integration_type" => "netbox",
+                     "netbox_device_type" => "Switch"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    holder = fetch_device_by_ip!(actor, ip)
+    assert holder.type == "Tablet"
+    assert "armis" in holder.discovery_sources
+    refute "netbox" in holder.discovery_sources
+  end
+
   test "an integration still fills a blank type on a manually created device", %{actor: actor} do
     ip = unique_ip()
 
