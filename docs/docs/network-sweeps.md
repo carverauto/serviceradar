@@ -27,6 +27,19 @@ Sweep groups are the primary unit of configuration. Each group includes:
   which agents receive the sweep.
 - **Enabled toggle**: Disable a group without deleting it.
 
+### Deleting a Group
+
+Use the group's delete button in Settings > Networks and review the confirmation.
+It names the recorded execution count, or states that there are no recorded
+executions. Confirming removes the group, its executions, and their per-host
+results. Long-term coverage rollups are kept. Disable the group instead if you
+want to stop scheduled scans while keeping its execution history subject to
+normal retention.
+
+If deletion is refused, the UI identifies authorization failures or a group
+that no longer exists. For other failures, it directs you to the server log;
+ask an administrator to inspect the corresponding sweep-group deletion error.
+
 ### Agent Assignment
 
 Sweep groups support two assignment modes:

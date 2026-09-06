@@ -219,6 +219,11 @@ The system SHALL provide an admin interface for managing sweep jobs in Settings 
 - **AND** long-term coverage rollups SHALL be retained
 - **AND** the agent config SHALL be recompiled without this job
 
+### Requirement: Sweep Job Deletion Feedback
+
+The system SHALL confirm the execution history discarded by a sweep job deletion
+and provide actionable feedback when deletion fails.
+
 #### Scenario: Delete names the history it discards
 - **GIVEN** an existing sweep job with recorded executions
 - **WHEN** an admin is asked to confirm the delete

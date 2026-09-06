@@ -7,8 +7,13 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   - `SweepGroupExecution` records older than `executions_retention_days` (default: 30)
   - `platform.sweep_coverage_daily` rows older than `rollup_retention_days` (default: 400)
 
-  Host results are deleted first to avoid foreign key issues, then orphaned
-  executions are removed.
+  Host results are deleted first. Only completed or failed executions with no
+  remaining host results are eligible for retention cleanup. This preserves
+  watermark-protected results even though execution deletion now cascades to
+  host results. Operator-initiated group deletion intentionally bypasses this
+  retention protection; see `openspec/specs/sweep-jobs/spec.md`.
+
+  The regression is covered by `sweep_data_cleanup_watermark_db_test.exs`.
 
   ## Rollup watermark guard
 

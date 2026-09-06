@@ -14,10 +14,9 @@ defmodule ServiceRadar.Repo.Migrations.CascadeSweepGroupDeletes do
   second constraint alone would move the violation one level down rather than
   remove it.
 
-  Discarding the rows is the correct product behaviour, not merely the
-  convenient one: an execution and its host results describe one run of one
-  group and mean nothing once the group is gone, and
-  `SweepDataCleanupWorker` already discards them on a 30-day / 7-day retention.
+  The deletion contract is defined in `openspec/specs/sweep-jobs/spec.md`.
+  Scheduled retention has separate safeguards documented in
+  `ServiceRadar.SweepJobs.SweepDataCleanupWorker`.
   The audit trail is unaffected -- `sweep_group_execution_versions` is
   append-only and holds no foreign key into either table, so its rows survive
   the cascade.
