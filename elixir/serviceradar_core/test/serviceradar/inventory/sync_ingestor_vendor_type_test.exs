@@ -966,12 +966,18 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
                ]
              )
 
-    survivor = fetch_device_by_ip!(actor, ip)
-
-    assert {:ok, _} =
-             survivor
-             |> Ash.Changeset.for_update(:update, %{type: "Firewall", type_id: 9})
-             |> Ash.update(actor: actor)
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => hostname,
+                   "source" => "manual",
+                   "metadata" => %{"type" => "Firewall"}
+                 }
+               ],
+               actor: actor
+             )
 
     assert :ok = SyncIngestor.ingest_updates([followup], actor: actor)
     manually_typed = fetch_device_by_ip!(actor, ip)

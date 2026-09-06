@@ -45,8 +45,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
                hostname: hostname,
                type: "Switch",
                type_id: 10,
-               discovery_sources: ["armis"],
-               metadata: %{"type_manually_set" => false}
+               discovery_sources: ["armis"]
              })
 
     assert {:ok, provenance_only} =
@@ -55,6 +54,14 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     assert provenance_only.uid == existing.uid
     assert "manual" in provenance_only.discovery_sources
     assert provenance_only.metadata["type_manually_set"] == false
+
+    assert {:ok, refreshed} =
+             provenance_only
+             |> Ash.Changeset.for_update(:update, %{type: "camera", type_id: 99})
+             |> Ash.update(scope: scope)
+
+    assert refreshed.type == "camera"
+    assert refreshed.metadata["type_manually_set"] == false
 
     for type <- ["Tablet", "Switch"] do
       assert :ok =

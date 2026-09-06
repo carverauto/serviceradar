@@ -276,30 +276,6 @@ defmodule ServiceRadar.Inventory.Device do
     update :update do
       accept(@device_update_fields)
 
-      change(fn changeset, _context ->
-        sources = Ash.Changeset.get_attribute(changeset, :discovery_sources) || []
-
-        params = changeset.params || %{}
-        type_submitted? = Map.has_key?(params, :type) or Map.has_key?(params, "type")
-
-        if type_submitted? and "manual" in sources do
-          type = Ash.Changeset.get_attribute(changeset, :type)
-
-          manual_type? =
-            is_binary(type) and String.downcase(String.trim(type)) not in ["", "unknown"]
-
-          metadata = Ash.Changeset.get_attribute(changeset, :metadata) || %{}
-
-          Ash.Changeset.change_attribute(
-            changeset,
-            :metadata,
-            Map.put(metadata, "type_manually_set", manual_type?)
-          )
-        else
-          changeset
-        end
-      end)
-
       change(set_attribute(:modified_time, &DateTime.utc_now/0))
       validate(ServiceRadar.Inventory.Validations.AgentManaged)
     end

@@ -100,12 +100,16 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     case parse_partition(raw_partition) do
       {:ok, partition} ->
         %{
-          hostname: blank_to_nil(Map.get(device_data, :hostname) || Map.get(device_data, "hostname")),
+          hostname:
+            blank_to_nil(Map.get(device_data, :hostname) || Map.get(device_data, "hostname")),
           ip: blank_to_nil(Map.get(device_data, :ip) || Map.get(device_data, "ip")),
           partition: if(partition == "", do: "default", else: partition),
           type: blank_to_nil(Map.get(device_data, :type) || Map.get(device_data, "type")),
           tags: Map.get(device_data, :tags) || Map.get(device_data, "tags") || [],
-          metadata: stringify_metadata(Map.get(device_data, :metadata) || Map.get(device_data, "metadata") || %{})
+          metadata:
+            stringify_metadata(
+              Map.get(device_data, :metadata) || Map.get(device_data, "metadata") || %{}
+            )
         }
 
       {:error, slug} ->
@@ -142,7 +146,8 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
       is_managed: true,
       is_active: true,
       tags: normalize_tags(device_data.tags),
-      metadata: device_data.metadata,
+      metadata:
+        Map.put(device_data.metadata, "type_manually_set", meaningful_type?(device_data.type)),
       discovery_sources: ["manual"],
       first_seen_time: now,
       last_seen_time: now,
@@ -252,7 +257,8 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
 
   defp lookup_by_ip(_scope, _ip, _partition), do: {:ok, []}
 
-  defp lookup_by_hostname(scope, hostname, partition) when is_binary(hostname) and is_binary(partition) do
+  defp lookup_by_hostname(scope, hostname, partition)
+       when is_binary(hostname) and is_binary(partition) do
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: true})
     |> Ash.Query.filter(hostname == ^hostname and partition == ^partition)
@@ -262,10 +268,13 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
 
   defp lookup_by_hostname(_scope, _hostname, _partition), do: {:ok, []}
 
-  defp lookup_by_ip_identifier(scope, ip, partition) when is_binary(ip) and is_binary(partition) do
+  defp lookup_by_ip_identifier(scope, ip, partition)
+       when is_binary(ip) and is_binary(partition) do
     DeviceIdentifier
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(identifier_type == :ip and identifier_value == ^ip and partition == ^partition)
+    |> Ash.Query.filter(
+      identifier_type == :ip and identifier_value == ^ip and partition == ^partition
+    )
     |> Ash.read(scope: scope)
     |> Page.unwrap()
     |> case do
@@ -407,12 +416,38 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     |> maybe_put_hostname(device, attrs)
     |> maybe_put_ip(device, attrs)
     |> maybe_put_type(device, attrs)
+    |> put_type_ownership(device)
     |> Map.put(:tags, merge_tags(Map.get(device, :tags), incoming_tags))
     |> Map.put(
       :discovery_sources,
       merge_discovery_sources(Map.get(device, :discovery_sources), incoming_sources)
     )
   end
+
+  defp put_type_ownership(update, device) do
+    metadata = Map.get(device, :metadata) || %{}
+
+    manually_set? =
+      case Map.fetch(update, :type) do
+        {:ok, type} ->
+          meaningful_type?(type)
+
+        :error ->
+          Map.get(
+            metadata,
+            "type_manually_set",
+            "manual" in (Map.get(device, :discovery_sources) || []) and
+              meaningful_type?(Map.get(device, :type))
+          )
+      end
+
+    Map.put(update, :metadata, Map.put(metadata, "type_manually_set", manually_set?))
+  end
+
+  defp meaningful_type?(type) when is_binary(type),
+    do: String.downcase(String.trim(type)) not in ["", "unknown"]
+
+  defp meaningful_type?(_type), do: false
 
   defp maybe_put_hostname(update, _device, attrs) do
     case Map.get(attrs, :hostname) do
@@ -453,9 +488,12 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     end
   end
 
-  defp maybe_merge_metadata(device, %{metadata: metadata}, scope) when is_map(metadata) and map_size(metadata) > 0 do
+  defp maybe_merge_metadata(device, %{metadata: metadata}, scope)
+       when is_map(metadata) and map_size(metadata) > 0 do
     device
-    |> Ash.Changeset.for_update(:merge_metadata, %{metadata_patch: metadata})
+    |> Ash.Changeset.for_update(:merge_metadata, %{
+      metadata_patch: Map.delete(metadata, "type_manually_set")
+    })
     |> Ash.update(scope: scope)
   end
 
@@ -496,7 +534,9 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
 
         {:error, reason} = error ->
           if Fence.stale?(reason) do
-            Logger.warning("CSV/manual upsert skipped duplicate #{device.uid}: stale after identity change")
+            Logger.warning(
+              "CSV/manual upsert skipped duplicate #{device.uid}: stale after identity change"
+            )
 
             {:cont, :ok}
           else
@@ -659,3 +699,4 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   defp unique_validation?({Ash.Resource.Validation.Uniqueness, _opts}), do: true
   defp unique_validation?(_validation), do: false
 end
+
