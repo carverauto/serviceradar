@@ -133,6 +133,7 @@ export async function applyCommand(options: Record<string, any>): Promise<void> 
     const existing = await findOne(session, "/api/admin/network-credential-rules", {
       name: rule.name,
       provider: rule.provider,
+      scope_type: rule.scope_type,
       scope_value: scopeValue,
     })
     const host = optionalFrom(rule.controller_host, rule.controller_host_from)
@@ -246,7 +247,7 @@ async function findOne(
   const params = new URLSearchParams(query)
   const {payload} = await adminRequest(session, "GET", `${collection}?${params}`)
   if (!Array.isArray(payload) || payload.length === 0) return null
-  return payload.find((item) => matches(item, query)) || payload[0]
+  return payload.find((item) => matches(item, query)) || null
 }
 
 function matches(item: any, query: Record<string, string>): boolean {

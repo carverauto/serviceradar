@@ -78,7 +78,7 @@ assignments:
     }
     if (req.method === "GET" && url.pathname === "/api/admin/network-credential-rules") {
       res.setHeader("content-type", "application/json")
-      res.end(JSON.stringify([{id: "rule-1", name: "demo-netbox-inventory", provider: "netbox", scope_value: "agent-site01-01", metadata: {plugin_config: {sources: ["example"]}, cadence_seconds: 600}}]))
+      res.end(JSON.stringify([{id: "rule-1", name: "demo-netbox-inventory", provider: "netbox", scope_type: "agent", scope_value: "agent-site01-01", metadata: {plugin_config: {sources: ["example"]}, cadence_seconds: 600}}]))
       return
     }
     if (req.method === "GET" && url.pathname === "/api/admin/plugin-packages") {
@@ -179,3 +179,59 @@ test("dry-run requires an approved assignment package and performs no writes", a
     assert.deepEqual(writes, [])
   })
 })
+
+for (const matchingRuleExists of [false, true]) {
+  test(`apply matches the complete rule scope when gateway rule exists: ${matchingRuleExists}`, async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), "sr-plugin-scope-"))
+    const playbook = join(projectDir, "example.yaml")
+    await writeFile(playbook, `
+secrets:
+  - name: example-secret
+    provider: netbox
+    auth_method: api_token
+rules:
+  - name: example-rule
+    provider: netbox
+    auth_method: api_token
+    purpose: inventory_sync
+    secret: example-secret
+    scope_type: gateway
+    scope_value: example-scope
+    target_query: "in:devices"
+`)
+    const writes = []
+    const queries = []
+    const identity = {name: "example-rule", provider: "netbox", scope_value: "example-scope"}
+    await withServer(async (req, res) => {
+      const url = new URL(req.url, "http://127.0.0.1")
+      res.setHeader("content-type", "application/json")
+      if (req.method === "GET" && url.pathname === "/api/admin/network-credential-secrets") {
+        res.end(JSON.stringify([{id: "secret-1", name: "example-secret", provider: "netbox"}]))
+      } else if (req.method === "GET" && url.pathname === "/api/admin/network-credential-rules") {
+        queries.push(Object.fromEntries(url.searchParams))
+        const rules = [{id: "partition-rule", ...identity, scope_type: "partition"}]
+        if (matchingRuleExists) rules.push({id: "gateway-rule", ...identity, scope_type: "gateway"})
+        res.end(JSON.stringify(rules))
+      } else if (req.method === "POST" || req.method === "PATCH") {
+        const body = JSON.parse((await readBody(req)).toString())
+        writes.push({method: req.method, path: url.pathname, body})
+        res.end(JSON.stringify({id: "new-rule", ...body}))
+      } else {
+        res.statusCode = 404
+        res.end("{}")
+      }
+    }, async (instance) => {
+      const {code, stderr} = await runCli([
+        "plugin", "apply", "--instance", instance, "--file", playbook, "--token", "test-token",
+      ])
+      assert.equal(code, 0, stderr)
+      assert.deepEqual(queries, [{...identity, scope_type: "gateway"}])
+      assert.equal(writes.length, 1)
+      assert.equal(writes[0].method, matchingRuleExists ? "PATCH" : "POST")
+      assert.equal(writes[0].path, matchingRuleExists
+        ? "/api/admin/network-credential-rules/gateway-rule"
+        : "/api/admin/network-credential-rules")
+      assert.equal(writes[0].body.scope_type, "gateway")
+    })
+  })
+}

@@ -85,6 +85,7 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
       |> Ash.Query.for_read(:read, %{}, scope: scope)
       |> maybe_filter_provider(filters)
       |> maybe_filter_name(filters)
+      |> maybe_filter_scope_type(filters)
       |> maybe_filter_scope_value(filters)
       |> maybe_filter_enabled(filters)
       |> Ash.Query.sort(priority: :asc, inserted_at: :asc)
@@ -194,6 +195,13 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
     case filter_string(filters, "name") do
       nil -> query
       value -> Ash.Query.filter(query, name == ^value)
+    end
+  end
+
+  defp maybe_filter_scope_type(query, filters) do
+    case filter_string(filters, "scope_type") do
+      nil -> query
+      value -> Ash.Query.filter(query, scope_type == ^value)
     end
   end
 
