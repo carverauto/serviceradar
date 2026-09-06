@@ -105,12 +105,7 @@ defmodule ServiceRadar.Notifications.NotificationChannel do
     routes do
       base "/notification-channels"
 
-      get :by_id
       index :read
-      post :create
-      patch :update
-      patch :enable, route: "/:id/enable"
-      patch :disable, route: "/:id/disable"
     end
   end
 

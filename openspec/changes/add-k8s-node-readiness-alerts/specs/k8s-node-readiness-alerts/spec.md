@@ -27,14 +27,20 @@ publish where nothing consumes.
   get/list/watch
 - **AND** host agents and netprobe SHALL NOT receive Kubernetes API credentials
 
-### Requirement: Node watching is off where Nodes RBAC is not granted
-A deployment of the collector SHALL NOT start the Node informer unless its
-ServiceAccount is granted Nodes get/list/watch. The Node informer participates
-in the startup cache sync, so a Forbidden List blocks readiness indefinitely
-and stops the endpoint snapshots that deployment already published. The
-`serviceradar-k8s-edge` chart grants only services and endpointslices, and
-supports namespace-scoped RBAC in which cluster-scoped Nodes cannot be granted
-at all, so it SHALL set `K8S_INVENTORY_NODES` to false.
+### Requirement: Node watching is opt-in
+The collector SHALL default `K8S_INVENTORY_NODES` to false and SHALL start the
+Node informer only when a deployment asks for it. The Node informer
+participates in the startup cache sync, so where Nodes RBAC is absent a
+Forbidden List blocks readiness indefinitely and stops the endpoint snapshots
+that deployment already published. Both shipped charts render the variable
+explicitly, so an opt-in default changes nothing for a chart-driven
+deployment while leaving an un-updated manifest on its previous behaviour.
+
+#### Scenario: A manifest that predates node watching keeps working
+- **WHEN** a collector runs from a manifest that sets no `K8S_INVENTORY_NODES`
+  and whose ServiceAccount has no Nodes RBAC
+- **THEN** the collector SHALL NOT start the Node informer
+- **AND** it SHALL become ready and continue publishing endpoint snapshots
 
 #### Scenario: Edge chart keeps publishing endpoints
 - **WHEN** the `serviceradar-k8s-edge` chart is installed or upgraded to an
@@ -42,6 +48,21 @@ at all, so it SHALL set `K8S_INVENTORY_NODES` to false.
 - **THEN** the inventory container SHALL run with Node watching disabled
 - **AND** the collector SHALL become ready and continue publishing endpoint
   snapshots
+
+### Requirement: Node publishing is refused on a subject-blind sink
+The collector SHALL reject a configuration that enables Node watching while
+`PUBLISH_MODE` is `agent_spool`. That sink ignores the publish subject and
+keeps a single snapshot file, so a node snapshot would overwrite the endpoint
+snapshot the agent republishes; the endpoints processor accepts a node
+snapshot as an endpoint snapshot with zero endpoints and soft-deletes every
+public endpoint row for that cluster, silently.
+
+#### Scenario: Nodes plus agent spool is a startup error
+- **WHEN** a collector is configured with `PUBLISH_MODE=agent_spool` and
+  `K8S_INVENTORY_NODES=true`
+- **THEN** configuration validation SHALL fail with an error naming the
+  conflict
+- **AND** the collector SHALL NOT publish a node snapshot to the spool
 
 ### Requirement: Node inventory persistence
 EventWriter SHALL upsert each node snapshot into `platform.k8s_nodes_current`

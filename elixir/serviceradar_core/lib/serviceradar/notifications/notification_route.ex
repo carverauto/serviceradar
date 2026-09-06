@@ -115,12 +115,10 @@ defmodule ServiceRadar.Notifications.NotificationRoute do
     routes do
       base "/notification-routes"
 
-      get :by_id
       index :read
       post :create
       patch :update
       patch :enable, route: "/:id/enable"
-      patch :disable, route: "/:id/disable"
     end
   end
 

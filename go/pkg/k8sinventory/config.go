@@ -37,6 +37,9 @@ var (
 	errResyncNonPositive     = errors.New("K8S_INVENTORY_RESYNC must be > 0")
 	errDebounceNonPositive   = errors.New("K8S_INVENTORY_DEBOUNCE must be > 0")
 	errPublishTimeoutInvalid = errors.New("K8S_INVENTORY_PUBLISH_TIMEOUT must be > 0")
+	errNodesUnsupportedSpool = errors.New(
+		"K8S_INVENTORY_NODES cannot be enabled when PUBLISH_MODE=agent_spool: the spool sink ignores the subject and keeps one snapshot file",
+	)
 )
 
 // Config is runtime configuration for the inventory collector.
@@ -75,7 +78,7 @@ func LoadConfigFromEnv() (Config, error) {
 		ClusterID:            strings.TrimSpace(os.Getenv("CLUSTER_ID")),
 		KubeConfigPath:       strings.TrimSpace(os.Getenv("KUBECONFIG")),
 		EnableGatewayAPI:     parseBoolEnv("K8S_INVENTORY_GATEWAY_API", true),
-		EnableNodes:          parseBoolEnv("K8S_INVENTORY_NODES", true),
+		EnableNodes:          parseBoolEnv("K8S_INVENTORY_NODES", false),
 		PublishMode:          strings.ToLower(strings.TrimSpace(os.Getenv("PUBLISH_MODE"))),
 		Subject:              strings.TrimSpace(os.Getenv("K8S_INVENTORY_SUBJECT")),
 		SpoolDir:             strings.TrimSpace(os.Getenv("K8S_INVENTORY_SPOOL_DIR")),
@@ -190,6 +193,9 @@ func (c Config) Validate() error {
 		dir := strings.TrimSpace(c.SpoolDir)
 		if dir == "" || dir == "." {
 			return errSpoolDirRequired
+		}
+		if c.EnableNodes {
+			return errNodesUnsupportedSpool
 		}
 	}
 	return nil

@@ -67,10 +67,8 @@ defmodule ServiceRadar.Notifications.NotificationEscalationStep do
     routes do
       base "/notification-escalation-steps"
 
-      get :by_id
       index :read
       post :create
-      patch :update
     end
   end
 

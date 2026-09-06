@@ -170,15 +170,10 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
   end
 
   defp emit_transitions(previous, rows) do
-    publisher =
-      :serviceradar_core
-      |> Application.get_env(__MODULE__, [])
-      |> Keyword.get(:publisher, &default_publish/2)
-
     transitions = readiness_transitions(previous, rows) ++ disappeared_not_ready(previous, rows)
 
     Enum.each(transitions, fn {kind, node} ->
-      case publisher.("k8s", transition_payload(kind, node)) do
+      case InternalLogPublisher.publish("k8s", transition_payload(kind, node)) do
         :ok ->
           :ok
 
@@ -191,8 +186,6 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
       end
     end)
   end
-
-  defp default_publish(subject, payload), do: InternalLogPublisher.publish(subject, payload)
 
   defp transition_payload(kind, node) do
     event_type = event_type(kind)

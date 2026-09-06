@@ -68,12 +68,8 @@ defmodule ServiceRadar.Notifications.NotificationEscalationPolicy do
     routes do
       base "/notification-escalation-policies"
 
-      get :by_id
       index :read
       post :create
-      patch :update
-      patch :enable, route: "/:id/enable"
-      patch :disable, route: "/:id/disable"
     end
   end
 

@@ -44,8 +44,6 @@ defmodule ServiceRadar.Notifications.NotificationEscalationStepChannel do
     routes do
       base "/notification-escalation-step-channels"
 
-      get :by_id
-      index :read
       post :attach
     end
   end

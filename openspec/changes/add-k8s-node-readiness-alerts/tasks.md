@@ -17,11 +17,22 @@
 - [x] 1.4 Helm ClusterRole: add `nodes` `get/list/watch`. Keep the comment
       that this is read-only and still excludes secrets/pods/exec. Gate with
       `k8sInventory.nodes.enabled` defaulting true when inventory is enabled.
+      The COLLECTOR default is the opposite: `K8S_INVENTORY_NODES` defaults to
+      false, because the node informer sits inside the startup cache-sync gate
+      and a manifest that predates this change has no Nodes RBAC, so an
+      image-only rollout would crashloop instead of degrading to endpoints.
+      The main chart always renders the env var, so chart-driven deployments
+      are unaffected.
 - [x] 1.4a `helm/serviceradar-k8s-edge` ships the same image but grants no
       Nodes RBAC (and supports namespace scope, where cluster-scoped Nodes
       cannot be granted), so its inventory container sets
       `K8S_INVENTORY_NODES=false`. Without it the Node informer never syncs
       and that chart stops publishing endpoints.
+- [x] 1.4b `Config.Validate` refuses `K8S_INVENTORY_NODES=true` with
+      `PUBLISH_MODE=agent_spool`. `SpoolPublisher.Publish` ignores the subject
+      and keeps one `latest.json`, so a node snapshot would overwrite the
+      endpoint snapshot the agent republishes, and an endpoints processor that
+      accepts it soft-deletes every public endpoint row for the cluster.
 - [x] 1.5 `bazel test //go/pkg/k8sinventory:k8sinventory_test`
 
 ## 2. EventWriter ingest and readiness events
@@ -55,7 +66,11 @@
 - [x] 3.2 Seed managed StatefulAlertRule `k8s_node_not_ready`: open on
       `node.not_ready`, recover on `node.ready`, group by cluster + node,
       severity critical, title distinguishing control-plane vs worker from
-      `node.role`. `template_version: 1`.
+      `node.role`. `template_version: 2`. The role names the node in the title
+      through the rule's `event["message"]` template, NOT through `group_by`:
+      a group key is the incident identity, and `node.role` is a mutable
+      label, so including it would strand an open incident whenever the label
+      changed while the node was down.
 - [x] 3.3 Alert metadata MUST include `incident_rule_name=k8s_node_not_ready`
       (existing AlertLifecycle behaviour) plus node name, cluster id, role,
       Ready reason. Set `device_uid` when an inventory device hostname matches
@@ -82,8 +97,12 @@
 
 ## 5a. JSON:API and CLI
 
-- [x] 5a.1 Expose NotificationProvider, Channel, Route, EscalationPolicy,
-      Step, and StepChannel on Ash JSON:API `/api/v2`.
+- [x] 5a.1 Expose exactly the Notifications `/api/v2` routes the helpers
+      call: channels index; routes index/create/update/enable; escalation
+      policies index/create; steps index/create; step-channels attach.
+      NotificationProvider stays off the JSON:API, and NotificationChannel is
+      read-only there because `secret_refs` is writable on the resource and no
+      endpoint mints a Discord webhook.
 - [x] 5a.2 Add `serviceradar-cli notifications ensure-k8s-alerts` (JS CLI,
       device-code auth already in `auth login`). Do not add a parallel srctl
       command.

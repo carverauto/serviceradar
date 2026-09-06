@@ -376,9 +376,9 @@ defmodule ServiceRadar.Observability.RuleSeeder do
       %{
         name: "k8s_node_not_ready",
         managed: true,
-        template_version: 1,
+        template_version: 2,
         description:
-          "Open one incident per Kubernetes node when Ready becomes False, and clear it when Ready returns True. Control-plane vs worker is taken from node.role.",
+          "Open one incident per Kubernetes node when Ready becomes False, and clear it when Ready returns True. Control-plane vs worker is taken from node.role, which names the node in the alert title without joining the incident identity.",
         priority: 20,
         enabled: true,
         signal: :event,
@@ -390,14 +390,15 @@ defmodule ServiceRadar.Observability.RuleSeeder do
             "attribute_equals" => %{"event_type" => "node.ready"}
           }
         },
-        group_by: ["cluster_id", "node", "node.role"],
+        group_by: ["cluster_id", "node"],
         threshold: 1,
         window_seconds: 300,
         bucket_seconds: 60,
         cooldown_seconds: 300,
         renotify_seconds: 21_600,
         event: %{
-          "log_name" => "alert.availability.k8s.node"
+          "log_name" => "alert.availability.k8s.node",
+          "message" => "Kubernetes {node.role} node {node} is NotReady in cluster {cluster_id}"
         },
         alert: %{
           "severity" => "critical"
