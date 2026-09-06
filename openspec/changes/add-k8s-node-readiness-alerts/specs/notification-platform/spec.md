@@ -53,9 +53,14 @@ granted by `notifications.channels.view`, which is broader than the
 
 #### Scenario: Listing channels withholds secret material
 - **GIVEN** a caller holding only `notifications.channels.view`
-- **WHEN** the caller reads `/api/v2/notification-channels` or
-  `/api/v2/notification-channels/:id`
+- **WHEN** the caller reads `/api/v2/notification-channels`
 - **THEN** the response SHALL NOT include a `secret_refs` attribute
+
+#### Scenario: The API offers no way to write a channel
+- **WHEN** a caller POSTs to `/api/v2/notification-channels` or PATCHes a
+  channel by id
+- **THEN** no such route SHALL exist
+- **AND** the helpers SHALL require the channel to have been created already
 
 ### Requirement: The ensure helper fails when nothing could be delivered
 The ensure helpers SHALL NOT report success while the resolved channel or the

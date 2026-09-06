@@ -76,8 +76,6 @@ spec:
               value: {{ .Values.k8sInventory.resync.debounce | quote }}
             - name: K8S_INVENTORY_GATEWAY_API
               value: {{ .Values.k8sInventory.gatewayAPI.enabled | quote }}
-            - name: K8S_INVENTORY_NODES
-              value: "false"
             {{- if .Values.k8sInventory.namespaces }}
             - name: K8S_INVENTORY_NAMESPACES
               value: {{ join "," .Values.k8sInventory.namespaces | quote }}

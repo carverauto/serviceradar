@@ -43,8 +43,9 @@ deployment while leaving an un-updated manifest on its previous behaviour.
 - **AND** it SHALL become ready and continue publishing endpoint snapshots
 
 #### Scenario: Edge chart keeps publishing endpoints
-- **WHEN** the `serviceradar-k8s-edge` chart is installed or upgraded to an
-  image that supports Node watching
+- **GIVEN** the `serviceradar-k8s-edge` chart, whose inventory RBAC grants no
+  Nodes access and whose publish mode is `agent_spool`
+- **WHEN** it is installed or upgraded to an image that supports Node watching
 - **THEN** the inventory container SHALL run with Node watching disabled
 - **AND** the collector SHALL become ready and continue publishing endpoint
   snapshots

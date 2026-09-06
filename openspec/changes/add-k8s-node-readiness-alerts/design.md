@@ -17,8 +17,8 @@ endpoint inventory).
   - Observe Kubernetes Node `Ready` for every node in the watched cluster.
   - Open one stateful incident per node when `Ready` becomes False; clear it
     when `Ready` returns True.
-  - Distinguish control-plane vs worker in alert title and metadata, from
-    Node role labels, without a second delivery path.
+  - Distinguish control-plane vs worker in the alert title, from Node role
+    labels, without a second delivery path.
   - Deliver through the existing notification platform to the existing
     Discord channel.
   - Close the empty-string route matcher footgun.
@@ -54,11 +54,26 @@ endpoint inventory).
   a managed StatefulAlertRule. Reusing that pair is how
   `sweep_device_unavailable` works; do not call Discord from EventWriter.
 
-- **Decision: one rule, role in metadata.**
+- **Decision: one rule, role in the title and not in the identity.**
   `k8s_node_not_ready` groups by cluster_id + node name. Control-plane vs
   worker is `node.role` (`control-plane` if the Node has
-  `node-role.kubernetes.io/control-plane` or `.../master`, else `worker`).
-  Alert title includes the role so a Discord route can match either or both.
+  `node-role.kubernetes.io/control-plane` or `.../master`, else `worker`),
+  and the rule's `event["message"]` template renders it into the alert title.
+
+  The role is deliberately NOT a group key. A group key is the incident
+  identity that `StateMachine.recover_event/3` looks up verbatim, so a mutable
+  label there strands an open incident: relabel a node while it is NotReady
+  and the clear computes a different key, the lookup misses, and the incident
+  re-pages every `renotify_seconds` forever.
+
+  The consequence for routing: `incident_group_values` is the only path from a
+  rule's group key into `alert.metadata`, so the alert carries
+  `metadata.incident_group_values` of `cluster_id` and `node` ONLY - there is
+  no `node.role` and no `ready_reason` on the alert. A route that wants
+  control-plane pages only must match the title
+  (`{"field": "alert.title", "contains": "control-plane"}`), not a metadata
+  field. Writing `alert.metadata.incident_group_values.node.role` validates
+  (the `alert.metadata.` prefix is allow-listed) and then matches nothing.
 
 - **Decision: do not seed a Discord channel.**
   Channels are operator secrets. Product seeds the *rule*. Demo gets a

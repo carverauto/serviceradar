@@ -411,7 +411,7 @@ in:public_endpoints port:22 limit:50
 ```
 
 ```srql
-in:public_endpoints ip:23.138.124.7
+in:public_endpoints ip:198.51.100.10
 ```
 
 ```srql
@@ -423,7 +423,7 @@ Current snapshot of LoadBalancer / Gateway exposures (no `time:` required).
 ### All attributed traffic involving a public VIP
 
 ```srql
-in:attributed_flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
+in:attributed_flows time:last_24h ip:198.51.100.10 sort:time:desc limit:50
 ```
 
 Same bidirectional `ip:` helper as raw flows. In the UI, rows show **PROCESS**

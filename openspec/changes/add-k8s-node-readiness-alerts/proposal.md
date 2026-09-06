@@ -50,11 +50,17 @@ channel silent.
 
 ## Recorded gaps (not closed by this change)
 
-- **No endpoint mints a Discord webhook.** The JSON:API can create a
-  NotificationChannel only when the operator already holds a Discord
-  incoming-webhook URL. `secret_refs` is withheld from the JSON:API
-  representation, so a channel's stored webhook material is never readable
-  back over `/api/v2`.
+- **The JSON:API cannot create a NotificationChannel.**
+  `/api/v2/notification-channels` exposes only `index` - no create, update,
+  enable/disable, or fetch-by-id - so a Discord channel must already exist
+  before either helper runs, and both fail closed when it does not. The
+  channel resource is read-only there because `secret_refs` is writable on
+  the resource while no endpoint can mint a Discord incoming-webhook URL, so
+  a create route could never produce a channel that can deliver. `secret_refs`
+  is additionally withheld from the representation, so stored webhook material
+  is never readable back over `/api/v2`. Creating a channel remains a settings
+  UI action; giving the API a create path that takes a webhook URL is
+  follow-up work.
 - **`StatefulAlertRule` has no JSON:API surface.** Unlike the notification
   resources, `ServiceRadar.Observability.StatefulAlertRule` carries no
   `AshJsonApi.Resource` extension, so there is no `/api/v2` endpoint to
@@ -69,6 +75,17 @@ channel silent.
   endpoints require. That is why notification configuration ships on the JS
   CLI, which already has device-code auth. Bringing `srctl` to parity is
   recorded here as a gap rather than blocking node alerting.
+
+- **Captured cluster data still committed outside `k8sinventory`.** This
+  change regenerated the endpoint fixtures and examples in
+  `go/pkg/k8sinventory`, `go/cmd/k8s-inventory` and the SRQL/netprobe docs
+  pages onto documentation addresses (`198.51.100.0/24`, `192.0.2.0/24`) and
+  an invented app naming scheme. The same real node naming scheme survives in
+  `go/cmd/faker` (BGP peer list, shipped non-test source), the demo Helm
+  values (a live `nodeSelector`), and `go/pkg/trivysidecar` fixtures. Those
+  are outside this change's component and regenerating them alters demo
+  behaviour, so they need their own change; recorded here so the scrub is not
+  mistaken for complete.
 
 ## Impact
 

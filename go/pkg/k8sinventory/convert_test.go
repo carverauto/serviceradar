@@ -26,7 +26,7 @@ func TestServiceFromCore_LoadBalancerAndTargetPort(t *testing.T) {
 			Namespace: "envoy-gateway-system",
 			UID:       "uid-1",
 			Annotations: map[string]string{
-				"metallb.io/loadBalancerIPs": "23.138.124.7",
+				"metallb.io/loadBalancerIPs": "198.51.100.10",
 			},
 		},
 		Spec: corev1.ServiceSpec{
@@ -38,12 +38,12 @@ func TestServiceFromCore_LoadBalancerAndTargetPort(t *testing.T) {
 		},
 		Status: corev1.ServiceStatus{
 			LoadBalancer: corev1.LoadBalancerStatus{
-				Ingress: []corev1.LoadBalancerIngress{{IP: "23.138.124.7", IPMode: &ipMode}},
+				Ingress: []corev1.LoadBalancerIngress{{IP: "198.51.100.10", IPMode: &ipMode}},
 			},
 		},
 	}
 	view := ServiceFromCore(svc)
-	if view.Type != "LoadBalancer" || len(view.Ingress) != 1 || view.Ingress[0].IP != "23.138.124.7" {
+	if view.Type != "LoadBalancer" || len(view.Ingress) != 1 || view.Ingress[0].IP != "198.51.100.10" {
 		t.Fatalf("view: %+v", view)
 	}
 	if view.Ports[0].TargetPort != 10022 {
@@ -59,7 +59,7 @@ func TestSnapshotFromFakeClients_EndToEnd(t *testing.T) {
 
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "envoy-forgejo",
+			Name:      "envoy-gitsrv",
 			Namespace: "envoy-gateway-system",
 			UID:       "svc-1",
 			Annotations: map[string]string{
@@ -75,7 +75,7 @@ func TestSnapshotFromFakeClients_EndToEnd(t *testing.T) {
 		},
 		Status: corev1.ServiceStatus{
 			LoadBalancer: corev1.LoadBalancerStatus{
-				Ingress: []corev1.LoadBalancerIngress{{IP: "23.138.124.7", IPMode: &ipMode}},
+				Ingress: []corev1.LoadBalancerIngress{{IP: "198.51.100.10", IPMode: &ipMode}},
 			},
 		},
 	}
@@ -88,13 +88,13 @@ func TestSnapshotFromFakeClients_EndToEnd(t *testing.T) {
 	node := "node-worker-3.example.com"
 	es := &discoveryv1.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "envoy-forgejo-abc",
+			Name:      "envoy-gitsrv-abc",
 			Namespace: "envoy-gateway-system",
-			Labels:    map[string]string{"kubernetes.io/service-name": "envoy-forgejo"},
+			Labels:    map[string]string{"kubernetes.io/service-name": "envoy-gitsrv"},
 		},
 		AddressType: discoveryv1.AddressTypeIPv4,
 		Endpoints: []discoveryv1.Endpoint{{
-			Addresses: []string{"10.42.221.140"},
+			Addresses:  []string{"192.0.2.40"},
 			Conditions: discoveryv1.EndpointConditions{Ready: &ready},
 			NodeName:   &node,
 			TargetRef: &corev1.ObjectReference{
@@ -115,18 +115,18 @@ func TestSnapshotFromFakeClients_EndToEnd(t *testing.T) {
 		"apiVersion": "gateway.networking.k8s.io/v1",
 		"kind":       "Gateway",
 		"metadata": map[string]any{
-			"name":      "forgejo-gateway",
-			"namespace": "forgejo",
+			"name":      "gitsrv-gateway",
+			"namespace": "gitsrv",
 		},
 		"spec": map[string]any{
-			"gatewayClassName": "forgejo-envoy",
+			"gatewayClassName": "gitsrv-envoy",
 			"listeners": []any{
 				map[string]any{"name": "ssh", "port": int64(22), "protocol": "TCP"},
 			},
 		},
 		"status": map[string]any{
 			"addresses": []any{
-				map[string]any{"type": "IPAddress", "value": "23.138.124.7"},
+				map[string]any{"type": "IPAddress", "value": "198.51.100.10"},
 			},
 		},
 	}}
@@ -134,17 +134,17 @@ func TestSnapshotFromFakeClients_EndToEnd(t *testing.T) {
 		"apiVersion": "gateway.networking.k8s.io/v1alpha2",
 		"kind":       "TCPRoute",
 		"metadata": map[string]any{
-			"name":      "forgejo-ssh",
-			"namespace": "forgejo",
+			"name":      "gitsrv-ssh",
+			"namespace": "gitsrv",
 		},
 		"spec": map[string]any{
 			"parentRefs": []any{
-				map[string]any{"name": "forgejo-gateway", "namespace": "forgejo", "sectionName": "ssh"},
+				map[string]any{"name": "gitsrv-gateway", "namespace": "gitsrv", "sectionName": "ssh"},
 			},
 			"rules": []any{
 				map[string]any{
 					"backendRefs": []any{
-						map[string]any{"name": "forgejo-ssh", "port": int64(22), "kind": "Service"},
+						map[string]any{"name": "gitsrv-ssh", "port": int64(22), "kind": "Service"},
 					},
 				},
 			},
@@ -160,18 +160,18 @@ func TestSnapshotFromFakeClients_EndToEnd(t *testing.T) {
 	lister := &hybridLister{
 		ClientLister: ClientLister{Client: kube, Dynamic: dyn, GatewayAPI: false},
 		gateways: []GatewayView{{
-			Namespace:    "forgejo",
-			Name:         "forgejo-gateway",
-			GatewayClass: "forgejo-envoy",
+			Namespace:    "gitsrv",
+			Name:         "gitsrv-gateway",
+			GatewayClass: "gitsrv-envoy",
 			Listeners:    []GatewayListenerView{{Name: "ssh", Port: 22, Protocol: "TCP"}},
-			Addresses:    []GatewayAddressView{{Type: "IPAddress", Value: "23.138.124.7"}},
+			Addresses:    []GatewayAddressView{{Type: "IPAddress", Value: "198.51.100.10"}},
 		}},
 		routes: []RouteView{{
-			Namespace:  "forgejo",
-			Name:       "forgejo-ssh",
+			Namespace:  "gitsrv",
+			Name:       "gitsrv-ssh",
 			Kind:       "TCPRoute",
-			ParentRefs: []ParentRefView{{Name: "forgejo-gateway", Namespace: "forgejo", SectionName: "ssh"}},
-			Backends:   []BackendRef{{Kind: "Service", Name: "forgejo-ssh", Port: 22}},
+			ParentRefs: []ParentRefView{{Name: "gitsrv-gateway", Namespace: "gitsrv", SectionName: "ssh"}},
+			Backends:   []BackendRef{{Kind: "Service", Name: "gitsrv-ssh", Port: 22}},
 		}},
 	}
 
@@ -185,16 +185,16 @@ func TestSnapshotFromFakeClients_EndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hits := FindByPublicAddr(snap.Endpoints, "23.138.124.7", "", 22)
+	hits := FindByPublicAddr(snap.Endpoints, "198.51.100.10", "", 22)
 	if len(hits) == 0 {
 		t.Fatalf("no VIP:22 endpoints: %v", summarizeEndpoints(snap.Endpoints))
 	}
 
 	var sawLB bool
 	for _, ep := range hits {
-		if ep.ServiceName == "envoy-forgejo" && ep.ExposureClass == ExposureLoadBalancer {
+		if ep.ServiceName == "envoy-gitsrv" && ep.ExposureClass == ExposureLoadBalancer {
 			sawLB = true
-			if len(ep.EndpointTargets) != 1 || ep.EndpointTargets[0].IP != "10.42.221.140" || ep.EndpointTargets[0].Port != 10022 {
+			if len(ep.EndpointTargets) != 1 || ep.EndpointTargets[0].IP != "192.0.2.40" || ep.EndpointTargets[0].Port != 10022 {
 				t.Fatalf("LB targets: %+v", ep.EndpointTargets)
 			}
 		}
@@ -203,10 +203,10 @@ func TestSnapshotFromFakeClients_EndToEnd(t *testing.T) {
 		t.Fatalf("missing LB service ownership; endpoints=%v", summarizeEndpoints(hits))
 	}
 
-	hints := FindHints(snap.Hints, "23.138.124.7", 22)
+	hints := FindHints(snap.Hints, "198.51.100.10", 22)
 	found := false
 	for _, h := range hints {
-		if h.BackendIP == "10.42.221.140" && h.BackendPort == 10022 {
+		if h.BackendIP == "192.0.2.40" && h.BackendPort == 10022 {
 			found = true
 		}
 	}

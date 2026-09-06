@@ -11,7 +11,7 @@ incident.
 
 Typical IR question:
 
-> We see NetFlow from Colombia to `23.138.124.7:22`. Is that a host shell,
+> We see NetFlow from Colombia to `198.51.100.10:22`. Is that a host shell,
 > a git SSH listener, or something else?
 
 With inventory enabled, the collector maps that VIP to the Envoy
@@ -281,7 +281,7 @@ You can:
 3. Query current ownership via SRQL (core EventWriter + migration):
 
    ```text
-   in:public_endpoints ip:23.138.124.7 port:22
+   in:public_endpoints ip:198.51.100.10 port:22
    in:public_endpoints cluster_id:acme-prod-eks exposure_class:Gateway
    ```
 
@@ -291,7 +291,7 @@ You can:
 
    ```text
    /inventory/public-endpoints
-   /inventory/public-endpoints?q=in:public_endpoints+ip:23.138.124.7
+   /inventory/public-endpoints?q=in:public_endpoints+ip:198.51.100.10
    ```
 
    Submitting `in:public_endpoints …` from the global SRQL bar on other pages
@@ -420,13 +420,13 @@ helm upgrade --install serviceradar ./helm/serviceradar \
 ## Incident response workflow
 
 1. **Alert / flow:** external source → public `IP` or LB hostname + port
-   (for example NetFlow `dst_ip=23.138.124.7 dst_port=22` from a geo-tagged peer).
+   (for example NetFlow `dst_ip=198.51.100.10 dst_port=22` from a geo-tagged peer).
 2. **Ownership (cluster-plane inventory):**
 
    Preferred in the product UI / SRQL:
 
    ```text
-   in:public_endpoints ip:23.138.124.7 port:22
+   in:public_endpoints ip:198.51.100.10 port:22
    ```
 
    Open `/inventory/public-endpoints` or submit that query from the SRQL bar
@@ -436,11 +436,11 @@ helm upgrade --install serviceradar ./helm/serviceradar \
 
    ```bash
    # Workstation with kubeconfig
-   k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22
+   k8s-inventory snapshot --cluster-id demo --ip 198.51.100.10 --port 22
 
    # Live collector snapshot API
    kubectl -n demo port-forward svc/serviceradar-k8s-inventory 9109:9109
-   curl -s localhost:9109/snapshot | jq '.endpoints[] | select(.ip=="23.138.124.7")'
+   curl -s localhost:9109/snapshot | jq '.endpoints[] | select(.ip=="198.51.100.10")'
    ```
 
 3. **Interpret:**
@@ -457,7 +457,7 @@ helm upgrade --install serviceradar ./helm/serviceradar \
    stamps process + owner onto `attributed_flow` rows. Prefer:
 
    ```text
-   in:attributed_flows dst_ip:23.138.124.7 dst_port:22 time:last_24h
+   in:attributed_flows dst_ip:198.51.100.10 dst_port:22 time:last_24h
    in:attributed_flows service_name:git-ssh time:last_24h
    in:attributed_flows exposure_class:Gateway process:sshd time:last_24h
    ```
@@ -501,8 +501,8 @@ Build from source (or use a released binary when available):
 go build -o k8s-inventory ./go/cmd/k8s-inventory
 # or: bazel build //go/cmd/k8s-inventory:k8s-inventory
 
-k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22
-k8s-inventory snapshot --cluster-id demo --hints-only --ip 23.138.124.7
+k8s-inventory snapshot --cluster-id demo --ip 198.51.100.10 --port 22
+k8s-inventory snapshot --cluster-id demo --hints-only --ip 198.51.100.10
 ```
 
 Long-running with stdout (validates watch/rebuild without NATS):

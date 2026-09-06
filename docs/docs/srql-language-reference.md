@@ -449,7 +449,7 @@ Examples:
 
 ```srql
 in:flows time:last_24h port:22 sort:time:desc limit:50
-in:flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
+in:flows time:last_24h ip:198.51.100.10 sort:time:desc limit:50
 in:flows time:last_1h dst_port:(443,8443)
 ```
 
@@ -486,7 +486,7 @@ Sortable fields: same as `flows` (`time`, byte/packet totals).
 Examples:
 
 ```srql
-in:attributed_flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
+in:attributed_flows time:last_24h ip:198.51.100.10 sort:time:desc limit:50
 in:attributed_flows time:last_24h service_name:serviceradar-web sort:time:desc limit:50
 in:attributed_flows time:last_24h port:22 sort:time:desc limit:50
 in:attributed_flows time:last_1h attribution_status:attributed process:sshd
@@ -520,7 +520,7 @@ Examples:
 ```srql
 in:public_endpoints port:22 limit:50
 in:public_endpoints exposure_class:Gateway sort:ip:asc
-in:public_endpoints ip:23.138.124.7
+in:public_endpoints ip:198.51.100.10
 ```
 
 ### services

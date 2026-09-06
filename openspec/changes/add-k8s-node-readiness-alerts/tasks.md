@@ -25,9 +25,9 @@
       are unaffected.
 - [x] 1.4a `helm/serviceradar-k8s-edge` ships the same image but grants no
       Nodes RBAC (and supports namespace scope, where cluster-scoped Nodes
-      cannot be granted), so its inventory container sets
-      `K8S_INVENTORY_NODES=false`. Without it the Node informer never syncs
-      and that chart stops publishing endpoints.
+      cannot be granted). It needs no env var of its own: the collector
+      default is off, and 1.4b refuses nodes outright for the `agent_spool`
+      mode that chart uses.
 - [x] 1.4b `Config.Validate` refuses `K8S_INVENTORY_NODES=true` with
       `PUBLISH_MODE=agent_spool`. `SpoolPublisher.Publish` ignores the subject
       and keeps one `latest.json`, so a node snapshot would overwrite the
@@ -72,10 +72,17 @@
       label, so including it would strand an open incident whenever the label
       changed while the node was down.
 - [x] 3.3 Alert metadata MUST include `incident_rule_name=k8s_node_not_ready`
-      (existing AlertLifecycle behaviour) plus node name, cluster id, role,
-      Ready reason. Set `device_uid` when an inventory device hostname matches
-      the Node name.
-- [x] 3.4 Seeder / engine tests covering open, recover, and role in the title.
+      (existing AlertLifecycle behaviour) plus node name and cluster id, which
+      arrive as `incident_group_values`. Role and Ready reason are NOT on the
+      alert: `incident_group_values` is the only group-key-to-metadata path,
+      and the role is deliberately out of the group key (3.2). The role rides
+      the alert title instead, so route on `alert.title` `contains` for a
+      role-specific page. Set `device_uid` when an inventory device hostname
+      matches the Node name.
+- [ ] 3.4 Seeder / engine tests covering open, recover, and role in the title.
+      The message template and the group-key stability it buys are covered by
+      `RecordRenderTemplateTest`; an end-to-end pass through the seeded rule
+      still needs the database fixture.
 
 ## 4. Notification routing gap
 

@@ -85,7 +85,7 @@ type EndpointTarget struct {
 // CorrelationHint maps a public VIP:port to backend socket identities
 // that netprobe/process attribution may observe after kube-proxy/IPVS DNAT.
 //
-// Example: 23.138.124.7:22 → 10.42.221.140:10022 (envoy pod).
+// Example: 198.51.100.10:22 → 192.0.2.40:10022 (envoy pod).
 type CorrelationHint struct {
 	PublicIP       string `json:"public_ip,omitempty"`
 	PublicHostname string `json:"public_hostname,omitempty"`
