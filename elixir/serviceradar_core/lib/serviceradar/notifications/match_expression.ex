@@ -48,7 +48,7 @@ defmodule ServiceRadar.Notifications.MatchExpression do
   Operand rules:
 
     * `"equals"` - a non-empty string, number, boolean, or null.
-      An empty string is rejected: `%{}` matches every alert, and
+      An empty string is rejected when saving: `%{}` matches every alert, and
       `equals: ""` matches only a blank value.
     * `"in"` - a non-empty list of those scalars
     * `"contains"` - a string or a number
@@ -271,11 +271,36 @@ defmodule ServiceRadar.Notifications.MatchExpression do
   end
 
   defp check(value, attribute, opts) do
-    case validate_expression(value, Keyword.take(opts, [:operators])) do
-      :ok -> :ok
+    with :ok <- validate_expression(value, Keyword.take(opts, [:operators])),
+         :ok <- reject_empty_equals(value) do
+      :ok
+    else
       {:error, message} -> {:error, field: attribute, message: message}
     end
   end
+
+  defp reject_empty_equals(expression) when is_map(expression) do
+    normalized = Map.new(expression, fn {key, value} -> {key_to_string(key), value} end)
+
+    if Map.has_key?(normalized, "field") and normalized["equals"] == "" do
+      {:error,
+       "\"equals\" cannot be an empty string; use {} to match every alert, " <>
+         "because equals: \"\" matches only a blank value"}
+    else
+      normalized
+      |> Map.take(@combinators)
+      |> Map.values()
+      |> List.flatten()
+      |> Enum.reduce_while(:ok, fn child, :ok ->
+        case reject_empty_equals(child) do
+          :ok -> {:cont, :ok}
+          error -> {:halt, error}
+        end
+      end)
+    end
+  end
+
+  defp reject_empty_equals(_expression), do: :ok
 
   # --- Shape walk -----------------------------------------------------------
 
@@ -390,17 +415,10 @@ defmodule ServiceRadar.Notifications.MatchExpression do
   end
 
   defp validate_operand("equals", operand, where) do
-    cond do
-      operand == "" ->
-        {:error,
-         "#{where}: \"equals\" cannot be an empty string; use {} to match every alert, " <>
-           "because equals: \"\" matches only a blank value"}
-
-      scalar?(operand) ->
-        :ok
-
-      true ->
-        {:error, "#{where}: \"equals\" takes a string, number, boolean, or null"}
+    if scalar?(operand) do
+      :ok
+    else
+      {:error, "#{where}: \"equals\" takes a string, number, boolean, or null"}
     end
   end
 

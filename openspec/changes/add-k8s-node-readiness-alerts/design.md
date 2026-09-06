@@ -54,6 +54,17 @@ endpoint inventory).
   a managed StatefulAlertRule. Reusing that pair is how
   `sweep_device_unavailable` works; do not call Discord from EventWriter.
 
+- **Decision: order node snapshots by their generated timestamp.**
+  `platform.k8s_node_snapshots` retains the latest accepted `generated_at` per
+  cluster, including empty snapshots. Node rows alone cannot retain a watermark
+  for an initially empty cluster. A conditional upsert serializes application
+  per cluster and rejects equal or older timestamps before node writes,
+  deletions, or readiness events. The watermark and those effects share one
+  transaction, so publication failure rolls them all back for redelivery.
+  Timestamp precision is retained to microseconds; collectors must have
+  synchronized clocks. The migration seeds watermarks from existing node rows
+  and deletion timestamps.
+
 - **Decision: one rule, role in the title and not in the identity.**
   `k8s_node_not_ready` groups by cluster_id + node name. Control-plane vs
   worker is `node.role` (`control-plane` if the Node has

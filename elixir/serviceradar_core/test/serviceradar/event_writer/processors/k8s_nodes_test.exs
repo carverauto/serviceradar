@@ -65,6 +65,15 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodesTest do
     assert K8sNodes.parse_message(%{data: "{not-json", metadata: %{}}) == nil
   end
 
+  test "snapshot timestamps retain subsecond ordering and must be present" do
+    payload = snapshot([]) |> Map.put("generated_at", "2026-09-05T12:00:00.123456Z")
+
+    assert %{snapshot_at: ~U[2026-09-05 12:00:00.123456Z]} =
+             K8sNodes.parse_message(message(payload))
+
+    assert nil == K8sNodes.parse_message(message(Map.delete(payload, "generated_at")))
+  end
+
   test "readiness_transitions emits only Ready flips of a persisted node" do
     worker = %{
       name: "node-worker-1.example.com",
@@ -126,7 +135,12 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodesTest do
     }
 
     remaining = [
-      %{name: "node-control-1.example.com", cluster_id: "cluster-a", role: "control-plane", ready: true}
+      %{
+        name: "node-control-1.example.com",
+        cluster_id: "cluster-a",
+        role: "control-plane",
+        ready: true
+      }
     ]
 
     assert [{:ready, recovered}] = K8sNodes.disappeared_not_ready(previous, remaining)

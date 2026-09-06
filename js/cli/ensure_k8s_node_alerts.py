@@ -125,11 +125,11 @@ def main() -> int:
     probe_attrs = {"cluster_id": args.cluster, "node": PROBE_NODE, "role": "worker"}
 
     if args.fire_test:
-        client.create("alerts/k8s-node-not-ready-test", "alert", probe_attrs)
+        client.action("alerts/k8s-node-not-ready-test", probe_attrs)
         print(f"Fired node.not_ready probe for {PROBE_NODE}; confirm Discord, then re-run with --clear-test")
 
     if args.clear_test:
-        client.create("alerts/k8s-node-ready-test", "alert", probe_attrs)
+        client.action("alerts/k8s-node-ready-test", probe_attrs)
         print(f"Cleared node.not_ready probe for {PROBE_NODE}")
 
     print(f"OK {ROUTE_NAME} -> {args.channel} on {instance}")
@@ -149,6 +149,9 @@ class JsonApiClient:
     def create(self, path: str, type_name: str, attributes: dict) -> dict:
         payload = self.request("POST", f"/api/v2/{path}", {"data": {"type": type_name, "attributes": attributes}})
         return payload["data"]
+
+    def action(self, path: str, arguments: dict) -> None:
+        self.request("POST", f"/api/v2/{path}", {"data": arguments})
 
     def patch(self, path: str, type_name: str, resource_id: str, attributes: dict) -> dict:
         payload = self.request(

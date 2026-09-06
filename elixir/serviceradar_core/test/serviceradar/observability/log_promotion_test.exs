@@ -130,7 +130,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     configure_rejecting_alert_queue(:stateful_alert_evaluation_queue_timeout)
     log = create_queue_probe("queue-timeout")
 
-    assert {:ok, 1} = LogPromotion.promote([log])
+    assert {:error, :stateful_alert_evaluation_queue_timeout} = LogPromotion.promote([log])
 
     assert_receive {:stateful_alert_enqueue_rejected, :stateful_alert_evaluation_queue_timeout,
                     [_]}
@@ -143,9 +143,22 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     configure_rejecting_alert_queue(reason)
     log = create_queue_probe("queue-exit")
 
-    assert {:ok, 1} = LogPromotion.promote([log])
+    assert {:error, ^reason} = LogPromotion.promote([log])
     assert_receive {:stateful_alert_enqueue_rejected, ^reason, [_]}
     assert ProcessRegistry.lookup(:stateful_alert_engine) == []
+  end
+
+  test "log ingestion propagates promotion admission failures" do
+    configure_rejecting_alert_queue(:evaluation_failed)
+    log = create_queue_probe("promotion-failure")
+    subject = get_in(log, [:attributes, "serviceradar", "ingest", "subject"])
+
+    message = %{
+      data: Jason.encode!(Map.drop(log, [:created_at])),
+      metadata: %{subject: subject}
+    }
+
+    assert {:error, :evaluation_failed} = Logs.process_batch([message])
   end
 
   test "promotes log to event and creates alert" do

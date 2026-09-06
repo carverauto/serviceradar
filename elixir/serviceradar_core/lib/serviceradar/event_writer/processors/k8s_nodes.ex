@@ -119,19 +119,23 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
     keys = Enum.map(rows, & &1.node_key)
 
     fn ->
-      previous = load_previous_ready(cluster_id)
+      if advance_snapshot?(cluster_id, snapshot_at) do
+        previous = load_previous_ready(cluster_id)
 
-      if rows != [] do
-        BulkInsert.insert_all(@table, rows,
-          prefix: @prefix,
-          on_conflict: {:replace, @replace_fields},
-          conflict_target: [:node_key]
-        )
+        if rows != [] do
+          BulkInsert.insert_all(@table, rows,
+            prefix: @prefix,
+            on_conflict: {:replace, @replace_fields},
+            conflict_target: [:node_key]
+          )
+        end
+
+        soft_delete_missing!(cluster_id, snapshot_at, keys)
+        emit_transitions(previous, rows)
+        length(rows)
+      else
+        0
       end
-
-      soft_delete_missing!(cluster_id, snapshot_at, keys)
-      emit_transitions(previous, rows)
-      length(rows)
     end
     |> Repo.transaction()
     |> case do
@@ -150,6 +154,20 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
     end
   end
 
+  defp advance_snapshot?(cluster_id, snapshot_at) do
+    sql = """
+    INSERT INTO #{@prefix}.k8s_node_snapshots AS current (cluster_id, snapshot_at)
+    VALUES ($1, $2)
+    ON CONFLICT (cluster_id) DO UPDATE
+    SET snapshot_at = EXCLUDED.snapshot_at
+    WHERE current.snapshot_at < EXCLUDED.snapshot_at
+    RETURNING snapshot_at
+    """
+
+    %{num_rows: count} = Repo.query!(sql, [cluster_id, snapshot_at])
+    count == 1
+  end
+
   defp load_previous_ready(cluster_id) do
     sql = """
     SELECT name, ready, role
@@ -157,16 +175,11 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
     WHERE cluster_id = $1 AND deleted_at IS NULL
     """
 
-    case Repo.query(sql, [cluster_id]) do
-      {:ok, %{rows: rows}} ->
-        Map.new(rows, fn [name, ready, role] ->
-          {name, %{ready: ready, role: role, cluster_id: cluster_id}}
-        end)
+    %{rows: rows} = Repo.query!(sql, [cluster_id])
 
-      {:error, reason} ->
-        Logger.warning("k8s nodes: previous ready lookup failed: #{inspect(reason)}")
-        %{}
-    end
+    Map.new(rows, fn [name, ready, role] ->
+      {name, %{ready: ready, role: role, cluster_id: cluster_id}}
+    end)
   end
 
   defp emit_transitions(previous, rows) do
@@ -335,16 +348,16 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
     end
   end
 
-  defp parse_time(%DateTime{} = dt), do: {:ok, DateTime.truncate(dt, :second)}
+  defp parse_time(%DateTime{} = dt), do: {:ok, DateTime.truncate(dt, :microsecond)}
 
   defp parse_time(v) when is_binary(v) do
     case DateTime.from_iso8601(v) do
-      {:ok, dt, _} -> {:ok, DateTime.truncate(dt, :second)}
+      {:ok, dt, _} -> {:ok, DateTime.truncate(dt, :microsecond)}
       _ -> {:error, :bad_time}
     end
   end
 
-  defp parse_time(_), do: {:ok, DateTime.truncate(DateTime.utc_now(), :second)}
+  defp parse_time(_), do: {:error, :bad_time}
 
   defp string_or(v, _default) when is_binary(v), do: v
   defp string_or(_, default), do: default

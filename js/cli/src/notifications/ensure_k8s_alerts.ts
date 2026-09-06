@@ -115,7 +115,7 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
   const probeCluster = String(options.cluster || "demo")
 
   if (options.fireTest) {
-    await client.create("alerts/k8s-node-not-ready-test", "alert", {
+    await client.action("alerts/k8s-node-not-ready-test", {
       cluster_id: probeCluster,
       node: PROBE_NODE,
       role: "worker",
@@ -126,7 +126,7 @@ export async function ensureK8sAlertsCommand(options: Record<string, any>): Prom
   }
 
   if (options.clearTest) {
-    await client.create("alerts/k8s-node-ready-test", "alert", {
+    await client.action("alerts/k8s-node-ready-test", {
       cluster_id: probeCluster,
       node: PROBE_NODE,
       role: "worker",
@@ -153,6 +153,10 @@ class JsonApiClient {
   async create(path: string, type: string, attributes: Record<string, unknown>): Promise<JsonApiResource> {
     const payload = await this.request("POST", `/api/v2/${path}`, {data: {type, attributes}})
     return payload.data as JsonApiResource
+  }
+
+  async action(path: string, args: Record<string, unknown>): Promise<void> {
+    await this.request("POST", `/api/v2/${path}`, {data: args})
   }
 
   async patch(path: string, type: string, id: string, attributes: Record<string, unknown>): Promise<JsonApiResource> {

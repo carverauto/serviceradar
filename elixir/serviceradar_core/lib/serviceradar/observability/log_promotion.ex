@@ -34,7 +34,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
     "trace" => OCSF.severity_low()
   }
 
-  @spec promote([map()]) :: {:ok, non_neg_integer()}
+  @spec promote([map()]) :: {:ok, non_neg_integer()} | {:error, term()}
   def promote(rows) when is_list(rows) do
     # DB connection's search_path determines the schema
     rules = active_log_rules()
@@ -46,15 +46,16 @@ defmodule ServiceRadar.Observability.LogPromotion do
         {:ok, 0}
 
       {:ok, count} ->
-        _ = maybe_evaluate_stateful_rules(events)
-        maybe_create_alerts(promotions)
-        Logger.debug("Promoted #{count} logs to OCSF events")
-        {:ok, count}
+        with :ok <- maybe_evaluate_stateful_rules(events) do
+          maybe_create_alerts(promotions)
+          Logger.debug("Promoted #{count} logs to OCSF events")
+          {:ok, count}
+        end
     end
   rescue
     error ->
       Logger.warning("Log promotion failed: #{inspect(error)}")
-      {:ok, 0}
+      {:error, error}
   end
 
   @doc """
@@ -540,7 +541,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
       {:error, reason} ->
         Logger.warning("Stateful alert evaluation enqueue failed", reason: inspect(reason))
-        :ok
+        {:error, reason}
     end
   end
 
@@ -555,7 +556,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
       {:error, reason} ->
         Logger.warning("Synchronous stateful alert evaluation failed", reason: inspect(reason))
-        :ok
+        {:error, reason}
     end
   end
 

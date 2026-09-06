@@ -2,6 +2,8 @@ defmodule ServiceRadar.Notifications.MatchExpressionEmptyEqualsTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Notifications.MatchExpression
+  alias ServiceRadar.Notifications.NotificationRoute
+  alias ServiceRadar.Notifications.MatchExpression.Evaluator
   alias ServiceRadar.Notifications.Router
 
   @now ~U[2026-09-05 12:00:00.000000Z]
@@ -9,9 +11,38 @@ defmodule ServiceRadar.Notifications.MatchExpressionEmptyEqualsTest do
   test "rejects equals empty string with an actionable message" do
     expr = %{"all" => [%{"field" => "alert.title", "equals" => ""}]}
 
-    assert {:error, message} = MatchExpression.validate_expression(expr)
+    changeset =
+      Ash.Changeset.force_change_attribute(
+        Ash.Changeset.new(NotificationRoute),
+        :match_expression,
+        expr
+      )
+
+    assert {:error, field: :match_expression, message: message} =
+             MatchExpression.validate(changeset, [attribute: :match_expression], %{})
+
+    assert {:error, field: :match_expression, message: ^message} =
+             MatchExpression.atomic(changeset, [attribute: :match_expression], %{})
+
     assert message =~ ~s("equals" cannot be an empty string)
     assert message =~ "{}"
+  end
+
+  test "legacy empty equality remains evaluable inside a disjunction" do
+    expr = %{
+      "any" => [
+        %{"field" => "alert.title", "equals" => ""},
+        %{"field" => "alert.severity", "equals" => "critical"}
+      ]
+    }
+
+    assert {:ok, true} =
+             Evaluator.evaluate(expr, %{alert: %{title: "Node down", severity: "critical"}})
+
+    assert {:ok, false} =
+             Evaluator.evaluate(expr, %{alert: %{title: "Node up", severity: "info"}})
+
+    assert {:ok, true} = Evaluator.evaluate(expr, %{alert: %{title: "", severity: "info"}})
   end
 
   test "empty object still matches every alert" do

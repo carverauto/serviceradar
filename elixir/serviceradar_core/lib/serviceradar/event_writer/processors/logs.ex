@@ -131,10 +131,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         insert_opts
       )
 
-    maybe_promote_logs(rows)
-    SignalTelemetry.emit(:logs, :written, count)
-    LogPubSub.broadcast_ingest(%{count: count})
-    {:ok, count}
+    with {:ok, _promoted} <- maybe_promote_logs(rows) do
+      SignalTelemetry.emit(:logs, :written, count)
+      LogPubSub.broadcast_ingest(%{count: count})
+      {:ok, count}
+    end
   end
 
   defp parse_log_payload({:ok, json}, _data, metadata) do
@@ -515,7 +516,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
          _service_instance,
          _resource_attributes,
          _metadata
-       ), do: []
+       ),
+       do: []
 
   defp parse_scope(%InstrumentationScope{name: name, version: version}), do: {name, version}
   defp parse_scope(_), do: {nil, nil}
@@ -776,8 +778,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   defp maybe_promote_logs(rows) do
     # DB connection's search_path determines the schema
     promotion_rows = Enum.map(rows, &canonicalize_generated_log_id/1)
-    _ = LogPromotion.promote(promotion_rows)
-    :ok
+    LogPromotion.promote(promotion_rows)
   end
 
   # Log rows use raw UUID bytes for PostgreSQL inserts. Promotion metadata is
