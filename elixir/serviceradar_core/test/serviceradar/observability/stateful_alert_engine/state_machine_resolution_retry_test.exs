@@ -221,6 +221,75 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
     assert [] = :ets.lookup(table, {failing_rule.id, "global"})
   end
 
+  test "engine rejects failed snapshot persistence and retries the pending state", %{table: table} do
+    now = ~U[2026-08-11 12:00:00Z]
+    rule = %{rule() | threshold: 100}
+    key = {rule.id, "global"}
+    pending = snapshot(rule, now, alert_id: nil, flush_required: true)
+    :ets.insert(table, {key, pending})
+    calls = :counters.new(1, [])
+    test_pid = self()
+
+    state = %{
+      table: table,
+      rules: [rule],
+      snapshots_loaded?: true,
+      rules_loaded_at: System.monotonic_time(:millisecond),
+      persist_snapshot: fn snapshot, _, _ ->
+        :counters.add(calls, 1, 1)
+        send(test_pid, {:persisted, snapshot})
+        if :counters.get(calls, 1) == 1, do: :error, else: :ok
+      end
+    }
+
+    assert {:reply, {:error, :snapshot_persistence_failed}, ^state} =
+             StatefulAlertEngine.handle_call(
+               {:evaluate_events, [event(now)]},
+               {self(), make_ref()},
+               state
+             )
+
+    assert [{^key, %{flush_required: true, window_count: 1}}] = :ets.lookup(table, key)
+    assert_received {:persisted, %{flush_required: true, window_count: 1}}
+
+    assert {:reply, :ok, ^state} =
+             StatefulAlertEngine.handle_call(
+               {:evaluate_events, [event(now)]},
+               {self(), make_ref()},
+               state
+             )
+
+    assert_received {:persisted, %{flush_required: true, window_count: 2}}
+    assert [{^key, %{flush_required: false, bucket_changed: false}}] = :ets.lookup(table, key)
+    assert :counters.get(calls, 1) == 2
+  end
+
+  test "failed recovery persistence retains the resolved snapshot for redelivery", %{table: table} do
+    now = ~U[2026-08-11 12:00:00Z]
+    rule = rule()
+    key = {rule.id, "global"}
+    :ets.insert(table, {key, snapshot(rule, now, [])})
+    test_pid = self()
+
+    state = %{
+      table: table,
+      resolve_alert: fn alert_id, _, _, _ ->
+        send(test_pid, {:resolved, alert_id})
+        :ok
+      end,
+      persist_snapshot: fn _, _, _ -> :error end
+    }
+
+    assert {:error, :snapshot_persistence_failed} = StateMachine.recover_event(rule, event(now), state)
+    assert_received {:resolved, @alert_id}
+    assert [{^key, %{alert_id: nil, flush_required: true}}] = :ets.lookup(table, key)
+
+    retry_state = Map.put(state, :persist_snapshot, fn _, _, _ -> :ok end)
+    assert :ok = StateMachine.recover_event(rule, event(now), retry_state)
+    assert [{^key, %{alert_id: nil, flush_required: false}}] = :ets.lookup(table, key)
+    refute_received {:resolved, @alert_id}
+  end
+
   defp state(table, resolver) do
     %{
       table: table,

@@ -92,9 +92,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
   defp store_snapshot({:error, _} = error, _rule, _state, _key), do: error
 
   defp store_snapshot(snapshot, rule, state, key) do
-    flushed = maybe_flush_snapshot(snapshot, rule, state)
+    {result, flushed} = maybe_flush_snapshot(snapshot, rule, state)
     :ets.insert(state.table, {key, flushed})
-    :ok
+    result
   end
 
   defp process_log(rule, log, state), do: process_record(rule, log, state)
@@ -408,13 +408,15 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
   defp maybe_flush_snapshot(snapshot, rule, state) do
     if Map.get(snapshot, :bucket_changed, false) || Map.get(snapshot, :flush_required, false) do
       persister = Map.get(state, :persist_snapshot, &persist_snapshot/3)
-      persister.(snapshot, rule, state)
+      case persister.(snapshot, rule, state) do
+        :ok ->
+          {:ok, snapshot |> Map.put(:bucket_changed, false) |> Map.put(:flush_required, false)}
 
-      snapshot
-      |> Map.put(:bucket_changed, false)
-      |> Map.put(:flush_required, false)
+        :error ->
+          {{:error, :snapshot_persistence_failed}, Map.put(snapshot, :flush_required, true)}
+      end
     else
-      snapshot
+      {:ok, snapshot}
     end
   end
 end
