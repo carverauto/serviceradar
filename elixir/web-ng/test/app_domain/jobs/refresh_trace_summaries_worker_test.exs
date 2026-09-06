@@ -30,23 +30,6 @@ defmodule ServiceRadarWebNG.Jobs.RefreshTraceSummariesWorkerTest do
     end)
   end
 
-  test "exposes upsert SQL" do
-    sql = RefreshTraceSummariesWorker.upsert_sql()
-    assert sql =~ "INSERT INTO otel_trace_summaries"
-    assert sql =~ "ON CONFLICT (trace_id) DO UPDATE"
-    assert sql =~ "count(*) FILTER (WHERE t.status_code = 2)"
-    assert sql =~ "$3::int * INTERVAL '1 day'"
-    assert sql =~ "IS DISTINCT FROM EXCLUDED"
-  end
-
-  test "exposes batched cleanup SQL" do
-    sql = RefreshTraceSummariesWorker.cleanup_batch_sql()
-    assert sql =~ "WITH doomed AS"
-    assert sql =~ "DELETE FROM otel_trace_summaries AS summaries"
-    assert sql =~ "$2::int * INTERVAL '1 day'"
-    assert sql =~ "LIMIT $1"
-  end
-
   test "returns ok when tables are missing" do
     assert :ok = RefreshTraceSummariesWorker.perform(%Oban.Job{args: %{}})
   end

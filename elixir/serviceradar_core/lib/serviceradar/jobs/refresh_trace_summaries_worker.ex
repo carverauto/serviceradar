@@ -226,30 +226,32 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   @impl Oban.Worker
   def perform(_job) do
-    ServiceRadar.Repo.checkout(
-      fn ->
-        case SQL.query!(
-               ServiceRadar.Repo,
-               "SELECT pg_try_advisory_lock(hashtextextended($1, 0))",
-               [@watermark_key]
-             ) do
-          %{rows: [[true]]} ->
-            try do
-              refresh_summaries()
-            after
-              SQL.query!(
-                ServiceRadar.Repo,
-                "SELECT pg_advisory_unlock(hashtextextended($1, 0))",
-                [@watermark_key]
-              )
-            end
+    result =
+      ServiceRadar.Repo.transact(
+        fn ->
+          case SQL.query!(
+                 ServiceRadar.Repo,
+                 "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))",
+                 [@watermark_key]
+               ) do
+            %{rows: [[true]]} -> refresh_summaries()
+            %{rows: [[false]]} -> {:error, :refresh_in_progress}
+          end
+        end,
+        timeout: :infinity
+      )
 
-          %{rows: [[false]]} ->
-            {:snooze, 1}
-        end
-      end,
-      timeout: :infinity
-    )
+    case result do
+      {:ok, changed} ->
+        OtelPubSub.broadcast_trace_summaries(%{count: changed})
+        :ok
+
+      {:error, :refresh_in_progress} ->
+        {:snooze, 1}
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   defp refresh_summaries do
@@ -266,11 +268,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
         window_end: DateTime.to_iso8601(now)
       )
 
-      # Pulse live tails only when summaries actually changed, so a live
-      # traces tab follows summary updates instead of the refresh cadence.
-      OtelPubSub.broadcast_trace_summaries(%{count: changed})
-
-      :ok
+      {:ok, changed}
     end
   rescue
     error ->
