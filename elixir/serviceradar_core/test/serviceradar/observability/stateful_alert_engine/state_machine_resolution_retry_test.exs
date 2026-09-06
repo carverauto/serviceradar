@@ -183,6 +183,41 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
     assert :counters.get(calls, 1) == 1
   end
 
+  test "failed rules and records do not prevent independent evaluations", %{table: table} do
+    now = ~U[2026-08-11 12:00:00Z]
+    failing_rule = rule()
+    healthy_rule = %{rule() | id: "healthy-rule", threshold: 100}
+    test_pid = self()
+
+    state = %{
+      table: table,
+      rules: [failing_rule, healthy_rule],
+      rules_loaded_at: System.monotonic_time(:millisecond),
+      create_event_and_alert: fn _, _, record, _ ->
+        send(test_pid, {:attempted, record.id})
+        {:error, record.id}
+      end,
+      persist_snapshot: fn _, _, _ -> :ok end
+    }
+
+    first = %{event(now) | id: "first"}
+    second = %{event(DateTime.add(now, 1, :second)) | id: "second"}
+
+    capture_log(fn ->
+      assert {:reply, {:error, "first"}, ^state} =
+               StatefulAlertEngine.handle_call(
+                 {:evaluate_events, [first, second]},
+                 {self(), make_ref()},
+                 state
+               )
+    end)
+
+    assert_received {:attempted, "first"}
+    assert_received {:attempted, "second"}
+    assert [{_, %{window_count: 2}}] = :ets.lookup(table, {healthy_rule.id, "global"})
+    assert [] = :ets.lookup(table, {failing_rule.id, "global"})
+  end
+
   defp state(table, resolver) do
     %{
       table: table,

@@ -81,10 +81,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachine do
   defp maybe_process_metric_rule(_metric, _rule, _state), do: :ok
 
   defp process_rules(rules, process) do
-    Enum.reduce_while(rules, :ok, fn rule, :ok ->
+    Enum.reduce(rules, :ok, fn rule, result ->
       case process.(rule) do
-        {:error, _} = error -> {:halt, error}
-        :ok -> {:cont, :ok}
+        :ok -> result
+        {:error, _} = error -> if result == :ok, do: error, else: result
       end
     end)
   end

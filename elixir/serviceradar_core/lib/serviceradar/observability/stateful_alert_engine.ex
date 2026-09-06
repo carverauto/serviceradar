@@ -228,11 +228,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   @impl true
   def handle_call({:evaluate_logs, rows}, _from, state) do
-    {state, rules} = load_rules_if_needed(state)
-
-    result = process_records(rows, &StateMachine.process_log_rules(&1, rules, state))
-
-    {:reply, result, state}
+    with {:ok, state, rules} <- load_rules_if_needed(state) do
+      result = process_records(rows, &StateMachine.process_log_rules(&1, rules, state))
+      {:reply, result, state}
+    else
+      {:error, reason, state} -> {:reply, {:error, reason}, state}
+    end
   rescue
     error ->
       Logger.warning("Stateful alert evaluation failed: #{inspect(error)}")
@@ -241,11 +242,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   @impl true
   def handle_call({:evaluate_events, events}, _from, state) do
-    {state, rules} = load_rules_if_needed(state)
-
-    result = process_records(events, &StateMachine.process_event_rules(&1, rules, state))
-
-    {:reply, result, state}
+    with {:ok, state, rules} <- load_rules_if_needed(state) do
+      result = process_records(events, &StateMachine.process_event_rules(&1, rules, state))
+      {:reply, result, state}
+    else
+      {:error, reason, state} -> {:reply, {:error, reason}, state}
+    end
   rescue
     error ->
       Logger.warning("Stateful alert evaluation failed: #{inspect(error)}")
@@ -254,11 +256,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   @impl true
   def handle_call({:evaluate_metrics, rows}, _from, state) do
-    {state, rules} = load_rules_if_needed(state)
-
-    result = process_records(rows, &StateMachine.process_metric_rules(&1, rules, state))
-
-    {:reply, result, state}
+    with {:ok, state, rules} <- load_rules_if_needed(state) do
+      result = process_records(rows, &StateMachine.process_metric_rules(&1, rules, state))
+      {:reply, result, state}
+    else
+      {:error, reason, state} -> {:reply, {:error, reason}, state}
+    end
   rescue
     error ->
       Logger.warning("Stateful alert evaluation failed: #{inspect(error)}")
@@ -271,16 +274,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         _from,
         state
       ) do
-    {state, rules} = load_rules_if_needed(state)
+    with {:ok, state, rules} <- load_rules_if_needed(state) do
+      # Only the shard that owns the rule will find it in its loaded set.
+      resolved =
+        case Enum.find(rules, fn rule -> rule.name == rule_name end) do
+          nil -> 0
+          rule -> StateMachine.sweep_stale_anomalies(rule, cutoff, now, state, live_series_keys)
+        end
 
-    # Only the shard that owns the rule will find it in its loaded set.
-    resolved =
-      case Enum.find(rules, fn rule -> rule.name == rule_name end) do
-        nil -> 0
-        rule -> StateMachine.sweep_stale_anomalies(rule, cutoff, now, state, live_series_keys)
-      end
-
-    {:reply, {:ok, resolved}, state}
+      {:reply, {:ok, resolved}, state}
+    else
+      {:error, reason, state} -> {:reply, {:error, reason}, state}
+    end
   rescue
     error ->
       Logger.warning("Stale-anomaly auto-resolve failed: #{inspect(error)}")
@@ -302,10 +307,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp process_records(records, process) do
-    Enum.reduce_while(records, :ok, fn record, :ok ->
+    Enum.reduce(records, :ok, fn record, result ->
       case process.(record) do
-        :ok -> {:cont, :ok}
-        {:error, _} = error -> {:halt, error}
+        :ok -> result
+        {:error, _} = error -> if result == :ok, do: error, else: result
       end
     end)
   end
@@ -371,7 +376,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     if now - state.rules_loaded_at > @rules_cache_ms do
       load_rules(state)
     else
-      {state, state.rules}
+      {:ok, state, state.rules}
     end
   end
 
@@ -401,13 +406,9 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
               rules_load_error_logged: false
           }
 
-          {updated, rules}
+          {:ok, updated, rules}
 
         {:error, error} ->
-          # A returned query error (e.g. schema drift: code selecting a column
-          # an unapplied migration adds) must not be mistaken for "zero rules".
-          # Keep serving the previously loaded rules, leave rules_loaded_at
-          # unstamped so recovery is retried, and fail loudly.
           :telemetry.execute(
             [:serviceradar, :stateful_alert_engine, :rules_load_failed],
             %{count: 1},
@@ -430,15 +431,15 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
               %{state | rules_load_error_logged: true}
             end
 
-          {state, state.rules}
+          {:error, {:rules_load_failed, error}, state}
       end
     else
-      {report_repo_unavailable(state), []}
+      {:error, :repo_unavailable, report_repo_unavailable(state)}
     end
   rescue
     error ->
       Logger.error("Failed to load stateful alert rules: #{inspect(error)}")
-      {state, state.rules}
+      {:error, {:rules_load_failed, error}, %{state | rules_loaded_at: nil}}
   end
 
   defp read_active_rules(%{rules_reader: reader}) when is_function(reader, 0), do: reader.()
@@ -470,7 +471,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     else
       Logger.warning(
         "StatefulAlertEngine shard #{state.shard} on #{node()} has no repo available; " <>
-          "loading zero alert rules"
+          "cannot evaluate alert rules"
       )
 
       %{state | repo_unavailable_logged: true}

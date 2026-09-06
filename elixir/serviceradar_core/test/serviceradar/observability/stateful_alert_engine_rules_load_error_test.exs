@@ -82,7 +82,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineRulesLoadErrorTest do
     expire_rules_cache(pid)
 
     first_log =
-      capture_log(fn -> assert :ok = GenServer.call(pid, {:evaluate_events, []}) end)
+      capture_log(fn ->
+        assert {:error, {:rules_load_failed, :undefined_column}} =
+                 GenServer.call(pid, {:evaluate_events, []})
+      end)
 
     assert first_log =~ "failed to load alert rules"
     assert first_log =~ "keeping 1 previously loaded rules"
@@ -90,7 +93,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineRulesLoadErrorTest do
     assert length(:sys.get_state(pid).rules) == 1
 
     second_log =
-      capture_log(fn -> assert :ok = GenServer.call(pid, {:evaluate_events, []}) end)
+      capture_log(fn ->
+        assert {:error, {:rules_load_failed, :undefined_column}} =
+                 GenServer.call(pid, {:evaluate_events, []})
+      end)
 
     refute second_log =~ "failed to load alert rules"
     assert_receive {:telemetry, @rules_load_failed_event, %{count: 1}, %{shard: 3}}
@@ -103,6 +109,29 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineRulesLoadErrorTest do
     assert recovery_log =~ "recovered"
     assert_receive {:telemetry, @rules_loaded_event, %{count: 1}, %{shard: 3}}
     refute :sys.get_state(pid).rules_load_error_logged
+  end
+
+  test "cold query failure is an error, but a successful empty load is acknowledged", %{
+    pid: pid,
+    mode: mode
+  } do
+    Agent.update(mode, fn _ -> {:error, :query_unavailable} end)
+
+    capture_log(fn ->
+      assert {:error, {:rules_load_failed, :query_unavailable}} =
+               GenServer.call(pid, {:evaluate_events, [%{log_name: "node.not_ready"}]})
+    end)
+
+    assert :sys.get_state(pid).rules_loaded_at == nil
+
+    Agent.update(mode, fn _ -> {:ok, []} end)
+
+    capture_log(fn ->
+      assert :ok = GenServer.call(pid, {:evaluate_events, [%{log_name: "node.not_ready"}]})
+    end)
+
+    assert is_integer(:sys.get_state(pid).rules_loaded_at)
+    assert_receive {:telemetry, @rules_loaded_event, %{count: 0}, %{shard: 3}}
   end
 
   # A failed load leaves rules_loaded_at unstamped so recovery is retried on
