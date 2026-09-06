@@ -167,14 +167,8 @@ func (w *WatcherLister) ListEndpointSlices(ctx context.Context, namespace string
 	return out, nil
 }
 
-// ListNodes returns Nodes from the informer store when available.
-func (w *WatcherLister) ListNodes(ctx context.Context) ([]NodeView, error) {
-	if w == nil || w.nodeInformer == nil {
-		if w == nil || w.ClientLister == nil {
-			return nil, nil
-		}
-		return w.ClientLister.ListNodes(ctx)
-	}
+// ListNodes returns Nodes from the informer store.
+func (w *WatcherLister) ListNodes(_ context.Context) ([]NodeView, error) {
 	var out []NodeView
 	for _, obj := range w.nodeInformer.GetStore().List() {
 		node, ok := obj.(*corev1.Node)

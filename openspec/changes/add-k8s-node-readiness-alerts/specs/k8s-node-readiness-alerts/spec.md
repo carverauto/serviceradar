@@ -32,9 +32,11 @@ The collector SHALL default `K8S_INVENTORY_NODES` to false and SHALL start the
 Node informer only when a deployment asks for it. The Node informer
 participates in the startup cache sync, so where Nodes RBAC is absent a
 Forbidden List blocks readiness indefinitely and stops the endpoint snapshots
-that deployment already published. Both shipped charts render the variable
-explicitly, so an opt-in default changes nothing for a chart-driven
-deployment while leaving an un-updated manifest on its previous behaviour.
+that deployment already published. `helm/serviceradar` renders the variable
+explicitly from `k8sInventory.nodes.enabled`, so an opt-in default changes
+nothing there; `helm/serviceradar-k8s-edge` sets no such variable and relies
+on the collector default plus the `agent_spool` refusal below. An un-updated
+manifest keeps its previous behaviour rather than blocking on cache sync.
 
 #### Scenario: A manifest that predates node watching keeps working
 - **WHEN** a collector runs from a manifest that sets no `K8S_INVENTORY_NODES`

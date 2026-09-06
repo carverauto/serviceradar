@@ -460,13 +460,13 @@ defmodule ServiceRadar.Monitoring.Alert do
 
   defp publish_k8s_node_readiness(input, event_type) do
     role =
-      case input.arguments.role do
+      case Ash.ActionInput.get_argument(input, :role) do
         "control-plane" -> "control-plane"
         _ -> "worker"
       end
 
-    node = input.arguments.node
-    cluster_id = input.arguments.cluster_id
+    node = Ash.ActionInput.get_argument(input, :node)
+    cluster_id = Ash.ActionInput.get_argument(input, :cluster_id)
 
     payload = %{
       "event_type" => event_type,
