@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     detail_query = detail_query_for_log(log_id)
 
     {stream, next_cursor, prev_cursor} =
-      load_stream_page(stream_query, log, log_id, nil)
+      load_stream_page(stream_query, log, log_id, nil, socket.assigns.current_scope)
 
     body =
       if is_map(log) do
@@ -304,7 +304,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp load_log(log_id, scope) do
     query = detail_query_for_log(log_id) <> " limit:1"
 
-    case srql_module().query(query) do
+    case srql_module().query(query, %{scope: scope}) do
       {:ok, %{"results" => [log | _]}} when is_map(log) ->
         {augment_log(log, scope), nil}
 
@@ -349,7 +349,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     query = socket.assigns.stream_query || stream_query_for_log(socket.assigns.log)
 
     {stream, next_cursor, prev_cursor} =
-      load_stream_page(query, socket.assigns.log, socket.assigns.log_id, cursor)
+      load_stream_page(
+        query,
+        socket.assigns.log,
+        socket.assigns.log_id,
+        cursor,
+        socket.assigns.current_scope
+      )
 
     socket
     |> assign(:stream_entries, stream)
@@ -359,12 +365,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     |> assign(:stream_page, page)
   end
 
-  defp load_stream_page(query, log, selected_id, cursor) when is_binary(query) do
+  defp load_stream_page(query, log, selected_id, cursor, scope) when is_binary(query) do
     opts =
       if is_binary(cursor) and cursor != "" do
-        %{limit: @stream_page_size, cursor: cursor}
+        %{limit: @stream_page_size, cursor: cursor, scope: scope}
       else
-        %{limit: @stream_page_size}
+        %{limit: @stream_page_size, scope: scope}
       end
 
     case srql_module().query(strip_embedded_limit(query), opts) do
@@ -388,11 +394,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     end
   end
 
-  defp load_stream_page(_, log, selected_id, cursor) when is_map(log) do
-    load_stream_page(stream_query_for_log(log), log, selected_id, cursor)
+  defp load_stream_page(_, log, selected_id, cursor, scope) when is_map(log) do
+    load_stream_page(stream_query_for_log(log), log, selected_id, cursor, scope)
   end
 
-  defp load_stream_page(_, _, _, _), do: {[], nil, nil}
+  defp load_stream_page(_, _, _, _, _), do: {[], nil, nil}
 
   defp refresh_stream_from_srql(socket) do
     raw =
@@ -411,7 +417,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       end
 
     {stream, next_cursor, prev_cursor} =
-      load_stream_page(query, socket.assigns.log, socket.assigns.log_id, nil)
+      load_stream_page(
+        query,
+        socket.assigns.log,
+        socket.assigns.log_id,
+        nil,
+        socket.assigns.current_scope
+      )
 
     socket
     |> assign(:stream_entries, stream)

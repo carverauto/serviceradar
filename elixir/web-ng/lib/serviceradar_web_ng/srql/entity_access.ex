@@ -123,9 +123,10 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
   Unknown entities and dashboards are `:ok` so the compiler / Ash search
   remain the source of those errors.
 
-  Pass `optional_scope: true` from `SRQL.query/2` so existing detail
-  loaders that still omit scope keep working. `Api.Access` does not pass
-  that option: a missing scope on the HTTP/MCP path is forbidden.
+  A missing scope on a mapped entity is forbidden by default. LiveView,
+  HTTP, and MCP execution paths use this default and pass the principal
+  explicitly. The helper's `optional_scope: true` option permits a nil
+  scope, but is not used by those execution paths.
   """
   @spec authorize(term(), term(), keyword()) :: :ok | {:error, :forbidden}
   def authorize(query, scope, opts \\ [])

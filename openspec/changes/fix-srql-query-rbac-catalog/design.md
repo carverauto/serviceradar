@@ -21,9 +21,6 @@ and fights the dedicated-deployment model (CNPG `search_path`).
   - Translating SRQL to Ash.Query.
   - Row-level device-group **read** grants (write-only today).
   - Filtering `GET /api/srql/catalog` by permission.
-  - Retrofitting every LiveView detail page that still calls `SRQL.query/1`
-    without a scope (those remain authenticated-but-not-catalog-gated until
-    they pass `current_scope`; list pages and `SRQL.Page` already pass it).
 
 ## Decisions
 
@@ -59,8 +56,8 @@ and fights the dedicated-deployment model (CNPG `search_path`).
 
 ## Risks / Trade-offs
 
-- LiveView detail loaders that call `SRQL.query/1` without scope still skip
-  the gate. Tracking those is a follow-up; the issue's acceptance is the
-  shared execute path and `SRQL.Page`.
+For the completed detail-loader follow-up, see the
+[SRQL access contract](../../../docs/docs/rbac-and-roles.md#srql-and-detail-page-access).
+
 - Fail-open on unmapped entities until the catalog test is updated. That is
   deliberate so a new entity is a test failure, not a production 403 storm.

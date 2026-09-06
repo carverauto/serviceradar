@@ -110,11 +110,8 @@ pre-existing hole affecting every gated entity, not one this change introduces,
 but an admin-only compiled-config entity whose gate is bypassed by reordering
 two tokens is decorative. Closing it is a prerequisite here, not a nice-to-have.
 
-A second fail-open exists on the LiveView path, where `optional_scope: true`
-returns `:ok` for a nil scope. That one is out of scope: it is reached by
-in-process callers rather than by API or MCP requests, and closing it means
-auditing every scopeless internal caller. It is recorded here so the next
-person does not mistake the entity gate for a complete boundary.
+For the detail-loader scope requirement, see the
+[SRQL access contract](../../../docs/docs/rbac-and-roles.md#srql-and-detail-page-access).
 
 ### Query window versus rollup retention
 

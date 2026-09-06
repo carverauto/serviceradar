@@ -63,6 +63,22 @@ As a rule of thumb:
   (user management, RBAC, credentials, plugin approval, remote access, audit
   state, CLI policy) default to `admin` only.
 
+### SRQL and detail-page access
+
+SRQL queries require the effective view permission for the requested data
+domain, including queries loaded by detail pages, pagination, related data,
+and previews. Signing in or opening a direct detail URL does not grant access
+to a domain omitted from the user's effective permissions. Related data can
+require a different permission from the main record.
+
+Gateway details require `devices.view` for both live registry information and
+stored records. Users without it are redirected to the dashboard with a
+permission error.
+
+The entity-to-permission mapping and scope authorization contract are owned by
+`ServiceRadarWebNG.SRQL.EntityAccess` in
+`elixir/web-ng/lib/serviceradar_web_ng/srql/entity_access.ex`.
+
 ## Custom role profiles
 
 When the built-in roles do not match a team's needs, an administrator can create

@@ -168,7 +168,12 @@ if System.get_env("SRQL_INTEGRATION") == "1" do
     test "executes SRQL gateways query via NIF", %{gateway_id: gateway_id} do
       query = "in:gateways gateway_id:#{gateway_id} is_healthy:true limit:5"
 
-      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query)
+      scope = %ServiceRadarWebNG.Accounts.Scope{
+        user: nil,
+        permissions: MapSet.new(["devices.view"])
+      }
+
+      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query, %{scope: scope})
       assert is_map(response)
 
       results = Map.get(response, "results")
