@@ -11,6 +11,14 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
   alias Ecto.Adapters.SQL
   alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Repo
+  alias ServiceRadarWebNG.Accounts.Scope
+
+  # Param-decoding tests, not authz tests: carry both catalog permissions
+  # these queries need so the RBAC gate passes them through.
+  @srql_test_scope %Scope{
+    user: nil,
+    permissions: MapSet.new(["observability.logs.view", "devices.view"])
+  }
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -37,7 +45,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       # Query by UUID - this exercises the uuid parameter type decoder
       query = ~s(in:logs id:"#{log_id}" limit:1)
 
-      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query)
+      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query, %{scope: @srql_test_scope})
       assert is_map(response)
 
       results = Map.get(response, "results", [])
@@ -54,7 +62,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       non_existent_id = Ecto.UUID.generate()
       query = ~s(in:logs id:"#{non_existent_id}" limit:1)
 
-      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query)
+      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query, %{scope: @srql_test_scope})
       assert Map.get(response, "results", []) == []
     end
 
@@ -63,7 +71,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       query = ~s(in:logs id:"not-a-valid-uuid" limit:1)
 
       # This should either error or return empty results
-      result = ServiceRadarWebNG.SRQL.query(query)
+      result = ServiceRadarWebNG.SRQL.query(query, %{scope: @srql_test_scope})
 
       case result do
         {:ok, response} ->
@@ -93,7 +101,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
 
       query = "in:gateways gateway_id:#{gateway_id} is_healthy:true limit:1"
 
-      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query)
+      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query, %{scope: @srql_test_scope})
       results = Map.get(response, "results", [])
       assert length(results) == 1
       assert hd(results)["is_healthy"] == true
@@ -114,7 +122,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
 
       query = "in:gateways gateway_id:#{gateway_id} is_healthy:false limit:1"
 
-      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query)
+      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query, %{scope: @srql_test_scope})
       results = Map.get(response, "results", [])
       assert length(results) == 1
       assert hd(results)["is_healthy"] == false
@@ -137,7 +145,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
 
       query = "in:gateways gateway_id:#{gateway_id} limit:1"
 
-      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query)
+      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query, %{scope: @srql_test_scope})
       results = Map.get(response, "results", [])
       assert length(results) == 1
       assert hd(results)["gateway_id"] == gateway_id
@@ -161,7 +169,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       # Note: Integer filtering might use different syntax depending on SRQL implementation
       query = "in:gateways gateway_id:#{gateway_id} limit:1"
 
-      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query)
+      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query, %{scope: @srql_test_scope})
       results = Map.get(response, "results", [])
       assert length(results) == 1
 
@@ -189,7 +197,7 @@ defmodule ServiceRadarWebNG.SRQLParamTypesTest do
       # Query with time range - exercises timestamptz parameter
       query = "in:logs service_name:srql-timestamp-test time:last_1h limit:10"
 
-      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query)
+      assert {:ok, response} = ServiceRadarWebNG.SRQL.query(query, %{scope: @srql_test_scope})
       results = Map.get(response, "results", [])
 
       # Should find the log we just inserted

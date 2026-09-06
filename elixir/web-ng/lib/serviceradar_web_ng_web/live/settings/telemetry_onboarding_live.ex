@@ -512,7 +512,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
 
     results =
       Map.new(check_queries(service), fn {signal, query} ->
-        {signal, run_query(srql, query)}
+        {signal, run_query(srql, query, socket.assigns.current_scope)}
       end)
 
     all_found? = Enum.all?(@signals, fn {signal, _label} -> match?({:found, _}, results[signal]) end)
@@ -534,8 +534,8 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
     ]
   end
 
-  defp run_query(srql, query) do
-    case srql.query(query) do
+  defp run_query(srql, query, scope) do
+    case srql.query(query, %{scope: scope}) do
       {:ok, %{"results" => [row | _]}} when is_map(row) -> {:found, row}
       {:ok, _} -> :not_found
       {:error, reason} -> {:error, format_error(reason)}

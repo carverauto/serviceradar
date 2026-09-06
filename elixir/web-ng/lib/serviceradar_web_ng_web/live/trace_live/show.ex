@@ -537,8 +537,9 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   # ----------------------------------------------------------------------
 
   defp load_trace(socket, srql, trace_id) do
-    {summary, summary_error} = fetch_summary(srql, trace_id)
-    {spans, spans_error, truncated?} = fetch_spans(srql, trace_id)
+    scope = socket.assigns.current_scope
+    {summary, summary_error} = fetch_summary(srql, trace_id, scope)
+    {spans, spans_error, truncated?} = fetch_spans(srql, trace_id, scope)
 
     state =
       cond do
@@ -584,10 +585,10 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
     end
   end
 
-  defp fetch_summary(srql, trace_id) do
+  defp fetch_summary(srql, trace_id, scope) do
     query = ~s(in:otel_trace_summaries trace_id:"#{trace_id}" limit:1)
 
-    case srql.query(query) do
+    case srql.query(query, %{scope: scope}) do
       {:ok, %{"results" => [%{} = summary | _]}} -> {summary, nil}
       {:ok, %{"results" => _}} -> {nil, nil}
       {:error, reason} -> {nil, "Failed to load trace summary: #{format_error(reason)}"}
@@ -595,10 +596,10 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
     end
   end
 
-  defp fetch_spans(srql, trace_id) do
+  defp fetch_spans(srql, trace_id, scope) do
     query = ~s(in:traces trace_id:"#{trace_id}" sort:start_time_unix_nano:asc limit:#{@span_limit})
 
-    case srql.query(query) do
+    case srql.query(query, %{scope: scope}) do
       {:ok, %{"results" => spans}} when is_list(spans) ->
         {spans, nil, length(spans) >= @span_limit}
 
@@ -815,7 +816,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
 
     socket = assign(socket, :logs_query, query)
 
-    case srql.query(query) do
+    case srql.query(query, %{scope: socket.assigns.current_scope}) do
       {:ok, %{"results" => logs}} when is_list(logs) ->
         socket |> assign(:logs, logs) |> assign(:logs_error, nil)
 

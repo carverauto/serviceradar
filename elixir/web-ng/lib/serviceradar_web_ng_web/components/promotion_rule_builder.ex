@@ -510,9 +510,12 @@ defmodule ServiceRadarWebNGWeb.Components.PromotionRuleBuilder do
   defp run_preview_query(socket) do
     # Build SRQL query from form data
     query = build_preview_query(socket.assigns.form)
+    # Capture the principal before the async boundary: the task closure
+    # must not touch the socket, and the catalog gate requires the scope.
+    scope = socket.assigns.current_scope
 
     # Execute query with timeout
-    task = Task.async(fn -> srql_module().query(query) end)
+    task = Task.async(fn -> srql_module().query(query, %{scope: scope}) end)
 
     case Task.yield(task, @preview_timeout) || Task.shutdown(task, :brutal_kill) do
       {:ok, {:ok, %{"results" => results, "total_count" => total}}} ->

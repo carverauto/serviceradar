@@ -75,7 +75,7 @@ defmodule ServiceRadarWebNGWeb.GatewayLive.Show do
     query = "in:gateways id:\"#{escape_value(gateway_id)}\" limit:1"
 
     db_gateway =
-      case srql_module().query(query) do
+      case srql_module().query(query, %{scope: socket.assigns.current_scope}) do
         {:ok, %{"results" => [gateway | _]}} when is_map(gateway) ->
           Map.put(gateway, "_source", "database")
 

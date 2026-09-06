@@ -50,12 +50,12 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
   @impl true
   def handle_params(%{"alert_id" => alert_id}, uri, socket) do
-    {alert, error} = load_alert(alert_id)
+    {alert, error} = load_alert(alert_id, socket.assigns.current_scope)
     stream_query = stream_query_for_alert(alert)
     detail_query = detail_query_for_alert(alert_id)
 
     {stream, next_cursor, prev_cursor} =
-      load_stream_page(stream_query, alert, alert_id, nil)
+      load_stream_page(stream_query, alert, alert_id, nil, socket.assigns.current_scope)
 
     {:noreply,
      socket
@@ -410,10 +410,10 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
 
   # -- data loading -----------------------------------------------------------
 
-  defp load_alert(alert_id) do
+  defp load_alert(alert_id, scope) do
     query = detail_query_for_alert(alert_id) <> " limit:1"
 
-    case srql_module().query(query) do
+    case srql_module().query(query, %{scope: scope}) do
       {:ok, %{"results" => [alert | _]}} when is_map(alert) ->
         {alert, nil}
 
@@ -450,7 +450,13 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     query = socket.assigns.stream_query || stream_query_for_alert(socket.assigns.alert)
 
     {stream, next_cursor, prev_cursor} =
-      load_stream_page(query, socket.assigns.alert, socket.assigns.alert_id, cursor)
+      load_stream_page(
+        query,
+        socket.assigns.alert,
+        socket.assigns.alert_id,
+        cursor,
+        socket.assigns.current_scope
+      )
 
     socket
     |> assign(:stream_entries, stream)
@@ -460,12 +466,12 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     |> assign(:stream_page, page)
   end
 
-  defp load_stream_page(query, alert, selected_id, cursor) when is_binary(query) do
+  defp load_stream_page(query, alert, selected_id, cursor, scope) when is_binary(query) do
     opts =
       if is_binary(cursor) and cursor != "" do
-        %{limit: @stream_page_size, cursor: cursor}
+        %{limit: @stream_page_size, cursor: cursor, scope: scope}
       else
-        %{limit: @stream_page_size}
+        %{limit: @stream_page_size, scope: scope}
       end
 
     case srql_module().query(strip_embedded_limit(query), opts) do
@@ -489,11 +495,11 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
     end
   end
 
-  defp load_stream_page(_, alert, selected_id, cursor) when is_map(alert) do
-    load_stream_page(stream_query_for_alert(alert), alert, selected_id, cursor)
+  defp load_stream_page(_, alert, selected_id, cursor, scope) when is_map(alert) do
+    load_stream_page(stream_query_for_alert(alert), alert, selected_id, cursor, scope)
   end
 
-  defp load_stream_page(_, _, _, _), do: {[], nil, nil}
+  defp load_stream_page(_, _, _, _, _), do: {[], nil, nil}
 
   defp refresh_stream_from_srql(socket) do
     raw =
@@ -512,7 +518,13 @@ defmodule ServiceRadarWebNGWeb.AlertLive.Show do
       end
 
     {stream, next_cursor, prev_cursor} =
-      load_stream_page(query, socket.assigns.alert, socket.assigns.alert_id, nil)
+      load_stream_page(
+        query,
+        socket.assigns.alert,
+        socket.assigns.alert_id,
+        nil,
+        socket.assigns.current_scope
+      )
 
     socket
     |> assign(:stream_entries, stream)

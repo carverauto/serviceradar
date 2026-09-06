@@ -44,7 +44,7 @@ defmodule ServiceRadarWebNG.SRQL do
     mode = Map.get(opts, :mode)
     scope = Map.get(opts, :scope)
 
-    with :ok <- EntityAccess.authorize(query, scope, optional_scope: true),
+    with :ok <- EntityAccess.authorize(query, scope),
          {:ok, translation} <- translate(query, limit, cursor, direction, mode),
          {:ok, result} <- execute_translation_raw(translation),
          {:ok, payload} <- encode_result_arrow(result) do
@@ -81,7 +81,7 @@ defmodule ServiceRadarWebNG.SRQL do
     start_time = System.monotonic_time()
 
     result =
-      case EntityAccess.authorize(query, scope, optional_scope: true) do
+      case EntityAccess.authorize(query, scope) do
         {:error, :forbidden} = denied ->
           denied
 
