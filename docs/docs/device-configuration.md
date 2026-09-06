@@ -21,6 +21,30 @@ The Logs tab runs a bounded `in:logs device_id:"..." time:last_24h` SRQL query a
 
 Provider-neutral northbound action results are shown in the device Action History section for users with `northbound.actions.view`. Retained Ansible-provider invocations are excluded; canonical Ansible evidence appears only in the Ansible Operations history under `ansible.runs.view`. Launch feedback should direct operators to Action History, and target summaries should omit nil or unavailable fields.
 
+## Device Type and Integration Convergence
+
+A later integration inference can replace an earlier inferred device type. An
+explicit type selected through manual creation or CSV import is protected from
+integration updates, even when the selected value matches the current inference.
+Importing a device without a type does not protect its inferred classification;
+blank and `Unknown` types remain eligible for enrichment.
+
+When a strongly identified integration record claims an IP already held by an
+established device in the same partition, sync can converge onto that holder if
+both nonblank hostnames match after trimming whitespace and ignoring case, and
+neither record's strong identifiers are registered to a device outside the pair.
+A new record adopts the holder's UID; an existing duplicate uses the audited
+merge path, retaining its associated data and combining discovery sources.
+If the guard fails or the merge is refused, the incoming record retains its
+separate identity without claiming the occupied IP. Integration identifiers
+remain identifying according to their source policy.
+
+A merge preserves a meaningful manual classification from the duplicate when
+the survivor has none; if both have manual classifications, the survivor's wins.
+Manual discovery provenance alone does not turn an inferred type into a manual
+classification. Older records without an explicit ownership marker retain the
+legacy protection for a meaningful type with manual provenance.
+
 ## SNMP Configuration
 
 ### SNMP Prerequisites

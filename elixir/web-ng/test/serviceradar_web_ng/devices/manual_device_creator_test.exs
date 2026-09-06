@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
   use ServiceRadarWebNG.DataCase, async: false
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Devices.ManualDeviceCreator
@@ -31,6 +32,165 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     user = AshTestHelpers.admin_user_fixture()
 
     {:ok, scope: Scope.for_user(user)}
+  end
+
+  test "manual ownership updates preserve metadata written after the device was read", %{
+    scope: scope
+  } do
+    assert {:ok, stale} =
+             create_device(scope, %{
+               uid: "sr:" <> Ecto.UUID.generate(),
+               ip: "192.0.2.85",
+               hostname: "metadata-race.example.com",
+               type: "Switch",
+               type_id: 10,
+               discovery_sources: ["armis"],
+               metadata: %{"initial" => "retained"}
+             })
+
+    assert {:ok, _} =
+             stale
+             |> Ash.Changeset.for_update(:merge_metadata, %{
+               metadata_patch: %{"later_enrichment" => "retained", "type_manually_set" => true}
+             })
+             |> Ash.update(scope: scope)
+
+    assert {:ok, updated} = ManualDeviceCreator.update_existing_device(stale, %{}, scope)
+    assert updated.metadata["type_manually_set"] == true
+    assert updated.metadata["initial"] == "retained"
+    assert updated.metadata["later_enrichment"] == "retained"
+
+    assert {:ok, _} =
+             updated
+             |> Ash.Changeset.for_update(:merge_metadata, %{
+               metadata_patch: %{"new_identity_fact" => "retained"}
+             })
+             |> Ash.update(scope: scope)
+
+    assert {:ok, _} =
+             ManualDeviceCreator.update_existing_device(
+               stale,
+               %{type: "Switch", type_id: 10},
+               scope
+             )
+
+    assert {:ok, persisted} = Device.get_by_uid(stale.uid, false, scope: scope)
+    assert persisted.metadata["type_manually_set"] == true
+    assert persisted.metadata["later_enrichment"] == "retained"
+    assert persisted.metadata["new_identity_fact"] == "retained"
+  end
+
+  test "manual selection replaces an inference committed after the import read", %{scope: scope} do
+    ip = "192.0.2.86"
+    hostname = "classification-race.example.com"
+
+    assert {:ok, stale} =
+             create_device(scope, %{
+               uid: "sr:" <> Ecto.UUID.generate(),
+               ip: ip,
+               hostname: hostname,
+               type: "Switch",
+               type_id: 10,
+               discovery_sources: ["armis"],
+               metadata: %{"type_manually_set" => false}
+             })
+
+    integration_update = %{
+      "ip" => ip,
+      "hostname" => hostname,
+      "source" => "armis",
+      "metadata" => %{"armis_type" => "Tablet"}
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([integration_update])
+    assert {:ok, inferred} = Device.get_by_uid(stale.uid, false, scope: scope)
+    assert {inferred.type, inferred.type_id} == {"Tablet", 4}
+
+    assert {:ok, selected} =
+             ManualDeviceCreator.update_existing_device(
+               stale,
+               %{type: "Switch", type_id: 10},
+               scope
+             )
+
+    assert {selected.type, selected.type_id} == {"Switch", 10}
+    assert selected.metadata["type_manually_set"] == true
+    assert {:ok, persisted} = Device.get_by_uid(stale.uid, false, scope: scope)
+    assert {persisted.type, persisted.type_id} == {"Switch", 10}
+
+    assert :ok = SyncIngestor.ingest_updates([integration_update])
+    assert {:ok, protected} = Device.get_by_uid(stale.uid, false, scope: scope)
+    assert {protected.type, protected.type_id} == {"Switch", 10}
+    assert protected.metadata["type_manually_set"] == true
+  end
+
+  test "an unchanged explicit type is protected but provenance alone is not", %{scope: scope} do
+    ip = "192.0.2.84"
+    hostname = "manual-selection.example.com"
+
+    assert {:ok, existing} =
+             create_device(scope, %{
+               uid: "sr:" <> Ecto.UUID.generate(),
+               ip: ip,
+               hostname: hostname,
+               type: "Switch",
+               type_id: 10,
+               discovery_sources: ["armis"]
+             })
+
+    assert {:ok, provenance_only} =
+             ManualDeviceCreator.create(scope, %{ip: ip, hostname: hostname})
+
+    assert provenance_only.uid == existing.uid
+    assert "manual" in provenance_only.discovery_sources
+    assert provenance_only.metadata["type_manually_set"] == false
+
+    assert {:ok, refreshed} =
+             provenance_only
+             |> Ash.Changeset.for_update(:update, %{type: "camera", type_id: 99})
+             |> Ash.update(scope: scope)
+
+    assert refreshed.type == "camera"
+    assert refreshed.metadata["type_manually_set"] == false
+
+    for type <- ["Tablet", "Switch"] do
+      assert :ok =
+               SyncIngestor.ingest_updates([
+                 %{
+                   "ip" => ip,
+                   "hostname" => hostname,
+                   "source" => "armis",
+                   "metadata" => %{"armis_type" => type}
+                 }
+               ])
+
+      assert {:ok, inferred} = Device.get_by_uid(existing.uid, false, scope: scope)
+      assert inferred.type == type
+      assert inferred.metadata["type_manually_set"] == false
+    end
+
+    assert {:ok, selected} =
+             ManualDeviceCreator.create(scope, %{ip: ip, hostname: hostname, type: "Switch"})
+
+    assert selected.uid == existing.uid
+    assert selected.type == "Switch"
+    assert selected.type_id == 10
+    assert selected.metadata["type_manually_set"] == true
+
+    assert :ok =
+             SyncIngestor.ingest_updates([
+               %{
+                 "ip" => ip,
+                 "hostname" => hostname,
+                 "source" => "armis",
+                 "metadata" => %{"armis_type" => "Tablet"}
+               }
+             ])
+
+    assert {:ok, protected} = Device.get_by_uid(existing.uid, false, scope: scope)
+    assert protected.type == "Switch"
+    assert protected.type_id == 10
+    assert protected.metadata["type_manually_set"] == true
   end
 
   test "resolves hostname-only devices and persists the resolved IP", %{scope: scope} do

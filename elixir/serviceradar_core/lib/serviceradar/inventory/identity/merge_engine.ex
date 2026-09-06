@@ -365,7 +365,38 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
            SET tags = COALESCE(source.tags, '{}'::jsonb) ||
                       COALESCE(survivor.tags, '{}'::jsonb),
                metadata = COALESCE(source.metadata, '{}'::jsonb) ||
-                          COALESCE(survivor.metadata, '{}'::jsonb),
+                          COALESCE(survivor.metadata, '{}'::jsonb) ||
+                          jsonb_build_object('type_manually_set',
+                        (COALESCE(source.metadata->'type_manually_set' = 'true'::jsonb,
+                          'manual' = ANY(COALESCE(source.discovery_sources, ARRAY[]::text[])))
+                        AND lower(COALESCE(NULLIF(btrim(source.type), ''), 'unknown')) <> 'unknown') OR
+                        (COALESCE(survivor.metadata->'type_manually_set' = 'true'::jsonb,
+                          'manual' = ANY(COALESCE(survivor.discovery_sources, ARRAY[]::text[])))
+                        AND lower(COALESCE(NULLIF(btrim(survivor.type), ''), 'unknown')) <> 'unknown')),
+               type = CASE
+                 WHEN COALESCE(source.metadata->'type_manually_set' = 'true'::jsonb,
+                        'manual' = ANY(COALESCE(source.discovery_sources, ARRAY[]::text[])))
+                      AND lower(COALESCE(NULLIF(btrim(source.type), ''), 'unknown')) <> 'unknown'
+                      AND NOT (
+                        COALESCE(survivor.metadata->'type_manually_set' = 'true'::jsonb,
+                        'manual' = ANY(COALESCE(survivor.discovery_sources, ARRAY[]::text[])))
+                        AND lower(COALESCE(NULLIF(btrim(survivor.type), ''), 'unknown')) <> 'unknown'
+                      )
+                   THEN source.type
+                 ELSE survivor.type
+               END,
+               type_id = CASE
+                 WHEN COALESCE(source.metadata->'type_manually_set' = 'true'::jsonb,
+                        'manual' = ANY(COALESCE(source.discovery_sources, ARRAY[]::text[])))
+                      AND lower(COALESCE(NULLIF(btrim(source.type), ''), 'unknown')) <> 'unknown'
+                      AND NOT (
+                        COALESCE(survivor.metadata->'type_manually_set' = 'true'::jsonb,
+                        'manual' = ANY(COALESCE(survivor.discovery_sources, ARRAY[]::text[])))
+                        AND lower(COALESCE(NULLIF(btrim(survivor.type), ''), 'unknown')) <> 'unknown'
+                      )
+                   THEN source.type_id
+                 ELSE survivor.type_id
+               END,
                discovery_sources = ARRAY(
                  SELECT DISTINCT discovery_source
                  FROM unnest(

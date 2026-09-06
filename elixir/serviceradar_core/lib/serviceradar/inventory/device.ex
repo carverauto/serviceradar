@@ -671,6 +671,7 @@ defmodule ServiceRadar.Inventory.Device do
     attribute :os, :map do
       default %{}
       public? true
+
       description "Operating system info (OCSF OS object), including passive_fingerprint evidence"
     end
 
