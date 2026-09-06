@@ -1,6 +1,7 @@
-# GENERATED PROJECTION: elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv is
-# authoritative for source modes and module counts. The database-free ExUnit selection manifest is
-# authoritative for selected-test counts. Static and executable contracts enforce both projections.
+"""GENERATED PROJECTION: elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv is
+authoritative for source modes and module counts. The database-free ExUnit selection manifest is
+authoritative for selected-test counts. Static and executable contracts enforce both projections.
+"""
 
 ASYNC_INTEGRATION_SRCS = [
     "test/integration/credential_broker_grant_lifecycle_integration_test.exs",
@@ -365,7 +366,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/edge/onboarding_package_atomicity_test.exs": 1,
     "test/serviceradar/edge/proxmox_console_sessions_test.exs": 14,
     "test/serviceradar/edge/remote_access_broker_test.exs": 21,
-    "test/serviceradar/edge/remote_access_sessions_test.exs": 35,
+    "test/serviceradar/edge/remote_access_sessions_test.exs": 36,
     "test/serviceradar/edge/remote_access_ssh_certificates_test.exs": 5,
     "test/serviceradar/edge/workers/provision_agent_worker_test.exs": 12,
     "test/serviceradar/event_writer/device_correlation_cache_test.exs": 5,

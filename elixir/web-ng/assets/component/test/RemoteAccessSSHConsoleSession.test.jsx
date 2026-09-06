@@ -159,3 +159,99 @@ describe("RemoteAccessSSHConsole session transition", () => {
     })
   })
 })
+
+// Reproduces the reported failure: a device the deployment's SSH certificate
+// policy does not list. `ssh-options` succeeds and returns zero accounts, which
+// the console used to render as an ordinary free-text account field with Connect
+// enabled, so the only feedback was the control plane refusing the session.
+describe("RemoteAccessSSHConsole without a certificate policy for the target", () => {
+  let container
+
+  beforeEach(() => {
+    container = document.createElement("div")
+    document.body.appendChild(container)
+    vi.stubGlobal("fetch", vi.fn(async (url) => {
+      if (String(url).includes("ssh-options")) {
+        return jsonResponse({data: {accounts: [], default_credential_mode: "ssh_certificate"}})
+      }
+      throw new Error(`unexpected session request to ${url}`)
+    }))
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      disconnect() {}
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    container.remove()
+  })
+
+  async function renderConsole() {
+    let root
+    await act(async () => {
+      root = createRoot(container)
+      root.render(
+        <Component
+          deviceUid="sr:1f2e3d4c-5b6a-4c8d-9e0f-a1b2c3d4e5f6"
+          sshOptionsPath="/api/remote-access/devices/sr%3A1f2e3d4c/ssh-options"
+          terminalModuleLoader={async () => fakeTerminalModules()}
+        />
+      )
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    })
+    return root
+  }
+
+  function connectButton() {
+    return [...container.querySelectorAll("button")].find((candidate) =>
+      (candidate.textContent || "").includes("Connect with SSO")
+    )
+  }
+
+  it("explains the missing policy and refuses to offer a certificate connect", async () => {
+    const root = await renderConsole()
+
+    expect(container.textContent).toContain("This target has no SSH certificate policy")
+    expect(connectButton().disabled).toBe(true)
+    expect(container.querySelector("input[autocomplete='username']")).toBeNull()
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+
+  it("still allows the legacy user-present path for the same target", async () => {
+    const root = await renderConsole()
+
+    const advanced = [...container.querySelectorAll("button")].find((candidate) =>
+      (candidate.textContent || "").includes("Show advanced")
+    )
+    await act(async () => {
+      advanced.click()
+    })
+
+    const modeSelect = [...container.querySelectorAll("select")].find((candidate) =>
+      [...candidate.options].some((option) => option.value === "user_present")
+    )
+    expect(modeSelect).toBeTruthy()
+
+    await act(async () => {
+      modeSelect.value = "user_present"
+      modeSelect.dispatchEvent(new Event("change", {bubbles: true}))
+    })
+
+    expect(container.textContent).not.toContain("This target has no SSH certificate policy")
+    expect(container.querySelector("input[autocomplete='username']")).toBeTruthy()
+
+    const openButton = [...container.querySelectorAll("button")].find((candidate) =>
+      (candidate.textContent || "").includes("Open SSH session")
+    )
+    expect(openButton).toBeTruthy()
+    expect(openButton.disabled).toBe(false)
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+})

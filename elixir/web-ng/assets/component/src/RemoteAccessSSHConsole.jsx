@@ -45,6 +45,41 @@ export function buildSshAttachCredential({
   return credential
 }
 
+// Certificate sessions are refused by the control plane unless the deployment's
+// SSH certificate policy grants this target at least one account, so a policy we
+// successfully loaded with zero accounts is a hard block, not a missing default.
+// Distinguishing it from "policy could not be loaded" matters: the latter still
+// permits a typed account, the former can only ever fail at connect time.
+export function sshCertificatePolicyState({
+  credentialMode = "",
+  optionsLoading = false,
+  optionsLoaded = false,
+  optionsError = "",
+  accountNames = [],
+} = {}) {
+  if (credentialMode !== "ssh_certificate") {
+    return {status: "not_applicable", blocksConnect: false}
+  }
+
+  if (optionsLoading) {
+    return {status: "loading", blocksConnect: true}
+  }
+
+  if (optionsError) {
+    return {status: "unavailable", blocksConnect: false}
+  }
+
+  if (!optionsLoaded) {
+    return {status: "unknown", blocksConnect: false}
+  }
+
+  if (accountNames.length === 0) {
+    return {status: "unconfigured", blocksConnect: true}
+  }
+
+  return {status: "ready", blocksConnect: false}
+}
+
 function base64Digest(buffer) {
   const bytes = new Uint8Array(buffer)
   let binary = ""
@@ -182,6 +217,7 @@ export function Component({
   const [username, setUsername] = useState(() => loadPreferredSshUsername())
   const [accounts, setAccounts] = useState([])
   const [optionsLoading, setOptionsLoading] = useState(true)
+  const [optionsLoaded, setOptionsLoaded] = useState(false)
   const [optionsError, setOptionsError] = useState("")
   const [targetHost, setTargetHost] = useState("")
   const [targetPort, setTargetPort] = useState("22")
@@ -231,6 +267,7 @@ export function Component({
       }
 
       setOptionsLoading(true)
+      setOptionsLoaded(false)
       setOptionsError("")
 
       try {
@@ -254,6 +291,7 @@ export function Component({
             ? payload.accounts
             : []
         setAccounts(nextAccounts)
+        setOptionsLoaded(true)
         setUsername((current) => pickDefaultUsername(nextAccounts, current || loadPreferredSshUsername()))
       } catch (loadError) {
         if (!cancelled) {
@@ -352,6 +390,18 @@ export function Component({
         .filter((name) => typeof name === "string" && name.trim() !== "")
         .map((name) => name.trim()),
     [accounts]
+  )
+
+  const certificatePolicy = useMemo(
+    () =>
+      sshCertificatePolicyState({
+        credentialMode,
+        optionsLoading,
+        optionsLoaded,
+        optionsError,
+        accountNames,
+      }),
+    [credentialMode, optionsLoading, optionsLoaded, optionsError, accountNames]
   )
 
   async function handleFile(event) {
@@ -902,39 +952,53 @@ export function Component({
             </div>
           )}
 
-          <label className="form-control">
-            <div className="label">
-              <span className="label-text">Unix account</span>
-              {optionsLoading ? <span className="label-text-alt">Loading policy…</span> : null}
+          {certificatePolicy.status === "unconfigured" ? (
+            <div className="alert alert-warning text-sm" role="alert">
+              <div>
+                <p className="font-medium">This target has no SSH certificate policy</p>
+                <p className="mt-1 text-xs">
+                  SSO certificate access stays unavailable until an operator grants this device a
+                  certificate-policy account, so connecting here would be refused. Choose
+                  &ldquo;User-present key (legacy)&rdquo; under Advanced if you already hold a key
+                  for this host.
+                </p>
+              </div>
             </div>
-            {accountNames.length > 0 ? (
-              <select
-                className="select select-bordered"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-              >
-                {accountNames.map((name) => (
-                  <option key={name} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <input
-                className="input input-bordered"
-                autoComplete="username"
-                placeholder="mfreeman"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-              />
-            )}
-            <div className="label">
-              <span className="label-text-alt text-base-content/60">
-                Must exist on the target (local or FreeIPA/LDAP). Certificate policy controls which accounts you
-                may request.
-              </span>
-            </div>
-          </label>
+          ) : (
+            <label className="form-control">
+              <div className="label">
+                <span className="label-text">Unix account</span>
+                {optionsLoading ? <span className="label-text-alt">Loading policy…</span> : null}
+              </div>
+              {accountNames.length > 0 ? (
+                <select
+                  className="select select-bordered"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                >
+                  {accountNames.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className="input input-bordered"
+                  autoComplete="username"
+                  placeholder="mfreeman"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                />
+              )}
+              <div className="label">
+                <span className="label-text-alt text-base-content/60">
+                  Must exist on the target (local or FreeIPA/LDAP). Certificate policy controls which accounts you
+                  may request.
+                </span>
+              </div>
+            </label>
+          )}
 
           <label className="flex cursor-pointer items-start gap-3 rounded border border-base-300 bg-base-200 p-3">
             <input
@@ -1122,7 +1186,12 @@ export function Component({
           <button
             className="btn btn-primary w-full"
             type="submit"
-            disabled={opening || optionsLoading || (credentialMode === "ssh_certificate" && !ephemeralSupported)}
+            disabled={
+              opening ||
+              optionsLoading ||
+              certificatePolicy.blocksConnect ||
+              (credentialMode === "ssh_certificate" && !ephemeralSupported)
+            }
           >
             {opening ? <span className="loading loading-spinner loading-sm" /> : null}
             {credentialMode === "ssh_certificate" ? "Connect with SSO certificate" : "Open SSH session"}
