@@ -364,7 +364,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/edge/onboarding_package_atomicity_test.exs": 1,
     "test/serviceradar/edge/proxmox_console_sessions_test.exs": 14,
     "test/serviceradar/edge/remote_access_broker_test.exs": 21,
-    "test/serviceradar/edge/remote_access_sessions_test.exs": 33,
+    "test/serviceradar/edge/remote_access_sessions_test.exs": 35,
     "test/serviceradar/edge/remote_access_ssh_certificates_test.exs": 5,
     "test/serviceradar/edge/workers/provision_agent_worker_test.exs": 12,
     "test/serviceradar/event_writer/device_correlation_cache_test.exs": 5,

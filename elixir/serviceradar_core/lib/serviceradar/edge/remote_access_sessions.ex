@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Edge.RemoteAccessApplicationTarget
+  alias ServiceRadar.Edge.RemoteAccessDialTarget
   alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessTargetPolicy
@@ -940,10 +941,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   defp device_metadata_agent_id(_device), do: nil
 
   defp resolve_target_host(device, request) do
-    case blank_to_nil(value(request, :target_host) || device_hostname(device)) do
-      nil -> {:error, :missing_remote_access_target}
-      target_host -> {:ok, target_host}
-    end
+    RemoteAccessDialTarget.resolve(device, blank_to_nil(value(request, :target_host)))
   end
 
   defp authorize_approval(request, protocol, custody_mode, opts) do
@@ -1025,12 +1023,6 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
       true ->
         {:error, :approval_denied}
     end
-  end
-
-  defp device_hostname(device) do
-    value_string(device, [:hostname, "hostname", :name, "name"]) ||
-      value_string(device, [:ip, "ip"]) ||
-      value_string(device, [:uid, "uid"])
   end
 
   defp session_metadata(device, request, protocol, custody_mode) do
