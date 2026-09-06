@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.DeviceRecords
   alias ServiceRadar.Inventory.Sync.SourcePolicy
@@ -37,7 +38,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   ]
 
   # DB connection's search_path determines the schema
-  def bulk_upsert_devices(records, strong_uids \\ MapSet.new()) do
+  def bulk_upsert_devices(records, strong_uids \\ MapSet.new(), resolved_updates \\ nil) do
+    records = attach_identity_claims(records, resolved_updates)
     update_query = device_upsert_update_query()
     refresh_rollups? = inventory_rollup_bulk_refresh_required?(length(records))
     do_bulk_upsert_devices(records, update_query, strong_uids, refresh_rollups?)
@@ -341,7 +343,11 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # insert so same-batch handoffs are atomic).
   defp prepare_active_ip_claims(records, strong_uids, reason) do
     {remapped_records, remap, releases} = remap_records_to_existing_ip(records, strong_uids)
-    prepared_records = DeviceRecords.merge_records_by_uid(remapped_records)
+
+    prepared_records =
+      remapped_records
+      |> Enum.map(&Map.delete(&1, :identity_claims))
+      |> DeviceRecords.merge_records_by_uid()
 
     if map_size(remap) > 0 or active_ip_claims_changed?(records, prepared_records) or
          releases != [] do
@@ -577,7 +583,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             {Map.put(record, :uid, existing_uid),
              {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
           else
-            if adopt_on_hostname_agreement?(record, existing, existing_uid, identity_regs) do
+            if adopt_on_hostname_agreement?(record, existing, existing_uid, identity_regs) and
+                 merge_existing_duplicate(record.uid, existing_uid) do
               Logger.info(
                 "SyncIngestor: adopting active IP #{ip} holder #{existing_uid} for " <>
                   "strong-identified device #{record.uid} (hostname agreement)"
@@ -604,6 +611,32 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
            {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
         end
     end
+  end
+
+  defp merge_existing_duplicate(incoming_uid, holder_uid) do
+    if Repo.exists?(from(d in Device, where: d.uid == ^incoming_uid)) do
+      case MergeEngine.merge_devices(incoming_uid, holder_uid,
+             reason: "sync_ip_hostname_agreement"
+           ) do
+        :ok -> true
+        {:error, _reason} -> false
+      end
+    else
+      true
+    end
+  end
+
+  defp attach_identity_claims(records, nil), do: records
+
+  defp attach_identity_claims(records, resolved_updates) do
+    claims =
+      Enum.reduce(resolved_updates, %{}, fn {update, uid}, acc ->
+        ids = SourcePolicy.effective_identifiers(update)
+        pairs = identity_pairs(ids, ids.partition)
+        Map.update(acc, uid, pairs, &Enum.uniq(&1 ++ pairs))
+      end)
+
+    Enum.map(records, &Map.put(&1, :identity_claims, Map.get(claims, &1.uid, [])))
   end
 
   # True when this record can take the strong-collision branch: it carries a
@@ -671,9 +704,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # same vocabulary registrations are written in (`Ids`). Values the
   # extractor rejects (armis `integration_id`, placeholder serials,
   # unparseable MACs) never become claims, exactly as they never become rows.
-  defp record_identity_pairs(map, partition) do
-    ids = Ids.extract_strong_identifiers(map)
+  defp record_identity_pairs(%{identity_claims: claims}, _partition), do: claims
 
+  defp record_identity_pairs(map, partition) do
+    identity_pairs(Ids.extract_strong_identifiers(map), partition)
+  end
+
+  defp identity_pairs(ids, partition) do
     for type <- @identity_anchor_types,
         value <- Ids.get_identifier_values(type, ids),
         Ids.present_id?(value),
@@ -1078,3 +1115,4 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     )
   end
 end
+

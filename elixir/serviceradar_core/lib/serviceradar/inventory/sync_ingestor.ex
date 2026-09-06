@@ -112,7 +112,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
     previous_device_states = StateEvents.previous_device_states(device_records)
 
-    case upsert_devices(device_records, strong_uids) do
+    case upsert_devices(device_records, strong_uids, resolved_updates) do
       {:ok, remap} ->
         StateEvents.publish_device_state_transitions(
           device_records,
@@ -301,10 +301,10 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
   end
 
-  defp upsert_devices([], _strong_uids), do: {:ok, %{}}
+  defp upsert_devices([], _strong_uids, _resolved_updates), do: {:ok, %{}}
 
-  defp upsert_devices(records, strong_uids),
-    do: DeviceWrites.bulk_upsert_devices(records, strong_uids)
+  defp upsert_devices(records, strong_uids, resolved_updates),
+    do: DeviceWrites.bulk_upsert_devices(records, strong_uids, resolved_updates)
 
   defp upsert_identifiers([]), do: :ok
   defp upsert_identifiers(records), do: IdentifierRecords.bulk_upsert_identifiers(records)
@@ -366,3 +366,4 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
   end
 end
+

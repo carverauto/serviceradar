@@ -814,6 +814,139 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert "armis" in reclassified.discovery_sources
   end
 
+  test "merges an existing IP-less integration duplicate with an audit", %{actor: actor} do
+    ip = "192.0.2.81"
+    hostname = "merge-switch.example.com"
+    integration_id = "synthetic-netbox-#{System.unique_integer([:positive])}"
+
+    holder_update = %{
+      "ip" => ip,
+      "hostname" => hostname,
+      "source" => "armis",
+      "metadata" => %{"armis_type" => "Tablet"}
+    }
+
+    duplicate_update = %{
+      "hostname" => hostname,
+      "source" => "netbox",
+      "metadata" => %{
+        "integration_id" => integration_id,
+        "integration_type" => "netbox",
+        "netbox_device_type" => "Switch",
+        "synthetic_history" => "retained"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([holder_update], actor: actor)
+    holder = fetch_device_by_ip!(actor, ip)
+    assert :ok = SyncIngestor.ingest_updates([duplicate_update], actor: actor)
+
+    assert %{rows: [[duplicate_uid]]} =
+             Repo.query!(
+               "SELECT device_id FROM platform.device_identifiers WHERE identifier_type = 'integration_id' AND identifier_value = $1",
+               [integration_id]
+             )
+
+    refute duplicate_uid == holder.uid
+
+    followup =
+      duplicate_update
+      |> Map.put("ip", ip)
+      |> Map.update!("metadata", &Map.delete(&1, "synthetic_history"))
+
+    assert :ok = SyncIngestor.ingest_updates([followup], actor: actor)
+    assert :ok = SyncIngestor.ingest_updates([followup], actor: actor)
+
+    survivor = fetch_device_by_ip!(actor, ip)
+    assert survivor.uid == holder.uid
+    assert survivor.type == "Switch"
+    assert survivor.type_id == 10
+    assert "armis" in survivor.discovery_sources
+    assert "netbox" in survivor.discovery_sources
+    assert survivor.metadata["synthetic_history"] == "retained"
+
+    assert %{rows: [[1]]} =
+             Repo.query!(
+               "SELECT count(*) FROM platform.ocsf_devices WHERE hostname = $1 AND deleted_at IS NULL",
+               [hostname]
+             )
+
+    assert %{rows: [[true]]} =
+             Repo.query!(
+               "SELECT deleted_at IS NOT NULL FROM platform.ocsf_devices WHERE uid = $1",
+               [
+                 duplicate_uid
+               ]
+             )
+
+    assert %{rows: [[owner_uid]]} =
+             Repo.query!(
+               "SELECT device_id FROM platform.device_identifiers WHERE identifier_type = 'integration_id' AND identifier_value = $1",
+               [integration_id]
+             )
+
+    assert owner_uid == holder.uid
+
+    assert %{rows: [[1]]} =
+             Repo.query!(
+               "SELECT count(*) FROM platform.merge_audit WHERE from_device_id = $1 AND to_device_id = $2",
+               [duplicate_uid, holder.uid]
+             )
+  end
+
+  test "snapshot identity claims prevent adopting an unrelated holder", %{actor: actor} do
+    ip = "192.0.2.82"
+    hostname = "guard-switch.example.com"
+    integration_id = "synthetic-snapshot-#{System.unique_integer([:positive])}"
+
+    existing_update = %{
+      "hostname" => "other-switch.example.com",
+      "mac" => "00:00:5e:00:53:81",
+      "source" => "netbox",
+      "metadata" => %{
+        "integration_id" => integration_id,
+        "integration_type" => "netbox",
+        "plugin_inventory_snapshot" => true,
+        "netbox_device_type" => "Switch"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([existing_update], actor: actor)
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => hostname,
+                   "source" => "armis",
+                   "metadata" => %{"armis_type" => "Tablet"}
+                 }
+               ],
+               actor: actor
+             )
+
+    holder = fetch_device_by_ip!(actor, ip)
+
+    snapshot =
+      existing_update
+      |> Map.put("ip", ip)
+      |> Map.put("hostname", hostname)
+      |> Map.put("mac", "00:00:5e:00:53:82")
+
+    assert :ok = SyncIngestor.ingest_updates([snapshot], actor: actor)
+    unchanged = fetch_device_by_ip!(actor, ip)
+    assert unchanged.uid == holder.uid
+    assert unchanged.type == "Tablet"
+    refute "netbox" in unchanged.discovery_sources
+
+    assert %{rows: [[nil]]} =
+             Repo.query!(
+               "SELECT ip FROM platform.ocsf_devices WHERE mac = $1 AND deleted_at IS NULL",
+               ["00:00:5e:00:53:82"]
+             )
+  end
+
   test "a later strong integration still forks when hostnames disagree", %{actor: actor} do
     # The guardrail on the convergence above: different hostnames mean no
     # agreement, so the strong-identity fork rule still fires and the two
@@ -1565,3 +1698,4 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
 
   defp restore_env_snapshot(key, :error), do: Application.delete_env(:serviceradar_core, key)
 end
+
