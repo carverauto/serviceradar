@@ -17,11 +17,14 @@ the ServiceRadar **tools pod**. On standalone hosts (core, gateway, agent), it
 is installed alongside the service it administers.
 
 > **Rename note:** the binary was renamed from `serviceradar-cli` to `srctl`.
-> Every install also creates a `serviceradar-cli` compatibility symlink, which
-> is deprecated and will be removed in a future release. Use `srctl` in new
+> The DEB/RPM packages and tools/config-updater images also provide a
+> `serviceradar-cli` compatibility symlink, which is deprecated and will be removed in a future release. Use `srctl` in new
 > scripts and automation.
 
-Examples in this page use `srctl` as the command name.
+Examples in this page use `srctl` as the command name. The separate
+[JavaScript CLI](https://github.com/carverauto/serviceradar/blob/staging/js/cli/README.md)
+retains the `serviceradar-cli` name for dashboard and plugin workflows. The `capture` subcommand is not included; it
+depends on the remote packet-capture session, RBAC, and audit support.
 
 Run with no subcommand and no arguments to launch an interactive TUI; run with
 `-help` for the built-in usage summary.
@@ -255,10 +258,18 @@ authentication, and support `--output json`.
 ## `auth` — device-code login
 
 Authenticates against a ServiceRadar instance with the device-code flow
-(RFC 8628) and stores the issued JWT for later commands. The token lives at
-`~/.config/serviceradar/credentials.json`
-(`%APPDATA%\serviceradar\credentials.json` on Windows) with mode `0600`,
-shared with the JS `serviceradar-cli`.
+(RFC 8628) and stores the issued JWT in the shared JS CLI credential store.
+Existing Go administrative commands still require their explicit authentication
+flags; they do not automatically read this store.
+
+On Unix, the token lives at `$XDG_CONFIG_HOME/serviceradar/credentials.json`
+when `XDG_CONFIG_HOME` is set, otherwise at
+`~/.config/serviceradar/credentials.json`. The file has mode `0600`; newly
+created credential directories have mode `0700`. Writes refuse an existing
+group- or world-writable credential directory. On Windows, the path is
+`%APPDATA%\serviceradar\credentials.json`, falling back to
+`serviceradar\credentials.json` under the user home when `APPDATA` is unset;
+Unix permission guarantees do not apply.
 
 ```bash
 # Log in (opens the verification URL in a browser)

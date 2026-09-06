@@ -138,8 +138,8 @@ declare_web_ng_release_container_amd64(
     }),
     base_image_name = "web_ng_image_base_amd64",
     bun_src = ":web_ng_bun",
-    cosign_src = ":web_ng_cosign",
     cmd = ["start"],
+    cosign_src = ":web_ng_cosign",
     env = {
         "HOME": "/app",
         "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
@@ -634,12 +634,12 @@ declare_service_container_amd64(
         "usr/local/bin/srctl": "0755",
         "usr/local/bin/update-config.sh": "0755",
     },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-config-updater:local"],
+    runtime = "alpine",
     symlinks = {
         # Deprecated alias for the pre-rename binary (see #4260).
         "usr/local/bin/serviceradar-cli": "/usr/local/bin/srctl",
     },
-    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-config-updater:local"],
-    runtime = "alpine",
     workdir = "/",
 )
 
@@ -773,11 +773,11 @@ declare_custom_base_service_container_amd64(
         "etc/motd": "0644",
         "usr/local/bin/nats": "0755",
     },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-tools:local"],
     symlinks = {
         # Deprecated alias for the pre-rename binary (see #4260).
         "usr/local/bin/serviceradar-cli": "/usr/local/bin/srctl",
     },
-    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-tools:local"],
 )
 
 declare_multiarch_image_index(

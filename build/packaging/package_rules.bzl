@@ -5,8 +5,8 @@ load(
     "pkg_attributes",
     "pkg_filegroup",
     "pkg_files",
-    "pkg_mklink",
     "pkg_mkdirs",
+    "pkg_mklink",
 )
 load("@rules_pkg//pkg:pkg.bzl", "pkg_deb", "pkg_tar")
 load("@rules_pkg//pkg:rpm.bzl", "pkg_rpm")
@@ -229,6 +229,7 @@ def serviceradar_package(
                 target = target,
             )
             link_targets.append(":{}".format(link_name))
+
         # NOTE: this must be a pkg_filegroup, not pkg_files: the pkg_files
         # implementation only forwards srcs carrying DefaultInfo, silently
         # dropping symlink providers.
