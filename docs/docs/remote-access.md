@@ -21,9 +21,11 @@ For Proxmox host shells, the final target is the PVE host SSH service. For ordin
 
 ### Connection Address
 
-The agent dials the device address recorded in inventory, not the device hostname. The address is the one ServiceRadar's own collectors already reached the device on, so the agent can reach it too. A device hostname is a label the device reports about itself -- an SNMP `sysName`, a Proxmox node name -- and a short name of that kind frequently has no DNS record at all, which is why it is only the fallback for a device inventory knows by name and has no address for. Proxmox host shells resolve the same way: the console authorizes the controller by address, and the SSH transport dials that same address.
+For inventory-device SSH sessions, ServiceRadar prefers the inventory IP address over the hostname. Hostnames reported by devices, such as SNMP `sysName` values or Proxmox node names, may not resolve from the selected edge agent. If no IP is recorded, selection falls back to the hostname or name, then the device UID; those fallback values must be resolvable to connect. An inventory IP avoids that DNS dependency but does not guarantee that the selected agent can reach the SSH service.
 
-An operator-supplied target host still wins for a single session. That override is the escape hatch for a device whose inventory address is not the one to connect through, and it is deliberately narrow: `remote_access_target_host_override_enabled` must be set, the actor needs the SSH target-override permission, and the host must appear in `remote_access_target_host_override_allowlist`.
+Proxmox host shells also prefer the target IP, then the hostname, then the host from the controller base URL. The SSH address preference matches the console's controller-origin authorization.
+
+An operator-supplied target host takes precedence for an inventory-device SSH session. Through the web API, this requires `remote_access_target_host_override_enabled`, the `devices.remote_access.ssh.target.override` permission, and a match in `remote_access_target_host_override_allowlist`.
 
 ## Operator Checklist
 

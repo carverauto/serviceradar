@@ -527,3 +527,126 @@ func TestProxmoxConsoleSSHTargetAddressPrefersAddressOverHostname(t *testing.T) 
 		})
 	}
 }
+
+// This exercises the real TCP/SSH transport and terminal bridge with an
+// intentionally unresolvable inventory label and a reachable loopback address.
+func TestRunProxmoxConsoleSSHAddressPreferenceOpensTerminal(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverConfig := &ssh.ServerConfig{
+		PasswordCallback: func(_ ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
+			if string(password) != "synthetic-password" {
+				return nil, errors.New("unexpected password")
+			}
+			return nil, nil
+		},
+	}
+	serverConfig.AddHostKey(signer)
+	var lc net.ListenConfig
+	listener, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = listener.Close() }()
+	address := listener.Addr().(*net.TCPAddr)
+	serverDone := make(chan error, 1)
+	const command = "echo synthetic-shell-ready\n"
+	const response = "synthetic-shell-ready\r\n"
+	go func() {
+		serverDone <- func() error {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return acceptErr
+			}
+			defer func() { _ = conn.Close() }()
+			_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+			sshConn, channels, requests, handshakeErr := ssh.NewServerConn(conn, serverConfig)
+			if handshakeErr != nil {
+				return handshakeErr
+			}
+			defer func() { _ = sshConn.Close() }()
+			go ssh.DiscardRequests(requests)
+			newChannel := <-channels
+			if newChannel == nil || newChannel.ChannelType() != "session" {
+				return errors.New("expected SSH session channel")
+			}
+			channel, channelRequests, channelErr := newChannel.Accept()
+			if channelErr != nil {
+				return channelErr
+			}
+			defer func() { _ = channel.Close() }()
+			for request := range channelRequests {
+				_ = request.Reply(request.Type == "pty-req" || request.Type == "shell", nil)
+				if request.Type == "shell" {
+					input := make([]byte, len(command))
+					if _, readErr := io.ReadFull(channel, input); readErr != nil {
+						return readErr
+					}
+					if string(input) != command {
+						return errors.New("terminal input did not reach SSH peer")
+					}
+					if _, writeErr := io.WriteString(channel, response); writeErr != nil {
+						return writeErr
+					}
+					<-ctx.Done()
+					return nil
+				}
+			}
+			return errors.New("shell was not requested")
+		}()
+	}()
+
+	bridge := newPluginProxmoxConsoleBridge(nil)
+	if _, err := bridge.Open(ctx, pluginProxmoxConsoleOpenRequest{}); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = bridge.Close() }()
+	done := make(chan error, 1)
+	go func() {
+		done <- runProxmoxConsoleSSH(ctx, proxmoxConsoleSSHConfig{
+			Target: proxmoxConsoleSSHTarget{
+				Hostname: "host01.invalid",
+				IP:       address.IP.String(),
+				SSHPort:  address.Port,
+			},
+			SSH:              proxmoxConsoleSSHAuth{Username: "synthetic-user", Password: "synthetic-password"},
+			SSHHostKeyPolicy: proxmoxSSHHostKeyPolicyTrustFirstUse,
+			KnownHostsPath:   filepath.Join(t.TempDir(), "known_hosts"),
+			TimeoutMS:        2000,
+		}, bridge, nil)
+	}()
+	if err := bridge.Write([]byte(command)); err != nil {
+		t.Fatal(err)
+	}
+	var output strings.Builder
+	for !strings.Contains(output.String(), response) {
+		chunk, readErr := bridge.Read(ctx)
+		if readErr != nil {
+			t.Fatalf("terminal read: %v; output: %q", readErr, output.String())
+		}
+		output.Write(chunk)
+		if strings.Contains(output.String(), proxmoxSSHConsoleUnavailableMessage) {
+			t.Fatalf("SSH terminal unavailable: %q", output.String())
+		}
+	}
+	t.Logf("Inventory hostname=host01.invalid; address=127.0.0.1; real SSH terminal input=%q output=%q", command, output.String())
+	cancel()
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("terminal connector did not shut down")
+	}
+}

@@ -2,20 +2,11 @@ defmodule ServiceRadar.Edge.RemoteAccessDialTarget do
   @moduledoc """
   Chooses the address an inventory-device remote-access session connects to.
 
-  The device address recorded in inventory is the address ServiceRadar's own
-  collectors already reached the device on, so it is the one an agent can dial.
-  A device hostname is a label the device reports about itself -- an SNMP
-  `sysName`, a Proxmox node name -- and nothing makes it resolvable from the
-  agent that opens the session. Selecting the label first is what sent SSH
-  sessions to `dial tcp: lookup <name>: server misbehaving` while the routable
-  address sat unused on the same device row.
+  Device-reported labels need not resolve from the selected agent, so address
+  selection must not prefer them over an inventory IP. Override authorization
+  belongs to the caller; this module only selects the dial target.
 
-  The hostname stays as the fallback for a device inventory knows only by name,
-  and an operator-supplied host still wins outright: that is the override for a
-  device whose inventory address is not the one to connect through.
-
-  Both addresses reach the session either way -- `target` metadata carries
-  `hostname` and `ip` -- so this choice decides only what is dialed.
+  See `docs/docs/remote-access.md#connection-address` for the operator contract.
   """
 
   alias ServiceRadar.Plugins.ValueUtils
