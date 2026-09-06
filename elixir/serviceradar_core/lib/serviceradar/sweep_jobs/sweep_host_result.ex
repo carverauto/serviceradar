@@ -55,6 +55,13 @@ defmodule ServiceRadar.SweepJobs.SweepHostResult do
     repo ServiceRadar.Repo
     schema "platform"
 
+    # Second half of the sweep-group delete cascade. Removing a group cascades to
+    # its executions, and that delete is in turn checked against this key -- so
+    # leaving it at NO ACTION would only move the violation one level down.
+    references do
+      reference :execution, on_delete: :delete
+    end
+
     custom_indexes do
       index [:execution_id],
         name: "sweep_host_results_execution_idx"

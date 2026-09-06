@@ -365,6 +365,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
               )
   end
 
+  aggregates do
+    # Deleting a group discards its executions and their per-host results. The
+    # delete confirmation quotes this count so an operator sees the size of what
+    # they are discarding before they agree to it, rather than after.
+    count :execution_count, :executions
+  end
+
   identities do
     identity :unique_name, [:name]
   end

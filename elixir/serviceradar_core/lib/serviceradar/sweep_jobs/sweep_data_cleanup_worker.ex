@@ -7,8 +7,13 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
   - `SweepGroupExecution` records older than `executions_retention_days` (default: 30)
   - `platform.sweep_coverage_daily` rows older than `rollup_retention_days` (default: 400)
 
-  Host results are deleted first to avoid foreign key issues, then orphaned
-  executions are removed.
+  Host results are deleted first. Only completed or failed executions with no
+  remaining host results are eligible for retention cleanup. This preserves
+  watermark-protected results even though execution deletion now cascades to
+  host results. Operator-initiated group deletion intentionally bypasses this
+  retention protection; see `openspec/specs/sweep-jobs/spec.md`.
+
+  The regression is covered by `sweep_data_cleanup_watermark_db_test.exs`.
 
   ## Rollup watermark guard
 
@@ -283,7 +288,19 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
       :started_at,
       cutoff,
       batch_size,
-      fn query -> where(query, [e], e.status in [:completed, :failed]) end
+      fn query ->
+        from(e in query,
+          as: :execution,
+          where: e.status in [:completed, :failed],
+          where:
+            not exists(
+              from(r in SweepHostResult,
+                where: r.execution_id == parent_as(:execution).id,
+                select: 1
+              )
+            )
+        )
+      end
     )
   end
 
@@ -329,6 +346,8 @@ defmodule ServiceRadar.SweepJobs.SweepDataCleanupWorker do
           from(r in {table, resource},
             where: r.id in ^ids
           )
+
+        delete_query = if extra_filter, do: extra_filter.(delete_query), else: delete_query
 
         {count, _} = Repo.delete_all(delete_query)
         Logger.debug("SweepDataCleanupWorker: Deleted #{count} #{table} records")

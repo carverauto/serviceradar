@@ -4,12 +4,14 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Ash.Error.Invalid
   alias Ecto.Adapters.SQL
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
   alias ServiceRadar.NetworkDiscovery.MapperUnifiController
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
+  alias ServiceRadar.SweepJobs.SweepHostResult
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
@@ -166,6 +168,101 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
              lv,
              ~s(time#settings-sweep-group-#{group.id}-last-run-at[datetime="#{DateTime.to_iso8601(last_run_at)}"][data-user-time-zone="Etc/UTC"])
            )
+  end
+
+  # Regression for #4076: a sweep group that has run could not be deleted at all.
+  # Its executions -- and their host results one level further down -- held
+  # foreign keys with no ON DELETE action, so PostgreSQL refused the delete and
+  # the operator saw only a generic failure. Any group old enough to be worth
+  # deleting is in exactly this shape, which is why the bug looked like "delete
+  # is broken" rather than "delete is broken for groups with history".
+  test "deletes a sweep group that has execution history", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(:create, %{name: "Deletable Group #{unique}"})
+      |> Ash.create(scope: scope)
+
+    {:ok, execution} =
+      SweepGroupExecution
+      |> Ash.Changeset.for_create(:start, %{
+        sweep_group_id: group.id,
+        agent_id: "agent-#{unique}"
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, host_result} =
+      SweepHostResult
+      |> Ash.Changeset.for_create(:create, %{
+        execution_id: execution.id,
+        ip: "192.0.2.10",
+        status: :available
+      })
+      |> Ash.create(scope: scope)
+
+    {:ok, lv, html} = live(conn, ~p"/settings/networks")
+    assert html =~ group.name
+
+    # The operator agrees to discarding the history with its size in front of
+    # them, not after the fact.
+    assert html =~ "1 execution and"
+
+    lv
+    |> element(~s(button[phx-click="delete_group"][phx-value-id="#{group.id}"]))
+    |> render_click()
+
+    assert render(lv) =~ "Sweep group deleted"
+    refute render(lv) =~ group.name
+
+    assert {:error, %Invalid{}} = Ash.get(SweepGroup, group.id, scope: scope)
+
+    # The dependent rows go with the group rather than being left orphaned.
+    assert {:error, %Invalid{}} =
+             Ash.get(SweepGroupExecution, execution.id, scope: scope)
+
+    assert {:error, %Invalid{}} =
+             Ash.get(SweepHostResult, host_result.id, scope: scope)
+  end
+
+  for notification <- [
+        :refresh_active_scans,
+        :sweep_execution_started,
+        :sweep_execution_completed,
+        :sweep_execution_failed
+      ] do
+    test "refreshes deletion history on #{notification}", %{conn: conn, scope: scope} do
+      unique = System.unique_integer([:positive])
+
+      {:ok, group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(:create, %{name: "History Group #{unique}", enabled: false})
+        |> Ash.create(scope: scope)
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/networks")
+      selector = ~s(button[phx-click="delete_group"][phx-value-id="#{group.id}"])
+      assert lv |> element(selector) |> render() =~ "no recorded executions"
+
+      {:ok, execution} =
+        SweepGroupExecution
+        |> Ash.Changeset.for_create(:start, %{
+          sweep_group_id: group.id,
+          agent_id: "agent-#{unique}"
+        })
+        |> Ash.create(scope: scope)
+
+      notification = unquote(notification)
+
+      message =
+        if notification == :refresh_active_scans do
+          notification
+        else
+          {notification, %{execution_id: execution.id, started_at: execution.started_at}}
+        end
+
+      send(lv.pid, message)
+      assert lv |> element(selector) |> render() =~ "1 execution and"
+    end
   end
 
   test "switches to profiles tab and lists profiles", %{conn: conn, scope: scope} do

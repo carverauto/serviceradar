@@ -491,7 +491,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/snmp_profiles/snmp_profile_test.exs": 23,
     "test/serviceradar/snmp_profiles/srql_target_resolver_test.exs": 13,
     "test/serviceradar/sweep_jobs/sweep_coverage_rollup_worker_db_test.exs": 7,
-    "test/serviceradar/sweep_jobs/sweep_data_cleanup_watermark_db_test.exs": 5,
+    "test/serviceradar/sweep_jobs/sweep_data_cleanup_watermark_db_test.exs": 7,
     "test/serviceradar/sweep_jobs/sweep_group_agent_ids_migration_db_test.exs": 6,
     "test/serviceradar/sweep_jobs/sweep_group_assignment_integration_test.exs": 6,
     "test/serviceradar/sweep_jobs/sweep_group_run_now_test.exs": 1,

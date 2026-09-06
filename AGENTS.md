@@ -397,6 +397,15 @@ Prefer Socket Firewall for supported dependency-fetching commands. Prefix JavaSc
   opens with narrative -- a "CORRECTED while implementing" note, a rationale
   paragraph -- is reported as containing no SHALL or MUST even when it contains
   several. Lead with the SHALL/MUST sentence and put the narrative below it.
+
+  **Editing a requirement in `openspec/specs/` is not enough.** A pending change
+  under `openspec/changes/` may carry its own `## MODIFIED Requirements` copy of
+  the same `### Requirement:` block, and archiving that change replays its copy
+  over `specs/` -- silently restoring the wording you just removed, with nothing
+  in the archive step to flag the conflict. Before amending a requirement, run
+  `grep -rn "<the exact bullet>" openspec/` and fix every pending delta that
+  repeats it. Leave the copies under `openspec/changes/archive/` alone: they
+  record what was true at the time, and rewriting them falsifies the record.
 - **Causal / statistical / streaming-anomaly reasoning**: use the **DeepCausality** library (`deep_causality_core` Flow API plus `deep_causality_data_structures` `SlidingWindow`; source at `~/src/deep_causality`), wrapped by the project-owned **`serviceradar-anomaly-core`** crate (`rust/anomaly-core`). DeepCausality is authored by Marvin Hansen, who guides ServiceRadar's anomaly-engine design. **Do not hand-roll a parallel detector** for rolling z-score, running mean/variance, sliding windows, CSM, or equivalent anomaly decisions in Elixir, Go, or a second Rust crate when `serviceradar-anomaly-core` already provides the primitive. A second implementation must be kept in numeric parity by hand and can drift. **`serviceradar-anomaly-core` is the single source of truth**: it powers the edge anomaly add-on (`rust/anomaly-addon`, agent-sidecar) today and a backfill/backtesting CLI. The legacy central `causal_reasoner_nif` + central analysis pipeline are **being retired** (per-series anomaly moved to the edge; see `openspec/changes/move-anomaly-detection-to-edge`) — do not extend them. If DeepCausality lacks a primitive, add it upstream or to `serviceradar-anomaly-core`, never a divergent reimplementation.
 
 ## Rust Dependency Management

@@ -214,6 +214,7 @@ defmodule ServiceRadarWebNGWeb.TimezoneSurfaceBTest do
       agent_id: nil,
       agent_ids: [],
       last_run_at: @canonical,
+      execution_count: 0,
       executions: []
     }
   end
