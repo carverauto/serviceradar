@@ -49,20 +49,27 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundURLPolicyTest do
     assert opts[:redirect] == false
   end
 
-  test "req_opts retries a closed pooled connection" do
+  test "req_opts retries a closed pooled connection on GET/HEAD" do
     retry = OutboundURLPolicy.req_opts()[:retry]
 
     assert is_function(retry, 2)
-    assert retry.(%{}, %Req.TransportError{reason: :closed})
+    assert retry.(%{method: :get}, %Req.TransportError{reason: :closed})
+    assert retry.(%{method: :head}, %Req.TransportError{reason: :closed})
+  end
+
+  test "req_opts never retries POST - the token exchange owns its own retry" do
+    retry = OutboundURLPolicy.req_opts()[:retry]
+
+    refute retry.(%{method: :post}, %Req.TransportError{reason: :closed})
   end
 
   test "req_opts does not retry a timeout - retrying only stalls the user" do
     retry = OutboundURLPolicy.req_opts()[:retry]
 
-    refute retry.(%{}, %Req.TransportError{reason: :timeout})
-    refute retry.(%{}, %Req.TransportError{reason: :econnrefused})
-    refute retry.(%{}, %Req.Response{status: 503})
-    refute retry.(%{}, :dns_resolution_failed)
+    refute retry.(%{method: :get}, %Req.TransportError{reason: :timeout})
+    refute retry.(%{method: :get}, %Req.TransportError{reason: :econnrefused})
+    refute retry.(%{method: :get}, %Req.Response{status: 503})
+    refute retry.(%{method: :get}, :dns_resolution_failed)
   end
 
   test "req_opts disables Req retry chatter" do

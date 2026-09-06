@@ -25,8 +25,9 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundURLPolicy do
   `** (Req.TransportError) timeout` warning per attempt, which reads like a
   crash in the logs but is routine retry chatter. A timeout means the
   upstream is slow, so retrying only makes the user wait longer; a `:closed`
-  socket means the pooled connection died before the request was written,
-  so one retry on a fresh connection is a transparent recovery.
+  socket on a GET/HEAD means the pooled connection died before the request
+  was written, so one retry on a fresh connection is a transparent recovery.
+  POST is never retried here: the token exchange owns its own retry.
   """
   def req_opts do
     [
@@ -38,13 +39,18 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundURLPolicy do
     ]
   end
 
-  # Deliberately narrow, mirroring `OIDCClient.stale_connection?/1` for the
-  # token exchange: only a socket that was gone before the request was
-  # written is safe to retry transparently. Anything else (notably
-  # `:timeout`) fails fast so the caller maps it to a user-facing error
-  # instead of stalling through backoff. Retry chatter stays disabled
-  # because the surviving `:closed` retry is routine pool hygiene, and an
-  # exhausted fetch is already logged by the caller with context.
-  defp retry_stale_connection?(_request, %Req.TransportError{reason: :closed}), do: true
+  # Deliberately narrow: only a GET/HEAD whose socket was gone before the
+  # request was written is safe to retry transparently. Anything else
+  # (notably `:timeout`) fails fast so the caller maps it to a user-facing
+  # error instead of stalling through backoff. POST is excluded on purpose:
+  # `OIDCClient.exchange_tokens/3` already owns the single `:closed` retry
+  # for the token exchange, and a second retry loop here would stack
+  # attempts and backoff on logins. Retry chatter stays disabled because
+  # the surviving `:closed` retry is routine pool hygiene, and an exhausted
+  # fetch is already logged by the caller with context.
+  defp retry_stale_connection?(%{method: method}, %Req.TransportError{reason: :closed})
+       when method in [:get, :head],
+       do: true
+
   defp retry_stale_connection?(_request, _response_or_exception), do: false
 end

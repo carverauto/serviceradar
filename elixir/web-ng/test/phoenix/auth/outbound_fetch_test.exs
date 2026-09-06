@@ -46,6 +46,19 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundFetchTest do
     assert Request.get_option(request, :retry_log_level) == false
   end
 
+  test "POST requests are never retried - the token exchange owns its retry" do
+    assert {:ok, request} =
+             OutboundFetch.build_request(
+               :post,
+               "https://1.1.1.1/token",
+               resolved_address: {93, 184, 216, 34}
+             )
+
+    retry = Request.get_option(request, :retry)
+    assert is_function(retry, 2)
+    refute retry.(request, %Req.TransportError{reason: :closed})
+  end
+
   test "redirects cannot be enabled by caller options" do
     assert {:ok, request} =
              OutboundFetch.build_request(
