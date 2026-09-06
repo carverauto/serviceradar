@@ -34,6 +34,52 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreatorTest do
     {:ok, scope: Scope.for_user(user)}
   end
 
+  test "manual ownership updates preserve metadata written after the device was read", %{
+    scope: scope
+  } do
+    assert {:ok, stale} =
+             create_device(scope, %{
+               uid: "sr:" <> Ecto.UUID.generate(),
+               ip: "192.0.2.85",
+               hostname: "metadata-race.example.com",
+               type: "Switch",
+               type_id: 10,
+               discovery_sources: ["armis"],
+               metadata: %{"initial" => "retained"}
+             })
+
+    assert {:ok, _} =
+             stale
+             |> Ash.Changeset.for_update(:merge_metadata, %{
+               metadata_patch: %{"later_enrichment" => "retained", "type_manually_set" => true}
+             })
+             |> Ash.update(scope: scope)
+
+    assert {:ok, updated} = ManualDeviceCreator.update_existing_device(stale, %{}, scope)
+    assert updated.metadata["type_manually_set"] == true
+    assert updated.metadata["initial"] == "retained"
+    assert updated.metadata["later_enrichment"] == "retained"
+
+    assert {:ok, _} =
+             updated
+             |> Ash.Changeset.for_update(:merge_metadata, %{
+               metadata_patch: %{"new_identity_fact" => "retained"}
+             })
+             |> Ash.update(scope: scope)
+
+    assert {:ok, _} =
+             ManualDeviceCreator.update_existing_device(
+               stale,
+               %{type: "Switch", type_id: 10},
+               scope
+             )
+
+    assert {:ok, persisted} = Device.get_by_uid(stale.uid, false, scope: scope)
+    assert persisted.metadata["type_manually_set"] == true
+    assert persisted.metadata["later_enrichment"] == "retained"
+    assert persisted.metadata["new_identity_fact"] == "retained"
+  end
+
   test "an unchanged explicit type is protected but provenance alone is not", %{scope: scope} do
     ip = "192.0.2.84"
     hostname = "manual-selection.example.com"

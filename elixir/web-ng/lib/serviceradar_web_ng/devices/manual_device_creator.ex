@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Devices.HostnameResolver
 
   require Ash.Query
@@ -394,12 +395,21 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     end
   end
 
-  defp update_existing_device(%Device{} = device, attrs, scope) do
+  @doc false
+  def update_existing_device(%Device{} = device, attrs, scope) do
     update_attrs = additional_update_attrs(device, attrs)
 
-    device
-    |> Ash.Changeset.for_update(:update, update_attrs)
-    |> Ash.update(scope: scope)
+    Repo.transaction(fn ->
+      with {:ok, device} <- put_type_ownership(device, update_attrs),
+           {:ok, updated} <-
+             device
+             |> Ash.Changeset.for_update(:update, update_attrs)
+             |> Ash.update(scope: scope) do
+        updated
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
   end
 
   @doc false
@@ -416,7 +426,6 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     |> maybe_put_hostname(device, attrs)
     |> maybe_put_ip(device, attrs)
     |> maybe_put_type(device, attrs)
-    |> put_type_ownership(device)
     |> Map.put(:tags, merge_tags(Map.get(device, :tags), incoming_tags))
     |> Map.put(
       :discovery_sources,
@@ -424,24 +433,32 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     )
   end
 
-  defp put_type_ownership(update, device) do
-    metadata = Map.get(device, :metadata) || %{}
-
-    manually_set? =
+  defp put_type_ownership(device, update) do
+    submitted_ownership =
       case Map.fetch(update, :type) do
-        {:ok, type} ->
-          meaningful_type?(type)
-
-        :error ->
-          Map.get(
-            metadata,
-            "type_manually_set",
-            "manual" in (Map.get(device, :discovery_sources) || []) and
-              meaningful_type?(Map.get(device, :type))
-          )
+        {:ok, type} -> meaningful_type?(type)
+        :error -> nil
       end
 
-    Map.put(update, :metadata, Map.put(metadata, "type_manually_set", manually_set?))
+    case Repo.query(
+           """
+           UPDATE platform.ocsf_devices
+           SET metadata = COALESCE(metadata, '{}'::jsonb) ||
+             jsonb_build_object('type_manually_set', COALESCE(
+               $2::boolean,
+               metadata->'type_manually_set' = 'true'::jsonb,
+               'manual' = ANY(COALESCE(discovery_sources, ARRAY[]::text[]))
+                 AND lower(COALESCE(NULLIF(btrim(type), ''), 'unknown')) <> 'unknown'
+             ))
+           WHERE uid = $1
+           RETURNING metadata
+           """,
+           [device.uid, submitted_ownership]
+         ) do
+      {:ok, %{rows: [[metadata]]}} -> {:ok, %{device | metadata: metadata}}
+      {:ok, %{rows: []}} -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp meaningful_type?(type) when is_binary(type),
