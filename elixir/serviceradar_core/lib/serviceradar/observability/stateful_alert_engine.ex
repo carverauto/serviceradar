@@ -215,13 +215,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         shard: shard,
         table: table,
         rules: [],
+        snapshots_loaded?: false,
         rules_loaded_at: nil,
         ash_opts: ash_opts,
         repo_unavailable_logged: false,
         rules_load_error_logged: false
       })
-
-    load_state_snapshots(state)
 
     {:ok, state}
   end
@@ -366,11 +365,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp registry_key(0), do: :stateful_alert_engine
   defp registry_key(shard), do: {:stateful_alert_engine, shard}
 
-  defp load_rules_if_needed(%{rules_loaded_at: nil} = state) do
+  defp load_rules_if_needed(state) do
+    with {:ok, state} <- load_state_snapshots(state) do
+      load_cached_rules(state)
+    end
+  end
+
+  defp load_cached_rules(%{rules_loaded_at: nil} = state) do
     load_rules(state)
   end
 
-  defp load_rules_if_needed(state) do
+  defp load_cached_rules(state) do
     now = System.monotonic_time(:millisecond)
 
     if now - state.rules_loaded_at > @rules_cache_ms do
@@ -479,25 +484,46 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end
   end
 
+  defp load_state_snapshots(%{snapshots_loaded?: true} = state), do: {:ok, state}
+
   defp load_state_snapshots(state) do
     if repo_available?() do
-      StatefulAlertRuleState
-      |> Ash.Query.for_read(:read, %{})
-      |> Ash.read(state.ash_opts)
-      |> case do
-        {:ok, %Keyset{results: results}} -> results
-        {:ok, results} when is_list(results) -> results
-        _ -> []
+      case read_state_snapshots(state) do
+        {:ok, results} ->
+          snapshots =
+            results
+            |> Enum.filter(fn snapshot -> shard_for_rule_id(snapshot.rule_id) == state.shard end)
+            |> Enum.map(fn snapshot ->
+              {{snapshot.rule_id, snapshot.group_key}, normalize_snapshot(snapshot)}
+            end)
+
+          :ets.insert(state.table, snapshots)
+          {:ok, %{state | snapshots_loaded?: true}}
+
+        {:error, reason} ->
+          {:error, {:snapshot_restore_failed, reason}, state}
       end
-      |> Enum.filter(fn snapshot -> shard_for_rule_id(snapshot.rule_id) == state.shard end)
-      |> Enum.each(fn snapshot ->
-        key = {snapshot.rule_id, snapshot.group_key}
-        :ets.insert(state.table, {key, normalize_snapshot(snapshot)})
-      end)
+    else
+      {:error, :repo_unavailable, report_repo_unavailable(state)}
     end
   rescue
     error ->
       Logger.warning("Failed to load rule snapshots: #{inspect(error)}")
+      {:error, {:snapshot_restore_failed, error}, state}
+  end
+
+  defp read_state_snapshots(%{snapshots_reader: reader}) when is_function(reader, 0),
+    do: reader.()
+
+  defp read_state_snapshots(state) do
+    StatefulAlertRuleState
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.read(state.ash_opts)
+    |> case do
+      {:ok, %Keyset{results: results}} -> {:ok, results}
+      {:ok, results} when is_list(results) -> {:ok, results}
+      {:error, _} = error -> error
+    end
   end
 
   defp repo_available? do

@@ -43,7 +43,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineRulesLoadErrorTest do
     # available with a stand-in registered process so load_rules reaches the
     # injected reader.
     Application.put_env(:serviceradar_core, :repo_enabled, false)
-    {:ok, pid} = GenServer.start(StatefulAlertEngine, %{shard: 3, rules_reader: reader})
+
+    {:ok, pid} =
+      GenServer.start(StatefulAlertEngine, %{
+        shard: 3,
+        rules_reader: reader,
+        snapshots_reader: fn -> {:ok, []} end
+      })
 
     fake_repo =
       if is_nil(Process.whereis(ServiceRadar.Repo)) do
@@ -180,6 +186,63 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineRulesLoadErrorTest do
       assert {:error, :cached_rule_evaluated} = GenServer.call(pid, {:evaluate_events, [event]})
       assert {:error, :cached_rule_evaluated} = GenServer.call(pid, {:evaluate_events, [event]})
     end)
+  end
+
+  test "failed restoration rejects recovery and retries before resolving", %{pid: pid} do
+    rule_id = rule_id_for_shard(3)
+    now = ~U[2026-09-05 12:00:00Z]
+    {:ok, snapshots} = Agent.start_link(fn -> {:error, :read_unavailable} end)
+    test_pid = self()
+
+    rule = %{
+      id: rule_id,
+      name: "restored-node",
+      signal: :event,
+      group_by: [],
+      match: %{"subject_prefix" => "test.down", "recovery" => %{"subject_prefix" => "test.ready"}},
+      bucket_seconds: 60
+    }
+
+    :sys.replace_state(pid, fn state ->
+      state
+      |> Map.merge(%{rules: [rule], rules_loaded_at: System.monotonic_time(:millisecond)})
+      |> Map.put(:snapshots_reader, fn -> Agent.get(snapshots, & &1) end)
+      |> Map.put(:resolve_alert, fn id, _, _, _ ->
+        send(test_pid, {:resolved, id})
+        :ok
+      end)
+      |> Map.put(:persist_snapshot, fn _, _, _ -> :ok end)
+    end)
+
+    event = %{time: now, log_name: "test.ready", metadata: %{}, unmapped: %{}}
+
+    assert {:error, {:snapshot_restore_failed, :read_unavailable}} =
+             GenServer.call(pid, {:evaluate_events, [event]})
+
+    refute_received {:resolved, _}
+
+    snapshot = %{
+      rule_id: rule_id,
+      group_key: "global",
+      group_values: %{},
+      window_seconds: 120,
+      bucket_seconds: 60,
+      current_bucket_start: now,
+      bucket_counts: %{},
+      last_seen_at: now,
+      last_fired_at: now,
+      last_notification_at: now,
+      cooldown_until: nil,
+      alert_id: "restored-alert"
+    }
+
+    Agent.update(snapshots, fn _ -> {:ok, [snapshot]} end)
+    assert :ok = GenServer.call(pid, {:evaluate_events, [event]})
+    assert_received {:resolved, "restored-alert"}
+    assert :sys.get_state(pid).snapshots_loaded?
+
+    Agent.update(snapshots, fn _ -> {:error, :must_not_reload} end)
+    assert :ok = GenServer.call(pid, {:evaluate_events, []})
   end
 
   defp expire_rules_cache(pid) do

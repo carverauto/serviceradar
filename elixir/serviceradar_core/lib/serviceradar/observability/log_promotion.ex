@@ -47,11 +47,11 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
         {:ok, count} ->
           with :ok <-
-                 maybe_evaluate_stateful_rules(
+                 evaluate_and_create_alerts(
                    events,
+                   promotions,
                    Keyword.get(opts, :stateful_evaluation, :async)
                  ) do
-            maybe_create_alerts(promotions)
             Logger.debug("Promoted #{count} logs to OCSF events")
             {:ok, count}
           end
@@ -510,6 +510,17 @@ defmodule ServiceRadar.Observability.LogPromotion do
   end
 
   defp put_falco_unmapped(_, falco, context), do: %{falco: Map.merge(falco, context)}
+
+  defp evaluate_and_create_alerts(events, promotions, :async) do
+    maybe_create_alerts(promotions)
+    maybe_evaluate_stateful_rules(events, :async)
+  end
+
+  defp evaluate_and_create_alerts(events, promotions, :sync) do
+    with :ok <- maybe_evaluate_stateful_rules(events, :sync) do
+      maybe_create_alerts(promotions)
+    end
+  end
 
   defp maybe_create_alerts(promotions) do
     {created, attempted} =

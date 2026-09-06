@@ -51,7 +51,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineLegacyResolveCallTest do
           {:resolve_stale_anomalies, {"some-rule", cutoff, now, MapSet.new()}}
         )
 
-      assert legacy_reply == {:ok, 0}
+      assert legacy_reply == {:error, :repo_unavailable}
       assert legacy_reply == empty_live_set_reply
     end)
 

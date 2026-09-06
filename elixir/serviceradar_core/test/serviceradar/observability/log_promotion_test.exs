@@ -231,6 +231,21 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     assert ProcessRegistry.lookup(:stateful_alert_engine) == []
   end
 
+  test "async admission failure does not skip independent log alerts" do
+    configure_rejecting_alert_queue(:stateful_alert_evaluation_queue_timeout)
+    label = "independent-#{Ash.UUID.generate()}"
+    log = create_queue_probe(label, nil, true)
+    LogPromotion.invalidate_rules_cache()
+
+    assert {:error, :stateful_alert_evaluation_queue_timeout} = LogPromotion.promote([log])
+
+    assert %{rows: [[1]]} =
+             Repo.query!(
+               "SELECT count(*) FROM alerts a JOIN ocsf_events e ON a.event_id = e.id WHERE e.log_name = $1",
+               ["test.#{label}"]
+             )
+  end
+
   test "log ingestion propagates promotion admission failures" do
     configure_rejecting_alert_queue(:evaluation_failed)
     log = create_queue_probe("promotion-failure")
@@ -816,7 +831,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     end)
   end
 
-  defp create_queue_probe(label, subject \\ nil) do
+  defp create_queue_probe(label, subject \\ nil, alert? \\ false) do
     actor = %{id: "system", role: :admin}
     subject = subject || "logs.#{label}.#{System.unique_integer([:positive])}"
 
@@ -829,7 +844,7 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
           source_type: :log,
           source: %{},
           match: %{"subject_prefix" => subject},
-          event: %{"log_name" => "test.#{label}", "alert" => false}
+          event: %{"log_name" => "test.#{label}", "alert" => alert?}
         },
         actor: actor
       )

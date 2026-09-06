@@ -132,6 +132,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
     state = %{
       table: table,
       rules: [rule],
+      snapshots_loaded?: true,
       rules_loaded_at: System.monotonic_time(:millisecond),
       create_event_and_alert: fn _, _, _, _ -> {:error, :alert_insert_failed} end
     }
@@ -167,6 +168,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
     state =
       Map.merge(state(table, failing_resolver(calls)), %{
         rules: [rule],
+        snapshots_loaded?: true,
         rules_loaded_at: System.monotonic_time(:millisecond)
       })
 
@@ -192,6 +194,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.StateMachineResolutionR
     state = %{
       table: table,
       rules: [failing_rule, healthy_rule],
+      snapshots_loaded?: true,
       rules_loaded_at: System.monotonic_time(:millisecond),
       create_event_and_alert: fn _, _, record, _ ->
         send(test_pid, {:attempted, record.id})
