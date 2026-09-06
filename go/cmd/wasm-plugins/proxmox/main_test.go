@@ -141,12 +141,19 @@ func TestInventoryBatchesIncludeOwnersBeforeNextNode(t *testing.T) {
 		case strings.HasSuffix(req.URL, "/nodes"):
 			body = `{"data":[{"node":"host01","status":"online"},{"node":"host02","status":"online"}]}`
 		case strings.Contains(req.URL, "/nodes/host02/"):
-			if len(batches) != 1 {
-				t.Fatalf("first node must be submitted before polling second node: %d batches", len(batches))
+			wantBatches := 2
+			if strings.HasSuffix(req.URL, "/qemu") || strings.HasSuffix(req.URL, "/lxc") {
+				wantBatches = 3
+			}
+			if len(batches) != wantBatches {
+				t.Fatalf("request %s: got %d submitted batches, want %d", req.URL, len(batches), wantBatches)
 			}
 		case strings.HasSuffix(req.URL, "/host01/network"):
 			body = `{"data":[{"iface":"vmbr0","address":"192.0.2.41","cidr":"192.0.2.41/24"}]}`
 		case strings.HasSuffix(req.URL, "/host01/qemu"):
+			if len(batches) != 1 || len(batches[0].Targets[0].Nodes) != 1 || len(batches[0].Targets[0].Guests) != 0 {
+				t.Fatalf("host inventory must be submitted before guest requests: %#v", batches)
+			}
 			body = `{"data":[{"vmid":501,"name":"guest01","status":"stopped"}]}`
 		case strings.HasSuffix(req.URL, "/501/config"):
 			body = `{"data":{"net0":"virtio=00:00:5e:00:53:41,ip=192.0.2.42/24"}}`
@@ -169,15 +176,25 @@ func TestInventoryBatchesIncludeOwnersBeforeNextNode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(batches) != 2 {
-		t.Fatalf("expected one batch per node, got %d", len(batches))
+	if len(batches) != 3 {
+		t.Fatalf("expected two host batches and one guest batch, got %d", len(batches))
 	}
-	first := batches[0].Targets[0]
+	first := batches[1].Targets[0]
 	if len(first.Nodes) != 1 || len(first.Guests) != 1 || first.Guests[0].Node != first.Nodes[0].Node {
 		t.Fatalf("batch must contain guest and owner: %#v", first)
 	}
 	if first.Nodes[0].IP != "192.0.2.41" {
 		t.Fatalf("standalone host lost network IP: %q", first.Nodes[0].IP)
+	}
+	var counted checkSummary
+	for _, batch := range batches {
+		accumulateSummary(&counted, batch.Summary)
+	}
+	if counted.Nodes != 2 || counted.Guests != 1 || counted.NetworkInterfaces != 1 {
+		t.Fatalf("owning host must not be counted twice: %#v", counted)
+	}
+	if batches[1].Summary.Nodes != 0 || batches[1].ResourceSummary.NetworkInterfaceCount != 0 {
+		t.Fatalf("guest batch must count only guest resources: %#v", batches[1])
 	}
 	if !strings.Contains(result.Summary, "2 node(s), 1 guest(s)") {
 		t.Fatalf("unexpected totals: %s", result.Summary)
@@ -249,8 +266,8 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 	if client.requests[0].Headers["Authorization"] != hostCredentialSentinel {
 		t.Fatalf("authorization header was not set")
 	}
-	if len(batches) != 1 {
-		t.Fatalf("expected one self-contained node batch, got %d", len(batches))
+	if len(batches) != 2 {
+		t.Fatalf("expected an early host batch and a self-contained guest batch, got %d", len(batches))
 	}
 
 	// Locate the node-bearing and guest-bearing batches, and the streamed guest

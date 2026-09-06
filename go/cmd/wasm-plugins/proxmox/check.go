@@ -80,6 +80,10 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 
 			enrichedNodes := annotateNodesWithClusterStatus(
 				enrichNodes(cfg, target, token, []proxmoxNode{node}, warnings), cluster)
+			if err := emitProxmoxBatch(observedAt, target, version, cluster, enrichedNodes, nil, warnings, &totals); err != nil {
+				return nil, err
+			}
+
 			var guests []proxmoxGuest
 			if cfg.includeGuests() && (cfg.MaxGuests <= 0 || remaining > 0) {
 				var truncated bool
@@ -93,8 +97,10 @@ func runProxmoxCheck(cfg Config) (*pluginResult, error) {
 				}
 			}
 
-			if err := emitProxmoxBatch(observedAt, target, version, cluster, enrichedNodes, guests, warnings, &totals); err != nil {
-				return nil, err
+			if len(guests) > 0 {
+				if err := emitProxmoxBatch(observedAt, target, version, cluster, enrichedNodes, guests, warnings, &totals); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -210,14 +216,19 @@ func emitProxmoxBatch(
 	// the card was stuck at the first batch's "N node(s), 0 guest(s)".
 	observedAt = time.Now().UTC().Format(time.RFC3339Nano)
 
+	newNodes := nodes
+	if len(guests) > 0 {
+		newNodes = nil
+	}
+
 	discovery := sdk.NewDeviceDiscovery(discoverySource)
 	discovery.ObservedAt = observedAt
-	addNodeDiscoveries(discovery, target, nodes, cluster, warnings)
+	addNodeDiscoveries(discovery, target, newNodes, cluster, warnings)
 	addGuestDiscoveries(discovery, guests, cluster, warnings)
 
-	resources := summarizeInventory(nodes, guests)
+	resources := summarizeInventory(newNodes, guests)
 	summary := checkSummary{
-		Nodes:             len(nodes),
+		Nodes:             len(newNodes),
 		Guests:            len(guests),
 		QEMU:              countGuests(guests, "qemu"),
 		LXC:               countGuests(guests, "lxc"),
@@ -261,6 +272,7 @@ func emitProxmoxBatch(
 	result.ObservedAt = observedAt
 	result.AddLabel("plugin_id", pluginID)
 	result.Details = string(body)
+	details.Targets[0].Nodes = newNodes
 	emitResourceEvents(result, details)
 	emitProxmoxMetricTelemetry(pluginID, details)
 	if len(discovery.Devices) > 0 {
