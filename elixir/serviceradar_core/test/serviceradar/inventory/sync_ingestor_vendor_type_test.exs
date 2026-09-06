@@ -894,6 +894,92 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
              )
   end
 
+  test "untyped manual provenance remains reclassifiable after merging", %{actor: actor} do
+    ip = "192.0.2.83"
+    hostname = "untyped-merge.example.com"
+    integration_id = "synthetic-untyped-#{System.unique_integer([:positive])}"
+
+    duplicate = %{
+      "hostname" => hostname,
+      "source" => "manual",
+      "metadata" => %{
+        "integration_id" => integration_id,
+        "integration_type" => "netbox",
+        "type" => "Unknown"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([duplicate], actor: actor)
+
+    assert %{rows: [[duplicate_uid]]} =
+             Repo.query!(
+               "SELECT device_id FROM platform.device_identifiers WHERE identifier_type = 'integration_id' AND identifier_value = $1",
+               [integration_id]
+             )
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => hostname,
+                   "source" => "armis",
+                   "metadata" => %{"armis_type" => "Tablet"}
+                 }
+               ],
+               actor: actor
+             )
+
+    holder = fetch_device_by_ip!(actor, ip)
+    refute holder.uid == duplicate_uid
+    assert holder.type == "Tablet"
+
+    followup = %{
+      "ip" => ip,
+      "hostname" => hostname,
+      "source" => "netbox",
+      "metadata" => %{
+        "integration_id" => integration_id,
+        "integration_type" => "netbox",
+        "netbox_device_type" => "Switch"
+      }
+    }
+
+    for type <- ["Switch", "Router", "Switch"] do
+      update = put_in(followup, ["metadata", "netbox_device_type"], type)
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+      survivor = fetch_device_by_ip!(actor, ip)
+      assert survivor.uid == holder.uid
+      assert survivor.type == type
+      assert survivor.type_id == if(type == "Switch", do: 10, else: 12)
+      assert "manual" in survivor.discovery_sources
+      assert "armis" in survivor.discovery_sources
+      assert "netbox" in survivor.discovery_sources
+      assert survivor.metadata["type_manually_set"] == false
+    end
+
+    assert %{rows: [[true]]} =
+             Repo.query!(
+               "SELECT deleted_at IS NOT NULL FROM platform.ocsf_devices WHERE uid = $1",
+               [
+                 duplicate_uid
+               ]
+             )
+
+    survivor = fetch_device_by_ip!(actor, ip)
+
+    assert {:ok, _} =
+             survivor
+             |> Ash.Changeset.for_update(:update, %{type: "Firewall", type_id: 9})
+             |> Ash.update(actor: actor)
+
+    assert :ok = SyncIngestor.ingest_updates([followup], actor: actor)
+    manually_typed = fetch_device_by_ip!(actor, ip)
+    assert manually_typed.type == "Firewall"
+    assert manually_typed.type_id == 9
+    assert manually_typed.metadata["type_manually_set"] == true
+  end
+
   test "snapshot identity claims prevent adopting an unrelated holder", %{actor: actor} do
     ip = "192.0.2.82"
     hostname = "guard-switch.example.com"

@@ -1046,13 +1046,15 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             fragment(
               """
               CASE
-                WHEN 'manual' = ANY(COALESCE(?, ARRAY[]::text[]))
+                WHEN COALESCE(?->'type_manually_set' = 'true'::jsonb,
+                     'manual' = ANY(COALESCE(?, ARRAY[]::text[])))
                      AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
                      AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
                   THEN ?
                 ELSE COALESCE(NULLIF(EXCLUDED.type, ''), ?)
               END
               """,
+              d.metadata,
               d.discovery_sources,
               d.type,
               d.type,
@@ -1062,7 +1064,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             fragment(
               """
               CASE
-                WHEN 'manual' = ANY(COALESCE(?, ARRAY[]::text[]))
+                WHEN COALESCE(?->'type_manually_set' = 'true'::jsonb,
+                     'manual' = ANY(COALESCE(?, ARRAY[]::text[])))
                      AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
                      AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
                   THEN ?
@@ -1071,6 +1074,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                 ELSE ?
               END
               """,
+              d.metadata,
               d.discovery_sources,
               d.type,
               d.type_id,
@@ -1097,8 +1101,22 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           owner: fragment("COALESCE(EXCLUDED.owner, ?)", d.owner),
           metadata:
             fragment(
-              "(COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason' - 'mac_vendor' - 'mac_vendor_source' - 'mac_vendor_oui_prefix' - 'mac_vendor_oui_snapshot_id') || COALESCE(EXCLUDED.metadata, '{}'::jsonb)",
-              d.metadata
+              """
+              (COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason' - 'mac_vendor' - 'mac_vendor_source' - 'mac_vendor_oui_prefix' - 'mac_vendor_oui_snapshot_id') || COALESCE(EXCLUDED.metadata, '{}'::jsonb) ||
+              jsonb_build_object('type_manually_set',
+                CASE
+                  WHEN 'manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[]))
+                       AND NULLIF(EXCLUDED.type, '') IS NOT NULL
+                    THEN lower(COALESCE(NULLIF(btrim(EXCLUDED.type), ''), 'unknown')) <> 'unknown'
+                  ELSE COALESCE(?->'type_manually_set' = 'true'::jsonb,
+                         'manual' = ANY(COALESCE(?, ARRAY[]::text[])))
+                       AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
+                END)
+              """,
+              d.metadata,
+              d.metadata,
+              d.discovery_sources,
+              d.type
             ),
           deleted_at: nil,
           deleted_by: nil,

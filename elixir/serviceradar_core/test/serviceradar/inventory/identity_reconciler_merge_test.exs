@@ -186,6 +186,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
            }
 
     assert survivor.metadata == %{
+             "type_manually_set" => false,
              "armis_device_id" => "4487840",
              "authority" => "survivor",
              "csv_import" => true
