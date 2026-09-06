@@ -417,6 +417,41 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     refute inspect(options) =~ "principals"
   end
 
+  test "ssh_console_options reports no accounts when the policy lists other targets only" do
+    uid = unique_uid("ssh-options-unlisted")
+    listed_uid = unique_uid("ssh-options-listed")
+
+    # Shape of a real deployment policy: a per-target allow list that grants a
+    # sibling host and no top-level `accounts` fallback. The unlisted device must
+    # surface an empty account list so the console can say the target has no
+    # certificate policy instead of offering a free-text account that can only
+    # ever be refused at connect time.
+    Application.put_env(:serviceradar_core, :remote_access_ssh_certificate_policy, %{
+      "ttl_seconds" => 1800,
+      "targets" => %{
+        listed_uid => %{
+          "accounts" => [%{"name" => "mfreeman", "principals" => [@target_principal]}],
+          "ttl_seconds" => 1800
+        }
+      }
+    })
+
+    insert_device!(uid, agent_id: "agent-unlisted", gateway_id: "gateway-unlisted")
+
+    assert {:ok, options} = RemoteAccessSessions.ssh_console_options(uid)
+    assert options["accounts"] == []
+    assert options["device_uid"] == uid
+    assert options["default_credential_mode"] == "ssh_certificate"
+
+    assert {:error, :ssh_principal_policy_required} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: :ssh, credential_custody_mode: :ssh_certificate},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+  end
+
   test "SSH certificate sessions materialize only trusted account policy from deployment config" do
     uid = unique_uid("ssh-cert-policy")
 

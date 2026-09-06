@@ -268,6 +268,17 @@ when an SSH-certificate target has no `accounts` mapping. The inline JSON
 environment variable remains available for isolated development, but the Helm
 chart intentionally supports only the Secret-backed file path.
 
+A `targets` entry is matched by the device UID first, then its inventory
+hostname, then its inventory address; the first key present in `targets` wins.
+Only that entry's `accounts` apply, merged over the top-level policy. A
+deployment that grants accounts per target and sets no top-level `accounts` is
+therefore an allow-list: every new host needs its own entry before SSO
+certificate access works, and adding one host does not cover its siblings.
+The SSH console reads the resolved account list from
+`GET /api/remote-access/devices/:uid/ssh-options` and, when the policy grants
+the target no account, says so and disables certificate connect instead of
+offering an account field that connect would refuse.
+
 ## Linux Target Enrollment
 
 Each Linux target must trust the ServiceRadar user CA. The account still has to exist on the host through local users, LDAP, Active Directory, or another NSS/PAM source. SSH certificates replace static SSH keys or SSH passwords for authentication; they do not create operating-system accounts.
@@ -833,6 +844,8 @@ Common failures:
 - Connection timeout: the selected edge agent cannot reach the target on TCP `22`.
 - `dial tcp: lookup <name>: server misbehaving` or `no such host`: the session is connecting by name rather than by address. The device row has no address, or the target-host field was set to a name the edge agent's resolver cannot answer. Give the device an address in inventory, or supply a name that agent can resolve.
 - Host key rejected: the target host key is absent from known-hosts or changed since the last trusted connection.
+- `SSH certificate access requires trusted account and principal policy for the target`: the certificate policy has no `accounts` for this device under its UID, hostname, or address, and no top-level `accounts` fallback. The session is refused before it is created, so no row appears in `remote_access_sessions`. Add a `targets` entry for the device, or use the legacy user-present key path under **Advanced**.
+- `ssh: handshake failed: knownhosts: key is unknown`: the session reached the target, and the selected edge agent's known-hosts file has no entry for the address it dialed. This file is agent-local; the host-key records under **Settings -> Remote access host keys** are a separate review store and are not consulted during verification, nor are they populated automatically. Enroll the key in the agent's known-hosts file, or pick `trust_on_first_use` under **Advanced** for a reviewed first connection. Note that an agent trusting a host by name will still report an unknown key once the session dials that host by address.
 - Signer failure: check the signer binary path, CA key secret mount, `SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON`, policy file syntax, and signer logs.
 
 ## Rotation
