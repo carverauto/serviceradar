@@ -1998,6 +1998,13 @@ gatewayApi:
       - /v1/stream
       - /v1/camera-relay-sessions
       - /v1/field-survey
+      # Remote-access (SSH/desktop) and Proxmox console terminal streams are
+      # WebSocket upgrades served by web-ng. Without a streaming-route match
+      # they fall through to the generic route, whose BackendTrafficPolicy has
+      # no httpUpgrade websocket entry, and Envoy holds the handshake open
+      # indefinitely (browser stuck at "connecting", no backend hit).
+      - /v1/remote-access/sessions
+      - /v1/proxmox/console-sessions
     streamingTimeouts:
       request: 0s
       backendRequest: 0s
