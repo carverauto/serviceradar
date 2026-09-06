@@ -40,6 +40,25 @@ The **Observability** section collects telemetry data:
 - **Camera relays** — camera relay streams and the analysis workers that
   process them.
 
+### Live updates
+
+Events, Traces, Metrics, Alerts, BMP, and BGP have a **Live** button with an
+**On/Off** badge, like Logs. They open with Live off. Click Live to refresh
+the current results immediately and follow incoming updates; click again to
+pause automatic refreshes.
+
+Events, Traces, Metrics, and Alerts return to the first page using the active
+query when enabled. Changing their query, paging, or switching tabs turns Live
+off. BMP also returns to the first page and pauses when paging. BGP keeps the
+selected filters and pauses when those filters change.
+
+Events, Traces, Metrics, Alerts, and BMP group incoming updates into refreshes
+with a five-second delay. BGP refreshes on each routing observation. Alerts
+refresh when an alert is created. Traces follow span ingestion and completed
+summary updates; see the [OTel storage model](./otel.md#storage-model) for how
+summaries become available. Live does not change the query's filters or sort
+order, so only matching results appear.
+
 ## Topology & spatial views
 
 - **Topology (Network Topology)** — an interactive map of how devices connect

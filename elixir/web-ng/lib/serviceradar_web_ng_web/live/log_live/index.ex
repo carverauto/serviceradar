@@ -1449,10 +1449,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   @impl true
   def handle_info({:otel_trace_summaries_refreshed, _event}, socket) do
-    # Authoritative pulse for the traces tab: summaries changed, so a
-    # debounced head refresh reads fresh rows. Span ingest also requests a
-    # prompt summary refresh, so Live follows spans within seconds instead of
-    # waiting for the scheduled rollup.
+    # Span ingest can precede summary availability; the worker's post-commit
+    # pulse lets the tail read the completed summaries.
     {:noreply, maybe_schedule_tab_live_refresh(socket, "traces", :traces_live?)}
   end
 
@@ -1463,9 +1461,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   @impl true
   def handle_info({:alert_created, _event}, socket) do
-    # Authoritative pulse for the alerts tab: fired from AlertGenerator on
-    # every alert create, covering all creation paths (stateful engine, log
-    # promotion, trivy reports, service checks).
+    # See ServiceRadar.Monitoring.AlertNotifier for the shared creation boundary.
     {:noreply, maybe_schedule_tab_live_refresh(socket, "alerts", :alerts_live?)}
   end
 
