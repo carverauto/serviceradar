@@ -77,7 +77,6 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
       cond do
         prev == true and new_ready == false -> [{:not_ready, node}]
         prev == false and new_ready == true -> [{:ready, node}]
-        prev == nil and new_ready == false -> [{:not_ready, node}]
         true -> []
       end
     end)
@@ -222,6 +221,10 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodes do
 
   defp message(:not_ready, node) do
     "Kubernetes #{node.role} node #{node.name} is NotReady"
+  end
+
+  defp message(:ready, %{ready_reason: "NodeDeleted"} = node) do
+    "Kubernetes #{node.role} node #{node.name} was removed from the cluster while NotReady"
   end
 
   defp message(:ready, node) do

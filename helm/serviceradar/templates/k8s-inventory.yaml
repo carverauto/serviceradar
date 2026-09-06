@@ -144,8 +144,6 @@ spec:
               value: {{ default true $gateway.enabled | quote }}
             - name: K8S_INVENTORY_NODES
               value: {{ (or (not (hasKey $nodes "enabled")) $nodes.enabled) | quote }}
-            - name: K8S_INVENTORY_NODES_SUBJECT
-              value: {{ default "inventory.k8s.nodes" $nodes.subject | quote }}
             - name: K8S_INVENTORY_PUBLISH_MAX_RETRIES
               value: {{ default 5 $publish.maxRetries | quote }}
             - name: K8S_INVENTORY_PUBLISH_TIMEOUT

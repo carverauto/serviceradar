@@ -49,7 +49,6 @@ type Config struct {
 	EnableNodes      bool
 	PublishMode      string // nats | agent_spool | stdout | none
 	Subject          string // full subject for snapshot publish
-	NodeSubject      string // full subject for node snapshot publish
 	SpoolDir         string // required for agent_spool
 
 	NATSHostPort   string
@@ -79,7 +78,6 @@ func LoadConfigFromEnv() (Config, error) {
 		EnableNodes:          parseBoolEnv("K8S_INVENTORY_NODES", true),
 		PublishMode:          strings.ToLower(strings.TrimSpace(os.Getenv("PUBLISH_MODE"))),
 		Subject:              strings.TrimSpace(os.Getenv("K8S_INVENTORY_SUBJECT")),
-		NodeSubject:          strings.TrimSpace(os.Getenv("K8S_INVENTORY_NODES_SUBJECT")),
 		SpoolDir:             strings.TrimSpace(os.Getenv("K8S_INVENTORY_SPOOL_DIR")),
 		NATSHostPort:         strings.TrimSpace(os.Getenv("NATS_HOSTPORT")),
 		NATSStreamName:       strings.TrimSpace(os.Getenv("NATS_STREAM")),
@@ -112,9 +110,6 @@ func LoadConfigFromEnv() (Config, error) {
 
 	if cfg.Subject == "" {
 		cfg.Subject = defaultNATSSubjectPrefix
-	}
-	if cfg.NodeSubject == "" {
-		cfg.NodeSubject = defaultNodeSubject
 	}
 	if cfg.NATSStreamName == "" {
 		cfg.NATSStreamName = defaultNATSStreamName

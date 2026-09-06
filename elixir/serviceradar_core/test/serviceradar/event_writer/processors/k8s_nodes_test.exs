@@ -65,7 +65,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodesTest do
     assert K8sNodes.parse_message(%{data: "{not-json", metadata: %{}}) == nil
   end
 
-  test "readiness_transitions emits only Ready flips and first-seen NotReady" do
+  test "readiness_transitions emits only Ready flips of a persisted node" do
     worker = %{
       name: "node-worker-1.example.com",
       cluster_id: "cluster-a",
@@ -102,8 +102,7 @@ defmodule ServiceRadar.EventWriter.Processors.K8sNodesTest do
                [recovered]
              )
 
-    assert [{:not_ready, ^worker}] =
-             K8sNodes.readiness_transitions(%{}, [worker])
+    assert [] = K8sNodes.readiness_transitions(%{}, [worker])
 
     assert [] =
              K8sNodes.readiness_transitions(

@@ -4,7 +4,10 @@
 The system SHALL publish a current-state inventory of Kubernetes Nodes from
 the in-cluster `serviceradar-k8s-inventory` collector, including each Node's
 name, cluster id, role (control-plane or worker), and `Ready` condition, on
-JetStream subject `inventory.k8s.nodes` of stream `k8s_inventory`.
+JetStream subject `inventory.k8s.nodes` of stream `k8s_inventory`. That
+subject SHALL NOT be operator-configurable: EventWriter's stream definition
+and Broadway subject matcher both hardcode it, so any other value would
+publish where nothing consumes.
 
 #### Scenario: Ready worker is inventoried
 - **WHEN** the collector lists a Node whose `Ready` condition is True and that
@@ -68,6 +71,20 @@ NOT deliver a notification from the EventWriter processor.
 #### Scenario: Unchanged Ready is silent
 - **WHEN** a snapshot repeats the same `ready` value for a node
 - **THEN** the system SHALL NOT emit a readiness event for that node
+
+#### Scenario: A node seen for the first time does not page
+- **WHEN** a snapshot contains a NotReady node that has no persisted `ready`
+  value for that cluster
+- **THEN** the system SHALL persist it and SHALL NOT emit `node.not_ready`
+- **AND** a later flip to Ready and back SHALL page normally
+
+#### Scenario: A NotReady node removed from the cluster clears its incident
+- **GIVEN** a persisted node whose stored `ready` value is false
+- **WHEN** the next snapshot omits that node
+- **THEN** the system SHALL emit `node.ready` for it so the open incident
+  clears
+- **AND** the event message SHALL say the node was removed from the cluster
+  rather than that it recovered
 
 ### Requirement: Public-endpoints ingest stays isolated
 EventWriter SHALL continue to ingest `inventory.k8s.public_endpoints` with the

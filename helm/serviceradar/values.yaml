@@ -136,7 +136,6 @@ k8sInventory:
     # Watch Kubernetes Nodes (Ready condition) and publish inventory.k8s.nodes.
     # Absent means enabled. Set enabled: false to drop Nodes RBAC.
     enabled: true
-    subject: "inventory.k8s.nodes"
   envoyProxyCRD:
     enabled: false
   nats:

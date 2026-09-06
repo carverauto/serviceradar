@@ -10,7 +10,10 @@
       existing controller.
 - [x] 1.3 Publish the node snapshot to JetStream subject `inventory.k8s.nodes`
       on stream `k8s_inventory` without changing the public-endpoints subject.
-      `ensureStream` MUST add the new subject when missing.
+      `ensureStream` MUST add the new subject when missing. The subject is a
+      constant, not a Helm value or env var: EventWriter hardcodes it in both
+      the stream definition and the Broadway matcher, so an override could only
+      silence node alerting.
 - [x] 1.4 Helm ClusterRole: add `nodes` `get/list/watch`. Keep the comment
       that this is read-only and still excludes secrets/pods/exec. Gate with
       `k8sInventory.nodes.enabled` defaulting true when inventory is enabled.
@@ -28,9 +31,15 @@
       creating `platform.k8s_nodes_current` (`prefix: "platform"`).
 - [x] 2.2 Add `ServiceRadar.EventWriter.Processors.K8sNodes` that upserts the
       snapshot and soft-deletes cluster rows absent from it.
-- [x] 2.3 On `Ready` false←true / true←false transitions, publish internal
-      logs via `InternalLogPublisher` (`k8s`, event types `node.not_ready` /
-      `node.ready`). Do not call Discord or `WebhookNotifier`.
+- [x] 2.3 On `Ready` false←true / true←false transitions of a PERSISTED node,
+      publish internal logs via `InternalLogPublisher` (`k8s`, event types
+      `node.not_ready` / `node.ready`). Do not call Discord or
+      `WebhookNotifier`. A node seen for the first time does not page: kubelet
+      registers a joining Node with `Ready=False`, so a first-seen rule would
+      page critical on every node join.
+- [x] 2.3a A NotReady node that leaves the snapshot still emits `node.ready`
+      so its incident clears, but says it was removed from the cluster rather
+      than that it recovered.
 - [x] 2.4 Add EventWriter consumer `K8S_NODES` on stream `k8s_inventory`,
       subject `inventory.k8s.nodes`. Narrow the public-endpoints Broadway
       matcher to exact `inventory.k8s.public_endpoints` so node snapshots

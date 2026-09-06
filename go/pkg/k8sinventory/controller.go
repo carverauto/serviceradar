@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,12 +27,12 @@ type Controller struct {
 
 	metrics *Metrics
 
-	mu               sync.Mutex
-	lastHash         string
-	lastSnapshot     Snapshot
-	lastNodeHash     string
-	ready            atomic.Bool
-	generation       atomic.Uint64
+	mu           sync.Mutex
+	lastHash     string
+	lastSnapshot Snapshot
+	lastNodeHash string
+	ready        atomic.Bool
+	generation   atomic.Uint64
 
 	// notifyCh coalesces rebuild requests.
 	notifyCh chan struct{}
@@ -212,10 +211,6 @@ func (c *Controller) publishNodesIfEnabled(ctx context.Context, opts SnapshotOpt
 	if !c.cfg.EnableNodes {
 		return false, nil
 	}
-	subject := strings.TrimSpace(c.cfg.NodeSubject)
-	if subject == "" {
-		subject = defaultNodeSubject
-	}
 	nodeSnap, err := NodeSnapshotFromLister(ctx, c.lister, opts)
 	if err != nil {
 		return false, err
@@ -234,7 +229,7 @@ func (c *Controller) publishNodesIfEnabled(ctx context.Context, opts SnapshotOpt
 	if unchanged {
 		return false, nil
 	}
-	if err := c.publishWithRetry(ctx, subject, payload); err != nil {
+	if err := c.publishWithRetry(ctx, defaultNodeSubject, payload); err != nil {
 		return false, err
 	}
 	c.mu.Lock()

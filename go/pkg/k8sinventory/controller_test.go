@@ -85,7 +85,6 @@ func TestController_PublishesNodeSnapshotWhenEnabled(t *testing.T) {
 		ClusterID:            "cluster-a",
 		PublishMode:          "none",
 		Subject:              "inventory.k8s.public_endpoints",
-		NodeSubject:          "inventory.k8s.nodes",
 		EnableNodes:          true,
 		Resync:               time.Hour,
 		Debounce:             10 * time.Millisecond,
@@ -112,7 +111,7 @@ func TestController_PublishesNodeSnapshotWhenEnabled(t *testing.T) {
 	}
 	foundNodes := false
 	for i := 0; i < rec.Len(); i++ {
-		if rec.SubjectAt(i) != cfg.NodeSubject {
+		if rec.SubjectAt(i) != defaultNodeSubject {
 			continue
 		}
 		foundNodes = true
