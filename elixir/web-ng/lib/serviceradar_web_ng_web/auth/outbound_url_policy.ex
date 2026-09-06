@@ -48,9 +48,9 @@ defmodule ServiceRadarWebNGWeb.Auth.OutboundURLPolicy do
   # attempts and backoff on logins. Retry chatter stays disabled because
   # the surviving `:closed` retry is routine pool hygiene, and an exhausted
   # fetch is already logged by the caller with context.
-  defp retry_stale_connection?(%{method: method}, %Req.TransportError{reason: :closed})
-       when method in [:get, :head],
-       do: true
+  defp retry_stale_connection?(%{method: method}, %Req.TransportError{reason: :closed}) do
+    method in [:get, :head]
+  end
 
   defp retry_stale_connection?(_request, _response_or_exception), do: false
 end
