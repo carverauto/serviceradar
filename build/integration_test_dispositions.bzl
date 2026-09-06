@@ -1,6 +1,7 @@
-# GENERATED PROJECTION: elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv is
-# authoritative for source modes and module counts. The database-free ExUnit selection manifest is
-# authoritative for selected-test counts. Static and executable contracts enforce both projections.
+"""GENERATED PROJECTION: elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv is
+authoritative for source modes and module counts. The database-free ExUnit selection manifest is
+authoritative for selected-test counts. Static and executable contracts enforce both projections.
+"""
 
 ASYNC_INTEGRATION_SRCS = [
     "test/integration/credential_broker_grant_lifecycle_integration_test.exs",

@@ -54,7 +54,13 @@ paste private keys for certificate sessions.
    **SSO certificate** mode. Unix account names come from certificate policy via
    `GET /api/remote-access/devices/:device_uid/ssh-options` (account names only;
    opaque principals are never sent to the browser). The preferred account is
-   remembered per browser profile (Teleport-like default account pick).
+   remembered per browser profile (Teleport-like default account pick). Connect
+   is disabled while accounts load. If the loaded list is empty, the console
+   replaces the account field with a missing-policy warning and disables
+   certificate connect; see [SSH CA Setup](#ssh-ca-setup). If loading fails,
+   the account field remains editable, but the server still enforces policy.
+   **User-present key (legacy)** under **Advanced** remains available when you
+   hold a key for the target.
 3. On Connect, the browser generates a one-session Ed25519 keypair with WebCrypto
    (`crypto.subtle`). The private key stays in tab memory only. The public key is
    sent with the session attach credential after RBAC and target policy succeed.
@@ -269,15 +275,14 @@ environment variable remains available for isolated development, but the Helm
 chart intentionally supports only the Secret-backed file path.
 
 A `targets` entry is matched by the device UID first, then its inventory
-hostname, then its inventory address; the first key present in `targets` wins.
-Only that entry's `accounts` apply, merged over the top-level policy. A
+hostname (or name), then its inventory address; the first matching policy wins.
+That entry overrides matching top-level fields, including `accounts`; omitted
+fields inherit the top-level values. Policies from other targets are not merged. A
 deployment that grants accounts per target and sets no top-level `accounts` is
 therefore an allow-list: every new host needs its own entry before SSO
 certificate access works, and adding one host does not cover its siblings.
-The SSH console reads the resolved account list from
-`GET /api/remote-access/devices/:uid/ssh-options` and, when the policy grants
-the target no account, says so and disables certificate connect instead of
-offering an account field that connect would refuse.
+For the console's handling of missing accounts, see
+[Credential Model](#credential-model).
 
 ## Linux Target Enrollment
 
@@ -646,6 +651,13 @@ The edge agent verifies the target server host key before opening an SSH session
 
 Set `SERVICERADAR_REMOTE_ACCESS_KNOWN_HOSTS` on the agent if it should use a specific known-hosts file.
 
+This file is agent-local. Records under **Settings -> Remote access host keys**
+are a separate review store: SSH verification does not consult them or populate
+them automatically. Enroll the key for the address and port the agent dials;
+trusting a hostname alone does not cover a connection by IP address. For a
+reviewed first connection, select `trust_on_first_use` under **Advanced** to pin
+the key in the agent's file. A changed key is still rejected.
+
 The web UI can expose host-key review and override controls only when the deployment enables them:
 
 ```bash
@@ -843,9 +855,8 @@ Common failures:
 - Route denied: the device is not assigned to an eligible agent or gateway, or the remote access policy does not allow that target.
 - Connection timeout: the selected edge agent cannot reach the target on TCP `22`.
 - `dial tcp: lookup <name>: server misbehaving` or `no such host`: the session is connecting by name rather than by address. The device row has no address, or the target-host field was set to a name the edge agent's resolver cannot answer. Give the device an address in inventory, or supply a name that agent can resolve.
-- Host key rejected: the target host key is absent from known-hosts or changed since the last trusted connection.
-- `SSH certificate access requires trusted account and principal policy for the target`: the certificate policy has no `accounts` for this device under its UID, hostname, or address, and no top-level `accounts` fallback. The session is refused before it is created, so no row appears in `remote_access_sessions`. Add a `targets` entry for the device, or use the legacy user-present key path under **Advanced**.
-- `ssh: handshake failed: knownhosts: key is unknown`: the session reached the target, and the selected edge agent's known-hosts file has no entry for the address it dialed. This file is agent-local; the host-key records under **Settings -> Remote access host keys** are a separate review store and are not consulted during verification, nor are they populated automatically. Enroll the key in the agent's known-hosts file, or pick `trust_on_first_use` under **Advanced** for a reviewed first connection. Note that an agent trusting a host by name will still report an unknown key once the session dials that host by address.
+- Host key rejected, including `ssh: handshake failed: knownhosts: key is unknown`: the session reached the target but host-key verification failed. See [Host Key Trust](#host-key-trust) for enrollment and address matching. This is independent of certificate account policy and DNS resolution.
+- `SSH certificate access requires trusted account and principal policy for the target`: the resolved account/principal policy is missing or invalid. The session is refused before it is created, so no row appears in `remote_access_sessions`. Check the mapping and target selection in [SSH CA Setup](#ssh-ca-setup); console alternatives are described in [Credential Model](#credential-model).
 - Signer failure: check the signer binary path, CA key secret mount, `SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON`, policy file syntax, and signer logs.
 
 ## Rotation
