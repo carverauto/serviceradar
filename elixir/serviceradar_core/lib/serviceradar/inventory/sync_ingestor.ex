@@ -366,4 +366,3 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
   end
 end
-

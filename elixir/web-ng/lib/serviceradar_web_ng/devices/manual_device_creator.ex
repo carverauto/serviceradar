@@ -721,4 +721,3 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   defp unique_validation?({Ash.Resource.Validation.Uniqueness, _opts}), do: true
   defp unique_validation?(_validation), do: false
 end
-

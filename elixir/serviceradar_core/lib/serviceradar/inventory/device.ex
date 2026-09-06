@@ -953,4 +953,3 @@ defmodule ServiceRadar.Inventory.Device do
     # identity :unique_mac, [:mac], where: expr(not is_nil(mac))
   end
 end
-

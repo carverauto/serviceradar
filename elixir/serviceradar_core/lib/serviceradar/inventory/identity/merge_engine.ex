@@ -702,4 +702,3 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     |> Ash.create(query_opts)
   end
 end
-
