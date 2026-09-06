@@ -4,20 +4,27 @@ title: ServiceRadar CLI
 
 # ServiceRadar CLI
 
-The `serviceradar` command-line tool bundles the day-to-day administrative
+The `srctl` command-line tool bundles the day-to-day administrative
 operations for a ServiceRadar deployment: hashing admin passwords, generating
-certificates and JWT keys, managing edge onboarding packages, and bootstrapping
-NATS.
+certificates and JWT keys, managing edge onboarding packages, bootstrapping
+NATS, and authenticating via device-code flow.
 
 ## Where the binary lives
 
 The CLI ships as the **`serviceradar-cli`** package and installs the binary at
-`/usr/local/bin/serviceradar-cli`. In Kubernetes deployments it is available in
+`/usr/local/bin/srctl`. In Kubernetes deployments it is available in
 the ServiceRadar **tools pod**. On standalone hosts (core, gateway, agent), it
 is installed alongside the service it administers.
 
-Examples in this page use `serviceradar` as the command name; on a host where
-only the package binary is present, invoke it as `serviceradar-cli`.
+> **Rename note:** the binary was renamed from `serviceradar-cli` to `srctl`.
+> The DEB/RPM packages and tools/config-updater images also provide a
+> `serviceradar-cli` compatibility symlink, which is deprecated and will be removed in a future release. Use `srctl` in new
+> scripts and automation.
+
+Examples in this page use `srctl` as the command name. The separate
+[JavaScript CLI](https://github.com/carverauto/serviceradar/blob/staging/js/cli/README.md)
+retains the `serviceradar-cli` name for dashboard and plugin workflows. The `capture` subcommand is not included; it
+depends on the remote packet-capture session, RBAC, and audit support.
 
 Run with no subcommand and no arguments to launch an interactive TUI; run with
 `-help` for the built-in usage summary.
@@ -29,13 +36,13 @@ password in `core.json`. Bcrypt cost defaults to `12`.
 
 ```bash
 # Hash a password passed as an argument
-serviceradar mypassword
+srctl mypassword
 
 # Hash a password read from stdin
-echo mypassword | serviceradar
+echo mypassword | srctl
 
 # Launch the interactive TUI (no args, attached terminal)
-serviceradar
+srctl
 ```
 
 When input is piped or an argument is supplied, the CLI runs non-interactively
@@ -46,7 +53,7 @@ and prints the hash. Feed the result into `update-config`.
 Writes a new admin password hash into `core.json`.
 
 ```bash
-serviceradar update-config \
+srctl update-config \
   -file /etc/serviceradar/core.json \
   -admin-hash '$2a$12$...'
 ```
@@ -62,13 +69,13 @@ Adds or removes service checks in `gateway.json`.
 
 ```bash
 # Add a checker
-serviceradar update-gateway -file /etc/serviceradar/gateway.json -type sysmon
+srctl update-gateway -file /etc/serviceradar/gateway.json -type sysmon
 
 # Remove a checker
-serviceradar update-gateway -file /etc/serviceradar/gateway.json -action remove -type sysmon
+srctl update-gateway -file /etc/serviceradar/gateway.json -action remove -type sysmon
 
 # Enable all standard checkers
-serviceradar update-gateway -file /etc/serviceradar/gateway.json -enable-all
+srctl update-gateway -file /etc/serviceradar/gateway.json -enable-all
 ```
 
 | Flag | Description |
@@ -86,9 +93,9 @@ serviceradar update-gateway -file /etc/serviceradar/gateway.json -enable-all
 Generates the mTLS certificate set used by ServiceRadar services.
 
 ```bash
-serviceradar generate-tls -ip 192.168.1.10,10.0.0.5
-serviceradar generate-tls --non-interactive          # uses 127.0.0.1
-serviceradar generate-tls --add-ips -ip 10.0.0.5     # extend existing certs
+srctl generate-tls -ip 192.168.1.10,10.0.0.5
+srctl generate-tls --non-interactive          # uses 127.0.0.1
+srctl generate-tls --add-ips -ip 10.0.0.5     # extend existing certs
 ```
 
 | Flag | Description |
@@ -115,7 +122,7 @@ Requests a SPIRE join token from the core API, and optionally registers a
 downstream (nested) SPIRE server entry.
 
 ```bash
-serviceradar spire-join-token \
+srctl spire-join-token \
   -core-url https://core.example.serviceradar.cloud \
   -api-key "$SERVICERADAR_API_KEY" \
   -downstream-spiffe-id spiffe://example.dev/ns/demo/gateway-nested-spire \
@@ -142,7 +149,7 @@ Enrolls an edge agent or collector against core using an onboarding token
 fetches certificates.
 
 ```bash
-serviceradar enroll -token "<onboarding-token>"
+srctl enroll -token "<onboarding-token>"
 ```
 
 | Flag | Description |
@@ -165,13 +172,13 @@ The `edge package` command group manages onboarding packages issued by core.
 These packages produce the tokens consumed by `enroll`.
 
 ```bash
-serviceradar edge package create --label "site-a-gateway" --component-type gateway
-serviceradar edge package list
-serviceradar edge package show --id <package-id>
-serviceradar edge package download --id <package-id> --download-token <token>
-serviceradar edge package revoke --id <package-id>
-serviceradar edge package token --id <package-id> --download-token <token>
-serviceradar edge package mtls --label "macbook-01"
+srctl edge package create --label "site-a-gateway" --component-type gateway
+srctl edge package list
+srctl edge package show --id <package-id>
+srctl edge package download --id <package-id> --download-token <token>
+srctl edge package revoke --id <package-id>
+srctl edge package token --id <package-id> --download-token <token>
+srctl edge package mtls --label "macbook-01"
 ```
 
 | Subcommand | Purpose |
@@ -211,9 +218,9 @@ Bootstraps NATS for a deployment: generates the operator, accounts, and creds
 files used by ServiceRadar's messaging layer.
 
 ```bash
-serviceradar nats-bootstrap --token "<platform-bootstrap-token>"
-serviceradar nats-bootstrap --local            # offline, no core API
-serviceradar nats-bootstrap --verify --config /etc/nats/nats.conf
+srctl nats-bootstrap --token "<platform-bootstrap-token>"
+srctl nats-bootstrap --local            # offline, no core API
+srctl nats-bootstrap --verify --config /etc/nats/nats.conf
 ```
 
 | Flag | Description |
@@ -234,9 +241,9 @@ serviceradar nats-bootstrap --verify --config /etc/nats/nats.conf
 Inspects and manages NATS state through the core API.
 
 ```bash
-serviceradar admin nats status
-serviceradar admin nats accounts
-serviceradar admin nats generate-bootstrap-token
+srctl admin nats status
+srctl admin nats accounts
+srctl admin nats generate-bootstrap-token
 ```
 
 | Subcommand | Purpose |
@@ -247,3 +254,47 @@ serviceradar admin nats generate-bootstrap-token
 
 These subcommands accept `--core-url` and `--api-key`/`--bearer` for
 authentication, and support `--output json`.
+
+## `auth` — device-code login
+
+Authenticates against a ServiceRadar instance with the device-code flow
+(RFC 8628) and stores the issued JWT in the shared JS CLI credential store.
+Existing Go administrative commands still require their explicit authentication
+flags; they do not automatically read this store.
+
+On Unix, the token lives at `$XDG_CONFIG_HOME/serviceradar/credentials.json`
+when `XDG_CONFIG_HOME` is set, otherwise at
+`~/.config/serviceradar/credentials.json`. The file has mode `0600`; newly
+created credential directories have mode `0700`. Writes refuse an existing
+group- or world-writable credential directory. On Windows, the path is
+`%APPDATA%\serviceradar\credentials.json`, falling back to
+`serviceradar\credentials.json` under the user home when `APPDATA` is unset;
+Unix permission guarantees do not apply.
+
+```bash
+# Log in (opens the verification URL in a browser)
+srctl auth login --instance https://serviceradar.example.com
+
+# Log in without opening a browser (copy the printed URL by hand)
+srctl auth login --instance https://serviceradar.example.com --no-browser
+
+# Show stored logins (tokens are never printed)
+srctl auth status
+
+# Remove a stored login
+srctl auth logout --instance https://serviceradar.example.com
+```
+
+| Subcommand | Purpose |
+|------------|---------|
+| `login` | Run the device-code flow and store the JWT. |
+| `status` | Show instance, user, and timestamps for stored logins. |
+| `logout` | Remove a stored login. |
+| `bcrypt-gen` | Print a bcrypt hash of `--password` (used by the Helm secret generator). |
+
+`--instance` must be an absolute `http(s)` URL and is stored verbatim (minus
+trailing slashes), so the key matches the one the JS CLI writes.
+
+`login` accepts `--scope` (default `dashboard.publish`) and `--no-browser`.
+`status` and `logout` accept an optional `--instance` filter; without it,
+`logout` removes the only stored login and refuses when several are stored.

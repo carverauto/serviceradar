@@ -4,15 +4,23 @@ import "fmt"
 
 // ShowHelp displays the help message and exits.
 func ShowHelp() {
-	fmt.Print(`serviceradar: ServiceRadar command-line tool
+	fmt.Print(`srctl: ServiceRadar command-line tool
+
+Note: serviceradar-cli is a deprecated alias for srctl and will be removed
+in a future release. Use srctl in new scripts and automation.
+
 Usage:
-  serviceradar [options] [password]
-  serviceradar update-config [options]
-  serviceradar update-gateway [options]
-  serviceradar generate-tls [options]
-  serviceradar generate-jwt-keys [options]
-  serviceradar spire-join-token [options]
-  serviceradar enroll [options]
+  srctl [options] [password]
+  srctl update-config [options]
+  srctl update-gateway [options]
+  srctl generate-tls [options]
+  srctl generate-jwt-keys [options]
+  srctl spire-join-token [options]
+  srctl enroll [options]
+  srctl auth login [options]
+  srctl auth status [options]
+  srctl auth logout [options]
+  srctl auth bcrypt-gen [options]
 
 Commands:
   (default)        Generate bcrypt hash from password
@@ -22,6 +30,10 @@ Commands:
   generate-jwt-keys Generate RS256 keypair and update core.json
   spire-join-token  Request a join token from Core and optionally register a downstream entry
   enroll           Enroll an edge agent or collector using an onboarding token
+  auth login       Authenticate via device-code flow (RFC 8628) and store the JWT
+  auth status      Show stored logins without revealing tokens
+  auth logout      Remove a stored login
+  auth bcrypt-gen  Generate a bcrypt hash for the admin password
   edge package create  Issue a new onboarding package and emit the structured token
   edge package list    List onboarding packages with optional filters
   edge package show    Display detailed information for a package
@@ -57,29 +69,29 @@ Options for generate-tls:
 
 Examples:
   # Generate bcrypt hash
-  serviceradar mypassword
-  echo mypassword | serviceradar
-  serviceradar  # launches TUI
+  srctl mypassword
+  echo mypassword | srctl
+  srctl  # launches TUI
 
   # Update core.json
-  serviceradar update-config -file /etc/serviceradar/core.json -admin-hash '$2a$12$...'
+  srctl update-config -file /etc/serviceradar/core.json -admin-hash '$2a$12$...'
 
   # Add a checker to gateway.json
-  serviceradar update-gateway -file /etc/serviceradar/gateway.json -type sysmon
+  srctl update-gateway -file /etc/serviceradar/gateway.json -type sysmon
   
   # Remove a checker from gateway.json
-  serviceradar update-gateway -file /etc/serviceradar/gateway.json -action remove -type sysmon
+  srctl update-gateway -file /etc/serviceradar/gateway.json -action remove -type sysmon
   
   # Enable all standard checkers
-  serviceradar update-gateway -file /etc/serviceradar/gateway.json -enable-all
+  srctl update-gateway -file /etc/serviceradar/gateway.json -enable-all
 
   # Generate mTLS certificates
-  serviceradar generate-tls -ip 192.168.1.10,10.0.0.5
-  serviceradar generate-tls --non-interactive
-  serviceradar generate-tls --add-ips -ip 10.0.0.5
+  srctl generate-tls -ip 192.168.1.10,10.0.0.5
+  srctl generate-tls --non-interactive
+  srctl generate-tls --add-ips -ip 10.0.0.5
 
   # Request a join token and downstream registration from core
-  serviceradar spire-join-token \
+  srctl spire-join-token \
     -core-url https://core.demo.serviceradar.cloud \
     -api-key "$SERVICERADAR_API_KEY" \
     -downstream-spiffe-id spiffe://carverauto.dev/ns/demo/gateway-nested-spire \
@@ -184,5 +196,29 @@ Options for edge package show:
   --output string          Output format: text or json (default text)
   --reissue-token          Emit a signed edgepkg-v3 token using --download-token
   --download-token string  Download token to encode when --reissue-token is set
+
+Options for auth login:
+  --instance string      ServiceRadar instance base URL (default http://localhost:8090)
+  --scope string         OAuth scope to request (default "dashboard.publish")
+  --no-browser           Print the verification URL without opening a browser
+
+Options for auth status:
+  --instance string      Only show the credential for this instance
+
+Options for auth logout:
+  --instance string      Only remove the credential for this instance
+
+Options for auth bcrypt-gen:
+  --password string      Password to hash
+
+Examples:
+  # Authenticate via device-code flow and store the JWT
+  srctl auth login --instance https://serviceradar.example.com
+
+  # Show stored logins (tokens are never printed)
+  srctl auth status
+
+  # Remove a stored login
+  srctl auth logout --instance https://serviceradar.example.com
 `)
 }

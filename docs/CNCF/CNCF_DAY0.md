@@ -609,7 +609,7 @@ curl http://localhost:8080/health
 
 ```bash
 # Create first admin user
-kubectl exec -it serviceradar-tools -- serviceradar-cli user create \
+kubectl exec -it serviceradar-tools -- srctl user create \
   --username admin \
   --role admin
 
@@ -759,7 +759,7 @@ High-risk features requiring ongoing maintenance:
    ```bash
    # Create admin user
    kubectl exec -it deploy/serviceradar-tools -n serviceradar -- \
-     serviceradar-cli user create --username admin --role admin
+     srctl user create --username admin --role admin
 
    # Get generated password
    kubectl get secret serviceradar-admin -n serviceradar -o jsonpath='{.data.password}' | base64 -d

@@ -3,8 +3,10 @@
 load(
     "@rules_pkg//pkg:mappings.bzl",
     "pkg_attributes",
+    "pkg_filegroup",
     "pkg_files",
     "pkg_mkdirs",
+    "pkg_mklink",
 )
 load("@rules_pkg//pkg:pkg.bzl", "pkg_deb", "pkg_tar")
 load("@rules_pkg//pkg:rpm.bzl", "pkg_rpm")
@@ -165,6 +167,7 @@ def serviceradar_package(
         systemd = None,
         postinst = None,
         prerm = None,
+        symlinks = None,
         homepage = _DEFAULT_HOMEPAGE,
         license = _DEFAULT_LICENSE,
         rpm_release = "1",
@@ -209,6 +212,32 @@ def serviceradar_package(
         normalized_files.append(_normalize_file_entry(entry))
 
     data_targets.extend(_emit_pkg_files(name, "file", normalized_files))
+
+    # Symlinks ----------------------------------------------------------------
+    # Keys are absolute destination paths (e.g. "/usr/local/bin/foo"),
+    # values are the link targets. Prefer a target relative to the link's
+    # directory (e.g. "srctl") so the package stays relocatable.
+    if symlinks:
+        link_targets = []
+        for idx, (dest, target) in enumerate(symlinks.items()):
+            if not dest.startswith("/"):
+                fail("Symlink destination must be absolute: %s" % dest)
+            link_name = "{}_link_{}".format(name, idx)
+            pkg_mklink(
+                name = link_name,
+                link_name = dest.lstrip("/"),
+                target = target,
+            )
+            link_targets.append(":{}".format(link_name))
+
+        # NOTE: this must be a pkg_filegroup, not pkg_files: the pkg_files
+        # implementation only forwards srcs carrying DefaultInfo, silently
+        # dropping symlink providers.
+        pkg_filegroup(
+            name = "{}_symlinks".format(name),
+            srcs = link_targets,
+        )
+        data_targets.append(":{}_symlinks".format(name))
 
     # Trees -------------------------------------------------------------------
     for idx, tree in enumerate(trees or []):

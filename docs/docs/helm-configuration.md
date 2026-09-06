@@ -131,8 +131,8 @@ ServiceRadar publishes two independent paths during agent onboarding:
   `https://serviceradar.example.com`). A trailing root slash is canonicalized
   away. Only the standard HTTPS port 443 is supported.
 - This is the canonical origin embedded in edge onboarding tokens and generated
-  `serviceradar-cli enroll` commands. It also drives Phoenix external URL
-  generation. Never use an in-cluster Service name here.
+  [enrollment commands](./edge-agent-onboarding.md#3-enroll-the-host). It also
+  drives Phoenix external URL generation. Never use an in-cluster Service name here.
 - When `webNg.publicUrl` is empty, the chart falls back through `webNg.host`,
   `ingress.host`, and `gatewayApi.host`. Set `webNg.publicUrl` explicitly in
   production so changing the exposure implementation does not change issued

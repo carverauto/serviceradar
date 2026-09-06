@@ -13,7 +13,8 @@ It covers control-plane network access, SSO, agent packages (RPM/DEB), collector
 RBAC, integrations, and day-2 operations for Cloud tenants.
 
 On Cloud, platform TLS and agent mTLS are **provisioned for you**. You install the
-agent package, create an onboarding package in the UI, and run `serviceradar-cli enroll` —
+agent package, create an onboarding package in the UI, and follow
+[host enrollment](./edge-agent-onboarding.md#3-enroll-the-host);
 you do **not** generate CA material or hand-configure mTLS.
 :::
 
@@ -38,7 +39,7 @@ you do **not** generate CA material or hand-configure mTLS.
 ServiceRadar automates service TLS and agent enrollment credentials in current
 install paths. Cloud and standard Helm/Compose charts do **not** require you to
 mint self-signed CAs or wire mTLS by hand for day-1 agent onboarding. Enroll
-agents with a UI onboarding package (`serviceradar-cli enroll`); the package
+agents with a [UI onboarding package](./edge-agent-onboarding.md#3-enroll-the-host); the package
 installs gateway identity and bootstrap config.
 
 The [TLS & mTLS](./tls-security.md) guide remains available for advanced

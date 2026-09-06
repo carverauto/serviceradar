@@ -89,7 +89,7 @@ Relevant agent settings:
 Onboarding propagation:
 
 - Agent onboarding bundles do not distribute the managed release verification key for package-managed agents.
-- `serviceradar-cli enroll --core-url ... --token ...` preserves unrelated `/etc/serviceradar/kv-overrides.env` entries, but protected agent release trust keys are ignored if they appear in a bundle.
+- `srctl enroll --core-url ... --token ...` preserves unrelated `/etc/serviceradar/kv-overrides.env` entries, but protected agent release trust keys are ignored if they appear in a bundle.
 
 Migration guidance:
 

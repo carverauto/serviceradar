@@ -82,7 +82,8 @@ You will need:
 On Cloud, **platform certificates and agent identity are automated**. Do not
 generate self-signed CAs, distribute root certs to hosts, or hand-edit mTLS
 paths for day-1 onboarding. Install the agent package → create an onboarding
-package in the UI → run `serviceradar-cli enroll` with the token. Enrollment
+package in the UI, then follow
+[host enrollment](./edge-agent-onboarding.md#3-enroll-the-host) with the token. Enrollment
 writes gateway identity and bootstrap config for you.
 :::
 
@@ -263,8 +264,7 @@ Typical package names (version varies by release):
 sudo apt-get update
 sudo apt-get install -y ./serviceradar-agent_*.deb
 
-# Confirm CLI and unit
-/usr/local/bin/serviceradar-cli --help
+# Confirm the unit
 systemctl status serviceradar-agent --no-pager
 ```
 
@@ -275,12 +275,12 @@ systemctl status serviceradar-agent --no-pager
 sudo dnf install -y ./serviceradar-agent-*.rpm
 # or: sudo rpm -Uvh ./serviceradar-agent-*.rpm
 
-/usr/local/bin/serviceradar-cli --help
 systemctl status serviceradar-agent --no-pager
 ```
 
-The package installs `serviceradar-agent`, `serviceradar-cli`, the package-managed
-updater, and the systemd unit `serviceradar-agent.service`.
+The package installs `serviceradar-agent`, the [CLI](./cli-reference.md#where-the-binary-lives),
+the package-managed updater, and the systemd unit `serviceradar-agent.service`.
+Confirm the CLI using the [installation check](./edge-agent-onboarding.md#1-install-the-agent-rpmdeb).
 
 ### 5.4 Create a package and enroll (UI)
 
@@ -321,14 +321,8 @@ replace the bundle's gRPC address.
    `component_type=agent`, under `/admin/edge-packages/new`).
 2. Complete the package form (label, gateway defaults, partition/site as prompted).
 3. Copy the **edgepkg** token from the success modal.
-4. On the host, run the enroll command (token is a secret):
-
-```bash
-sudo /usr/local/bin/serviceradar-cli enroll \
-  --core-url https://<YOUR_SERVICERADAR_WEB_HOST> \
-  --token edgepkg-v3:<token>
-```
-
+4. On the host, follow [Enroll The Host](./edge-agent-onboarding.md#3-enroll-the-host)
+   using the public web origin and copied token (the token is a secret).
 5. Confirm the agent appears **Online** under **Agents** in the product UI.
 
 What enroll does for you:

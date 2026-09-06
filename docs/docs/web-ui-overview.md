@@ -115,7 +115,7 @@ platform. Common sections include:
 - **Agents** — deploy (`/settings/agents/deploy`), releases, plugins manager,
   and native add-ons catalog/fleet.
 - **API credentials & CLI sessions** — API keys for programmatic access and
-  management of `serviceradar-cli` device sessions.
+  management of `srctl` device sessions.
 - **Audit** — version history, the security-event stream, and auth lockouts.
 
 For a full hosted SaaS path (control plane + product UI), see the

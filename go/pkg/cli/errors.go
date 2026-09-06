@@ -75,6 +75,18 @@ var (
 	errSystemAccountSeedReq     = errors.New("system account seed is required")
 	errNATSConfigNotFound       = errors.New("NATS config not found")
 	errNATSVerifyFailed         = errors.New("NATS bootstrap verification failed")
+	errAuthActionRequired       = errors.New("auth command requires an action (login, status, logout)")
+	errAuthAmbiguousLogout      = errors.New("multiple credentials stored, pass --instance to disambiguate")
+	errAuthUnknownAction        = errors.New("unknown auth action")
+	errCredentialNotDir         = errors.New("credential path is not a directory")
+	errCredentialDirUnsafe      = errors.New("credential directory is group- or world-writable")
+	errAuthInstanceRequired     = errors.New("auth instance is required")
+	errAuthPasswordRequired     = errors.New("auth bcrypt-gen requires --password")
+	errAuthInstanceURL          = errors.New("auth instance must be an absolute http(s) URL")
+	errAuthFlowFailed           = errors.New("device-code login failed")
+	errAuthDenied               = errors.New("device-code login denied")
+	errAuthExpired              = errors.New("device-code login expired")
+	errAuthDisabled             = errors.New("CLI authentication is disabled on this instance")
 )
 
 // ErrUnknownAdminResource returns a wrapped error for unknown admin resources.

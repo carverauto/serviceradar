@@ -956,7 +956,7 @@ func RunAdminNatsGenerateBootstrapToken(cfg *CmdConfig) error {
 		fmt.Printf("Bootstrap Token: %s\n", result.Token)
 		fmt.Printf("Expires At     : %s\n", result.ExpiresAt.Format(time.RFC3339))
 		fmt.Println()
-		fmt.Println("Use this token with: serviceradar-cli nats-bootstrap --token <token>")
+		fmt.Println("Use this token with: srctl nats-bootstrap --token <token>")
 	}
 
 	return nil

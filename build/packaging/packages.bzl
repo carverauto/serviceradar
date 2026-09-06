@@ -90,8 +90,8 @@ PACKAGES = {
                 "mode": "0755",
             },
             {
-                "src": "//go/cmd/cli:cli",
-                "dest": "/usr/local/bin/serviceradar-cli",
+                "src": "//go/cmd/cli:srctl",
+                "dest": "/usr/local/bin/srctl",
                 "mode": "0755",
             },
             {
@@ -125,6 +125,11 @@ PACKAGES = {
             "/etc/serviceradar/agent.json",
             "/etc/serviceradar/checkers/sweep/sweep.json",
         ],
+        # Deprecated alias for the pre-rename binary. Remove after the
+        # compatibility window closes (see #4260).
+        "symlinks": {
+            "/usr/local/bin/serviceradar-cli": "srctl",
+        },
     },
     "bumblebee-scan": {
         "package_name": "serviceradar-bumblebee-scan",
@@ -532,7 +537,7 @@ PACKAGES = {
     },
     "cli": {
         "package_name": "serviceradar-cli",
-        "description": "ServiceRadar CLI tool",
+        "description": "ServiceRadar CLI tool (srctl)",
         "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
         "architecture": "amd64",
         "section": "utils",
@@ -540,10 +545,15 @@ PACKAGES = {
         "deb_depends": [],
         "rpm_requires": [],
         "binary": {
-            "target": "//go/cmd/cli:cli",
-            "dest": "/usr/local/bin/serviceradar-cli",
+            "target": "//go/cmd/cli:srctl",
+            "dest": "/usr/local/bin/srctl",
         },
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",
+        # Deprecated alias for the pre-rename binary. Remove after the
+        # compatibility window closes (see #4260).
+        "symlinks": {
+            "/usr/local/bin/serviceradar-cli": "srctl",
+        },
     },
 }
