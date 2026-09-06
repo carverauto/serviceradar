@@ -235,3 +235,33 @@ rules:
     })
   })
 }
+
+for (const dryRun of [false, true]) {
+  test(`duplicate secret reference names fail before API calls (dry-run: ${dryRun})`, async () => {
+    const projectDir = await mkdtemp(join(tmpdir(), "sr-plugin-duplicate-"))
+    const playbook = join(projectDir, "example.yaml")
+    await writeFile(playbook, `
+secrets:
+  - name: readonly
+    provider: proxmox
+    auth_method: proxmox_api_token
+  - name: readonly
+    provider: netbox
+    auth_method: api_token
+`)
+    const requests = []
+    await withServer((req, res) => {
+      requests.push(req.method)
+      res.setHeader("content-type", "application/json")
+      res.end("[]")
+    }, async (instance) => {
+      const {code, stderr} = await runCli([
+        "plugin", "apply", "--instance", instance, "--file", playbook,
+        "--token", "test-token", ...(dryRun ? ["--dry-run"] : []),
+      ])
+      assert.notEqual(code, 0)
+      assert.match(stderr, /duplicate secret reference name: readonly/)
+      assert.deepEqual(requests, [])
+    })
+  })
+}

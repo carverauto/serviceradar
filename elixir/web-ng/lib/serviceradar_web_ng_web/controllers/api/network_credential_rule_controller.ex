@@ -135,7 +135,11 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialRuleController do
           enabled: enabled,
           metadata: params["metadata"]
         }
-        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> Enum.reject(fn {key, value} ->
+          is_nil(value) and
+            (key not in [:ca_bundle_pem, :server_cert_fingerprint] or
+               not Map.has_key?(params, Atom.to_string(key)))
+        end)
         |> Map.new()
 
       if partial? or Map.has_key?(attrs, :name) do

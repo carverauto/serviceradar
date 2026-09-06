@@ -100,6 +100,31 @@ defmodule ServiceRadarWebNGWeb.Api.NetworkCredentialRuleControllerTest do
     refute Map.has_key?(attrs, :metadata)
   end
 
+  test "PATCH clears explicit trust material", %{conn: conn} do
+    id = NetworkCredentialsStub.rule().id
+
+    conn =
+      patch(conn, ~p"/api/admin/network-credential-rules/#{id}", %{
+        "ca_bundle_pem" => nil,
+        "server_cert_fingerprint" => nil
+      })
+
+    assert %{"ca_bundle_pem" => nil, "server_cert_fingerprint" => nil} =
+             json_response(conn, 200)
+
+    assert_receive {:network_credentials_update_rule, ^id, attrs, _opts}
+    assert attrs == %{ca_bundle_pem: nil, server_cert_fingerprint: nil}
+  end
+
+  test "PATCH preserves omitted trust material", %{conn: conn} do
+    rule = NetworkCredentialsStub.rule()
+    conn = patch(conn, ~p"/api/admin/network-credential-rules/#{rule.id}", %{"priority" => 200})
+    body = json_response(conn, 200)
+    assert body["ca_bundle_pem"] == rule.ca_bundle_pem
+    assert_receive {:network_credentials_update_rule, _id, attrs, _opts}
+    assert attrs == %{priority: 200}
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 end

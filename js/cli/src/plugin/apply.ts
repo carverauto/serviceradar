@@ -236,7 +236,15 @@ async function loadPlaybook(path: string): Promise<Playbook> {
   if (!parsed || typeof parsed !== "object") {
     throw new Error(`${path} is not a YAML object`)
   }
-  return parsed as Playbook
+  const playbook = parsed as Playbook
+  const secretNames = new Set<string>()
+  for (const secret of playbook.secrets || []) {
+    if (secretNames.has(secret.name)) {
+      throw new Error(`duplicate secret reference name: ${secret.name}`)
+    }
+    secretNames.add(secret.name)
+  }
+  return playbook
 }
 
 async function findOne(

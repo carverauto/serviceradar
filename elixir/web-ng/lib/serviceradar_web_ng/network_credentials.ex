@@ -119,7 +119,7 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
     scope = Keyword.fetch!(opts, :scope)
 
     with {:ok, rule} <- get_rule(id, scope: scope) do
-      NetworkCredentialRule.update_rule(rule, drop_nils(attrs), scope: scope)
+      NetworkCredentialRule.update_rule(rule, attrs, scope: scope)
     end
   end
 
