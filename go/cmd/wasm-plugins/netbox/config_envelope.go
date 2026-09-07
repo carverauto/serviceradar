@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
 // pluginInputsEnvelope is the typed view of a serviceradar.plugin_inputs.v1

@@ -32,7 +32,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
 // awxHTTP is package-level so tests can swap it for a fake.

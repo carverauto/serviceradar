@@ -4,7 +4,7 @@ go_library(
     name = "sdk",
     testonly = True,
     srcs = ["sdk.go"],
-    importpath = "github.com/carverauto/serviceradar-sdk-go/sdk",
+    importpath = "github.com/carverauto/serviceradar-sdk-go/v2/sdk",
     visibility = [
         "//go/cmd/wasm-plugins/axis:__pkg__",
         "//go/cmd/wasm-plugins/proxmox:__pkg__",

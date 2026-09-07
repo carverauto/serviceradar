@@ -217,18 +217,21 @@ export GOCACHE="${GOCACHE:-${tinygo_state_dir}/go-build}"
 export GOMODCACHE="${GOMODCACHE:-${tinygo_state_dir}/go-mod}"
 mkdir -p "${HOME}" "${GOCACHE}" "${GOMODCACHE}"
 
-# serviceradar-sdk-go is not served by proxy.golang.org -- every version 404s on
-# /@v/list, not just the newest -- so the module has to be fetched straight from
-# GitHub and cannot be verified against sum.golang.org, whose lookup 404s for the
-# same reason. Without this, tinygo's module load fails with
-# "verifying module: ... 404 Not Found" and the wasm plugin genrules go red.
-#
-# This does NOT disable checksum verification. go.sum still records the hash for
-# every module including this one, and a mismatch still fails the build; what
-# GOPRIVATE changes is WHERE the expected hash comes from -- the committed go.sum
-# rather than the public transparency log. That distinction is the whole reason
-# the v0.3.0 breakage was caught: the checksum check did its job.
-export GOFLAGS="${GOFLAGS:--mod=mod}"
+# Resolve dependencies from committed vendor inputs to avoid proxy availability
+# and sandbox git compatibility constraints. Vendor mode checks modules.txt
+# consistency, but does not authenticate vendored source against go.sum.
+# Modules without vendor/ use module resolution; a nonempty exported GOFLAGS
+# overrides either default. GOPRIVATE below bypasses the public proxy/checksum
+# database on that non-vendored path. For dependency updates, see
+# js/cli/templates/plugin-go/README.md#updating-the-sdk.
+if [[ -z "${GOFLAGS:-}" ]]; then
+  if [[ -d "${plugin_dir}/vendor" ]]; then
+    GOFLAGS="-mod=vendor"
+  else
+    GOFLAGS="-mod=mod"
+  fi
+  export GOFLAGS
+fi
 export GOPRIVATE="${GOPRIVATE:-github.com/carverauto/*}"
 
 cmd=(

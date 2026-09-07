@@ -26,7 +26,7 @@ The sample should behave like a small NMS connector: it receives selected device
 
 Add `go/cmd/wasm-plugins/sample-northbound/` with:
 
-- `main.go` using `github.com/carverauto/serviceradar-sdk-go/sdk`.
+- `main.go` using the SDK pinned in the plugin's `go.mod`.
 - `plugin.yaml` with stable ID `sample-northbound-nms`, standard Wasm metadata, and two action descriptors.
 - `config.schema.json` for simulated endpoint/options.
 - Unit tests for descriptor shape and invocation handling.

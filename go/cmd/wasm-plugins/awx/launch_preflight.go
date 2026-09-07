@@ -12,7 +12,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
 // The launch-preflight contract deliberately represents every identifier and
