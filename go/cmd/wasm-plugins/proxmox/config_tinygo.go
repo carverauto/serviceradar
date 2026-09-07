@@ -5,7 +5,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
 //go:wasmimport env get_config

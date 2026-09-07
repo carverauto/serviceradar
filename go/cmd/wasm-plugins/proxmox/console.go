@@ -13,7 +13,7 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
 var errConsoleBridgeUnavailable = errors.New("Proxmox console bridge unavailable")

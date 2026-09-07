@@ -2,7 +2,7 @@
 #
 # This is a TinyGo plugin in its own Go module, compiled to wasip1 by
 # //build/wasm_plugins, not by rules_go. Gazelle has no rules_go targets to generate
-# here. The plugin SDK is github.com/carverauto/serviceradar-sdk-go v0.3.1.
+# here. The plugin SDK is github.com/carverauto/serviceradar-sdk-go/v2 v2.0.0.
 package(default_visibility = ["//visibility:public"])
 
 exports_files([

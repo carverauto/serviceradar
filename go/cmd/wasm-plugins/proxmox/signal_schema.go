@@ -1,6 +1,6 @@
 package main
 
-import "github.com/carverauto/serviceradar-sdk-go/sdk"
+import "github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 
 const (
 	proxmoxSignalSchemaProducerID             = "proxmox-inventory"

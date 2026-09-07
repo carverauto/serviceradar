@@ -217,18 +217,34 @@ export GOCACHE="${GOCACHE:-${tinygo_state_dir}/go-build}"
 export GOMODCACHE="${GOMODCACHE:-${tinygo_state_dir}/go-mod}"
 mkdir -p "${HOME}" "${GOCACHE}" "${GOMODCACHE}"
 
-# serviceradar-sdk-go is not served by proxy.golang.org -- every version 404s on
-# /@v/list, not just the newest -- so the module has to be fetched straight from
-# GitHub and cannot be verified against sum.golang.org, whose lookup 404s for the
-# same reason. Without this, tinygo's module load fails with
-# "verifying module: ... 404 Not Found" and the wasm plugin genrules go red.
+# serviceradar-sdk-go is not served by proxy.golang.org -- every version 404s,
+# including the /v2 module path the plugins now pin, so the module can never be
+# resolved through the public proxy or verified against sum.golang.org. Each
+# plugin module therefore carries a committed vendor/ tree
+# (github.com/carverauto/serviceradar-sdk-go/v2 v2.0.0, refreshed with
+# `go mod vendor`), and the GOFLAGS default below selects -mod=vendor whenever
+# that tree is present: no network fetch and no git invocation happen in the
+# sandbox at all. That also retires
+# the old failure mode where the sandbox git was too old for the go tool's
+# `git ls-remote -q --end-of-options` (exit 129) during direct GitHub fetches.
 #
-# This does NOT disable checksum verification. go.sum still records the hash for
-# every module including this one, and a mismatch still fails the build; what
-# GOPRIVATE changes is WHERE the expected hash comes from -- the committed go.sum
-# rather than the public transparency log. That distinction is the whole reason
-# the v0.3.0 breakage was caught: the checksum check did its job.
-export GOFLAGS="${GOFLAGS:--mod=mod}"
+# GOPRIVATE below is only a fallback for developers who delete vendor/ locally:
+# it routes carverauto modules straight to GitHub instead of the proxy and
+# takes their hashes from the committed go.sum rather than the transparency
+# log. This does NOT disable checksum verification for the non-vendored path.
+# A committed vendor/ tree means the build must resolve everything from it: with
+# -mod=vendor the go tool never touches the network or shells out to git, and an
+# inconsistent vendor/modules.txt fails fast instead of silently re-resolving.
+# Modules without vendor/ (the stdlib-only harness) keep -mod=mod. An explicitly
+# exported GOFLAGS still wins over both defaults.
+if [[ -z "${GOFLAGS:-}" ]]; then
+  if [[ -d "${plugin_dir}/vendor" ]]; then
+    GOFLAGS="-mod=vendor"
+  else
+    GOFLAGS="-mod=mod"
+  fi
+  export GOFLAGS
+fi
 export GOPRIVATE="${GOPRIVATE:-github.com/carverauto/*}"
 
 cmd=(

@@ -3,7 +3,7 @@
 # This is a TinyGo plugin in its own Go module. Production is compiled to wasip1
 # by //build/wasm_plugins, not rules_go; the focused rules_go target below only
 # guards the emitted signal-schema contract. The plugin SDK is
-# github.com/carverauto/serviceradar-sdk-go v0.3.1.
+# github.com/carverauto/serviceradar-sdk-go/v2 v2.0.0.
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
 
 package(default_visibility = ["//visibility:public"])

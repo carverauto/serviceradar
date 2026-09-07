@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
 func fetchProtectBootstrap(ctx context.Context, client protectHTTPClient, cfg Config, headers map[string]string) (ProtectBootstrapSnapshot, EndpointResult) {
