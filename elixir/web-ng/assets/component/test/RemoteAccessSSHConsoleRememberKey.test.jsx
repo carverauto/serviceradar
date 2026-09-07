@@ -12,7 +12,7 @@ vi.mock("../src/sshEphemeralKeypair.js", async (importOriginal) => {
     supportsEphemeralEd25519: () => true,
     generateEphemeralEd25519Keypair: async () => ({
       algorithm: "Ed25519",
-      privateKeyPem: "-----BEGIN PRIVATE KEY-----\nPROBE\n-----END PRIVATE KEY-----\n",
+      privateKeyPem: "SYNTHETIC-EPHEMERAL-KEY-sr-4383",
       publicKeyOpenSSH: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPROBE probe",
     }),
   }
@@ -21,8 +21,10 @@ vi.mock("../src/sshEphemeralKeypair.js", async (importOriginal) => {
 import {Component} from "../src/RemoteAccessSSHConsole.jsx"
 
 // Synthetic-only key material for storage assertions. Never a real key.
+// Deliberately NOT PEM-armored: secret scanners flag BEGIN PRIVATE KEY
+// blocks even in fixtures, and the console treats pasted keys opaquely.
 const SYNTHETIC_MARKER = "SYNTHETIC-TEST-KEY-DO-NOT-USE-sr-4383"
-const SYNTHETIC_KEY = `-----BEGIN OPENSSH PRIVATE KEY-----\n${SYNTHETIC_MARKER}\n-----END OPENSSH PRIVATE KEY-----`
+const SYNTHETIC_KEY = `synthetic-user-private-key:${SYNTHETIC_MARKER}`
 const DEVICE_UID = "sr:9aa11bb2-3333-4444-5555-666677778888"
 const STORE_KEY = `serviceradar.remoteAccess.sshKey.v1.${DEVICE_UID}`
 
