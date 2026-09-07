@@ -61,11 +61,11 @@ export const TERMINAL_THEME = {
 
 function statusClass(status) {
   if (status === "connected") {
-    return "rounded bg-emerald-500/15 px-2 py-1 text-xs text-emerald-200"
+    return "rounded bg-[var(--color-success)] px-2 py-1 text-xs text-[var(--color-success-content)]"
   }
 
   if (status === "failed") {
-    return "rounded bg-red-500/15 px-2 py-1 text-xs text-red-200"
+    return "rounded bg-[var(--color-error)] px-2 py-1 text-xs text-[var(--color-error-content)]"
   }
 
   return "rounded bg-sr-subtle px-2 py-1 text-xs text-sr-ink"
