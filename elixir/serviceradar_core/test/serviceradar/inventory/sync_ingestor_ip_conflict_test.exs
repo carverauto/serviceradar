@@ -19,6 +19,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
   import ExUnit.CaptureLog
 
+  alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
@@ -377,7 +378,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       _holder = create_device!(actor, "4357-holder", taken_ip)
       subject = create_device!(actor, "4357-subject", free_ip)
 
-      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+      assert {:error, %Invalid{errors: errors}} =
                subject
                |> Ash.Changeset.for_update(:update, %{ip: taken_ip})
                |> Ash.update(actor: actor)
@@ -392,7 +393,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
       {:ok, _} = Device.mark_inactive(holder, actor: actor)
 
-      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+      assert {:error, %Invalid{errors: errors}} =
                subject
                |> Ash.Changeset.for_update(:update, %{ip: taken_ip})
                |> Ash.update(actor: actor)
@@ -423,7 +424,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
           holder.uid
         ])
 
-      assert {:error, %Ash.Error.Invalid{errors: errors}} =
+      assert {:error, %Invalid{errors: errors}} =
                subject
                |> Ash.Changeset.for_update(:update, %{ip: taken_ip})
                |> Ash.update(actor: actor)
