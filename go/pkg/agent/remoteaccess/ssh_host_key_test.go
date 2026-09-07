@@ -159,3 +159,72 @@ func TestClassifySSHHostKeyErrorLeavesOtherResultsAlone(t *testing.T) {
 		t.Fatalf("classified store error = %v, want %v", err, storeErr)
 	}
 }
+
+func TestSSHReviewedHostKeyApproval(t *testing.T) {
+	approved := hostKeyTestSigner(t).PublicKey()
+	other := hostKeyTestSigner(t).PublicKey()
+	for _, tc := range []struct {
+		name         string
+		target       string
+		fingerprint  string
+		offered      ssh.PublicKey
+		pinned       ssh.PublicKey
+		wantMismatch bool
+	}{
+		{name: "reviewed key", target: hostKeyTestAddress, fingerprint: ssh.FingerprintSHA256(approved), offered: approved},
+		{name: "key changed during retry", target: hostKeyTestAddress, fingerprint: ssh.FingerprintSHA256(approved), offered: other, wantMismatch: true},
+		{name: "target changed during retry", target: "host02.example.com:2222", fingerprint: ssh.FingerprintSHA256(approved), offered: approved, wantMismatch: true},
+		{name: "port changed during retry", target: "host01.example.com:22", fingerprint: ssh.FingerprintSHA256(approved), offered: approved, wantMismatch: true},
+		{name: "missing fingerprint", target: hostKeyTestAddress, offered: approved, wantMismatch: true},
+		{name: "missing target", fingerprint: ssh.FingerprintSHA256(approved), offered: approved, wantMismatch: true},
+		{name: "already pinned different key", target: hostKeyTestAddress, fingerprint: ssh.FingerprintSHA256(approved), offered: approved, pinned: other, wantMismatch: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "known_hosts")
+			initial := ""
+			if tc.pinned != nil {
+				initial = knownhosts.Line([]string{knownhosts.Normalize(hostKeyTestAddress)}, tc.pinned) + "\n"
+			}
+			if err := os.WriteFile(path, []byte(initial), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := SSHConfigFromOpenFrame(Frame{Protocol: ProtocolSSH, Data: mustSSHOpenPayload(t, SSHOpenPayload{
+				Target:             SSHTarget{Host: "host01.example.com", Port: 2222},
+				SSHHostKeyPolicy:   "known_hosts",
+				SSHHostKeyApproval: &SSHHostKeyApproval{Target: tc.target, Fingerprint: tc.fingerprint},
+			})})
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.KnownHostsPath = path
+			callback, err := sshSessionHostKeyCallback(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = callback(hostKeyTestAddress, hostKeyTestRemote(), tc.offered)
+			if tc.wantMismatch {
+				if !errors.Is(err, ErrSSHHostKeyMismatch) || errors.Is(err, ErrSSHHostKeyUnknown) {
+					t.Fatalf("approval failure = %v, want mismatch", err)
+				}
+				data, readErr := os.ReadFile(path)
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				if string(data) != initial {
+					t.Fatal("rejected approval changed the known-hosts store")
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				verify, err := knownHostsCallback(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := verify(hostKeyTestAddress, hostKeyTestRemote(), approved); err != nil {
+					t.Fatal(err)
+				}
+			}
+		})
+	}
+}

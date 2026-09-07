@@ -102,3 +102,26 @@ func verifiedSSHHostKeyCallback(callback ssh.HostKeyCallback) ssh.HostKeyCallbac
 		return classifySSHHostKeyError(hostname, key, callback(hostname, remote, key))
 	}
 }
+
+type SSHHostKeyApproval struct {
+	Target      string `json:"target"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+func sshSessionHostKeyCallback(cfg SSHConfig) (ssh.HostKeyCallback, error) {
+	if cfg.SSHHostKeyApproval == nil {
+		return sshHostKeyCallback(cfg.SSHHostKeyPolicy, cfg.KnownHostsPath)
+	}
+	approval := *cfg.SSHHostKeyApproval
+	callback, err := trustOnFirstUseCallback(cfg.KnownHostsPath)
+	if err != nil {
+		return nil, err
+	}
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		if hostname != approval.Target || ssh.FingerprintSHA256(key) != approval.Fingerprint {
+			return fmt.Errorf("%w: %s offered %s %s but it does not match the approved target and fingerprint",
+				ErrSSHHostKeyMismatch, sshHostKeyTargetLabel(hostname), key.Type(), ssh.FingerprintSHA256(key))
+		}
+		return callback(hostname, remote, key)
+	}, nil
+}

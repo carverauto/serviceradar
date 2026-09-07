@@ -207,7 +207,7 @@ describe("RemoteAccessSSHConsole host key trust decision", () => {
     })
   })
 
-  it("reconnects with trust-on-first-use when the operator accepts the key", async () => {
+  it("binds the retry to the reviewed target and fingerprint", async () => {
     const root = await connect()
 
     await closeWithHostKey(UNKNOWN_HOST_KEY)
@@ -218,12 +218,36 @@ describe("RemoteAccessSSHConsole host key trust decision", () => {
     })
 
     expect(sessionRequests).toHaveLength(2)
-    expect(sessionRequests.at(-1).ssh_host_key_policy).toBe("trust_on_first_use")
+    expect(sessionRequests.at(-1).ssh_host_key_policy).toBe("known_hosts")
+    expect(sessionRequests.at(-1).metadata.ssh_host_key_approval).toEqual({
+      target: UNKNOWN_HOST_KEY.target,
+      fingerprint: UNKNOWN_HOST_KEY.fingerprint,
+    })
     expect(container.querySelector("[data-testid='ssh-host-key-decision']")).toBeNull()
 
     await act(async () => {
       root.unmount()
     })
+  })
+
+  it("keeps acceptance out of the form after a failed retry", async () => {
+    const root = await connect()
+    await closeWithHostKey(UNKNOWN_HOST_KEY)
+    fetch.mockResolvedValueOnce(jsonResponse({message: "Retry failed"}, 503))
+
+    await act(async () => {
+      findButton("Trust this host key and reconnect").click()
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    })
+
+    expect(container.textContent).toContain("Retry failed")
+    await act(async () => {
+      findButton("Connect with SSO").click()
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    })
+    expect(sessionRequests.at(-1).ssh_host_key_policy).toBe("known_hosts")
+    expect(sessionRequests.at(-1).metadata?.ssh_host_key_approval).toBeUndefined()
+    await act(async () => root.unmount())
   })
 
   // A host that was already trusted and now offers a different key is the

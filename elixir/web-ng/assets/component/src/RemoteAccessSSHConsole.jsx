@@ -715,7 +715,7 @@ export function Component({
     setApprovalRequired(false)
     setHostKeyFailure(null)
 
-    const requestedHostKeyPolicy = overrides.hostKeyPolicy || hostKeyPolicy
+    const requestedHostKeyPolicy = overrides.approvedHostKey ? "known_hosts" : hostKeyPolicy
 
     const sshUsername = username.trim()
 
@@ -766,6 +766,10 @@ export function Component({
       credential_custody_mode: credentialMode,
       ssh_host_key_policy: requestedHostKeyPolicy,
       terminal: {cols: 120, rows: 34},
+    }
+
+    if (overrides.approvedHostKey) {
+      body.metadata = {ssh_host_key_approval: overrides.approvedHostKey}
     }
 
     if (targetHost.trim()) {
@@ -849,8 +853,9 @@ export function Component({
   async function trustHostKeyAndReconnect() {
     setSession(null)
     setCredential(null)
-    setHostKeyPolicy(TRUST_ON_FIRST_USE_POLICY)
-    await openSession(null, {hostKeyPolicy: TRUST_ON_FIRST_USE_POLICY})
+    await openSession(null, {
+      approvedHostKey: {target: hostKeyFailure.target, fingerprint: hostKeyFailure.fingerprint},
+    })
   }
 
   // A host-key failure ends the session, so the dead terminal is replaced by

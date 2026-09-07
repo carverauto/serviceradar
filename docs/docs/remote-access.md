@@ -666,9 +666,12 @@ that as a dead end: it ends the session and presents the trust decision instead.
   the offered key's SHA256 fingerprint. Compare that fingerprint against the
   target's own host key (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on
   the target) before choosing **Trust this host key and reconnect**, which
-  reopens the session with `trust_on_first_use` and pins the key for that
-  address. `trust_on_first_use` remains selectable under **Advanced** for an
-  enrollment you want to make up front.
+  reopens the session with approval for that exact address, port, and SHA256
+  fingerprint. The agent checks the approval before pinning the key or
+  authenticating; a different target or key is rejected as a mismatch. Approval
+  applies only to this retry and does not change the form policy.
+  `trust_on_first_use` remains selectable under **Advanced** for an enrollment
+  you want to make up front.
 - **This host key does not match the trusted key.** The target offered a
   different key than the one already pinned. The console shows the offered
   fingerprint and offers no accept action: this is the interception case. Verify

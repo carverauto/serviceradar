@@ -85,14 +85,15 @@ type SSHAuth struct {
 
 // SSHConfig configures an SSH-backed PTY adapter.
 type SSHConfig struct {
-	Target           SSHTarget
-	Auth             SSHAuth
-	TerminalType     string
-	Cols             uint32
-	Rows             uint32
-	Timeout          time.Duration
-	SSHHostKeyPolicy string
-	KnownHostsPath   string
+	Target             SSHTarget
+	Auth               SSHAuth
+	TerminalType       string
+	Cols               uint32
+	Rows               uint32
+	Timeout            time.Duration
+	SSHHostKeyPolicy   string
+	SSHHostKeyApproval *SSHHostKeyApproval
+	KnownHostsPath     string
 }
 
 // SSHSession is the subset of x/crypto/ssh.Session used by the PTY adapter.
@@ -286,7 +287,7 @@ func DialSSHClient(ctx context.Context, cfg SSHConfig) (*ssh.Client, error) {
 		return nil, err
 	}
 
-	hostKeyCallback, err := sshHostKeyCallback(cfg.SSHHostKeyPolicy, cfg.KnownHostsPath)
+	hostKeyCallback, err := sshSessionHostKeyCallback(cfg)
 	if err != nil {
 		return nil, err
 	}
