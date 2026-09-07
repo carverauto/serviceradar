@@ -144,6 +144,8 @@ export class RemoteDesktopWebRTCClient {
   constructor({
     signalingPath,
     iceServers = [],
+    // Preserve the Window receiver when fetchJson calls this.fetchImpl.
+    // See the default-fetch receiver regression in webrtc_client.test.js.
     fetchImpl = (...args) => globalThis.fetch(...args),
     peerConnectionFactory = (config) => new globalThis.RTCPeerConnection(config),
     documentRef = globalThis.document,
