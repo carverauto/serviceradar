@@ -103,29 +103,32 @@ async function keyDigestFor(value) {
   return `SHA256:${base64Digest(digest)}`
 }
 
-function loadRemembered(deviceUid) {
-  try {
-    const raw = window.localStorage.getItem(storageKey(deviceUid))
-    return raw ? JSON.parse(raw) : null
-  } catch (_error) {
-    return null
-  }
-}
+const rememberedKeys = new Map()
 
-function saveRemembered(deviceUid, value) {
+// Older builds persisted remembered keys in localStorage. Purge that entry
+// whenever remembered state is touched so a previously stored key does not
+// linger after upgrading.
+function clearLegacyRemembered(deviceUid) {
   try {
-    window.localStorage.setItem(storageKey(deviceUid), JSON.stringify(value))
-  } catch (_error) {
-    // Ignore storage failures; the session credential still remains usable in memory.
-  }
-}
-
-function clearRemembered(deviceUid) {
-  try {
-    window.localStorage.removeItem(storageKey(deviceUid))
+    window.localStorage?.removeItem(storageKey(deviceUid))
   } catch (_error) {
     // Ignore storage failures.
   }
+}
+
+function loadRemembered(deviceUid) {
+  clearLegacyRemembered(deviceUid)
+
+  return rememberedKeys.get(deviceUid) || null
+}
+
+function saveRemembered(deviceUid, value) {
+  rememberedKeys.set(deviceUid, value)
+}
+
+function clearRemembered(deviceUid) {
+  clearLegacyRemembered(deviceUid)
+  rememberedKeys.delete(deviceUid)
 }
 
 function errorMessage(error) {
@@ -481,6 +484,12 @@ export function Component({
       cancelled = true
     }
   }, [resolvedOptionsPath])
+
+  // Purge keys persisted by older builds on every mount, even when the
+  // operator never enters legacy key mode in this tab.
+  useEffect(() => {
+    clearLegacyRemembered(deviceUid)
+  }, [deviceUid])
 
   useEffect(() => {
     if (!allowRememberedKeys) {
@@ -1426,8 +1435,8 @@ export function Component({
                   onChange={(event) => setRememberKey(event.target.checked)}
                 />
                 <span>
-                  <span className="block text-sm font-medium">Remember key in this browser</span>
-                  <span className="block text-xs text-base-content/60">Passphrases are never saved.</span>
+                  <span className="block text-sm font-medium">Remember key in memory</span>
+                  <span className="block text-xs text-base-content/60">Cleared on page reload or close. Passphrases are never saved.</span>
                 </span>
               </label>
             </div>

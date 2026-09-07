@@ -103,6 +103,29 @@ server-side only.
 - Asking operators to paste CA private keys or session private keys for normal SSO
   certificate login.
 
+### Remembered browser keys (opt-in, off by default)
+
+The SSH console offers a **remember key** checkbox only in **user-present key
+(legacy)** mode, and only when the deployment opts in with
+`SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED=true` (Helm:
+`remoteAccess.ssh.browserKeyRemember.enabled=true`). This feature is disabled
+by default. Without an explicit opt-in, pasted keys remain in memory for the
+current console only.
+
+When enabled, remembered private keys stay in page memory only, never in
+`localStorage` or `sessionStorage`. Keys can be reused while the page remains
+loaded, but are lost on page reload, close, or browser restart. Opening a
+console also removes that device's key left in `localStorage` by older builds.
+Passphrases are never stored.
+
+Tradeoff to accept before enabling: remembering a key extends its availability
+in page memory beyond the current console. Scripts or extensions with access
+to the page can still read it, and an open page offers no protection on a shared
+workstation. Prefer SSO certificate mode (ephemeral in-memory keys) for routine
+access, reserve remembered keys for break-glass workflows, and reload or close
+the page when done. If persistence across restarts is needed later, it should
+come from a WebAuthn or OS-keychain backed store, not from web storage.
+
 ## SSH CA Setup
 
 Generate a ServiceRadar user CA once per environment:
@@ -707,6 +730,8 @@ SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED=false
 ```
 
 Keep overrides disabled unless an operator workflow explicitly needs them.
+See [Remembered browser keys](#remembered-browser-keys-opt-in-off-by-default)
+for the tradeoff behind the remember-keys flag.
 
 ## Application And TCP Targets
 

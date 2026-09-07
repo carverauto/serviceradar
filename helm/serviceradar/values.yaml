@@ -2362,6 +2362,13 @@ remoteAccess:
           credentialTtlSeconds: 600
   ssh:
     enabled: false
+    # Browser-side remembered SSH private keys (the "remember key" checkbox in
+    # the SSH console, user-present key mode only). Keep this disabled unless
+    # operators explicitly accept the tradeoff: keys remain in page memory
+    # beyond the current console, readable by scripts with page access.
+    # Reloading or closing clears remembered keys.
+    browserKeyRemember:
+      enabled: false
   # Target-scoped account-to-principal authorization policy. This is internal
   # authorization data, so the chart accepts only an operator-created Secret
   # reference and never renders policy content from values.
