@@ -1004,20 +1004,6 @@ export function Component({
     setCredential(null)
   }
 
-  // The policy block disables the submit button, and a disabled button fires
-  // no events: without this, a target outside the deployment's certificate
-  // policy presents a control that silently swallows clicks. Answer with the
-  // reason instead, and never issue a session request the control plane would
-  // refuse. Only the settled unconfigured state explains; while options are
-  // still loading the policy may yet grant accounts.
-  function explainBlockedConnect() {
-    if (certificatePolicy.status !== "unconfigured") {
-      return
-    }
-
-    setError(MISSING_SSH_CERTIFICATE_POLICY_MESSAGE)
-  }
-
   async function trustHostKeyAndReconnect() {
     setSession(null)
     setCredential(null)
@@ -1473,31 +1459,21 @@ export function Component({
 
           {error ? <div className="alert alert-error text-sm">{error}</div> : null}
 
-          {/* A natively disabled button fires no mouse or keyboard events, so a
-              policy-blocked connect would otherwise be a dead control. The
-              wrapper answers the click with the reason instead (sr-4358). */}
-          <span
-            className="block w-full"
-            onClick={explainBlockedConnect}
-            title={certificatePolicy.status === "unconfigured" ? MISSING_SSH_CERTIFICATE_POLICY_MESSAGE : undefined}
+          <button
+            className="btn btn-primary w-full"
+            type="submit"
+            disabled={
+              opening ||
+              optionsLoading ||
+              (credentialMode === "ssh_certificate" && !ephemeralSupported)
+            }
+            aria-describedby={
+              certificatePolicy.status === "unconfigured" ? "ssh-certificate-policy-warning" : undefined
+            }
           >
-            <button
-              className="btn btn-primary w-full"
-              type="submit"
-              disabled={
-                opening ||
-                optionsLoading ||
-                certificatePolicy.blocksConnect ||
-                (credentialMode === "ssh_certificate" && !ephemeralSupported)
-              }
-              aria-describedby={
-                certificatePolicy.status === "unconfigured" ? "ssh-certificate-policy-warning" : undefined
-              }
-            >
-              {opening ? <span className="loading loading-spinner loading-sm" /> : null}
-              {credentialMode === "ssh_certificate" ? "Connect with SSO certificate" : "Open SSH session"}
-            </button>
-          </span>
+            {opening ? <span className="loading loading-spinner loading-sm" /> : null}
+            {credentialMode === "ssh_certificate" ? "Connect with SSO certificate" : "Open SSH session"}
+          </button>
         </div>
       </form>
     </div>

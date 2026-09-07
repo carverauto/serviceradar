@@ -220,11 +220,11 @@ describe("RemoteAccessSSHConsole without a certificate policy for the target", (
     )
   }
 
-  it("explains the missing policy and refuses to offer a certificate connect", async () => {
+  it("explains the missing policy without offering an account", async () => {
     const root = await renderConsole()
 
     expect(container.textContent).toContain("This target has no SSH certificate policy")
-    expect(connectButton().disabled).toBe(true)
+    expect(connectButton().disabled).toBe(false)
     expect(container.querySelector("input[autocomplete='username']")).toBeNull()
 
     await act(async () => {
@@ -240,11 +240,12 @@ describe("RemoteAccessSSHConsole without a certificate policy for the target", (
     const root = await renderConsole()
 
     const button = connectButton()
-    expect(button.disabled).toBe(true)
+    expect(button.disabled).toBe(false)
     expect(button.getAttribute("aria-describedby")).toBe("ssh-certificate-policy-warning")
+    expect(container.querySelector(".alert-error")).toBeNull()
 
     await act(async () => {
-      button.parentElement.dispatchEvent(new MouseEvent("click", {bubbles: true}))
+      button.click()
       await new Promise((resolve) => setTimeout(resolve, 50))
     })
 
