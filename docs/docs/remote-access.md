@@ -685,9 +685,17 @@ pinned keys. By default it lives under `/var/lib/serviceradar/checkers`; when
 `SERVICERADAR_REMOTE_ACCESS_KNOWN_HOSTS` overrides the path, persist that location
 instead. Losing the file makes the next session first contact again.
 
-Older agents report `knownhosts: key is unknown` for an unenrolled target and
-`knownhosts: key mismatch` for a changed key, without the target or fingerprint.
-Upgrade the agent to receive the console trust decision.
+Agents older than 1.4.52 report `knownhosts: key is unknown` for an unenrolled
+target and `knownhosts: key mismatch` for a changed key, naming neither the
+target nor the offered key. The console still presents a trust decision for
+those, but an unreviewable one: with no fingerprint to compare it shows none,
+and the accept action reads **Trust on first use and reconnect**. That retry
+asks for the `trust_on_first_use` policy, which every agent honors, so the agent
+pins whatever key the target offers -- the same trust you would extend by
+running `ssh-keyscan` against the target and pinning the result, and not the
+reviewed acceptance a newer agent allows. A changed key is still a hard close
+with no accept action. Upgrade the agent to 1.4.52 or newer to review the
+fingerprint before pinning it.
 
 The web UI can expose host-key review and override controls only when the deployment enables them:
 

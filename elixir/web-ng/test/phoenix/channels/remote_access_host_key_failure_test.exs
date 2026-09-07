@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessHostKeyFailureTest do
   test "a first contact with an unenrolled host is enrollable" do
     assert %{
              state: "unknown",
+             reviewable: true,
              target: "192.0.2.10:22",
              algorithm: "ssh-ed25519",
              fingerprint: "SHA256:AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKK"
@@ -27,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessHostKeyFailureTest do
   test "a host that changed its key is a mismatch, not a first contact" do
     assert %{
              state: "mismatch",
+             reviewable: true,
              target: "192.0.2.10:22",
              algorithm: "ssh-rsa",
              fingerprint: "SHA256:ZZZZYYYYXXXXWWWWVVVVUUUUTTTTSSSSRRR"
@@ -57,10 +59,33 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessHostKeyFailureTest do
            ) == nil
   end
 
-  # The pre-fix agent produced this reason and nothing else. It carries neither
-  # the target nor the key, so it must not be mistaken for an enrollable
-  # decision the console could act on.
-  test "the legacy unclassified reason is not treated as a trust decision" do
-    assert RemoteAccessHostKeyFailure.classify("ssh: handshake failed: knownhosts: key is unknown") == nil
+  # Agents older than 1.4.52 report this and nothing else. It carries neither
+  # the target nor the key, so the decision it produces is unreviewable: the
+  # console may still offer trust-on-first-use, but it must never present a
+  # fingerprint the agent did not send.
+  test "a pre-1.4.52 first contact is an unreviewable unknown key" do
+    assert %{
+             state: "unknown",
+             reviewable: false,
+             target: nil,
+             algorithm: nil,
+             fingerprint: nil
+           } = RemoteAccessHostKeyFailure.classify("ssh: handshake failed: knownhosts: key is unknown")
+  end
+
+  test "a pre-1.4.52 changed key is an unreviewable mismatch, not a first contact" do
+    assert %{
+             state: "mismatch",
+             reviewable: false,
+             target: nil,
+             algorithm: nil,
+             fingerprint: nil
+           } = RemoteAccessHostKeyFailure.classify("ssh: handshake failed: knownhosts: key mismatch")
+  end
+
+  # A revoked key is never offerable, from any agent version, so it stays
+  # unclassified and reaches the console as the hard close it is.
+  test "a revoked key is not a trust decision" do
+    assert RemoteAccessHostKeyFailure.classify("ssh: handshake failed: knownhosts: key is revoked") == nil
   end
 end

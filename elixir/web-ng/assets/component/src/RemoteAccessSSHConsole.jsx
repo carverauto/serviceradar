@@ -199,10 +199,53 @@ function bytesToBase64(bytes) {
   return btoa(binary)
 }
 
+const UNREPORTED_HOST_KEY =
+  "This agent is older than 1.4.52 and cannot report the key the target offered, so there is nothing to compare here."
+
+const CHANGED_HOST_KEY =
+  "The target offered a different key than the one the agent already trusts. This can mean the host was rebuilt or " +
+  "rekeyed, or that the connection is being intercepted."
+
+const UNENROLLED_HOST_KEY = "The agent has no known-hosts entry for this target, so the SSH session was refused."
+
+// The wording an operator reads is the whole recovery, so it lives in one place
+// rather than inline in the panel. `reviewable` says whether the agent reported
+// the offered key: an agent older than 1.4.52 reports only that verification
+// failed, so there is no fingerprint to compare and accepting is
+// trust-on-first-use rather than reviewed acceptance.
+function hostKeyCopy(decision, enrollable, reviewable) {
+  if (enrollable) {
+    return {
+      explanation: reviewable
+        ? `${UNENROLLED_HOST_KEY} Compare the fingerprint below with the target's own host key before you accept it.`
+        : `${UNENROLLED_HOST_KEY} ${UNREPORTED_HOST_KEY} Accepting pins whatever key the target offers on the next connection.`,
+      acceptLabel: reviewable ? "Trust this host key and reconnect" : "Trust on first use and reconnect",
+      footnote: reviewable
+        ? `Accepting pins this key in the agent's known-hosts store for ${decision.target}. A later connection that offers a different key is refused.`
+        : "Accepting reconnects with the trust-on-first-use host key policy, which pins the key the target offers into the agent's known-hosts store. A later connection that offers a different key is refused. Upgrade the agent to 1.4.52 or newer to review the fingerprint before pinning it.",
+    }
+  }
+
+  const verify = reviewable ? "Verify the new key" : `${UNREPORTED_HOST_KEY} Verify the change`
+
+  return {
+    explanation: `${CHANGED_HOST_KEY} ${verify} out of band and remove the stale entry from the agent's known-hosts store before connecting again.`,
+    acceptLabel: null,
+    footnote: null,
+  }
+}
+
 // Only an unknown key is offerable: a key that changed under an already-trusted
 // host is the man-in-the-middle case and gets no accept action here.
 export function HostKeyDecision({decision, busy, onTrust, onDismiss}) {
   const enrollable = decision.state === "unknown"
+  const reviewable = decision.reviewable !== false
+  const facts = [
+    ["Target", decision.target],
+    ["Key type", decision.algorithm],
+    ["Fingerprint", decision.fingerprint],
+  ].filter(([, value]) => Boolean(value))
+  const {explanation, acceptLabel, footnote} = hostKeyCopy(decision, enrollable, reviewable)
 
   return (
     <div className="flex h-full min-h-0 items-start justify-center overflow-y-auto bg-sr-canvas p-6 text-sr-ink">
@@ -217,24 +260,18 @@ export function HostKeyDecision({decision, busy, onTrust, onDismiss}) {
           {enrollable ? "This host key is not trusted yet" : "This host key does not match the trusted key"}
         </h2>
 
-        <p className="mt-2 text-sm text-sr-muted">
-          {enrollable
-            ? "The agent has no known-hosts entry for this target, so the SSH session was refused. Compare the fingerprint below with the target's own host key before you accept it."
-            : "The target offered a different key than the one the agent already trusts. This can mean the host was rebuilt or rekeyed, or that the connection is being intercepted. Verify the new key out of band and remove the stale entry from the agent's known-hosts store before connecting again."}
-        </p>
+        <p className="mt-2 text-sm text-sr-muted">{explanation}</p>
 
-        <dl className="mt-4 space-y-2 text-sm">
-          {[
-            ["Target", decision.target],
-            ["Key type", decision.algorithm],
-            ["Fingerprint", decision.fingerprint],
-          ].map(([label, value]) => (
-            <div className="flex gap-3" key={label}>
-              <dt className="w-28 shrink-0 text-sr-muted">{label}</dt>
-              <dd className="min-w-0 break-all font-mono">{value}</dd>
-            </div>
-          ))}
-        </dl>
+        {facts.length > 0 ? (
+          <dl className="mt-4 space-y-2 text-sm">
+            {facts.map(([label, value]) => (
+              <div className="flex gap-3" key={label}>
+                <dt className="w-28 shrink-0 text-sr-muted">{label}</dt>
+                <dd className="min-w-0 break-all font-mono">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
 
         <div className="mt-5 flex flex-wrap gap-3">
           {enrollable ? (
@@ -244,7 +281,7 @@ export function HostKeyDecision({decision, busy, onTrust, onDismiss}) {
               onClick={onTrust}
               disabled={busy}
             >
-              {busy ? "Reconnecting..." : "Trust this host key and reconnect"}
+              {busy ? "Reconnecting..." : acceptLabel}
             </button>
           ) : null}
           <button
@@ -256,12 +293,7 @@ export function HostKeyDecision({decision, busy, onTrust, onDismiss}) {
           </button>
         </div>
 
-        {enrollable ? (
-          <p className="mt-4 text-xs text-sr-muted">
-            Accepting pins this key in the agent's known-hosts store for {decision.target}. A later connection that
-            offers a different key is refused.
-          </p>
-        ) : null}
+        {enrollable ? <p className="mt-4 text-xs text-sr-muted">{footnote}</p> : null}
       </div>
     </div>
   )
@@ -715,7 +747,16 @@ export function Component({
     setApprovalRequired(false)
     setHostKeyFailure(null)
 
-    const requestedHostKeyPolicy = overrides.approvedHostKey ? "known_hosts" : hostKeyPolicy
+    // A reviewed acceptance rides on the pinned known-hosts policy: the agent
+    // pins the approved target and fingerprint and refuses anything else. An
+    // agent older than 1.4.52 has no approval field to read, so an acceptance
+    // it cannot review has to ask for the trust-on-first-use policy instead, a
+    // policy the agent has honored since known-hosts verification was added.
+    const requestedHostKeyPolicy = overrides.approvedHostKey
+      ? "known_hosts"
+      : overrides.trustOnFirstUse
+        ? TRUST_ON_FIRST_USE_POLICY
+        : hostKeyPolicy
 
     const sshUsername = username.trim()
 
@@ -853,6 +894,12 @@ export function Component({
   async function trustHostKeyAndReconnect() {
     setSession(null)
     setCredential(null)
+
+    if (hostKeyFailure.reviewable === false) {
+      await openSession(null, {trustOnFirstUse: true})
+      return
+    }
+
     await openSession(null, {
       approvedHostKey: {target: hostKeyFailure.target, fingerprint: hostKeyFailure.fingerprint},
     })
