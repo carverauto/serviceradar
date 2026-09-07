@@ -14,5 +14,5 @@ filegroup(
         "go.sum",
         "host.go",
         "main.go",
-    ],
+    ] + glob(["vendor/**"]),
 )
