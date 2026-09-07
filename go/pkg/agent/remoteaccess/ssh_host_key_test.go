@@ -154,7 +154,7 @@ func TestClassifySSHHostKeyErrorLeavesOtherResultsAlone(t *testing.T) {
 		t.Fatalf("classified nil error = %v, want nil", err)
 	}
 
-	storeErr := errors.New("read known_hosts: permission denied")
+	storeErr := &os.PathError{Op: "read", Path: "known_hosts", Err: os.ErrPermission}
 	if err := classifySSHHostKeyError(hostKeyTestAddress, signer.PublicKey(), storeErr); !errors.Is(err, storeErr) {
 		t.Fatalf("classified store error = %v, want %v", err, storeErr)
 	}

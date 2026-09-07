@@ -243,6 +243,7 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessSessionControllerTest do
       assert request.cols == 120
       assert request.rows == 40
       assert request.metadata["ssh_host_key_policy"] == "known_hosts"
+
       assert request.metadata["ssh_host_key_approval"] == %{
                "target" => "host01.example.com:22",
                "fingerprint" => "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
