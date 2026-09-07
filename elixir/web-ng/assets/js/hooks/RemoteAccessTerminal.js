@@ -1,7 +1,7 @@
 import "@xterm/xterm/css/xterm.css"
 
 import React from "react"
-import {createRoot} from "react-dom/client"
+import {hydrateRoot} from "react-dom/client"
 
 import RemoteAccessTerminal from "../../component/src/RemoteAccessTerminal.jsx"
 
@@ -36,8 +36,7 @@ function parseProps(el) {
 export default {
   mounted() {
     const props = {...parseProps(this.el), terminalModuleLoader: loadTerminalModules}
-    this.reactRoot = createRoot(this.el)
-    this.reactRoot.render(React.createElement(RemoteAccessTerminal, props))
+    this.reactRoot = hydrateRoot(this.el, React.createElement(RemoteAccessTerminal, props))
   },
 
   destroyed() {

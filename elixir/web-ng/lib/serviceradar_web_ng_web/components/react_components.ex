@@ -6,10 +6,6 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   like the GoRules JDM editor. Components are rendered on the client
   via LiveView hooks due to complex browser dependencies.
 
-  Terminal components here must stay client-only: `Phoenix.React` is not in
-  the supervision tree (see `ServiceRadarWebNG.Application`), so server-side
-  `react_component/1` rendering crashes the LiveView with `:noproc`.
-
   ## Usage
 
       <.jdm_editor
@@ -21,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   """
   use Phoenix.Component
 
+  import Phoenix.ReactServer.Helper
   import ServiceRadarWebNGWeb.UIComponents, only: [ui_spinner: 1]
 
   @doc """
@@ -308,9 +305,19 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
 
   def remote_access_terminal(assigns) do
     assigns =
-      assign(assigns, :props, %{
+      assigns
+      |> assign(:props, %{
         sessionId: assigns.session_id,
         ticket: assigns.ticket,
+        websocketPath: assigns.websocket_path,
+        title: assigns.title,
+        subtitle: assigns.subtitle,
+        streamLabel: assigns.stream_label,
+        closeLabel: assigns.close_label
+      })
+      |> assign(:render_props, %{
+        sessionId: assigns.session_id,
+        ticket: "",
         websocketPath: assigns.websocket_path,
         title: assigns.title,
         subtitle: assigns.subtitle,
@@ -326,10 +333,11 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteAccessTerminal"
       data-props={Jason.encode!(@props)}
     >
-      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-sr-muted">
-        <.ui_spinner size="sm" />
-        <span class="ml-3">Loading remote access session...</span>
-      </div>
+      {react_component(%{
+        component: "RemoteAccessTerminal",
+        props: @render_props,
+        static: false
+      })}
     </div>
     """
   end

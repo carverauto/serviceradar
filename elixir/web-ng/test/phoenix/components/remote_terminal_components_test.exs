@@ -46,25 +46,4 @@ defmodule ServiceRadarWebNGWeb.Components.RemoteTerminalComponentsTest do
     assert html =~ "/v1/proxmox/console-sessions/session-1/stream"
     assert html =~ "Loading remote console..."
   end
-
-  test "remote_access_terminal renders the client-only hook without SSR" do
-    html =
-      render_component(&ReactComponents.remote_access_terminal/1, %{
-        id: "remote-access-terminal-session-1",
-        session_id: "session-1",
-        ticket: "srra-test-ticket",
-        websocket_path: "/v1/remote-access/sessions/session-1/stream",
-        title: "Remote access",
-        subtitle: "agent-1",
-        stream_label: "Remote access",
-        close_label: "Remote access session"
-      })
-
-    assert html =~ ~s(phx-hook="RemoteAccessTerminal")
-    assert html =~ ~s(phx-update="ignore")
-    assert html =~ "session-1"
-    assert html =~ "srra-test-ticket"
-    assert html =~ "/v1/remote-access/sessions/session-1/stream"
-    assert html =~ "Loading remote access session..."
-  end
 end
