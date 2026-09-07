@@ -2364,9 +2364,9 @@ remoteAccess:
     enabled: false
     # Browser-side remembered SSH private keys (the "remember key" checkbox in
     # the SSH console, user-present key mode only). Keep this disabled unless
-    # operators explicitly accept the tradeoff: even the session-scoped store
-    # keeps key material readable by any script in the page origin for the
-    # life of the tab. The default off state means keys stay memory-only.
+    # operators explicitly accept the tradeoff: keys remain in page memory
+    # beyond the current console, readable by scripts with page access.
+    # Reloading or closing clears remembered keys.
     browserKeyRemember:
       enabled: false
   # Target-scoped account-to-principal authorization policy. This is internal

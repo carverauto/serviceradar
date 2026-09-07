@@ -103,18 +103,7 @@ async function keyDigestFor(value) {
   return `SHA256:${base64Digest(digest)}`
 }
 
-// Remembered private keys must never touch localStorage: it survives browser
-// restart and is readable by any script or extension in the origin, so a
-// stored key is stealable long after the session ends. sessionStorage is
-// tab-scoped and discarded when the tab closes, which bounds the exposure to
-// the lifetime of the tab.
-function rememberedStore() {
-  try {
-    return window.sessionStorage || null
-  } catch (_error) {
-    return null
-  }
-}
+const rememberedKeys = new Map()
 
 // Older builds persisted remembered keys in localStorage. Purge that entry
 // whenever remembered state is touched so a previously stored key does not
@@ -130,30 +119,16 @@ function clearLegacyRemembered(deviceUid) {
 function loadRemembered(deviceUid) {
   clearLegacyRemembered(deviceUid)
 
-  try {
-    const raw = rememberedStore()?.getItem(storageKey(deviceUid))
-    return raw ? JSON.parse(raw) : null
-  } catch (_error) {
-    return null
-  }
+  return rememberedKeys.get(deviceUid) || null
 }
 
 function saveRemembered(deviceUid, value) {
-  try {
-    rememberedStore()?.setItem(storageKey(deviceUid), JSON.stringify(value))
-  } catch (_error) {
-    // Ignore storage failures; the session credential still remains usable in memory.
-  }
+  rememberedKeys.set(deviceUid, value)
 }
 
 function clearRemembered(deviceUid) {
   clearLegacyRemembered(deviceUid)
-
-  try {
-    rememberedStore()?.removeItem(storageKey(deviceUid))
-  } catch (_error) {
-    // Ignore storage failures.
-  }
+  rememberedKeys.delete(deviceUid)
 }
 
 function errorMessage(error) {
@@ -1320,8 +1295,8 @@ export function Component({
                   onChange={(event) => setRememberKey(event.target.checked)}
                 />
                 <span>
-                  <span className="block text-sm font-medium">Remember key for this browser tab</span>
-                  <span className="block text-xs text-base-content/60">Kept in this tab only and cleared when the tab closes. Passphrases are never saved.</span>
+                  <span className="block text-sm font-medium">Remember key in memory</span>
+                  <span className="block text-xs text-base-content/60">Cleared on page reload or close. Passphrases are never saved.</span>
                 </span>
               </label>
             </div>

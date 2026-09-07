@@ -109,23 +109,23 @@ The SSH console offers a **remember key** checkbox only in **user-present key
 (legacy)** mode, and only when the deployment opts in with
 `SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED=true` (Helm:
 `remoteAccess.ssh.browserKeyRemember.enabled=true`). Every deployment path
-defaults this to off — the Elixir component attr, the LiveView gate, the
+defaults this to off - the Elixir component attr, the LiveView gate, the
 runtime config default, the chart default, and the Compose default are all
-`false` — so without an explicit opt-in, pasted keys stay memory-only for the
+`false` - so without an explicit opt-in, pasted keys stay memory-only for the
 session.
 
-When enabled, a remembered private key is kept in `sessionStorage` under
-`serviceradar.remoteAccess.sshKey.v1.<deviceUid>`, never in `localStorage`:
-the entry is tab-scoped and discarded when the tab closes instead of
-surviving browser restarts. Upgrading also purges any key an older build left
-in `localStorage`. Passphrases are never stored.
+When enabled, remembered private keys stay in page memory only, never in
+`localStorage` or `sessionStorage`. Keys can be reused while the page remains
+loaded, but are lost on page reload, close, or browser restart. Opening a
+console also removes that device's key left in `localStorage` by older builds.
+Passphrases are never stored.
 
-Tradeoff to accept before enabling: `sessionStorage` still keeps key material
-readable by any script or extension running in the page origin for the life
-of the tab, and it offers no protection on a shared workstation while the tab
-is open. Prefer SSO certificate mode (ephemeral in-memory keys) for routine
-access, reserve remembered keys for break-glass workflows, and close the tab
-when done. If persistence across restarts is truly needed later, it should
+Tradeoff to accept before enabling: remembering a key extends its availability
+in page memory beyond the current console. Scripts or extensions with access
+to the page can still read it, and an open page offers no protection on a shared
+workstation. Prefer SSO certificate mode (ephemeral in-memory keys) for routine
+access, reserve remembered keys for break-glass workflows, and reload or close
+the page when done. If persistence across restarts is needed later, it should
 come from a WebAuthn or OS-keychain backed store, not from web storage.
 
 ## SSH CA Setup

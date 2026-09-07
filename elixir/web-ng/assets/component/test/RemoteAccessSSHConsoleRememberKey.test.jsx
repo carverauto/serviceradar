@@ -77,6 +77,7 @@ function setNativeValue(element, value) {
 describe("RemoteAccessSSHConsole remembered keys (sr-4383)", () => {
   let container
   let localSets
+  let sessionSetSpy
 
   beforeEach(() => {
     container = document.createElement("div")
@@ -84,6 +85,7 @@ describe("RemoteAccessSSHConsole remembered keys (sr-4383)", () => {
     window.localStorage.clear()
     window.sessionStorage.clear()
     localSets = []
+    sessionSetSpy = vi.spyOn(window.sessionStorage, "setItem")
     const originalSetItem = window.localStorage.setItem.bind(window.localStorage)
     vi.spyOn(window.localStorage, "setItem").mockImplementation((key, value) => {
       localSets.push([String(key), String(value)])
@@ -118,12 +120,12 @@ describe("RemoteAccessSSHConsole remembered keys (sr-4383)", () => {
     container.remove()
   })
 
-  async function renderConsole(props = {}) {
+  async function renderConsole(props = {}, Console = Component) {
     let root
     await act(async () => {
       root = createRoot(container)
       root.render(
-        <Component
+        <Console
           deviceUid={DEVICE_UID}
           createPath="/api/remote-access/sessions"
           sshOptionsPath={`/api/remote-access/devices/${encodeURIComponent(DEVICE_UID)}/ssh-options`}
@@ -187,23 +189,36 @@ describe("RemoteAccessSSHConsole remembered keys (sr-4383)", () => {
     )
   }
 
-  it("stores a remembered private key in sessionStorage, never in localStorage", async () => {
-    const root = await renderConsole()
+  it("remembers in page memory across remounts but not a fresh page runtime", async () => {
+    let root = await renderConsole()
     await switchToUserPresentKey()
     await pasteKeyAndRemember()
 
-    // Regression gate for sr-4383: no private key material may reach
-    // localStorage, where it would survive browser restart.
     expect(localStorageKeyWrites()).toEqual([])
     expect(window.localStorage.getItem(STORE_KEY)).toBeNull()
+    expect(window.sessionStorage.getItem(STORE_KEY)).toBeNull()
+    expect(sessionSetSpy).not.toHaveBeenCalled()
 
-    const remembered = JSON.parse(window.sessionStorage.getItem(STORE_KEY))
-    expect(remembered.username).toBe("mfreeman")
-    expect(remembered.privateKey).toContain(SYNTHETIC_MARKER)
+    await act(async () => root.unmount())
+    root = await renderConsole()
+    await switchToUserPresentKey()
+    expect(container.querySelector("textarea").value).toBe(SYNTHETIC_KEY)
+    await act(async () => root.unmount())
 
-    await act(async () => {
-      root.unmount()
-    })
+    vi.resetModules()
+    const {Component: FreshConsole} = await import("../src/RemoteAccessSSHConsole.jsx")
+    root = await renderConsole({}, FreshConsole)
+    await switchToUserPresentKey()
+    expect(container.querySelector("textarea").value).toBe("")
+    await act(async () => root.unmount())
+
+    root = await renderConsole({allowRememberedKeys: false})
+    expect(container.textContent).not.toContain("Remember key")
+    await act(async () => root.unmount())
+    root = await renderConsole()
+    await switchToUserPresentKey()
+    expect(container.querySelector("textarea").value).toBe("")
+    await act(async () => root.unmount())
   })
 
   it("purges a legacy localStorage key on mount", async () => {
