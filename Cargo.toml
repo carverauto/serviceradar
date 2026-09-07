@@ -87,7 +87,7 @@ deep_causality_core = "0.11"
 deep_causality_data_structures = "0.10"
 deep_causality_sparse = "0.2"
 deep_causality_tensor = "0.5"
-deep_causality_topology = "0.7"
+deep_causality_topology = "0.9"
 deep_causality_uncertain = "0.5"
 diesel = { version = "2.3", default-features = false }
 diesel-async = { version = "0.7.1", default-features = false }
