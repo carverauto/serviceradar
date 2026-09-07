@@ -413,12 +413,12 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
        %{actor: actor} do
     seed = test_seed()
     hostname = "remtest-pmx-#{seed}"
-    old_ref = "proxmox:vm:#{seed}"
-    new_ref = "proxmox:hypervisor:#{hostname}"
+    old_ref = "proxmox:v2:cluster-#{seed}:node:host01"
+    new_ref = "proxmox:v2:cluster-#{seed}:node:host02"
 
-    # Same physical node whose integration_id churned formats: the newer row
+    # Same physical node renamed within its cluster: the newer row
     # carries the old ref under legacy_integration_ids, so the two rows share a
-    # host reference and collapse (hostname alone would NOT be sufficient).
+    # cluster-scoped host reference and collapse (a name-keyed ref would not suffice).
     {:ok, older} =
       create_device(actor, %{
         hostname: hostname,
