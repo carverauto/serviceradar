@@ -57,7 +57,9 @@ paste private keys for certificate sessions.
    remembered per browser profile (Teleport-like default account pick). Connect
    is disabled while accounts load. If the loaded list is empty, the console
    replaces the account field with a missing-policy warning and disables
-   certificate connect; see [SSH CA Setup](#ssh-ca-setup). If loading fails,
+   certificate connect; see [SSH CA Setup](#ssh-ca-setup). The blocked
+   control still answers clicks with that reason instead of failing
+   silently. If loading fails,
    the account field remains editable, but the server still enforces policy.
    **User-present key (legacy)** under **Advanced** remains available when you
    hold a key for the target.

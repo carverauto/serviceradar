@@ -232,6 +232,35 @@ describe("RemoteAccessSSHConsole without a certificate policy for the target", (
     })
   })
 
+  // Regression for the reported dead control: a natively disabled button fires
+  // no click of its own, so clicking Connect for a target outside the
+  // certificate policy must still answer with the reason — and must never
+  // issue a session request the control plane would refuse.
+  it("answers a click on the blocked connect with the missing-policy reason", async () => {
+    const root = await renderConsole()
+
+    const button = connectButton()
+    expect(button.disabled).toBe(true)
+    expect(button.getAttribute("aria-describedby")).toBe("ssh-certificate-policy-warning")
+
+    await act(async () => {
+      button.parentElement.dispatchEvent(new MouseEvent("click", {bubbles: true}))
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    const errors = [...container.querySelectorAll(".alert-error")].map((node) => node.textContent || "")
+    expect(errors.some((text) => text.includes("This target has no SSH certificate policy"))).toBe(true)
+
+    const sessionCalls = globalThis.fetch.mock.calls.filter(
+      ([url]) => !String(url).includes("ssh-options")
+    )
+    expect(sessionCalls).toEqual([])
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+
   it("still allows the legacy user-present path for the same target", async () => {
     const root = await renderConsole()
 
