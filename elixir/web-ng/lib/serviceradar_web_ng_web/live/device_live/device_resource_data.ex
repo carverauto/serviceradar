@@ -2,7 +2,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceResourceData do
   @moduledoc false
 
   alias Ash.Error.Invalid
-  alias ServiceRadar.Inventory.ConflictingIpRelease
   alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceFormData
 
@@ -36,13 +35,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceResourceData do
       |> Map.new()
 
     with {:ok, device} <- load(scope, device_uid, false) do
-      # Best-effort: vacate the target IP from an inactive or stale holder in
-      # the device's partition so the atomic update below succeeds. A healthy
-      # active holder is left for the update to report as already taken,
-      # and any release failure falls through to the same backstop.
-      _ =
-        ConflictingIpRelease.release_for_claim(attrs[:ip], device_uid, device.partition, scope: scope)
-
       device
       |> Ash.Changeset.for_update(:update, attrs)
       |> Ash.update(scope: scope)

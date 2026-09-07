@@ -8,7 +8,6 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
-  alias ServiceRadar.Inventory.ConflictingIpRelease
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Fence
@@ -392,14 +391,6 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     update_attrs = additional_update_attrs(device, attrs)
 
     Repo.transaction(fn ->
-      # Best-effort: vacate the target IP from an inactive or stale holder in
-      # the device's partition so the atomic update below succeeds. A healthy
-      # active holder is left for the update to report as already taken,
-      # and any release failure falls through to the same backstop. Inside
-      # this transaction so a failed update also rolls the release back.
-      _ =
-        ConflictingIpRelease.release_for_claim(update_attrs[:ip], device.uid, device.partition, scope: scope)
-
       with {:ok, device} <- put_type_ownership(device, update_attrs),
            {:ok, updated} <-
              device

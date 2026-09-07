@@ -11,8 +11,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   Interactive device edits (`Device :update`, GitHub #4357) take the same
   index through the atomic single-record path: a taken IP must surface as an
   `ip` "has already been taken" validation error instead of
-  `Ash.Error.Unknown`, and claiming an address held by an inactive or stale
-  device must succeed by releasing the holder first.
+  `Ash.Error.Unknown`. Inactive and stale holders retain their addresses
+  when a conflicting update is rejected.
   """
 
   use ServiceRadar.DataCase, async: false
@@ -21,7 +21,6 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
-  alias ServiceRadar.Inventory.ConflictingIpRelease
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Address
@@ -386,33 +385,28 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       assert Enum.any?(errors, &ip_taken_error?/1)
     end
 
-    test "update succeeds after releasing an inactive holder", %{actor: actor} do
+    test "update preserves an inactive holder and reports a usable ip error", %{actor: actor} do
       {taken_ip, free_ip} = doc_ip_pair()
       holder = create_device!(actor, "4357-inactive-holder", taken_ip)
       subject = create_device!(actor, "4357-inactive-subject", free_ip)
 
       {:ok, _} = Device.mark_inactive(holder, actor: actor)
 
-      assert :ok =
-               ConflictingIpRelease.release_for_claim(taken_ip, subject.uid, subject.partition,
-                 actor: actor
-               )
-
-      assert {:ok, updated} =
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
                subject
                |> Ash.Changeset.for_update(:update, %{ip: taken_ip})
                |> Ash.update(actor: actor)
 
-      assert updated.ip == taken_ip
+      assert Enum.any?(errors, &ip_taken_error?/1)
 
-      assert {:ok, %Device{ip: nil, metadata: metadata}} =
+      assert {:ok, %Device{ip: ^taken_ip}} =
                Device.get_by_uid(holder.uid, false, actor: actor)
 
-      assert metadata["released_conflicting_active_ip"] == taken_ip
-      assert metadata["released_conflicting_active_ip_for_device"] == subject.uid
+      assert {:ok, %Device{ip: ^free_ip}} =
+               Device.get_by_uid(subject.uid, false, actor: actor)
     end
 
-    test "update succeeds after releasing a stale holder", %{actor: actor} do
+    test "update preserves a stale holder and reports a usable ip error", %{actor: actor} do
       {taken_ip, free_ip} = doc_ip_pair()
       holder = create_device!(actor, "4357-stale-holder", taken_ip)
       subject = create_device!(actor, "4357-stale-subject", free_ip)
@@ -429,17 +423,18 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
           holder.uid
         ])
 
-      assert :ok =
-               ConflictingIpRelease.release_for_claim(taken_ip, subject.uid, subject.partition,
-                 actor: actor
-               )
-
-      assert {:ok, updated} =
+      assert {:error, %Ash.Error.Invalid{errors: errors}} =
                subject
                |> Ash.Changeset.for_update(:update, %{ip: taken_ip})
                |> Ash.update(actor: actor)
 
-      assert updated.ip == taken_ip
+      assert Enum.any?(errors, &ip_taken_error?/1)
+
+      assert {:ok, %Device{ip: ^taken_ip}} =
+               Device.get_by_uid(holder.uid, false, actor: actor)
+
+      assert {:ok, %Device{ip: ^free_ip}} =
+               Device.get_by_uid(subject.uid, false, actor: actor)
     end
 
     test "update keeps working when resubmitting the device's own IP", %{actor: actor} do
@@ -462,11 +457,6 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
       {:ok, _} = Device.soft_delete(holder, "test-retired", "test", actor: actor)
 
-      assert :ok =
-               ConflictingIpRelease.release_for_claim(taken_ip, subject.uid, subject.partition,
-                 actor: actor
-               )
-
       assert {:ok, updated} =
                subject
                |> Ash.Changeset.for_update(:update, %{ip: taken_ip})
@@ -475,20 +465,19 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
       assert updated.ip == taken_ip
     end
 
-    test "release reports defended and changes nothing for a healthy holder", %{
-      actor: actor
-    } do
-      {taken_ip, free_ip} = doc_ip_pair()
-      holder = create_device!(actor, "4357-healthy-holder", taken_ip)
-      subject = create_device!(actor, "4357-healthy-subject", free_ip)
+    test "update succeeds when the requested IP is unassigned", %{actor: actor} do
+      {new_ip, old_ip} = doc_ip_pair()
+      subject = create_device!(actor, "4357-free-subject", old_ip)
 
-      assert {:error, :defended} =
-               ConflictingIpRelease.release_for_claim(taken_ip, subject.uid, subject.partition,
-                 actor: actor
-               )
+      assert {:ok, updated} =
+               subject
+               |> Ash.Changeset.for_update(:update, %{ip: new_ip})
+               |> Ash.update(actor: actor)
 
-      assert {:ok, %Device{ip: ^taken_ip}} =
-               Device.get_by_uid(holder.uid, false, actor: actor)
+      assert updated.ip == new_ip
+
+      assert {:ok, %Device{ip: ^new_ip}} =
+               Device.get_by_uid(subject.uid, false, actor: actor)
     end
 
     test "same IP in another partition does not conflict", %{actor: actor} do
@@ -499,11 +488,6 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
       subject = create_device!(actor, "4357-partition-subject", free_ip)
 
-      assert :ok =
-               ConflictingIpRelease.release_for_claim(taken_ip, subject.uid, subject.partition,
-                 actor: actor
-               )
-
       assert {:ok, updated} =
                subject
                |> Ash.Changeset.for_update(:update, %{ip: taken_ip})
@@ -511,8 +495,6 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
       assert updated.ip == taken_ip
 
-      # The other partition's holder is untouched: uniqueness is per
-      # (partition, ip), so there was nothing to release.
       assert {:ok, %Device{ip: ^taken_ip}} =
                Device.get_by_uid(other.uid, false, actor: actor)
     end
