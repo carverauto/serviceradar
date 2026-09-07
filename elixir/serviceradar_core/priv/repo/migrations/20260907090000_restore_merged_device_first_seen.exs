@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Repo.Migrations.RestoreMergedDeviceFirstSeen do
   @moduledoc """
   Pull each merge survivor's `first_seen_time` back to the earliest date any
-  device merged into it was first seen.
+  device in its transitive active merge chain was first seen.
 
   `MergeEngine.preserve_survivor_attributes/2` carries tags, metadata, type and
   discovery sources from the merged-away device to the survivor, but never
@@ -19,6 +19,10 @@ defmodule ServiceRadar.Repo.Migrations.RestoreMergedDeviceFirstSeen do
   authoritative record of what merged into what -- joined back to the
   merged-away rows themselves, which a merge tombstones rather than deletes, so
   their dates are still there to read.
+
+  Active edges exclude unmerge events and the original events they reverse,
+  identified by `details.original_merge_event_id`. Recursive `UNION` deduplicates
+  device/date pairs so cycles terminate without losing earlier dates.
 
   The `WHERE` only ever lowers a date, so a survivor that was already the older
   row keeps what it has and a second run updates nothing. Merged-away rows count

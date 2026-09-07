@@ -165,9 +165,10 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   SyncIngestor consults this BEFORE BatchResolver mints a uid, so a "no"
   cannot be bypassed by the raw-Ecto writer that follows.
 
-  The census gets its own clause (`census_may_create?/1`) rather than a shared
-  address test, because "did this sighting see a device?" is a different
-  question from "does this integration record carry an address".
+  Passive census creation requires a parseable, non-loopback, non-unspecified
+  address and either an eligible MAC identifier or an IP accepted by
+  `AliasPolicy.valid_alias_ip?/1`. A link-local address therefore needs an
+  eligible MAC; a rotating MAC alone cannot anchor that sighting.
   """
   @spec sufficient_to_create?(map() | term()) :: boolean()
   def sufficient_to_create?(update) when is_map(update) do
@@ -187,7 +188,7 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   # consulted either one.
   #
   # First half -- `valid_ip?/1` asks only whether the string is non-empty, which
-  # is why the ARP-probe rule below let two probe shapes through:
+  # is why the previous ARP-probe rule let two probe shapes through:
   #
   #   * `::` is the source address of an IPv6 DAD neighbour solicitation, and
   #     `0.0.0.0` is an RFC 5227 ARP probe that spells its zero sender address
