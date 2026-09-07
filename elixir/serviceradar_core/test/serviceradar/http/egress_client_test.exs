@@ -104,6 +104,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
              )
 
     assert_receive {:uploaded, key}
+
     assert %{"status" => "mirrored", "artifacts" => [%{"object_key" => ^key}]} =
              mirrored.metadata["storage"]
   end
