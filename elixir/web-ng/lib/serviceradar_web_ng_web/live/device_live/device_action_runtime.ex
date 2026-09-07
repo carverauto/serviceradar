@@ -333,6 +333,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceActionRuntime do
 
   defp format_single_ash_error(%Ash.Error.Changes.InvalidAttribute{field: field, message: msg}), do: "#{field}: #{msg}"
   defp format_single_ash_error(%Ash.Error.Changes.Required{field: field}), do: "#{field} is required"
+
+  defp format_single_ash_error(%Ash.Error.Changes.InvalidChanges{fields: fields, message: msg})
+       when is_list(fields) and fields != [] and is_binary(msg) do
+    "#{Enum.map_join(fields, ", ", &to_string/1)}: #{msg}"
+  end
+
   defp format_single_ash_error(%{message: msg}) when is_binary(msg), do: msg
   defp format_single_ash_error(err), do: inspect(err)
 end

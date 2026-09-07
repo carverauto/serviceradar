@@ -151,6 +151,16 @@ defmodule ServiceRadar.Inventory.Device do
     table "ocsf_devices"
     repo ServiceRadar.Repo
     schema "platform"
+
+    # ocsf_devices_unique_active_ip_idx is unique on (partition, ip) for live
+    # rows with a non-blank address (migrations 20260213201000 and
+    # 20260825120000), and the same IP may exist in more than one partition.
+    # Declaring it here (rather than as an identity, which would attribute
+    # violations to the composite key's first field) adds
+    # `unique_constraint(:ip, name: ...)` to every changeset, so a Postgres
+    # uniqueness raise surfaces as an `ip` "has already been taken" error
+    # instead of Ash.Error.Unknown wrapping Ecto.ConstraintError.
+    unique_index_names [{[:ip], "ocsf_devices_unique_active_ip_idx"}]
   end
 
   json_api do

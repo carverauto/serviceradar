@@ -21,6 +21,18 @@ The Logs tab runs a bounded `in:logs device_id:"..." time:last_24h` SRQL query a
 
 Provider-neutral northbound action results are shown in the device Action History section for users with `northbound.actions.view`. Retained Ansible-provider invocations are excluded; canonical Ansible evidence appears only in the Ansible Operations history under `ansible.runs.view`. Launch feedback should direct operators to Action History, and target summaries should omit nil or unavailable fields.
 
+## Editing a Device IP Address
+
+Saving an IP already assigned to another non-deleted device in the same
+partition returns `ip: has already been taken`. The edit is rejected without
+changing either device's address. An inactive or stale device still holds its
+address; editing another device does not automatically release it.
+
+Choose an unassigned address, or correct the existing holder's inventory record
+before retrying. Keeping the device's own IP is allowed, and the same IP in a
+different partition does not conflict. A soft-deleted device does not reserve
+its former address.
+
 ## Device Type and Integration Convergence
 
 A later integration inference can replace an earlier inferred device type. An
