@@ -12,11 +12,7 @@ defmodule ServiceRadar.Repo.Migrations.RestoreMergedDeviceFirstSeen do
 
   The visible effect is the "Recently added devices" report
   (`in:devices first_seen:last_30d`, `Dashboards.SystemReports`), which then
-  lists hosts that have been in inventory for months. GitHub #4381: 97 live
-  devices on one deployment carried a date later than the earliest row merged
-  into them, 12 of them recently enough to be on the report -- one a router the
-  census had re-minted four days before the reconciler merged its six-month-old
-  row into the new one.
+  lists already-known hosts as new (GitHub #4381).
 
   The forward fix is in `preserve_survivor_attributes/2`. This repairs the rows
   already merged, and derives entirely from `platform.merge_audit` -- the
@@ -32,16 +28,34 @@ defmodule ServiceRadar.Repo.Migrations.RestoreMergedDeviceFirstSeen do
   use Ecto.Migration
 
   def up do
-    schema = prefix() || "platform"
+    execute(repair_sql(prefix() || "platform"))
+  end
 
-    execute("""
-    WITH earliest AS (
-      SELECT m.to_device_id AS uid,
-             MIN(src.first_seen_time) AS first_seen_time
+  def repair_sql(schema) do
+    """
+    WITH RECURSIVE active_merges AS (
+      SELECT m.from_device_id, m.to_device_id
       FROM #{schema}.merge_audit m
+      WHERE m.reason IS DISTINCT FROM 'unmerge'
+        AND NOT EXISTS (
+          SELECT 1
+          FROM #{schema}.merge_audit reversal
+          WHERE reversal.reason = 'unmerge'
+            AND reversal.details->>'original_merge_event_id' = m.event_id::text
+        )
+    ), inherited_dates (uid, first_seen_time) AS (
+      SELECT m.to_device_id, src.first_seen_time
+      FROM active_merges m
       JOIN #{schema}.ocsf_devices src ON src.uid = m.from_device_id
       WHERE src.first_seen_time IS NOT NULL
-      GROUP BY m.to_device_id
+      UNION
+      SELECT m.to_device_id, inherited.first_seen_time
+      FROM inherited_dates inherited
+      JOIN active_merges m ON m.from_device_id = inherited.uid
+    ), earliest AS (
+      SELECT uid, MIN(first_seen_time) AS first_seen_time
+      FROM inherited_dates
+      GROUP BY uid
     )
     UPDATE #{schema}.ocsf_devices d
     SET first_seen_time = earliest.first_seen_time,
@@ -49,7 +63,7 @@ defmodule ServiceRadar.Repo.Migrations.RestoreMergedDeviceFirstSeen do
     FROM earliest
     WHERE d.uid = earliest.uid
       AND (d.first_seen_time IS NULL OR d.first_seen_time > earliest.first_seen_time)
-    """)
+    """
   end
 
   def down do

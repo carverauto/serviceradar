@@ -11,9 +11,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeFirstSeenTest do
   discarded and the host reappeared on the "Recently added devices" report
   (`in:devices first_seen:last_30d`) months after it was found.
 
-  GitHub #4381: on one deployment 97 live devices carried a `first_seen_time`
-  later than the earliest row merged into them, and the 12 of those inside the
-  30-day window were on the report -- one by more than six months.
+  Regression coverage for GitHub #4381.
   """
 
   use ServiceRadar.DataCase, async: true

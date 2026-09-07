@@ -217,10 +217,8 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicyCensusTest do
   describe "census sightings that carry an address but not a device" do
     # GitHub #4381. The ARP-probe rule above tested the address for
     # NON-EMPTINESS, so every probe that spells its zero address out, and every
-    # sighting whose address cannot identify anything, walked through it. On one
-    # deployment that left 48 devices presenting a link-local or unspecified
-    # address as their own, 14 of them carrying no `device_identifiers` row at
-    # all -- unmatchable by construction, one more minted per MAC rotation.
+    # sighting whose address cannot identify anything, walked through it.
+    # Without an anchoring identifier, each MAC rotation can mint another row.
     defp census_with(ip, metadata) do
       %{
         source: "netprobe-census",
