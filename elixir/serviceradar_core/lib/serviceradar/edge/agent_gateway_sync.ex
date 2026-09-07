@@ -1337,7 +1337,31 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   defp stale_record_error?(_), do: false
 
-  defp active_ip_unique_conflict?(reason) do
+  # Device declares ocsf_devices_unique_active_ip_idx as a unique index name,
+  # so collisions surface as Invalid (an `ip` "has already been taken" error)
+  # rather than Unknown wrapping Ecto.ConstraintError. Match both shapes so
+  # adopt/release keeps working.
+  defp active_ip_unique_conflict?(%Invalid{errors: errors}) when is_list(errors) do
+    Enum.any?(errors, &ip_taken_error?/1) or index_conflict?(errors)
+  end
+
+  defp active_ip_unique_conflict?(reason), do: index_conflict?(reason)
+
+  defp ip_taken_error?(%Ash.Error.Changes.InvalidChanges{} = error) do
+    fields = List.wrap(Map.get(error, :fields, [])) ++ List.wrap(Map.get(error, :field))
+    message = to_string(Map.get(error, :message, ""))
+
+    :ip in fields and String.contains?(message, "has already been taken")
+  end
+
+  defp ip_taken_error?(%Ash.Error.Changes.InvalidAttribute{} = error) do
+    Map.get(error, :field) == :ip and
+      String.contains?(to_string(Map.get(error, :message, "")), "has already been taken")
+  end
+
+  defp ip_taken_error?(_), do: false
+
+  defp index_conflict?(reason) do
     reason
     |> inspect()
     |> String.contains?("ocsf_devices_unique_active_ip_idx")
