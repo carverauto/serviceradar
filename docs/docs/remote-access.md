@@ -108,11 +108,9 @@ server-side only.
 The SSH console offers a **remember key** checkbox only in **user-present key
 (legacy)** mode, and only when the deployment opts in with
 `SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED=true` (Helm:
-`remoteAccess.ssh.browserKeyRemember.enabled=true`). Every deployment path
-defaults this to off - the Elixir component attr, the LiveView gate, the
-runtime config default, the chart default, and the Compose default are all
-`false` - so without an explicit opt-in, pasted keys stay memory-only for the
-session.
+`remoteAccess.ssh.browserKeyRemember.enabled=true`). This feature is disabled
+by default. Without an explicit opt-in, pasted keys remain in memory for the
+current console only.
 
 When enabled, remembered private keys stay in page memory only, never in
 `localStorage` or `sessionStorage`. Keys can be reused while the page remains
@@ -720,7 +718,6 @@ The web UI can expose host-key review and override controls only when the deploy
 SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED=false
 SERVICERADAR_REMOTE_ACCESS_TARGET_HOST_OVERRIDE_ENABLED=false
 SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED=false
-SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED=false
 ```
 
 Keep overrides disabled unless an operator workflow explicitly needs them.
