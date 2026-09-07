@@ -170,6 +170,76 @@ function baseName(path) {
   return parts.at(-1) || "download"
 }
 
+// File-transfer start guards: the browser file picker is the only local-file
+// source for uploads, so a transfer must never start without a selected,
+// non-empty file. The remote target must be a concrete file path: bare
+// filesystem root ("/") is never a valid upload/download target from this UI.
+// All operations here are single-path SFTP actions (list/stat/download/upload
+// of one path); no control in this panel copies directories recursively, so a
+// root-to-root copy cannot be started from it.
+export function isFilesystemRoot(path) {
+  return /^\/+$/.test((path || "").trim())
+}
+
+export function atBrowseRoot(path) {
+  return (path || "").trim() === "" || isFilesystemRoot(path)
+}
+
+export function resolveUploadPath({destination, remotePath, fileName}) {
+  const resolvedDestination = (destination || "").trim() || (remotePath || "") || "/"
+  const base = remotePath || "/"
+
+  if (resolvedDestination.endsWith("/") || resolvedDestination === base) {
+    return joinPath(resolvedDestination, fileName)
+  }
+
+  return resolvedDestination
+}
+
+export function validateUploadStart({file, destination, remotePath}) {
+  if (!file) {
+    return {ok: false, error: "Select a local file before starting an upload."}
+  }
+
+  const fileName = file.name || "selected file"
+
+  if (file.size === 0) {
+    return {ok: false, error: `Refusing to upload "${fileName}": the selected file is empty.`}
+  }
+
+  const path = resolveUploadPath({destination, remotePath, fileName: file.name})
+
+  if (!path || path.trim() === "") {
+    return {ok: false, error: "Upload path is required: enter a remote destination file path."}
+  }
+
+  if (isFilesystemRoot(path)) {
+    return {
+      ok: false,
+      error: `Refusing to upload "${fileName}" to filesystem root "/": choose a destination file path inside a directory.`,
+    }
+  }
+
+  return {ok: true, path}
+}
+
+export function validateDownloadStart({path, displayName}) {
+  const name = displayName || path || "selected entry"
+
+  if (!path || path.trim() === "") {
+    return {ok: false, error: `Refusing to download "${name}": a file path is required.`}
+  }
+
+  if (isFilesystemRoot(path)) {
+    return {
+      ok: false,
+      error: `Refusing to download filesystem root "/": pick a single file from the listing.`,
+    }
+  }
+
+  return {ok: true, path}
+}
+
 function formatBytes(value) {
   const bytes = Number(value || 0)
 
@@ -501,6 +571,10 @@ export function Component({
         throw new Error("SSH session is not active.")
       }
 
+      if (typeof path !== "string" || path.trim() === "") {
+        throw new Error("Remote path is required: no file transfer was started.")
+      }
+
       const response = await fetch(fileTransferPath, {
         method: "POST",
         credentials: "same-origin",
@@ -662,6 +736,13 @@ export function Component({
 
   async function downloadEntry(entry) {
     const path = entry.path || joinPath(remotePath, entry.name)
+    const validation = validateDownloadStart({path, displayName: entry.name || baseName(path)})
+
+    if (!validation.ok) {
+      setFileTransferError(validation.error)
+      return
+    }
+
     setFileTransferError("")
 
     try {
@@ -681,12 +762,15 @@ export function Component({
     const file = event.target.files?.[0]
     event.target.value = ""
 
-    if (!file) {
+    const validation = validateUploadStart({file, destination: uploadDestination, remotePath})
+
+    if (!validation.ok) {
+      setFileTransferError(validation.error)
+      addTransferEvent({transferId: "", status: "refused", path: file?.name || ""})
       return
     }
 
-    const destination = uploadDestination.trim() || remotePath || "/"
-    const path = destination.endsWith("/") || destination === remotePath ? joinPath(destination, file.name) : destination
+    const path = validation.path
     setFileTransferError("")
 
     try {
@@ -898,6 +982,13 @@ export function Component({
           </div>
 
           <div className="space-y-3 border-b border-sr-line p-4">
+            {/*
+              Browse-only controls: both buttons issue a directory listing and
+              nothing else. Neither starts a copy in either direction; uploads
+              and downloads start only from the file picker and per-file rows
+              below. The parent button is disabled at "/" because navigating
+              above the filesystem root is a no-op.
+            */}
             <div className="join flex w-full">
               <input
                 className="input join-item input-bordered input-sm min-w-0 flex-1"
@@ -913,16 +1004,18 @@ export function Component({
               <button
                 className="btn join-item btn-sm"
                 type="button"
-                title="Parent directory"
+                title="Parent directory (browse only, never copies)"
+                aria-label="Parent directory"
                 onClick={() => listDirectory(parentPath(remotePath))}
-                disabled={fileTransferBusy}
+                disabled={fileTransferBusy || atBrowseRoot(remotePath)}
               >
                 ..
               </button>
               <button
                 className="btn join-item btn-sm"
                 type="button"
-                title="Refresh directory"
+                title="Refresh directory listing (browse only, never copies)"
+                aria-label="Refresh directory listing"
                 onClick={() => listDirectory()}
                 disabled={fileTransferBusy}
               >

@@ -105,6 +105,26 @@ func TestFileTransferRequestPayloadRejectsInvalidValues(t *testing.T) {
 			want:    ErrInvalidFileTransferPath,
 		},
 		{
+			name:    "empty upload path",
+			payload: FileTransferRequestPayload{TransferID: "transfer-1", SessionID: "session-1", Operation: FileTransferOperationUpload, Path: ""},
+			want:    ErrInvalidFileTransferPath,
+		},
+		{
+			name:    "blank upload path",
+			payload: FileTransferRequestPayload{TransferID: "transfer-1", SessionID: "session-1", Operation: FileTransferOperationUpload, Path: "   "},
+			want:    ErrInvalidFileTransferPath,
+		},
+		{
+			name:    "empty download path",
+			payload: FileTransferRequestPayload{TransferID: "transfer-1", SessionID: "session-1", Operation: FileTransferOperationDownload, Path: ""},
+			want:    ErrInvalidFileTransferPath,
+		},
+		{
+			name:    "missing download path",
+			payload: FileTransferRequestPayload{TransferID: "transfer-1", SessionID: "session-1", Operation: FileTransferOperationDownload},
+			want:    ErrInvalidFileTransferPath,
+		},
+		{
 			name: "dot segment path",
 			payload: FileTransferRequestPayload{
 				TransferID: "transfer-1",

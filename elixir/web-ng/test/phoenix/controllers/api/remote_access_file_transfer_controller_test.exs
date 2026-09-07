@@ -239,6 +239,64 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessFileTransferControllerTest do
       assert body["error"] == "invalid_request"
       assert body["message"] =~ "destination_path"
     end
+
+    test "refuses an upload with an empty path before dispatch", %{auth_header: auth_header} do
+      session_id = Ecto.UUID.generate()
+
+      for path <- ["", "   "] do
+        conn =
+          build_conn()
+          |> Plug.Conn.put_req_header("authorization", auth_header)
+          |> post(~p"/api/remote-access/file-transfers", %{
+            "session_id" => session_id,
+            "operation" => "upload",
+            "path" => path
+          })
+
+        body = json_response(conn, 400)
+        assert body["error"] == "invalid_request"
+        assert body["message"] =~ "path"
+      end
+
+      refute_receive {:remote_access_file_transfer, _session_id, _request, _opts}
+    end
+
+    test "refuses an upload with a missing path before dispatch", %{auth_header: auth_header} do
+      conn =
+        build_conn()
+        |> Plug.Conn.put_req_header("authorization", auth_header)
+        |> post(~p"/api/remote-access/file-transfers", %{
+          "session_id" => Ecto.UUID.generate(),
+          "operation" => "upload"
+        })
+
+      body = json_response(conn, 400)
+      assert body["error"] == "invalid_request"
+      assert body["message"] =~ "path"
+
+      refute_receive {:remote_access_file_transfer, _session_id, _request, _opts}
+    end
+
+    test "refuses a download with an empty path before dispatch", %{auth_header: auth_header} do
+      session_id = Ecto.UUID.generate()
+
+      for path <- ["", "   "] do
+        conn =
+          build_conn()
+          |> Plug.Conn.put_req_header("authorization", auth_header)
+          |> post(~p"/api/remote-access/file-transfers", %{
+            "session_id" => session_id,
+            "operation" => "download",
+            "path" => path
+          })
+
+        body = json_response(conn, 400)
+        assert body["error"] == "invalid_request"
+        assert body["message"] =~ "path"
+      end
+
+      refute_receive {:remote_access_file_transfer, _session_id, _request, _opts}
+    end
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
