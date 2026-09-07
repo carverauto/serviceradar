@@ -81,12 +81,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     case to_atom_tab(tab) do
       :controllers ->
         with_current_permission(socket, @controller_permission, fn socket ->
-          {:noreply, assign(socket, :active_tab, :controllers)}
+          {:noreply, activate_controllers_tab(socket)}
         end)
 
       :repositories ->
         with_current_permission(socket, @repository_permission, fn socket ->
-          {:noreply, assign(socket, :active_tab, :repositories)}
+          {:noreply, activate_repositories_tab(socket)}
         end)
 
       nil ->
@@ -331,6 +331,30 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end
   end
 
+  # Both panels sit behind `:if @active_tab == ...`, and a stream seeded at mount
+  # is spent by the first render pass whether or not its comprehension was
+  # reached. Flipping `active_tab` alone therefore drew the count from the socket
+  # assign above an EMPTY table body -- "1 registered git repository" and no row
+  # to edit. Re-stream the tab being activated so the table shows what the count
+  # claims, and picks up writes made from the other tab in the meantime.
+  defp activate_controllers_tab(socket) do
+    controllers = list_controllers()
+
+    socket
+    |> assign(:active_tab, :controllers)
+    |> stream(:controllers, controllers, reset: true)
+    |> assign(:controller_count, length(controllers))
+  end
+
+  defp activate_repositories_tab(socket) do
+    repositories = list_repositories()
+
+    socket
+    |> assign(:active_tab, :repositories)
+    |> stream(:repositories, repositories, reset: true)
+    |> assign(:repository_count, length(repositories))
+  end
+
   defp refresh_access(socket, current_scope) do
     socket
     |> assign(:current_scope, current_scope)
@@ -378,6 +402,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   end
 
   defp cached_permission?(_scope, _permission), do: false
+
+  # The panels below are function components, so `@current_scope` is not in
+  # their assigns -- resolving the timezone here and passing it down as an attr
+  # is what keeps the health/sync timestamps from raising KeyError at render.
+  defp user_timezone(%{user: %{timezone: timezone}}) when is_binary(timezone) and timezone != "", do: timezone
+
+  defp user_timezone(_current_scope), do: "Etc/UTC"
 
   ## Render --------------------------------------------------------------------
 
@@ -431,6 +462,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             form={@controller_form}
             editing_id={@editing_controller_id}
             awx_secrets={@awx_credential_secrets}
+            timezone={user_timezone(@current_scope)}
           />
         </section>
 
@@ -447,6 +479,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             show_form={@show_repository_form}
             form={@repository_form}
             editing_id={@editing_repository_id}
+            timezone={user_timezone(@current_scope)}
           />
         </section>
       </Shell.settings_chrome>
@@ -460,6 +493,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   attr(:form, :any, required: true)
   attr(:editing_id, :string, default: nil)
   attr(:awx_secrets, :any, default: [])
+  attr(:timezone, :string, required: true)
 
   defp controllers_panel(assigns) do
     ~H"""
@@ -520,7 +554,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
                 <.user_time
                   id={"settings-ansible-controller-#{ctrl.id}-last-health-at"}
                   value={ctrl.last_health_at}
-                  timezone={@current_scope.user.timezone || "Etc/UTC"}
+                  timezone={@timezone}
                   style={:compact}
                 />
               </div>
@@ -878,6 +912,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   attr(:show_form, :boolean, required: true)
   attr(:form, :any, required: true)
   attr(:editing_id, :string, default: nil)
+  attr(:timezone, :string, required: true)
 
   defp repositories_panel(assigns) do
     ~H"""
@@ -933,7 +968,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
                 <.user_time
                   id={"settings-ansible-repository-#{repo.id}-last-sync-at"}
                   value={repo.last_sync_at}
-                  timezone={@current_scope.user.timezone || "Etc/UTC"}
+                  timezone={@timezone}
                   style={:compact}
                 />
               </div>

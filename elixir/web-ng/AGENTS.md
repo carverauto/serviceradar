@@ -530,6 +530,20 @@ env SERVICERADAR_REQUIRE_DB_TESTS=1 TEST_CNPG_PORT=5455 TEST_CNPG_DATABASE=servi
          |> stream(:messages, messages, reset: true)}
       end
 
+- **A stream is spent by the first render pass, even when its comprehension was never reached.**
+  Seeding a stream in `mount/3` and then rendering its table behind `:if={@active_tab == :x}`
+  loses the rows: flipping the assign later re-renders the panel with an EMPTY `phx-update="stream"`
+  container, while a separate count assign still reports the old number -- a table header that
+  says "1 registered" above no rows. Re-stream the collection in the handler that reveals it
+  (`ServiceRadarWebNGWeb.Settings.AnsibleLive`'s `activate_repositories_tab/1`), the same way you
+  would for a filter change. This is invisible to tests that only assert on the default tab.
+
+- **A `defp` function component cannot read `@current_scope`** (or any other socket assign) -- its
+  assigns are exactly the attrs passed to it, so `@current_scope.user.timezone` inside one raises
+  `KeyError key :current_scope not found` and takes the whole page down. Resolve the value in
+  `render/1` and pass it as a declared `attr`. When the reference sits behind an `:if`, the crash
+  only appears once real data satisfies the condition, so the page can look green for months.
+
 - LiveView streams *do not support counting or empty states*. If you need to display a count, you must track it using a separate assign. For empty states, you can use Tailwind classes:
 
       <div id="tasks" phx-update="stream">
