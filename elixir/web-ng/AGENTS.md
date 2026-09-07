@@ -154,6 +154,11 @@ custom classes must fully style the input
   - Primitives: `UIComponents` (`ui_button`, `ui_input`, `ui_badge`, `ui_panel`, `ui_dropdown`, `ui_pagination`) and token-styled `<.input>` / `<.button>` in `core_components.ex`.
   - Shell chrome: ops topbar / public topbar in `layouts.ex` must not introduce new daisyUI `btn`/`menu`/`dropdown` classes.
   - OpenSpec: `openspec/changes/align-web-ng-with-marketing-design-system` tracks the phased daisyUI retirement. Existing page-level daisy classes may remain until their phase migrates them; do not add new daisy shell chrome.
+  - daisyUI's plugin is **commented out** in `assets/css/app.css`, so `btn`, `select select-bordered`,
+    `alert` and friends emit no styling at all. Residual page-level daisy classes are unstyled markup
+    awaiting migration, not a working design. React components under `assets/component/src/` cannot
+    use the HEEx primitives, so style new UI there with Tailwind utilities and `sr-*` tokens; copying
+    a neighbouring component's `btn` classes ships an invisible button.
   - Custom Tailwind is fine for layout and bespoke visuals when primitives do not cover the case.
 - Out of the box **only the app.js and app.css bundles are supported**
   - You cannot reference an external vendor'd script `src` or link `href` in the layouts

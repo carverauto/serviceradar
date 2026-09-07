@@ -424,6 +424,72 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
     refute_receive {:fail_session, "session-resize-race", _reason, _opts}
   end
 
+  test "an unknown host key close carries the trust decision the console needs" do
+    {:ok, state} = init_state("session-host-key-unknown")
+
+    assert {:push, {:text, _ready}, attached} =
+             RemoteAccessStreamHandler.handle_in(
+               {attach_payload("session-host-key-unknown"), [opcode: :text]},
+               state
+             )
+
+    reason =
+      "ssh: handshake failed: ssh host key is not trusted: host01.example.com:22 offered " <>
+        "ssh-ed25519 SHA256:AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKK and the agent " <>
+        "known-hosts store has no entry for it; review the fingerprint, then reconnect " <>
+        "with the trust-on-first-use host key policy to pin it"
+
+    assert {:stop, :normal, 1000, [{:text, close}], _closed} =
+             RemoteAccessStreamHandler.handle_info({:remote_access_closed, reason}, attached)
+
+    assert %{
+             "type" => "close",
+             "reason" => ^reason,
+             "host_key" => %{
+               "state" => "unknown",
+               "target" => "host01.example.com:22",
+               "algorithm" => "ssh-ed25519",
+               "fingerprint" => "SHA256:AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKK"
+             }
+           } = Jason.decode!(close)
+  end
+
+  test "a changed host key close is reported as a mismatch, never as enrollable" do
+    {:ok, state} = init_state("session-host-key-mismatch")
+
+    assert {:push, {:text, _ready}, attached} =
+             RemoteAccessStreamHandler.handle_in(
+               {attach_payload("session-host-key-mismatch"), [opcode: :text]},
+               state
+             )
+
+    reason =
+      "ssh: handshake failed: ssh host key does not match the trusted entry: " <>
+        "host01.example.com:22 offered ssh-rsa SHA256:ZZZZYYYYXXXXWWWWVVVVUUUUTTTTSSSSRRR but " <>
+        "the agent known-hosts store holds a different key for it; verify the change out of " <>
+        "band before trusting this host again"
+
+    assert {:stop, :normal, 1000, [{:text, close}], _closed} =
+             RemoteAccessStreamHandler.handle_info({:remote_access_closed, reason}, attached)
+
+    assert %{"host_key" => %{"state" => "mismatch", "algorithm" => "ssh-rsa"}} = Jason.decode!(close)
+  end
+
+  test "an ordinary close carries no host key decision" do
+    {:ok, state} = init_state("session-plain-close")
+
+    assert {:push, {:text, _ready}, attached} =
+             RemoteAccessStreamHandler.handle_in({attach_payload("session-plain-close"), [opcode: :text]}, state)
+
+    assert {:stop, :normal, 1000, [{:text, close}], _closed} =
+             RemoteAccessStreamHandler.handle_info({:remote_access_closed, "agent closed"}, attached)
+
+    decoded = Jason.decode!(close)
+
+    assert decoded["type"] == "close"
+    refute Map.has_key?(decoded, "host_key")
+  end
+
   test "a browser frame sent to a stopped broker is dropped without failing the session" do
     {:ok, state} = init_state("session-input-after-stop")
 

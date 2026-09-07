@@ -482,7 +482,7 @@ func knownHostsCallback(path string) (ssh.HostKeyCallback, error) {
 		return nil, fmt.Errorf("%w: %w", ErrSSHHostKeyStoreUnavailable, err)
 	}
 
-	return callback, nil
+	return verifiedSSHHostKeyCallback(callback), nil
 }
 
 func trustOnFirstUseCallback(path string) (ssh.HostKeyCallback, error) {
@@ -507,7 +507,7 @@ func trustOnFirstUseCallback(path string) (ssh.HostKeyCallback, error) {
 
 		var keyErr *knownhosts.KeyError
 		if !errors.As(err, &keyErr) || len(keyErr.Want) > 0 {
-			return err
+			return classifySSHHostKeyError(hostname, key, err)
 		}
 
 		line := knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key)

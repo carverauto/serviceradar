@@ -4,7 +4,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   The browser first sends an attach frame containing the short-lived ticket.
   After attach, only terminal/protocol bytes, resize requests, ready, close, and
-  sanitized error messages cross the browser boundary.
+  sanitized error messages cross the browser boundary. A close caused by SSH
+  host-key verification additionally carries the target address and the offered
+  public key's algorithm and fingerprint, so the console can present the trust
+  decision instead of a dead end. See `ServiceRadarWebNGWeb.Channels.RemoteAccessHostKeyFailure`.
   """
 
   @behaviour WebSock
@@ -15,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   alias ServiceRadar.Edge.RemoteAccessSessions
   alias ServiceRadar.Edge.RemoteAccessSSHSessionCredentials
   alias ServiceRadarWebNG.RemoteDesktopWebRTC
+  alias ServiceRadarWebNGWeb.Channels.RemoteAccessHostKeyFailure
 
   require Logger
 
@@ -254,14 +258,15 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   def handle_info({:remote_access_closed, reason}, state) do
     with_current_authority(state, fn state ->
+      close_reason = format_close_reason(reason)
+
       _ =
         state.sessions_module.close_session(state.session.id,
-          reason: format_close_reason(reason),
+          reason: close_reason,
           scope: state.scope
         )
 
-      {:stop, :normal, 1000, [{:text, encode(%{type: "close", reason: format_close_reason(reason)})}],
-       %{state | closing_action: :closed}}
+      {:stop, :normal, 1000, [{:text, encode(close_message(close_reason))}], %{state | closing_action: :closed}}
     end)
   end
 
@@ -1203,6 +1208,18 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   defp decode_base64(_value), do: {:error, :invalid_data_size}
 
   defp encode(payload), do: Jason.encode!(payload)
+
+  # A host-key verification failure is the one close reason the browser can act
+  # on, so it crosses the boundary as structured fields alongside the reason
+  # text. Everything here is derived from the reason already being sent: the
+  # target address the console already displays and the target's public host-key
+  # fingerprint, which is the value an operator is meant to compare out of band.
+  defp close_message(close_reason) do
+    case RemoteAccessHostKeyFailure.classify(close_reason) do
+      nil -> %{type: "close", reason: close_reason}
+      host_key -> %{type: "close", reason: close_reason, host_key: host_key}
+    end
+  end
 
   defp format_close_reason(nil), do: "closed"
   defp format_close_reason(reason) when is_binary(reason), do: reason

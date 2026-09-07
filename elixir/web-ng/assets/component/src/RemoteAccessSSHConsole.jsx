@@ -12,6 +12,7 @@ import {
 const STORE_PREFIX = "serviceradar.remoteAccess.sshKey.v1."
 const FILE_TRANSFER_CHUNK_BYTES = 65_536
 const MAX_TRANSFER_EVENTS = 48
+const TRUST_ON_FIRST_USE_POLICY = "trust_on_first_use"
 
 function csrfToken() {
   return document.querySelector("meta[name='csrf-token']")?.getAttribute("content") || ""
@@ -198,6 +199,74 @@ function bytesToBase64(bytes) {
   return btoa(binary)
 }
 
+// Only an unknown key is offerable: a key that changed under an already-trusted
+// host is the man-in-the-middle case and gets no accept action here.
+export function HostKeyDecision({decision, busy, onTrust, onDismiss}) {
+  const enrollable = decision.state === "unknown"
+
+  return (
+    <div className="flex h-full min-h-0 items-start justify-center overflow-y-auto bg-slate-950 p-6 text-slate-100">
+      <div
+        className={`w-full max-w-2xl rounded-lg border p-5 ${
+          enrollable ? "border-amber-500/50 bg-amber-950/30" : "border-red-500/60 bg-red-950/40"
+        }`}
+        data-testid="ssh-host-key-decision"
+        data-host-key-state={decision.state}
+      >
+        <h2 className="text-base font-semibold">
+          {enrollable ? "This host key is not trusted yet" : "This host key does not match the trusted key"}
+        </h2>
+
+        <p className="mt-2 text-sm text-slate-300">
+          {enrollable
+            ? "The agent has no known-hosts entry for this target, so the SSH session was refused. Compare the fingerprint below with the target's own host key before you accept it."
+            : "The target offered a different key than the one the agent already trusts. This can mean the host was rebuilt or rekeyed, or that the connection is being intercepted. Verify the new key out of band and remove the stale entry from the agent's known-hosts store before connecting again."}
+        </p>
+
+        <dl className="mt-4 space-y-2 text-sm">
+          {[
+            ["Target", decision.target],
+            ["Key type", decision.algorithm],
+            ["Fingerprint", decision.fingerprint],
+          ].map(([label, value]) => (
+            <div className="flex gap-3" key={label}>
+              <dt className="w-28 shrink-0 text-slate-400">{label}</dt>
+              <dd className="min-w-0 break-all font-mono">{value}</dd>
+            </div>
+          ))}
+        </dl>
+
+        <div className="mt-5 flex flex-wrap gap-3">
+          {enrollable ? (
+            <button
+              className="rounded-md bg-amber-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-amber-400 disabled:opacity-60"
+              type="button"
+              onClick={onTrust}
+              disabled={busy}
+            >
+              {busy ? "Reconnecting..." : "Trust this host key and reconnect"}
+            </button>
+          ) : null}
+          <button
+            className="rounded-md border border-slate-700 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800"
+            type="button"
+            onClick={onDismiss}
+          >
+            Back to connection settings
+          </button>
+        </div>
+
+        {enrollable ? (
+          <p className="mt-4 text-xs text-slate-400">
+            Accepting pins this key in the agent's known-hosts store for {decision.target}. A later connection that
+            offers a different key is refused.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 export function Component({
   deviceUid = "",
   createPath = "/api/remote-access/sessions",
@@ -231,6 +300,7 @@ export function Component({
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [session, setSession] = useState(null)
   const [credential, setCredential] = useState(null)
+  const [hostKeyFailure, setHostKeyFailure] = useState(null)
   const [error, setError] = useState("")
   const [opening, setOpening] = useState(false)
   const [accessApprovalId, setAccessApprovalId] = useState(approvalId)
@@ -378,6 +448,13 @@ export function Component({
 
     return {credential}
   }, [credential])
+
+  // Identity must be stable: RemoteAccessTerminal lists this in the effect that
+  // owns the websocket, so a new function each render would tear the socket
+  // down and reattach it.
+  const handleHostKeyFailure = useCallback((decision) => {
+    setHostKeyFailure(decision)
+  }, [])
 
   // Rules-of-hooks: every hook must run on every render, including the
   // post-201 session branch below, which early-returns. A memo placed after
@@ -631,11 +708,14 @@ export function Component({
     }
   }
 
-  async function openSession(event) {
-    event.preventDefault()
+  async function openSession(event, overrides = {}) {
+    event?.preventDefault?.()
     setOpening(true)
     setError("")
     setApprovalRequired(false)
+    setHostKeyFailure(null)
+
+    const requestedHostKeyPolicy = overrides.hostKeyPolicy || hostKeyPolicy
 
     const sshUsername = username.trim()
 
@@ -684,7 +764,7 @@ export function Component({
       protocol: "ssh",
       adapter: "ssh",
       credential_custody_mode: credentialMode,
-      ssh_host_key_policy: hostKeyPolicy,
+      ssh_host_key_policy: requestedHostKeyPolicy,
       terminal: {cols: 120, rows: 34},
     }
 
@@ -760,6 +840,32 @@ export function Component({
     }
   }
 
+  function dismissHostKeyFailure() {
+    setHostKeyFailure(null)
+    setSession(null)
+    setCredential(null)
+  }
+
+  async function trustHostKeyAndReconnect() {
+    setSession(null)
+    setCredential(null)
+    setHostKeyPolicy(TRUST_ON_FIRST_USE_POLICY)
+    await openSession(null, {hostKeyPolicy: TRUST_ON_FIRST_USE_POLICY})
+  }
+
+  // A host-key failure ends the session, so the dead terminal is replaced by
+  // the decision it produced.
+  if (hostKeyFailure) {
+    return (
+      <HostKeyDecision
+        decision={hostKeyFailure}
+        busy={opening}
+        onTrust={trustHostKeyAndReconnect}
+        onDismiss={dismissHostKeyFailure}
+      />
+    )
+  }
+
   if (session && credential) {
     return (
       <div className="grid h-full min-h-0 bg-slate-950 lg:grid-cols-[minmax(0,1fr)_24rem]">
@@ -775,6 +881,7 @@ export function Component({
             attachPayload={attachPayload}
             terminalModuleLoader={terminalModuleLoader}
             onFileTransferMessage={handleFileTransferMessage}
+            onHostKeyFailure={handleHostKeyFailure}
             socketControlRef={socketControlRef}
           />
         </div>
@@ -1069,7 +1176,7 @@ export function Component({
                   onChange={(event) => setHostKeyPolicy(event.target.value)}
                 >
                   <option value="known_hosts">Known hosts</option>
-                  <option value="trust_on_first_use">Trust on first use</option>
+                  <option value={TRUST_ON_FIRST_USE_POLICY}>Trust on first use</option>
                   {allowSkipVerifyHostKeyPolicy ? (
                     <option value="skip_verify">Skip verification</option>
                   ) : null}
