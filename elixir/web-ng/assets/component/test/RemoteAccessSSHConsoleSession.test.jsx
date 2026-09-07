@@ -154,6 +154,17 @@ describe("RemoteAccessSSHConsole session transition", () => {
     expect(container.textContent).toContain("pve02:22 via agent-dusk01")
     expect(container.textContent).toContain("Files")
 
+    // Brand chrome regression (sr-4375): the session shell aligns with the
+    // sr palette, never the slate-blue scale.
+    const shell = [...container.querySelectorAll("[class*='bg-sr-canvas']")]
+    expect(shell.length).toBeGreaterThan(0)
+    expect(container.querySelector("aside").className).toContain("bg-sr-surface")
+    expect(container.querySelector("aside").className).toContain("border-sr-line")
+    const slateLeftovers = [...container.querySelectorAll("*")].filter((node) =>
+      [...(node.classList || [])].some((name) => name.includes("slate-"))
+    )
+    expect(slateLeftovers).toEqual([])
+
     await act(async () => {
       root.unmount()
     })

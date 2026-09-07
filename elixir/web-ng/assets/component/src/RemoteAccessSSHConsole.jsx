@@ -205,7 +205,7 @@ export function HostKeyDecision({decision, busy, onTrust, onDismiss}) {
   const enrollable = decision.state === "unknown"
 
   return (
-    <div className="flex h-full min-h-0 items-start justify-center overflow-y-auto bg-slate-950 p-6 text-slate-100">
+    <div className="flex h-full min-h-0 items-start justify-center overflow-y-auto bg-sr-canvas p-6 text-sr-ink">
       <div
         className={`w-full max-w-2xl rounded-lg border p-5 ${
           enrollable ? "border-amber-500/50 bg-amber-950/30" : "border-red-500/60 bg-red-950/40"
@@ -217,7 +217,7 @@ export function HostKeyDecision({decision, busy, onTrust, onDismiss}) {
           {enrollable ? "This host key is not trusted yet" : "This host key does not match the trusted key"}
         </h2>
 
-        <p className="mt-2 text-sm text-slate-300">
+        <p className="mt-2 text-sm text-sr-muted">
           {enrollable
             ? "The agent has no known-hosts entry for this target, so the SSH session was refused. Compare the fingerprint below with the target's own host key before you accept it."
             : "The target offered a different key than the one the agent already trusts. This can mean the host was rebuilt or rekeyed, or that the connection is being intercepted. Verify the new key out of band and remove the stale entry from the agent's known-hosts store before connecting again."}
@@ -230,7 +230,7 @@ export function HostKeyDecision({decision, busy, onTrust, onDismiss}) {
             ["Fingerprint", decision.fingerprint],
           ].map(([label, value]) => (
             <div className="flex gap-3" key={label}>
-              <dt className="w-28 shrink-0 text-slate-400">{label}</dt>
+              <dt className="w-28 shrink-0 text-sr-muted">{label}</dt>
               <dd className="min-w-0 break-all font-mono">{value}</dd>
             </div>
           ))}
@@ -239,7 +239,7 @@ export function HostKeyDecision({decision, busy, onTrust, onDismiss}) {
         <div className="mt-5 flex flex-wrap gap-3">
           {enrollable ? (
             <button
-              className="rounded-md bg-amber-500 px-3 py-2 text-sm font-medium text-slate-950 hover:bg-amber-400 disabled:opacity-60"
+              className="rounded-md bg-amber-500 px-3 py-2 text-sm font-medium text-amber-950 hover:bg-amber-400 disabled:opacity-60"
               type="button"
               onClick={onTrust}
               disabled={busy}
@@ -248,7 +248,7 @@ export function HostKeyDecision({decision, busy, onTrust, onDismiss}) {
             </button>
           ) : null}
           <button
-            className="rounded-md border border-slate-700 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-800"
+            className="rounded-md border border-sr-line-strong px-3 py-2 text-sm font-medium text-sr-ink hover:bg-sr-subtle"
             type="button"
             onClick={onDismiss}
           >
@@ -257,7 +257,7 @@ export function HostKeyDecision({decision, busy, onTrust, onDismiss}) {
         </div>
 
         {enrollable ? (
-          <p className="mt-4 text-xs text-slate-400">
+          <p className="mt-4 text-xs text-sr-muted">
             Accepting pins this key in the agent's known-hosts store for {decision.target}. A later connection that
             offers a different key is refused.
           </p>
@@ -873,7 +873,7 @@ export function Component({
 
   if (session && credential) {
     return (
-      <div className="grid h-full min-h-0 bg-slate-950 lg:grid-cols-[minmax(0,1fr)_24rem]">
+      <div className="grid h-full min-h-0 bg-sr-canvas lg:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="min-h-0">
           <RemoteAccessTerminal
             sessionId={session.id}
@@ -891,16 +891,16 @@ export function Component({
           />
         </div>
 
-        <aside className="flex min-h-0 flex-col border-t border-slate-800 bg-slate-900 text-slate-100 lg:border-l lg:border-t-0">
-          <div className="border-b border-slate-800 px-4 py-3">
+        <aside className="flex min-h-0 flex-col border-t border-sr-line bg-sr-surface text-sr-ink lg:border-l lg:border-t-0">
+          <div className="border-b border-sr-line px-4 py-3">
             <div className="text-sm font-semibold">Files</div>
-            <div className="mt-1 truncate text-xs text-slate-400">{remotePath}</div>
+            <div className="mt-1 truncate text-xs text-sr-muted">{remotePath}</div>
           </div>
 
-          <div className="space-y-3 border-b border-slate-800 p-4">
+          <div className="space-y-3 border-b border-sr-line p-4">
             <div className="join flex w-full">
               <input
-                className="input join-item input-bordered input-sm min-w-0 flex-1 bg-slate-950 text-slate-100"
+                className="input join-item input-bordered input-sm min-w-0 flex-1"
                 value={remotePath}
                 onChange={(event) => setRemotePath(event.target.value)}
                 onKeyDown={(event) => {
@@ -932,16 +932,16 @@ export function Component({
 
             <label className="form-control">
               <div className="label py-1">
-                <span className="label-text text-slate-300">Upload path</span>
+                <span className="label-text">Upload path</span>
               </div>
               <input
-                className="input input-bordered input-sm bg-slate-950 text-slate-100"
+                className="input input-bordered input-sm"
                 value={uploadDestination}
                 onChange={(event) => setUploadDestination(event.target.value)}
               />
             </label>
             <input
-              className="file-input file-input-bordered file-input-sm w-full bg-slate-950 text-slate-100"
+              className="file-input file-input-bordered file-input-sm w-full"
               type="file"
               onChange={uploadFile}
             />
@@ -955,11 +955,11 @@ export function Component({
 
           <div className="min-h-0 flex-1 overflow-auto">
             {entries.length === 0 ? (
-              <div className="px-4 py-6 text-sm text-slate-400">No directory entries loaded.</div>
+              <div className="px-4 py-6 text-sm text-sr-muted">No directory entries loaded.</div>
             ) : (
               <table className="table table-xs table-pin-rows">
                 <thead>
-                  <tr className="border-slate-800 text-slate-400">
+                  <tr className="border-sr-line text-sr-muted">
                     <th>Name</th>
                     <th className="text-right">Size</th>
                     <th className="w-16"></th>
@@ -970,7 +970,7 @@ export function Component({
                     const path = entry.path || joinPath(remotePath, entry.name)
 
                     return (
-                      <tr className="border-slate-800" key={`${entry.name}:${path}`}>
+                      <tr className="border-sr-line" key={`${entry.name}:${path}`}>
                         <td className="max-w-48 truncate">
                           {entry.is_dir ? (
                             <button
@@ -984,7 +984,7 @@ export function Component({
                             <span title={entry.mode}>{entry.name}</span>
                           )}
                         </td>
-                        <td className="whitespace-nowrap text-right text-slate-400">
+                        <td className="whitespace-nowrap text-right text-sr-muted">
                           {entry.is_dir ? "dir" : formatBytes(entry.size)}
                         </td>
                         <td className="text-right">
@@ -1007,15 +1007,15 @@ export function Component({
             )}
           </div>
 
-          <div className="max-h-36 overflow-auto border-t border-slate-800 p-3">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Transfers</div>
+          <div className="max-h-36 overflow-auto border-t border-sr-line p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-sr-muted">Transfers</div>
             {transferEvents.length === 0 ? (
-              <div className="text-xs text-slate-500">No transfers yet.</div>
+              <div className="text-xs text-sr-muted">No transfers yet.</div>
             ) : (
               <div className="space-y-1">
                 {transferEvents.map((event, index) => (
-                  <div className="truncate text-xs text-slate-300" key={`${event.transferId}:${event.at}:${index}`}>
-                    <span className="text-slate-500">{event.status}</span>{" "}
+                  <div className="truncate text-xs text-sr-muted" key={`${event.transferId}:${event.at}:${index}`}>
+                    <span className="text-sr-muted">{event.status}</span>{" "}
                     <span title={event.path || event.transferId}>{event.path || event.transferId}</span>
                   </div>
                 ))}
