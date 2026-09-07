@@ -128,9 +128,10 @@ Available actors: `system_actor/0`, `admin_actor/0`, `operator_actor/0`, `viewer
 
 - **Always** begin your LiveView templates with `<Layouts.app flash={@flash} ...>` which wraps all inner content
 - The `MyAppWeb.Layouts` module is aliased in the `my_app_web.ex` file, so you can use it without needing to alias it again
-- Anytime you run into errors with no `current_scope` assign:
-  - You failed to follow the Authenticated Routes guidelines, or you failed to pass `current_scope` to `<Layouts.app>`
-  - **Always** fix the `current_scope` error by moving your routes to the proper `live_session` and ensure you pass `current_scope` as needed
+- For missing `current_scope` in a LiveView or layout, check the Authenticated Routes
+  guidelines and the assigns passed to `<Layouts.app>`. For function components, see
+  the explicit timezone attribute boundary in
+  `lib/serviceradar_web_ng_web/live/settings/ansible_live.ex`.
 - Phoenix v1.8 moved the `<.flash_group>` component to the `Layouts` module. You are **forbidden** from calling `<.flash_group>` outside of the `layouts.ex` module
 - Out of the box, `core_components.ex` imports an `<.icon name="hero-x-mark" class="w-5 h-5"/>` component for for hero icons. **Always** use the `<.icon>` component for icons, **never** use `Heroicons` modules or similar
 - **Always** use the imported `<.input>` component for form inputs from `core_components.ex` when available. `<.input>` is imported and using it will save steps and prevent errors
@@ -529,20 +530,6 @@ env SERVICERADAR_REQUIRE_DB_TESTS=1 TEST_CNPG_PORT=5455 TEST_CNPG_DATABASE=servi
          # reset the stream with the new messages
          |> stream(:messages, messages, reset: true)}
       end
-
-- **A stream is spent by the first render pass, even when its comprehension was never reached.**
-  Seeding a stream in `mount/3` and then rendering its table behind `:if={@active_tab == :x}`
-  loses the rows: flipping the assign later re-renders the panel with an EMPTY `phx-update="stream"`
-  container, while a separate count assign still reports the old number -- a table header that
-  says "1 registered" above no rows. Re-stream the collection in the handler that reveals it
-  (`ServiceRadarWebNGWeb.Settings.AnsibleLive`'s `activate_repositories_tab/1`), the same way you
-  would for a filter change. This is invisible to tests that only assert on the default tab.
-
-- **A `defp` function component cannot read `@current_scope`** (or any other socket assign) -- its
-  assigns are exactly the attrs passed to it, so `@current_scope.user.timezone` inside one raises
-  `KeyError key :current_scope not found` and takes the whole page down. Resolve the value in
-  `render/1` and pass it as a declared `attr`. When the reference sits behind an `:if`, the crash
-  only appears once real data satisfies the condition, so the page can look green for months.
 
 - LiveView streams *do not support counting or empty states*. If you need to display a count, you must track it using a separate assign. For empty states, you can use Tailwind classes:
 

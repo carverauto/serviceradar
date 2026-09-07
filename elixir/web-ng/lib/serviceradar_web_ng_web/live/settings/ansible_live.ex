@@ -331,12 +331,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
     end
   end
 
-  # Both panels sit behind `:if @active_tab == ...`, and a stream seeded at mount
-  # is spent by the first render pass whether or not its comprehension was
-  # reached. Flipping `active_tab` alone therefore drew the count from the socket
-  # assign above an EMPTY table body -- "1 registered git repository" and no row
-  # to edit. Re-stream the tab being activated so the table shows what the count
-  # claims, and picks up writes made from the other tab in the meantime.
+  # Stream inserts are cleared after rendering, including those for hidden panels.
+  # Reset the revealed panel's stream and count from the same fresh collection.
+  # Regression coverage: AnsibleLiveTest's "listing timestamps" tests.
   defp activate_controllers_tab(socket) do
     controllers = list_controllers()
 
@@ -403,9 +400,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
   defp cached_permission?(_scope, _permission), do: false
 
-  # The panels below are function components, so `@current_scope` is not in
-  # their assigns -- resolving the timezone here and passing it down as an attr
-  # is what keeps the health/sync timestamps from raising KeyError at render.
+  # Function components do not inherit socket assigns. Resolve the timezone at
+  # the LiveView boundary and pass it explicitly to both timestamp panels.
   defp user_timezone(%{user: %{timezone: timezone}}) when is_binary(timezone) and timezone != "", do: timezone
 
   defp user_timezone(_current_scope), do: "Etc/UTC"
