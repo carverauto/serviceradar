@@ -72,6 +72,42 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     assert Req.Response.get_header(response, "location") == ["https://localhost/artifact.tar.gz"]
   end
 
+  test "mirrors a release through the CONNECT tunnel with verified artifact bytes", ctx do
+    digest = :sha256 |> :crypto.hash(@body) |> Base.encode16(case: :lower)
+
+    attrs = %{
+      version: "1.2.3",
+      manifest: %{
+        "artifacts" => [
+          %{
+            "url" => "https://localhost/artifact.tar.gz",
+            "sha256" => digest,
+            "os" => "linux",
+            "arch" => "amd64"
+          }
+        ]
+      }
+    }
+
+    assert {:ok, mirrored} =
+             ServiceRadar.Edge.ReleaseArtifactMirror.prepare_publish_attrs(attrs,
+               validate_url: fn _ -> :ok end,
+               http_get: fn url, download_opts ->
+                 EgressClient.get(url, opts(ctx, download_opts))
+               end,
+               upload_object: fn metadata, bytes, _ ->
+                 assert bytes == @body
+                 assert metadata.sha256 == digest
+                 send(self(), {:uploaded, metadata.key})
+                 {:ok, %Proto.UploadObjectResponse{}}
+               end
+             )
+
+    assert_receive {:uploaded, key}
+    assert %{"status" => "mirrored", "artifacts" => [%{"object_key" => ^key}]} =
+             mirrored.metadata["storage"]
+  end
+
   test "streams the body through :into so a caller can cap it mid-flight", ctx do
     parent = self()
 
@@ -116,21 +152,21 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
 
   test "allows a progressing transfer to exceed the receive timeout", ctx do
     assert {:ok, %Req.Response{status: 200, body: ""}} =
-             EgressClient.get("https://localhost/slow", opts(ctx, receive_timeout: 500))
+             EgressClient.get("https://localhost/slow", opts(ctx, receive_timeout: 2_000))
 
     assert collect_chunks() == String.duplicate(@body, 5)
   end
 
   test "times out while waiting for the next chunk", ctx do
     assert {:error, :timeout} =
-             EgressClient.get("https://localhost/stall", opts(ctx, receive_timeout: 500))
+             EgressClient.get("https://localhost/stall", opts(ctx, receive_timeout: 2_000))
 
     assert collect_chunks() == @body
   end
 
   test "does not deliver more chunks while the consumer is busy", ctx do
     into = fn {:data, chunk}, acc ->
-      Process.sleep(600)
+      Process.sleep(2_400)
       refute_received {:http, {_, :stream, _}}
       send(self(), {:chunk, chunk})
       {:cont, acc}
@@ -139,7 +175,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     assert {:ok, %Req.Response{status: 200}} =
              EgressClient.get(
                "https://localhost/slow",
-               opts(ctx, into: into, receive_timeout: 500)
+               opts(ctx, into: into, receive_timeout: 2_000)
              )
 
     assert collect_chunks() == String.duplicate(@body, 5)
@@ -225,7 +261,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
             "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n"
           )
 
-          delay = if String.contains?(request, "/stall"), do: 1_000, else: 200
+          delay = if String.contains?(request, "/stall"), do: 5_000, else: 800
 
           Enum.each(1..5, fn _ ->
             :ssl.send(socket, [Integer.to_string(byte_size(@body), 16), "\r\n", @body, "\r\n"])

@@ -354,11 +354,7 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     }
   end
 
-  # Not `Req` + `ServiceRadar.Finch`: on a deployment behind
-  # SERVICERADAR_EGRESS_PROXY, Mint cannot tunnel through a CONNECT proxy that
-  # answers `HTTP/1.0 200 OK` with no headers, and reports the closed tunnel as
-  # `%Req.TransportError{reason: {:dtls_upgrade, :notsup}}`.
-  # `ServiceRadar.HTTP.EgressClient` documents the full mechanism.
+  # EgressClient owns CONNECT-proxy compatibility; see its module documentation.
   defp default_http_get(url, opts) do
     client_opts =
       Keyword.merge(

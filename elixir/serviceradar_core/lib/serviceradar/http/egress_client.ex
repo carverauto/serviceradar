@@ -27,8 +27,8 @@ defmodule ServiceRadar.HTTP.EgressClient do
   a tunnel, so HTTP/1.0 connection-close semantics must not be applied to it.
   Mint 1.9.3 left the socket open and this worked; 1.10.0 closes it. Pinning back
   is not available: 1.10.0 carries the fixes for CVE-2026-82728 and
-  CVE-2026-82729, and `//third_party/hex` resolves one version of a package for
-  the whole workspace, so a downgrade for one project downgrades every release.
+  CVE-2026-82729. See `third_party/hex/BUILD.bazel` for the workspace dependency
+  resolution policy.
 
   `:httpc` performs its own CONNECT and accepts the HTTP/1.0 reply, so it
   tunnels through the same proxy unchanged. Only one client is used, whether or
@@ -58,10 +58,21 @@ defmodule ServiceRadar.HTTP.EgressClient do
   Fetches `url` with GET.
 
   Redirects are never followed: the caller decides, the same way
-  `Req.get(redirect: false)` behaves. The required `:into` option takes a `Req`-shaped streaming
-  function -- it is called as `fun.({:data, chunk}, acc)` and must return
-  `{:cont, acc}` or `{:halt, acc}` -- so a caller can enforce a size limit while
-  the body is still arriving rather than after it is buffered.
+  `Req.get(redirect: false)` behaves. The required `:into` option takes a
+  streaming function called as `fun.({:data, chunk}, acc)` that returns
+  `{:cont, acc}` or `{:halt, acc}`. Its initial accumulator is
+  `{nil, Req.Response.new(status: 200)}`. Each next chunk is requested only after
+  the callback consumes the previous one. Streamed responses return an empty
+  body; the callback owns the downloaded bytes, and its accumulator is not
+  returned. Halting cancels the request and returns an empty successful response.
+
+  `:receive_timeout` bounds each wait for headers or the next chunk, not the
+  total transfer or callback execution time. It defaults to 30,000 milliseconds;
+  `:connect_timeout` defaults to the configured `:receive_timeout`. `:max_bytes`, when supplied,
+  rejects a streamed chunk that would exceed the limit before calling `:into`.
+  OTP streams only 200/206 bodies; other statuses arrive buffered and their size
+  is checked afterward. Streamed responses are reported as status 200, so this
+  interface is intended for full artifact downloads without Range requests.
 
   Options that exist only for `Req` call-site parity (`:decode_body`,
   `:redirect`, `:max_redirects`, `:finch`, `:retry`) are accepted and ignored.

@@ -45,8 +45,7 @@ defmodule ServiceRadarCore.MixProject do
       extra_applications: [
         :logger,
         :ssl,
-        # ServiceRadar.HTTP.EgressClient -- :httpc is the only client in the
-        # release that can tunnel through the SERVICERADAR_EGRESS_PROXY.
+        # Required by ServiceRadar.HTTP.EgressClient's :httpc transport.
         :inets,
         :crypto,
         :public_key,
