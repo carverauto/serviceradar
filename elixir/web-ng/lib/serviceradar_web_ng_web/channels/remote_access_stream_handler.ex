@@ -288,13 +288,14 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     end
   end
 
-  # `start_broker/3` links the broker to this process, and the connection process
-  # traps exits, so the broker's exit signal always lands here. When the broker
-  # closed in an orderly way it has already sent `{:remote_access_closed, _}` --
-  # queued ahead of this signal -- and `closing_action` records that the stream
-  # is on its way out. Anything else means the broker died without reporting a
-  # reason, and without this clause the stream would sit open until the idle
-  # timeout with nothing but an "unknown message" warning to show for it.
+  # `start_broker/3` links the broker to the Bandit/ThousandIsland connection,
+  # which traps exits and forwards unmatched messages to this handler. An agent
+  # close notice arrives before the broker's exit signal. Bandit's stop reply
+  # begins the WebSocket close handshake without ending the connection process,
+  # so `closing_action` must suppress a second close when that signal arrives.
+  # Without a prior notice, the exit must close or fail the stream instead of
+  # leaving it open until the idle timeout. The broker-exit cases in
+  # remote_access_stream_handler_test.exs cover both paths.
   def handle_info({:EXIT, broker, _reason}, %{broker: broker, closing_action: action} = state)
       when is_pid(broker) and not is_nil(action) do
     {:ok, state}
@@ -1020,10 +1021,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   defp orderly_exit?({:shutdown, _details}), do: true
   defp orderly_exit?(_reason), do: false
 
-  # A broker that has already stopped queued its own close notice, carrying the
-  # real failure reason, ahead of the frame we just tried to forward. Dropping
-  # the frame lets that reason reach the browser; failing the stream here would
-  # overwrite it with a generic "stream failed" instead.
+  # An unavailable broker may have queued its close notice while this browser
+  # frame was in flight. Let handle_info/2 deliver that reason, or handle the
+  # linked broker's exit if no notice exists, instead of replacing the reason
+  # with a generic "stream failed".
   defp handle_broker_error(:broker_unavailable, state), do: {:ok, state}
   defp handle_broker_error(reason, state), do: stop_for_broker_error(reason, state)
 

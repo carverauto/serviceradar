@@ -750,26 +750,3 @@ therefore defaults to running. Do not carry an assumption across.
 whole shard going silent. It does **not** catch a single untagged file inside an
 otherwise-populated shard. Verify a new test actually runs before trusting it:
 break an assertion on purpose, watch the shard go red, then put it back.
-
-## WebSock handlers trap exits and outlive `{:stop, ...}`
-
-The `@behaviour WebSock` modules under
-`lib/serviceradar_web_ng_web/channels/` run inside a Bandit/ThousandIsland
-connection process, and two of its properties are easy to get wrong:
-
-- **It traps exits.** `ThousandIsland.Handler`'s generated `init/1` sets
-  `Process.flag(:trap_exit, true)`, and Bandit forwards every unmatched message
-  to your `handle_info/2`. Anything the handler `start_link`s therefore delivers
-  `{:EXIT, pid, reason}` into `handle_info/2` — give those a clause, or a
-  catch-all "unknown message" branch logs them on every connection.
-- **`{:stop, :normal, code, msgs, state}` does not end the process.**
-  `Bandit.WebSocket.Connection.do_stop/4` sends the frames, marks the connection
-  `:closing`, and keeps serving messages until the peer completes the close
-  handshake. Guard double-close paths with a state flag; the remote-access
-  handler uses `closing_action`.
-
-A bare `GenServer.call/2` from `handle_in/2` is the trap these two combine into:
-the callee's exit propagates and kills the connection, discarding messages
-already queued for the browser. Callable boundaries such as
-`ServiceRadar.Edge.RemoteAccessBroker` catch that exit and return an error
-tuple instead — keep new ones doing the same.
