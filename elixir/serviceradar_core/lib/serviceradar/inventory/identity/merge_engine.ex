@@ -406,6 +406,17 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                  WHERE discovery_source IS NOT NULL AND discovery_source <> ''
                  ORDER BY discovery_source
                ),
+               -- How long the HOST has been known, not how long this row has
+               -- existed. The survivor is frequently the newer row -- a census
+               -- sighting of an address the reconciler later recognises as an
+               -- already-known device -- and without this the merge discards
+               -- the earlier date and the host reappears on "devices first seen
+               -- in the last 30 days" months after it was actually found.
+               --
+               -- LEAST ignores NULLs (it is NULL only when every argument is),
+               -- so a survivor or source with no recorded date takes the other
+               -- one rather than poisoning the result.
+               first_seen_time = LEAST(survivor.first_seen_time, source.first_seen_time),
                modified_time = timezone('UTC', now())
            FROM platform.ocsf_devices AS source
            WHERE source.uid = $1 AND survivor.uid = $2

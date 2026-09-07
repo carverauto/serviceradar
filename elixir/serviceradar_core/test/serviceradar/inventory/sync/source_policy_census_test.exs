@@ -213,4 +213,85 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicyCensusTest do
       assert SourcePolicy.sufficient_to_create?(awx)
     end
   end
+
+  describe "census sightings that carry an address but not a device" do
+    # GitHub #4381. The ARP-probe rule above tested the address for
+    # NON-EMPTINESS, so every probe that spells its zero address out, and every
+    # sighting whose address cannot identify anything, walked through it. On one
+    # deployment that left 48 devices presenting a link-local or unspecified
+    # address as their own, 14 of them carrying no `device_identifiers` row at
+    # all -- unmatchable by construction, one more minted per MAC rotation.
+    defp census_with(ip, metadata) do
+      %{
+        source: "netprobe-census",
+        ip: ip,
+        metadata: Map.put(metadata, "identity_source", "netprobe_census")
+      }
+    end
+
+    # Bit 1 of the first octet CLEAR: universally administered, so
+    # `include_mac_identifier?/1` lets it anchor. IANA documentation OUI.
+    @anchoring_mac "00:00:5E:00:53:01"
+    # Bit 1 of the first octet SET: locally administered, the shape iOS and
+    # Android rotate per SSID.
+    @randomized_mac "02:00:5E:00:53:01"
+
+    test "the unspecified address is a probe, not a held address" do
+      # `::` is the source address of an IPv6 DAD neighbour solicitation and
+      # `0.0.0.0` of an RFC 5227 ARP probe -- the same "is this address free?"
+      # question `census("")` is already refused for, written as an address.
+      # A burned-in MAC does not rescue them: the host has claimed nothing yet.
+      for ip <- ["::", "0.0.0.0"] do
+        refute SourcePolicy.sufficient_to_create?(census_with(ip, %{"mac" => @anchoring_mac})),
+               "#{ip} is a probe source address and must not mint a device"
+      end
+    end
+
+    test "loopback and unparseable addresses cannot mint a device either" do
+      for ip <- ["127.0.0.1", "::1", "not-an-address"] do
+        refute SourcePolicy.sufficient_to_create?(census_with(ip, %{"mac" => @anchoring_mac})),
+               "#{ip} is never a device address"
+      end
+    end
+
+    test "a link-local sighting with a rotating MAC anchors nothing and may not create" do
+      # Neither half can identify the row: AliasPolicy bars `fe80::/10` and
+      # `169.254/16` as identity evidence, and include_mac_identifier?/1 bars a
+      # rotating MAC. Creating it anyway produced a device with no identifier,
+      # so the next rotation minted another.
+      for ip <- ["fe80::200:5eff:fe00:5301", "169.254.0.10"] do
+        refute SourcePolicy.sufficient_to_create?(census_with(ip, %{"mac" => @randomized_mac})),
+               "#{ip} plus a rotating MAC leaves nothing to match the device by"
+      end
+    end
+
+    test "a link-local sighting with a burned-in MAC still creates" do
+      # The MAC anchors it, so the row can be matched again. Refusing this would
+      # drop a real IPv6-only host -- NDP runs on link-local by design, so this
+      # is the census's ordinary traffic.
+      assert SourcePolicy.sufficient_to_create?(
+               census_with("fe80::200:5eff:fe00:5302", %{"mac" => @anchoring_mac})
+             )
+    end
+
+    test "a routable address still creates whatever the MAC does" do
+      # The address itself is identity evidence, so a rotating MAC does not
+      # block a device that genuinely holds a routable address.
+      assert SourcePolicy.sufficient_to_create?(
+               census_with("192.0.2.10", %{"mac" => @randomized_mac})
+             )
+
+      assert SourcePolicy.sufficient_to_create?(
+               census_with("2001:db8::1", %{"mac" => @randomized_mac})
+             )
+    end
+
+    test "the gate is scoped to the census and leaves other sources alone" do
+      # A per-source judgement, as the ARP-probe rule already was. Sweep and
+      # mapper reach devices at link-local addresses legitimately.
+      sweep = %{source: "sweep", ip: "fe80::1", metadata: %{"mac" => @randomized_mac}}
+
+      assert SourcePolicy.sufficient_to_create?(sweep)
+    end
+  end
 end
