@@ -552,7 +552,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   defp resolve_active_assignment(rule, agent_id, opts) do
     result =
       case Keyword.get(opts, :assignment_resolver) do
-        resolver when is_atom(resolver) ->
+        resolver when is_atom(resolver) and not is_nil(resolver) ->
           resolver.resolve(rule, agent_id, opts)
 
         resolver when is_function(resolver, 3) ->

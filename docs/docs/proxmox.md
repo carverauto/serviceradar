@@ -422,8 +422,9 @@ From a Proxmox host or guest device details page, use the console action. Servic
 3. Find a matching `console_access` credential rule.
 4. Check that the rule target query includes the device.
 5. Check that the rule scope includes the device's assigned agent or gateway.
-6. Issue a short-lived single-use browser ticket.
-7. Stream terminal frames through web-ng, agent-gateway, the selected edge agent, and the console plugin.
+6. Resolve and validate the active console plugin assignment for the matching rule and selected agent. A missing or ambiguous assignment prevents launch.
+7. Issue a short-lived single-use browser ticket.
+8. Stream terminal frames through web-ng, agent-gateway, the selected edge agent, and the console plugin.
 
 If the UI says `No scoped console credential rule matched this device`, verify that the rule purpose is `console_access`, the target query includes the exact device, the owning controller has a reachable edge route, and the scope value matches that route.
 
