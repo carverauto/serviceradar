@@ -57,6 +57,21 @@ defmodule ServiceRadarWebNGWeb.ProxmoxConsoleLiveTest do
     assert opts[:scope]
   end
 
+  test "successful open renders the client-only console terminal", %{conn: conn} do
+    # Regression test for https://github.com/carverauto/serviceradar/issues/4373:
+    # the connected mount crashed here because `remote_console_terminal`
+    # rendered a server-side `react_component/1` (`static: false`) while
+    # `Phoenix.ReactServer` is not supervised. The terminal must render as a
+    # client-only hook so the Proxmox console opens.
+    {:ok, _view, html} = live(conn, ~p"/devices/pve-guest-1/proxmox-console")
+
+    assert_receive {:open_proxmox_console_session, "pve-guest-1", _request, _opts}
+    assert html =~ ~s(phx-hook="RemoteConsoleTerminal")
+    assert html =~ "data-props"
+    # The client hook authenticates the websocket stream with this ticket.
+    assert html =~ "srpve_test_ticket_value"
+  end
+
   test "does not request a console session for users without console permission", %{conn: conn} do
     viewer = AshTestHelpers.viewer_user_fixture()
 

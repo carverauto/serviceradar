@@ -352,17 +352,9 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
 
   def remote_console_terminal(assigns) do
     assigns =
-      assigns
-      |> assign(:props, %{
+      assign(assigns, :props, %{
         sessionId: assigns.session_id,
         ticket: assigns.ticket,
-        websocketPath: assigns.websocket_path,
-        title: assigns.title,
-        subtitle: assigns.subtitle
-      })
-      |> assign(:render_props, %{
-        sessionId: assigns.session_id,
-        ticket: "",
         websocketPath: assigns.websocket_path,
         title: assigns.title,
         subtitle: assigns.subtitle
@@ -376,11 +368,10 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteConsoleTerminal"
       data-props={Jason.encode!(@props)}
     >
-      {react_component(%{
-        component: "RemoteConsoleTerminal",
-        props: @render_props,
-        static: false
-      })}
+      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-sr-muted">
+        <.ui_spinner size="sm" />
+        <span class="ml-3">Loading remote console...</span>
+      </div>
     </div>
     """
   end
