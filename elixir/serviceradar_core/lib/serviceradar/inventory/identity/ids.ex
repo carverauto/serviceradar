@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   alias ServiceRadar.Inventory.Identity.HardwareSerial
   alias ServiceRadar.Inventory.Identity.Mac
+  alias ServiceRadar.Inventory.IntegrationIdentity
 
   require Logger
 
@@ -198,7 +199,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
   end
 
   defp get_integration_id(metadata) when is_map(metadata) do
-    raw = get_trimmed(metadata, "integration_id")
+    raw = ids_get(%{integration_id: get_trimmed(metadata, "integration_id")}, :integration_id)
     integration_type = metadata["integration_type"] |> to_string() |> String.downcase()
 
     case integration_type do
@@ -394,6 +395,11 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     "sr:" <> uuid
   end
 
+  def ids_get(ids, :integration_id) when is_map(ids) do
+    value = Map.get(ids, :integration_id)
+    if IntegrationIdentity.ambiguous_name_keyed?(value), do: nil, else: value
+  end
+
   def ids_get(ids, key) when is_map(ids), do: Map.get(ids, key)
   def ids_get(_ids, _key), do: nil
 
@@ -419,10 +425,13 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
   def get_identifier_values(:integration_id, ids) do
     primary = List.wrap(ids_get(ids, :integration_id))
 
-    case ids_get(ids, :legacy_integration_ids) do
-      list when is_list(list) -> Enum.uniq(primary ++ list)
-      _ -> primary
-    end
+    values =
+      case ids_get(ids, :legacy_integration_ids) do
+        list when is_list(list) -> Enum.uniq(primary ++ list)
+        _ -> primary
+      end
+
+    Enum.reject(values, &IntegrationIdentity.ambiguous_name_keyed?/1)
   end
 
   def get_identifier_values(id_type, ids) do

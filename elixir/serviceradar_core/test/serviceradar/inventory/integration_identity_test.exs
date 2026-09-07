@@ -132,8 +132,9 @@ defmodule ServiceRadar.Inventory.IntegrationIdentityTest do
         })
 
       assert "proxmox:v2:farm01:vm:132" in candidates
-      assert "proxmox:guest:pve01:qemu:132" in candidates
-      assert "proxmox:vm:dusk01" in candidates
+      refute "proxmox:guest:pve01:qemu:132" in candidates
+      # bare guest names never bridge: dusk01 may name a different cluster's VM
+      refute "proxmox:vm:dusk01" in candidates
       refute identity.provider_ref in candidates
     end
   end
@@ -208,119 +209,87 @@ defmodule ServiceRadar.Inventory.IntegrationIdentityTest do
   end
 
   describe "legacy_candidates/2 for guests" do
-    # Live-DB legacy generations this bridge must cover:
-    #   gen 1 name-keyed:  proxmox:vm:dusk01, proxmox:container:traefik,
-    #                      proxmox:vm:qemu/132 (id-as-name fallback)
-    #   gen 2 MAC-keyed:   proxmox:vm:BC:24:11:BD:DA:44,
-    #                      proxmox:container:BC:24:11:0E:62:C9
-    #   gen 3 vmid-keyed:  proxmox:guest:<node>:<type>:<vmid>,
-    #                      proxmox:<kind>:<node>:<vmid>, proxmox:<kind>:<vmid>
-    test "covers all qemu guest generations" do
-      candidates =
-        IntegrationIdentity.legacy_candidates("proxmox:v2:farm01:vm:132", %{
-          name: "dusk01",
-          node: "pve01",
-          guest_type: "qemu",
-          macs: ["BC2411BDDA44"]
-        })
+    test "never bridges across clusters through shared guest attributes" do
+      fields = %{
+        name: "guest01.example.com",
+        node: "host01.example.com",
+        guest_type: "qemu",
+        guest_id: "qemu/901",
+        macs: ["00:00:5e:00:53:21"]
+      }
 
-      # gen 3 current-gen provider refs / uid-shaped ids (vmid-keyed)
-      assert "proxmox:guest:pve01:qemu:132" in candidates
-      assert "proxmox:qemu:pve01:132" in candidates
-      assert "proxmox:vm:pve01:132" in candidates
-      assert "proxmox:qemu:132" in candidates
-      assert "proxmox:vm:132" in candidates
-
-      # gen 1 id-as-name fallback (live: proxmox:vm:qemu/132)
-      assert "proxmox:vm:qemu/132" in candidates
-
-      # gen 2 MAC-keyed (live: proxmox:vm:BC:24:11:BD:DA:44)
-      assert "proxmox:vm:BC:24:11:BD:DA:44" in candidates
-
-      # gen 1 name-keyed (live: proxmox:vm:dusk01)
-      assert "proxmox:vm:dusk01" in candidates
-
-      # never echoes the v2 id back
-      refute "proxmox:v2:farm01:vm:132" in candidates
-
-      # name-keyed is the weakest evidence and must come last
-      assert List.last(candidates) == "proxmox:vm:dusk01"
-
-      # MAC-keyed outranks name-keyed but trails vmid-keyed forms
-      mac_index = Enum.find_index(candidates, &(&1 == "proxmox:vm:BC:24:11:BD:DA:44"))
-      vmid_index = Enum.find_index(candidates, &(&1 == "proxmox:guest:pve01:qemu:132"))
-      name_index = Enum.find_index(candidates, &(&1 == "proxmox:vm:dusk01"))
-      assert vmid_index < mac_index
-      assert mac_index < name_index
-    end
-
-    test "covers all lxc guest generations (container naming)" do
-      candidates =
-        IntegrationIdentity.legacy_candidates("proxmox:v2:farm01:lxc:201", %{
-          "name" => "traefik",
-          "node" => "pve02",
-          "guest_type" => "lxc",
-          "macs" => ["bc:24:11:0e:62:c9"]
-        })
-
-      assert "proxmox:guest:pve02:lxc:201" in candidates
-      assert "proxmox:lxc:pve02:201" in candidates
-      assert "proxmox:container:pve02:201" in candidates
-      assert "proxmox:lxc:201" in candidates
-      assert "proxmox:container:201" in candidates
-      assert "proxmox:container:lxc/201" in candidates
-
-      # gen 2 MAC-keyed, colon-separated uppercase regardless of input format
-      assert "proxmox:container:BC:24:11:0E:62:C9" in candidates
-
-      # gen 1 name-keyed (live: proxmox:container:traefik)
-      assert List.last(candidates) == "proxmox:container:traefik"
-    end
-
-    test "normalizes multi-format MAC inputs and drops invalid ones" do
-      candidates =
-        IntegrationIdentity.legacy_candidates("proxmox:v2:farm01:vm:140", %{
-          macs: ["bc-24-11-23-3a-0d", "not-a-mac"],
-          mac: "BC:24:11:25:77:A5"
-        })
-
-      assert "proxmox:vm:BC:24:11:23:3A:0D" in candidates
-      assert "proxmox:vm:BC:24:11:25:77:A5" in candidates
-      refute Enum.any?(candidates, &String.contains?(&1, "not-a-mac"))
-    end
-
-    test "falls back to the vmid from the v2 id when fields omit it" do
-      candidates = IntegrationIdentity.legacy_candidates("proxmox:v2:farm01:vm:146", %{})
-
-      assert "proxmox:vm:146" in candidates
-      assert "proxmox:qemu:146" in candidates
-      assert "proxmox:vm:qemu/146" in candidates
-      # no node/name/macs -> no node-scoped, MAC- or name-keyed forms
-      refute Enum.any?(candidates, &String.starts_with?(&1, "proxmox:guest:"))
+      assert IntegrationIdentity.legacy_candidates("proxmox:v2:cluster-a:vm:901", fields) == []
+      assert IntegrationIdentity.legacy_candidates("proxmox:v2:cluster-b:vm:901", fields) == []
+      assert IntegrationIdentity.legacy_candidates("proxmox:v2:cluster-a:lxc:902", fields) == []
     end
   end
 
   describe "legacy_candidates/2 for nodes" do
-    test "covers node provider refs, pve placeholders, and gen-1 hypervisor ids" do
-      candidates =
-        IntegrationIdentity.legacy_candidates("proxmox:v2:farm01:node:pve01", %{name: "pve01"})
+    # Every node legacy form is a bare name (`proxmox:node:<name>`,
+    # `proxmox:pve:<name>`, `proxmox:hypervisor:<name>`), and node names are
+    # reused across clusters — so none of them bridge (GitHub #4051 fused
+    # pve01/pve02 across clusters via the hypervisor form). Node convergence
+    # continues through the v2 id, the exact provider ref, host NIC MACs, and
+    # the IP/hostname adopt/merge rules.
+    test "emits no bare-name bridges" do
+      assert IntegrationIdentity.legacy_candidates("proxmox:v2:farm01:node:pve01", %{
+               name: "pve01"
+             }) == []
 
-      # gen 3 provider ref + placeholder uid forms
-      assert "proxmox:node:pve01" in candidates
-      assert "proxmox:pve:pve01" in candidates
-
-      # gen 1 host form (live: proxmox:hypervisor:pve01)
-      assert "proxmox:hypervisor:pve01" in candidates
+      assert IntegrationIdentity.legacy_candidates("proxmox:v2:farm01:node:pve01", %{
+               name: "pve01.example.com"
+             }) == []
     end
 
-    test "includes forms for a differing record name (for example an FQDN)" do
-      candidates =
-        IntegrationIdentity.legacy_candidates("proxmox:v2:farm01:node:pve01", %{
-          name: "pve01.example.com"
-        })
+    test "v3 node refs still bridge to their v2 id" do
+      assert {:ok, identity} =
+               IntegrationIdentity.proxmox_v3_fields(
+                 @farm_integration_id,
+                 @farm_controller_id,
+                 "cluster/farm01",
+                 :node,
+                 "pve01"
+               )
 
-      assert "proxmox:hypervisor:pve01" in candidates
-      assert "proxmox:hypervisor:pve01.example.com" in candidates
+      candidates = IntegrationIdentity.legacy_candidates(identity.provider_ref, %{})
+      assert candidates == ["proxmox:v2:farm01:node:pve01"]
+    end
+  end
+
+  describe "ambiguous_name_keyed?/1" do
+    test "flags the bare-name legacy family" do
+      assert IntegrationIdentity.ambiguous_name_keyed?("proxmox:vm:k8s-cp3-worker1")
+      assert IntegrationIdentity.ambiguous_name_keyed?("proxmox:container:traefik")
+      assert IntegrationIdentity.ambiguous_name_keyed?("proxmox:hypervisor:pve01")
+      assert IntegrationIdentity.ambiguous_name_keyed?("proxmox:node:pve01")
+      assert IntegrationIdentity.ambiguous_name_keyed?("proxmox:pve:pve02")
+    end
+
+    test "requires cluster scope for every Proxmox identifier" do
+      refute IntegrationIdentity.ambiguous_name_keyed?("proxmox:v2:cluster-a:vm:901")
+
+      for value <- [
+            "proxmox:vm:901",
+            "proxmox:vm:qemu/901",
+            "proxmox:guest:host01.example.com:qemu:901",
+            "proxmox:qemu:host01.example.com:901",
+            "proxmox:lxc:902",
+            "proxmox:vm:00:00:5e:00:53:21",
+            "proxmox:v2::vm:901",
+            "proxmox:vm:"
+          ] do
+        assert IntegrationIdentity.ambiguous_name_keyed?(value)
+      end
+    end
+
+    test "ignores other sources and non-strings" do
+      for value <- ["netbox:device:42", "armis:123", nil, 132, ""] do
+        refute IntegrationIdentity.ambiguous_name_keyed?(value)
+      end
+    end
+
+    test "matches case-insensitively with surrounding whitespace" do
+      assert IntegrationIdentity.ambiguous_name_keyed?("  PROXMOX:VM:K8S-CP3-Worker1  ")
     end
   end
 
