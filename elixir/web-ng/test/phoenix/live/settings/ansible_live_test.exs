@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Automation.Ansible.Controller
+  alias ServiceRadar.Automation.Ansible.PlaybookRepository
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RoleProfile
@@ -324,6 +325,134 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLiveTest do
 
     assert to_string(controller.callback_credential_secret_id) ==
              to_string(execution_secret.id)
+  end
+
+  describe "listing timestamps" do
+    # `controllers_panel` and `repositories_panel` are function components, so
+    # the socket's `current_scope` assign is not in their assigns. Reading
+    # `@current_scope` there raised `KeyError key :current_scope not found` and
+    # took the whole page down. Both timestamps sit behind an `:if`, so the
+    # crash only appeared once a record had actually reported -- which is why
+    # every other test on this page stayed green.
+
+    @tag :web_ng_shared_fixture_db
+    test "renders a controller that has reported health", %{conn: conn, scope: scope} do
+      controller = controller_with_health!(scope)
+
+      {:ok, lv, html} = live(conn, ~p"/settings/ansible")
+
+      assert html =~ controller.name
+
+      assert has_element?(
+               lv,
+               ~s(time#settings-ansible-controller-#{controller.id}-last-health-at)
+             )
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "renders a repository that has reported a sync", %{conn: conn} do
+      repository = repository_with_sync!()
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/ansible")
+
+      html = render_click(lv, "select_tab", %{"tab" => "repositories"})
+
+      # The count and the row have to agree. Seeding the repositories stream at
+      # mount left the count at 1 above an empty table body, because the panel
+      # was behind `:if @active_tab == :repositories` and the stream had already
+      # been spent -- so the one repository could not be opened and edited.
+      assert html =~ "registered git repositor"
+      assert html =~ repository.name
+
+      assert has_element?(
+               lv,
+               ~s(time#settings-ansible-repository-#{repository.id}-last-sync-at)
+             )
+
+      assert has_element?(lv, ~s(button[phx-click="edit_repository"][phx-value-id="#{repository.id}"]))
+    end
+
+    @tag :web_ng_shared_fixture_db
+    test "localizes those timestamps in the acting user's timezone", %{conn: conn, user: user} do
+      user =
+        Ash.update!(user, %{timezone: "America/Chicago"},
+          action: :update_timezone_preference,
+          actor: user
+        )
+
+      conn = log_in_user(conn, user)
+      scope = Scope.for_user(user)
+      controller = controller_with_health!(scope)
+      repository = repository_with_sync!()
+
+      {:ok, lv, _html} = live(conn, ~p"/settings/ansible")
+
+      assert has_element?(
+               lv,
+               ~s(time#settings-ansible-controller-#{controller.id}-last-health-at) <>
+                 ~s([data-user-time-zone="America/Chicago"])
+             )
+
+      render_click(lv, "select_tab", %{"tab" => "repositories"})
+
+      assert has_element?(
+               lv,
+               ~s(time#settings-ansible-repository-#{repository.id}-last-sync-at) <>
+                 ~s([data-user-time-zone="America/Chicago"])
+             )
+    end
+  end
+
+  defp controller_with_health!(scope) do
+    secret = awx_secret_fixture(scope, "sync")
+
+    {:ok, controller} =
+      Controller.create_controller(
+        %{
+          name: "AWX Health #{System.unique_integer([:positive])}",
+          agent_id: "k8s-agent",
+          base_url: "http://awx-service.awx.svc.cluster.local",
+          credential_secret_id: secret.id,
+          sync_credential_secret_id: secret.id
+        },
+        actor: system_actor()
+      )
+
+    {:ok, controller} =
+      Controller.record_health(
+        controller,
+        %{
+          status: :ok,
+          awx_version: "24.6.1",
+          last_health_summary: "AWX reachable"
+        },
+        actor: system_actor()
+      )
+
+    assert controller.last_health_at
+    controller
+  end
+
+  defp repository_with_sync! do
+    {:ok, repository} =
+      PlaybookRepository.create_repository(
+        %{
+          name: "Playbooks #{System.unique_integer([:positive])}",
+          git_url: "https://github.com/example/playbooks.git",
+          git_ref: "main"
+        },
+        actor: system_actor()
+      )
+
+    {:ok, repository} =
+      PlaybookRepository.record_sync(
+        repository,
+        %{last_sync_status: :ok, last_sync_summary: "2 playbooks"},
+        actor: system_actor()
+      )
+
+    assert repository.last_sync_at
+    repository
   end
 
   defp register_and_log_in_admin_user(%{conn: conn}) do

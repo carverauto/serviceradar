@@ -27,6 +27,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/live/log_live/show_test.exs",
     "test/phoenix/live/metric_live/timestamp_rendering_test.exs",
     "test/phoenix/live/security_dashboard_routes_test.exs",
+    "test/phoenix/live/settings/ansible_live_test.exs",
     "test/phoenix/live/settings/networks_live_test.exs",
     "test/phoenix/live/settings/snmp_profiles_live/profile_lifecycle_test.exs",
     "test/phoenix/live/settings/notifications_live_test.exs",
