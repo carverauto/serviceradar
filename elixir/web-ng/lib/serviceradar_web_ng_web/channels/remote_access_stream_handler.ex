@@ -147,7 +147,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
                  :ok <- state.broker_module.send_input(state.broker, payload) do
               {:ok, reset_idle_timer(state)}
             else
-              {:error, reason} -> stop_for_broker_error(reason, state)
+              {:error, reason} -> handle_broker_error(reason, state)
             end
 
           {:ok, %{"type" => "resize", "cols" => cols, "rows" => rows}} ->
@@ -156,7 +156,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
                  :ok <- state.broker_module.resize(state.broker, cols, rows) do
               {:ok, reset_idle_timer(state)}
             else
-              {:error, reason} -> stop_for_broker_error(reason, state)
+              {:error, reason} -> handle_broker_error(reason, state)
             end
 
           {:ok, %{"type" => "app_request"} = message} ->
@@ -164,7 +164,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
                  :ok <- state.broker_module.send_application_request(state.broker, payload) do
               {:ok, reset_idle_timer(state)}
             else
-              {:error, reason} -> stop_for_broker_error(reason, state)
+              {:error, reason} -> handle_broker_error(reason, state)
             end
 
           {:ok, %{"type" => "app_data"} = message} ->
@@ -172,7 +172,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
                  :ok <- state.broker_module.send_application_data(state.broker, payload) do
               {:ok, reset_idle_timer(state)}
             else
-              {:error, reason} -> stop_for_broker_error(reason, state)
+              {:error, reason} -> handle_broker_error(reason, state)
             end
 
           {:ok, %{"type" => "tcp_data"} = message} ->
@@ -180,7 +180,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
                  :ok <- state.broker_module.send_tcp_data(state.broker, payload) do
               {:ok, reset_idle_timer(state)}
             else
-              {:error, reason} -> stop_for_broker_error(reason, state)
+              {:error, reason} -> handle_broker_error(reason, state)
             end
 
           {:ok, %{"type" => "file_transfer_data"} = message} ->
@@ -188,7 +188,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
                  :ok <- state.broker_module.send_file_transfer_data(state.broker, payload) do
               {:ok, reset_idle_timer(state)}
             else
-              {:error, reason} -> stop_for_broker_error(reason, state)
+              {:error, reason} -> handle_broker_error(reason, state)
             end
 
           {:ok, %{"type" => "activity"} = message} ->
@@ -286,6 +286,29 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       {:ok, state} -> {:ok, schedule_reauth_timer(state)}
       {:error, :permission_revoked} -> stop_for_permission_revoked(state)
     end
+  end
+
+  # `start_broker/3` links the broker to the Bandit/ThousandIsland connection,
+  # which traps exits and forwards unmatched messages to this handler. An agent
+  # close notice arrives before the broker's exit signal. Bandit's stop reply
+  # begins the WebSocket close handshake without ending the connection process,
+  # so `closing_action` must suppress a second close when that signal arrives.
+  # Without a prior notice, the exit must close or fail the stream instead of
+  # leaving it open until the idle timeout. The broker-exit cases in
+  # remote_access_stream_handler_test.exs cover both paths.
+  def handle_info({:EXIT, broker, _reason}, %{broker: broker, closing_action: action} = state)
+      when is_pid(broker) and not is_nil(action) do
+    {:ok, state}
+  end
+
+  def handle_info({:EXIT, broker, reason}, %{broker: broker} = state) when is_pid(broker) do
+    stop_for_broker_exit(reason, state)
+  end
+
+  # Ash and Task run parts of attach in linked helper processes; their ordinary
+  # teardown is not an unknown stream message and must not be logged as one.
+  def handle_info({:EXIT, _pid, reason}, state) when reason in [:normal, :shutdown] do
+    {:ok, state}
   end
 
   def handle_info(message, state) do
@@ -978,6 +1001,32 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   defp normalize_map(value) when is_map(value), do: value
   defp normalize_map(_value), do: %{}
+
+  defp stop_for_broker_exit(reason, state) do
+    if orderly_exit?(reason) do
+      _ =
+        state.sessions_module.close_session(state.session.id,
+          reason: "broker_stopped",
+          scope: state.scope
+        )
+
+      {:stop, :normal, 1000, [{:text, encode(%{type: "close", reason: "closed"})}], %{state | closing_action: :closed}}
+    else
+      stop_for_broker_error(reason, state)
+    end
+  end
+
+  defp orderly_exit?(:normal), do: true
+  defp orderly_exit?(:shutdown), do: true
+  defp orderly_exit?({:shutdown, _details}), do: true
+  defp orderly_exit?(_reason), do: false
+
+  # An unavailable broker may have queued its close notice while this browser
+  # frame was in flight. Let handle_info/2 deliver that reason, or handle the
+  # linked broker's exit if no notice exists, instead of replacing the reason
+  # with a generic "stream failed".
+  defp handle_broker_error(:broker_unavailable, state), do: {:ok, state}
+  defp handle_broker_error(reason, state), do: stop_for_broker_error(reason, state)
 
   defp stop_for_broker_error(reason, state) do
     _ = state.sessions_module.fail_session(state.session_id, reason, scope: state.scope)

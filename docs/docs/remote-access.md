@@ -848,6 +848,14 @@ sudo sshd -T | grep trustedusercakeys
 sudo sshd -t
 ```
 
+When the edge agent supplies a close reason, the console banner displays it as
+`SSH session closed: <reason>`, including when browser input or a resize races
+with the broker's normal shutdown. Use that reason to diagnose failures below.
+A broker that stops normally without a close reason produces
+`SSH session closed: closed`; a broker crash produces
+`Remote access stream failed.` These generic messages do not identify an SSH
+authentication or host-key failure.
+
 Common failures:
 
 - `Permission denied (publickey)`: the CA public key is missing, the certificate is expired, the selected Unix account is not authorized, or its `AuthorizedPrincipalsFile` does not list the opaque principal in the presented certificate.
