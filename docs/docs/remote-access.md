@@ -824,20 +824,20 @@ control and server sessions.
 
 ### Open A Proxmox Host Shell
 
-Use the Proxmox console entry point for PVE host shell access. Today this is SSH-backed through the edge agent. The preferred enterprise setup is still the SSH CA path: enroll the PVE host SSH server with the ServiceRadar user CA, allow only the intended principals, and route the console through the assigned edge agent.
+For PVE host console modes and setup, see [Proxmox Console Access](./proxmox#console-access). For SSH access, the preferred enterprise setup is the SSH CA path: enroll the PVE host SSH server with the ServiceRadar user CA, allow only the intended principals, and route the session through the assigned edge agent.
 
 Legacy encrypted credential rules remain available for PVE host shells when a deployment cannot use SSH certificates yet. Keep that path separate from Proxmox inventory API tokens.
 
 ### Access A Proxmox VM Or LXC
 
-For now, use generic SSH remote access when the guest is reachable from an edge agent:
+To use generic SSH remote access when the guest is reachable from an edge agent:
 
 1. Install and enable `sshd` in the guest.
 2. Make sure the user account exists through local accounts or LDAP/AD.
 3. Enroll the guest with the ServiceRadar SSH CA.
 4. Open the guest device in ServiceRadar and start an SSH session.
 
-Native Proxmox VM/LXC console transports are planned separately. Until then, a guest without SSH reachability is not covered by the generic SSH workflow.
+For guests without SSH reachability, see [Proxmox Console Access](./proxmox#console-access).
 
 ## Validation And Troubleshooting
 
