@@ -296,6 +296,36 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   - Ordering between targets is the caller's sequence of `bazel` invocations, not a script
     that wraps them.
 
+- **Fetching anything outside the deployment goes through
+  `ServiceRadar.HTTP.EgressClient`, never `Req` + `ServiceRadar.Finch`.** Where
+  `SERVICERADAR_EGRESS_PROXY` is set (demo sets it for core and web-ng), Finch's
+  transport is Mint, and Mint cannot use that proxy. Smokescreen embeds
+  `elazarl/goproxy`, which answers `CONNECT` with the 19 bytes
+  `HTTP/1.0 200 OK\r\n\r\n` and no headers; since Mint 1.10.0 frames the CONNECT
+  response correctly, `Mint.HTTP1.request_done/1` then applies the ordinary
+  HTTP/1.0 rule -- no `connection: keep-alive`, so close -- and shuts the tunnel
+  socket before `Mint.TunnelProxy` upgrades it.
+
+  **The error names none of that.** `ssl:connect/3` catches every `badmatch` in its
+  body as `{error, {dtls_upgrade, notsup}}`, and `tls_socket:upgrade/4` opens with
+  `ok = setopts(...)`, which returns `{error, einval}` on a closed socket. So a
+  dead tunnel surfaces to operators as
+  `%Req.TransportError{reason: {:dtls_upgrade, :notsup}}` -- nothing about DTLS,
+  the proxy, or the socket. Do not read that error as a TLS/HTTP3/QUIC problem;
+  Mint has no HTTP/3 support to negotiate. Downgrading Mint is not the fix either:
+  1.10.0 carries CVE-2026-82728 and CVE-2026-82729.
+
+- **`//third_party/hex` resolves ONE version per package across every project's
+  `mix.lock`.** A Bazel repository name is global, so `third_party/hex/BUILD.bazel`
+  merges all seven locks into a single `@hexpm` closure. A bump in one project's
+  lock therefore changes what **every** release ships, and `mix test` in a project
+  whose lock disagrees compiles a different version than the image runs. That is
+  how Mint 1.10.0 reached the web-ng release while `elixir/web-ng/mix.lock` still
+  pinned 1.9.3 -- only `elixir/serviceradar_core_elx/mix.lock` asked for it. When a
+  dependency behaves differently in a pod than in `mix`, compare
+  `third_party/hex/hex_packages.bzl` against that project's lock before anything
+  else.
+
 # Codex Agent Guide for ServiceRadar
 
 This repository hosts the ServiceRadar monitoring platform. Use this file as the canonical guide when operating as a Codex agent.

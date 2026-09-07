@@ -1,0 +1,294 @@
+defmodule ServiceRadar.HTTP.EgressClient do
+  @moduledoc """
+  HTTPS GET for hosts outside the deployment, over `SERVICERADAR_EGRESS_PROXY`.
+
+  Uses OTP's `:httpc` instead of `Req` + `ServiceRadar.Finch`, because Mint --
+  Finch's transport -- cannot tunnel through the CONNECT proxy this deployment
+  runs behind.
+
+  Smokescreen embeds `elazarl/goproxy`, which answers `CONNECT` with the 19
+  bytes `HTTP/1.0 200 OK\\r\\n\\r\\n` and no headers at all. Mint 1.10.0 started
+  framing the CONNECT response correctly ("Fix CONNECT response framing ... in
+  tunnel proxies"), so `Mint.HTTP1` now completes that response -- and a
+  completed response goes through the generic rule in `Mint.HTTP1.request_done/1`:
+  an HTTP/1.0 response carrying no `connection: keep-alive` closes the
+  connection. Mint therefore closes the tunnel socket it is about to hand to
+  `Mint.TunnelProxy.upgrade_connection/3`, which then upgrades a socket that is
+  already shut.
+
+  The error that reaches the operator names none of this. `ssl:connect/3` -- the
+  socket-upgrade arity -- wraps its body in `try ... catch error:{badmatch, _}
+  -> {error, {dtls_upgrade, notsup}}`, and `tls_socket:upgrade/4` opens with
+  `ok = setopts(...)`. On a closed socket `setopts` returns `{error, einval}`,
+  the match fails, and OTP reports the failure as `{:dtls_upgrade, :notsup}` --
+  which mentions neither the proxy nor the closed socket, and is not about DTLS.
+
+  RFC 9110 section 9.3.6 is explicit that a 2xx response to `CONNECT` establishes
+  a tunnel, so HTTP/1.0 connection-close semantics must not be applied to it.
+  Mint 1.9.3 left the socket open and this worked; 1.10.0 closes it. Pinning back
+  is not available: 1.10.0 carries the fixes for CVE-2026-82728 and
+  CVE-2026-82729, and `//third_party/hex` resolves one version of a package for
+  the whole workspace, so a downgrade for one project downgrades every release.
+
+  `:httpc` performs its own CONNECT and accepts the HTTP/1.0 reply, so it
+  tunnels through the same proxy unchanged. Only one client is used, whether or
+  not a proxy is configured, so the path exercised by tests is the path that
+  runs on a proxied deployment.
+  """
+
+  alias ServiceRadar.HTTP.EgressProxy
+
+  @default_profile :serviceradar_egress
+  @default_timeout 30_000
+  @tls_versions [:"tlsv1.3", :"tlsv1.2"]
+  @depth 4
+
+  @type option ::
+          {:headers, [{binary(), binary()}]}
+          | {:receive_timeout, pos_integer()}
+          | {:connect_timeout, pos_integer()}
+          | {:into, (term(), term() -> {:cont, term()} | {:halt, term()})}
+          | {:max_bytes, pos_integer()}
+          | {:proxy, EgressProxy.t() | nil}
+          | {:profile, atom()}
+          | {:cacerts, [binary()]}
+          | {:cacertfile, String.t()}
+
+  @doc """
+  Fetches `url` with GET.
+
+  Redirects are never followed: the caller decides, the same way
+  `Req.get(redirect: false)` behaves. `:into` takes a `Req`-shaped streaming
+  function -- it is called as `fun.({:data, chunk}, acc)` and must return
+  `{:cont, acc}` or `{:halt, acc}` -- so a caller can enforce a size limit while
+  the body is still arriving rather than after it is buffered.
+
+  Options that exist only for `Req` call-site parity (`:decode_body`,
+  `:redirect`, `:max_redirects`, `:finch`, `:retry`) are accepted and ignored.
+  """
+  @spec get(String.t(), [option()]) :: {:ok, Req.Response.t()} | {:error, term()}
+  def get(url, opts \\ []) when is_binary(url) do
+    profile = Keyword.get(opts, :profile, @default_profile)
+
+    with {:ok, profile} <- ensure_profile(profile),
+         :ok <- configure_proxy(profile, opts) do
+      request(url, opts, profile)
+    end
+  end
+
+  defp ensure_profile(profile) do
+    _ = Application.ensure_all_started(:inets)
+
+    case :inets.start(:httpc, profile: profile) do
+      {:ok, _pid} -> {:ok, profile}
+      {:error, {:already_started, _pid}} -> {:ok, profile}
+      {:error, reason} -> {:error, {:httpc_profile_unavailable, reason}}
+    end
+  end
+
+  # Set per call rather than once at boot: the proxy is read from application
+  # config, and a test that points a profile at its own fake proxy has to be
+  # able to change it without restarting anything.
+  #
+  # With no proxy configured the options are left alone rather than cleared.
+  # `:httpc` has no value meaning "no proxy": its own default is
+  # `{undefined, []}`, but `httpc:validate_proxy/1` requires `{{Host, Port},
+  # NoProxy}` and rejects anything else, so setting the default back is an
+  # error. A fresh profile already has it.
+  defp configure_proxy(profile, opts) do
+    case Keyword.get_lazy(opts, :proxy, &configured_proxy/0) do
+      %{host: host, port: port} -> set_proxy(profile, {{String.to_charlist(host), port}, []})
+      _ -> :ok
+    end
+  end
+
+  defp set_proxy(profile, setting) do
+    case :httpc.set_options([{:proxy, setting}, {:https_proxy, setting}], profile) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:httpc_options_rejected, reason}}
+    end
+  end
+
+  defp configured_proxy do
+    Application.get_env(:serviceradar_core, :egress_proxy)
+  end
+
+  defp request(url, opts, profile) do
+    timeout = Keyword.get(opts, :receive_timeout, @default_timeout)
+    connect_timeout = Keyword.get(opts, :connect_timeout, timeout)
+
+    headers =
+      opts
+      |> Keyword.get(:headers, [])
+      |> Enum.map(fn {name, value} ->
+        {String.to_charlist(to_string(name)), String.to_charlist(to_string(value))}
+      end)
+
+    http_options = [
+      ssl: tls_options(opts),
+      timeout: timeout,
+      connect_timeout: connect_timeout,
+      autoredirect: false
+    ]
+
+    # `stream: :self` requires `sync: false`, and delivers to the calling
+    # process, which is the default receiver.
+    request_options = [body_format: :binary, sync: false, stream: :self]
+
+    case :httpc.request(
+           :get,
+           {String.to_charlist(url), headers},
+           http_options,
+           request_options,
+           profile
+         ) do
+      {:ok, request_id} -> await(request_id, profile, opts, deadline(timeout))
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # `:httpc` only streams 200/206 bodies; every other status arrives whole, which
+  # is what makes a redirect's `location` header readable here without following
+  # it. `:stream_start` does not carry the status, but a GET that sends no Range
+  # header cannot draw a 206, so a streamed response here is a 200.
+  defp await(request_id, profile, opts, deadline) do
+    receive do
+      {:http, {^request_id, :stream_start, headers}} ->
+        stream(request_id, profile, opts, deadline, headers, {0, []}, nil)
+
+      {:http, {^request_id, {{_version, status, _reason}, headers, body}}} ->
+        # Only 200/206 bodies stream, so a non-2xx body is already buffered by
+        # the time it lands here. Check it anyway: the cap is the caller's
+        # statement about what it is willing to hold.
+        if over_limit?(byte_size(body), opts) do
+          {:error, :response_too_large}
+        else
+          {:ok, response(status, headers, body)}
+        end
+
+      {:http, {^request_id, {:error, reason}}} ->
+        {:error, reason}
+    after
+      remaining(deadline) ->
+        cancel(request_id, profile)
+        {:error, :timeout}
+    end
+  end
+
+  defp stream(request_id, profile, opts, deadline, headers, {size, chunks}, acc) do
+    receive do
+      {:http, {^request_id, :stream, chunk}} ->
+        size = size + byte_size(chunk)
+
+        case consume(chunk, size, opts, acc) do
+          {:cont, acc} ->
+            chunks = if Keyword.has_key?(opts, :into), do: chunks, else: [chunk | chunks]
+            stream(request_id, profile, opts, deadline, headers, {size, chunks}, acc)
+
+          {:halt, _acc} ->
+            cancel(request_id, profile)
+            {:ok, response(200, headers, body(opts, chunks))}
+
+          {:error, reason} ->
+            cancel(request_id, profile)
+            {:error, reason}
+        end
+
+      {:http, {^request_id, :stream_end, trailers}} ->
+        {:ok, response(200, headers ++ trailers, body(opts, chunks))}
+
+      {:http, {^request_id, {:error, reason}}} ->
+        {:error, reason}
+    after
+      remaining(deadline) ->
+        cancel(request_id, profile)
+        {:error, :timeout}
+    end
+  end
+
+  defp consume(chunk, size, opts, acc) do
+    if over_limit?(size, opts) do
+      {:error, :response_too_large}
+    else
+      case Keyword.get(opts, :into) do
+        nil -> {:cont, acc}
+        fun -> fun.({:data, chunk}, acc || {nil, Req.Response.new(status: 200)})
+      end
+    end
+  end
+
+  defp over_limit?(size, opts) do
+    case Keyword.get(opts, :max_bytes) do
+      max when is_integer(max) -> size > max
+      _ -> false
+    end
+  end
+
+  defp body(opts, chunks) do
+    if Keyword.has_key?(opts, :into) do
+      ""
+    else
+      chunks |> Enum.reverse() |> IO.iodata_to_binary()
+    end
+  end
+
+  defp response(status, headers, body) do
+    Req.Response.new(status: status, headers: normalize_headers(headers), body: body)
+  end
+
+  defp normalize_headers(headers) do
+    Enum.map(headers, fn {name, value} ->
+      {name |> to_string() |> String.downcase(), to_string(value)}
+    end)
+  end
+
+  defp cancel(request_id, profile) do
+    _ = :httpc.cancel_request(request_id, profile)
+    flush(request_id)
+  end
+
+  defp flush(request_id) do
+    receive do
+      {:http, {^request_id, _}} -> flush(request_id)
+      {:http, {^request_id, _, _}} -> flush(request_id)
+    after
+      0 -> :ok
+    end
+  end
+
+  defp deadline(timeout), do: System.monotonic_time(:millisecond) + timeout
+
+  defp remaining(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
+
+  @doc false
+  @spec tls_options([option()]) :: keyword()
+  def tls_options(opts) do
+    [
+      verify: :verify_peer,
+      depth: @depth,
+      versions: @tls_versions,
+      customize_hostname_check: [
+        match_fun: :public_key.pkix_verify_hostname_match_fun(:https)
+      ]
+    ] ++ trust_anchors(opts)
+  end
+
+  # Release images are intentionally minimal and may carry no OS CA bundle, which
+  # is the same reason `ServiceRadar.HTTP.EgressProxy` hands Finch a CAStore
+  # `cacertfile`. Keep the two agreeing on where trust comes from.
+  defp trust_anchors(opts) do
+    cond do
+      cacerts = Keyword.get(opts, :cacerts) ->
+        [cacerts: cacerts]
+
+      path = Keyword.get(opts, :cacertfile) ->
+        [cacertfile: String.to_charlist(path)]
+
+      Code.ensure_loaded?(CAStore) and function_exported?(CAStore, :file_path, 0) ->
+        [cacertfile: String.to_charlist(CAStore.file_path())]
+
+      true ->
+        [cacerts: :public_key.cacerts_get()]
+    end
+  end
+end
