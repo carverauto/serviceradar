@@ -296,6 +296,16 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   - Ordering between targets is the caller's sequence of `bazel` invocations, not a script
     that wraps them.
 
+- **Use `ServiceRadar.HTTP.EgressClient` for external artifact downloads.** Its
+  [module documentation](elixir/serviceradar_core/lib/serviceradar/http/egress_client.ex)
+  owns the streaming contract and CONNECT-proxy compatibility rationale. The
+  regression coverage is in
+  `elixir/serviceradar_core/test/serviceradar/http/egress_client_test.exs`.
+- **Check the workspace Hex closure when Mix and release dependencies differ.**
+  [The Hex build definition](third_party/hex/BUILD.bazel) owns the cross-project
+  resolution policy; `third_party/hex/hex_packages.bzl` records the generated
+  versions shipped by Bazel.
+
 # Codex Agent Guide for ServiceRadar
 
 This repository hosts the ServiceRadar monitoring platform. Use this file as the canonical guide when operating as a Codex agent.

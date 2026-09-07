@@ -45,6 +45,8 @@ defmodule ServiceRadarCore.MixProject do
       extra_applications: [
         :logger,
         :ssl,
+        # Required by ServiceRadar.HTTP.EgressClient's :httpc transport.
+        :inets,
         :crypto,
         :public_key,
         :swoosh,
