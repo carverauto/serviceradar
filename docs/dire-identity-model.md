@@ -24,6 +24,10 @@ are rejected with telemetry, and rejected values never become rows.
 
 ## Resolution order (single and batch)
 
+Before allocating a new device, ingestion applies the source-specific
+[creation evidence contract](../elixir/serviceradar_core/lib/serviceradar/inventory/sync/source_policy.ex)
+in `SourcePolicy.sufficient_to_create?/1`.
+
 1. Strong-identifier match (priority order above; `agent_id` matches are
    trusted-checked against the device's bound agent)
 2. Pre-set `sr:` UUID — a hint, re-validated and canonical-followed
@@ -52,6 +56,9 @@ Merged-away device IDs are never resurrected: resolution follows the
 - Identifier ownership never changes silently: upserts do not re-point
   `device_id` on conflict; moves happen via merges or the explicit
   `:reassign_device` action.
+- A merge survivor retains the earliest non-null `first_seen_time` of the
+  two devices, so merging an older identity into a newer row does not make
+  the host newly discovered in the "Recently added devices" report.
 
 For deliberate cross-cluster Proxmox splits, use the
 [`serviceradar.dire_remediation` command help](../elixir/serviceradar_core/lib/mix/tasks/serviceradar.dire_remediation.ex)
