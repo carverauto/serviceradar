@@ -202,6 +202,36 @@ defmodule ServiceRadar.Edge.RemoteAccessBrokerTest do
     assert close_audit[:details].close_reason == "operator_closed"
   end
 
+  test "carries the reviewed host key in the agent open frame" do
+    approval = %{
+      "target" => "host01.example.com:22",
+      "fingerprint" => "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+
+    session = %{
+      session_fixture()
+      | metadata: %{
+          "target" => %{"host" => "host01.example.com", "port" => 22},
+          "ssh_host_key_approval" => approval
+        }
+    }
+
+    start_supervised!(
+      {RemoteAccessBroker,
+       {session, self(),
+        command_bus: CommandBusStub,
+        pubsub: PubSubStub,
+        audit_writer: AuditWriterStub,
+        audit_actor: audit_actor(),
+        required_gateway_node: self()}}
+    )
+
+    assert_receive {:send_console_frame, "agent-1", %{frame_type: "open"} = frame, _opts}
+    payload = Jason.decode!(frame.data)
+    assert payload["ssh_host_key_policy"] == "known_hosts"
+    assert payload["ssh_host_key_approval"] == approval
+  end
+
   test "allows explicit skip-verify host key policy" do
     session = put_in(session_fixture(), [:metadata, "ssh_host_key_policy"], "skip_verify")
 

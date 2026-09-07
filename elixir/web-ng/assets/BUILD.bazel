@@ -290,6 +290,7 @@ vitest_bin.vitest_test(
     args = [
         "run",
         "component/test/RemoteAccessSSHConsole.test.jsx",
+        "component/test/RemoteAccessSSHConsoleHostKey.test.jsx",
         "component/test/RemoteAccessSSHConsoleSession.test.jsx",
     ],
     chdir = package_name(),
@@ -298,6 +299,7 @@ vitest_bin.vitest_test(
         "component/src/RemoteAccessTerminal.jsx",
         "component/src/sshEphemeralKeypair.js",
         "component/test/RemoteAccessSSHConsole.test.jsx",
+        "component/test/RemoteAccessSSHConsoleHostKey.test.jsx",
         "component/test/RemoteAccessSSHConsoleSession.test.jsx",
         ":node_modules",
     ],

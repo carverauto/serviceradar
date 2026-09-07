@@ -44,16 +44,17 @@ var (
 
 // SSHOpenPayload is the JSON payload carried by an SSH open frame.
 type SSHOpenPayload struct {
-	Protocol         string    `json:"protocol,omitempty"`
-	SessionID        string    `json:"session_id,omitempty"`
-	AgentID          string    `json:"agent_id,omitempty"`
-	GatewayID        string    `json:"gateway_id,omitempty"`
-	Target           SSHTarget `json:"target"`
-	SSH              SSHAuth   `json:"ssh,omitempty"`
-	CredentialMode   string    `json:"credential_mode,omitempty"`
-	TerminalType     string    `json:"terminal_type,omitempty"`
-	TimeoutMS        int       `json:"timeout_ms,omitempty"`
-	SSHHostKeyPolicy string    `json:"ssh_host_key_policy,omitempty"`
+	Protocol           string              `json:"protocol,omitempty"`
+	SessionID          string              `json:"session_id,omitempty"`
+	AgentID            string              `json:"agent_id,omitempty"`
+	GatewayID          string              `json:"gateway_id,omitempty"`
+	Target             SSHTarget           `json:"target"`
+	SSH                SSHAuth             `json:"ssh,omitempty"`
+	CredentialMode     string              `json:"credential_mode,omitempty"`
+	TerminalType       string              `json:"terminal_type,omitempty"`
+	TimeoutMS          int                 `json:"timeout_ms,omitempty"`
+	SSHHostKeyPolicy   string              `json:"ssh_host_key_policy,omitempty"`
+	SSHHostKeyApproval *SSHHostKeyApproval `json:"ssh_host_key_approval,omitempty"`
 }
 
 // SSHOpenOptions configures frame-to-PTY SSH opening.
@@ -98,13 +99,14 @@ func SSHConfigFromOpenFrame(frame Frame) (SSHConfig, error) {
 	}
 
 	return SSHConfig{
-		Target:           payload.Target,
-		Auth:             auth,
-		TerminalType:     payload.TerminalType,
-		Cols:             frame.Cols,
-		Rows:             frame.Rows,
-		Timeout:          time.Duration(payload.TimeoutMS) * time.Millisecond,
-		SSHHostKeyPolicy: payload.SSHHostKeyPolicy,
+		Target:             payload.Target,
+		Auth:               auth,
+		TerminalType:       payload.TerminalType,
+		Cols:               frame.Cols,
+		Rows:               frame.Rows,
+		Timeout:            time.Duration(payload.TimeoutMS) * time.Millisecond,
+		SSHHostKeyPolicy:   payload.SSHHostKeyPolicy,
+		SSHHostKeyApproval: payload.SSHHostKeyApproval,
 	}, nil
 }
 

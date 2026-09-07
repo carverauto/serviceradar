@@ -366,7 +366,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/edge/agent_release_manager_test.exs": 22,
     "test/serviceradar/edge/onboarding_package_atomicity_test.exs": 1,
     "test/serviceradar/edge/proxmox_console_sessions_test.exs": 15,
-    "test/serviceradar/edge/remote_access_broker_test.exs": 21,
+    "test/serviceradar/edge/remote_access_broker_test.exs": 22,
     "test/serviceradar/edge/remote_access_sessions_test.exs": 36,
     "test/serviceradar/edge/remote_access_ssh_certificates_test.exs": 5,
     "test/serviceradar/edge/workers/provision_agent_worker_test.exs": 12,

@@ -54,6 +54,7 @@ export function Component({
   attachPayload = null,
   terminalModuleLoader = null,
   onFileTransferMessage = null,
+  onHostKeyFailure = null,
   socketControlRef = null,
 }) {
   const containerRef = useRef(null)
@@ -215,6 +216,12 @@ export function Component({
           } else if (message.type === "close") {
             setStatus("closed")
             setError(message.reason ? `${closeLabel} closed: ${message.reason}` : `${closeLabel} closed.`)
+
+            // A host-key verification failure is a decision for the operator,
+            // not just a message: the owner renders the trust prompt.
+            if (message.host_key && typeof message.host_key === "object") {
+              onHostKeyFailure?.(message.host_key)
+            }
           }
         } catch (_error) {
           term.write(String(event.data))
@@ -265,6 +272,7 @@ export function Component({
     attachPayload,
     closeLabel,
     onFileTransferMessage,
+    onHostKeyFailure,
     sessionId,
     socketControlRef,
     streamLabel,

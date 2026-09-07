@@ -1076,6 +1076,7 @@ defmodule ServiceRadar.Edge.RemoteAccessBroker do
           terminal_type: string_option(session, opts, "terminal_type", @default_terminal_type),
           timeout_ms: int_option(session, opts, "timeout_ms"),
           ssh_host_key_policy: ssh_host_key_policy,
+          ssh_host_key_approval: Map.get(session_metadata, "ssh_host_key_approval"),
           recording_policy: policy_option(session, opts, "recording_policy"),
           enhanced_recording_policy: policy_option(session, opts, "enhanced_recording_policy"),
           frame_auth: frame_auth_open_payload(frame_auth)
