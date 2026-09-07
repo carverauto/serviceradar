@@ -159,6 +159,20 @@ custom classes must fully style the input
   - You cannot reference an external vendor'd script `src` or link `href` in the layouts
   - You must import the vendor deps into app.js and app.css to use them
   - **Never write inline <script>custom js</script> tags within templates**
+- **Never store a browser built-in as a detached reference and then call it as a method.**
+  `fetchImpl = globalThis.fetch` assigned to `this.fetchImpl` and invoked as
+  `this.fetchImpl(url)` passes the owning object as the receiver, and browsers that enforce the
+  WebIDL receiver check reject it with
+  `TypeError: Failed to execute 'fetch' on 'Window': Illegal invocation` before any request is
+  sent. The repo convention for an injectable built-in is the wrapper form
+  `(...args) => globalThis.fetch(...args)` — see the defaults in
+  `assets/js/lib/remote_desktop/webrtc_client.js` and
+  `assets/component/src/RemoteAccessDesktopSession.jsx`. Assigning the *result* of a call
+  (`this.timer = globalThis.setTimeout(...)`) is unaffected.
+  - **A default that every test overrides is untested.** Each `webrtc_client.test.js` case
+    injected `fetchImpl`, so the broken default shipped and RDP never connected in a browser
+    that enforces the check. When a constructor option exists for injection, cover the default
+    too — `webrtc_client.test.js` has the receiver-asserting regression test to copy.
 
 ### UI/UX & design guidelines
 

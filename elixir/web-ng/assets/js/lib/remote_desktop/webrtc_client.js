@@ -144,7 +144,7 @@ export class RemoteDesktopWebRTCClient {
   constructor({
     signalingPath,
     iceServers = [],
-    fetchImpl = globalThis.fetch,
+    fetchImpl = (...args) => globalThis.fetch(...args),
     peerConnectionFactory = (config) => new globalThis.RTCPeerConnection(config),
     documentRef = globalThis.document,
     onStatus = () => {},
