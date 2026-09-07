@@ -39,7 +39,7 @@ var (
 	ErrSSHHostKeyUnknown = errors.New("ssh host key is not trusted")
 
 	// ErrSSHHostKeyMismatch reports that the target offered a key that differs
-	// from the one already pinned for it.
+	// from the one already pinned for it or from an explicit retry approval.
 	ErrSSHHostKeyMismatch = errors.New("ssh host key does not match the trusted entry")
 )
 
@@ -56,9 +56,10 @@ const (
 //
 // x/crypto reports both "never seen this host" and "this host changed its key"
 // as the same knownhosts.KeyError, distinguished only by whether Want is empty,
-// and the message it renders ("knownhosts: key is unknown") names neither the
-// host nor the key. Both facts are needed at the console to make the failure
-// recoverable without inviting a blind accept of a changed key. Errors that are
+// and its messages ("knownhosts: key is unknown" or "knownhosts: key mismatch")
+// name neither the host nor the key. Both facts are needed at the console to
+// make the failure recoverable without inviting a blind accept of a changed key.
+// Errors that are
 // not host-key verification failures (a revoked key, a store read error, a
 // transport failure) are returned unchanged.
 func classifySSHHostKeyError(hostname string, key ssh.PublicKey, err error) error {

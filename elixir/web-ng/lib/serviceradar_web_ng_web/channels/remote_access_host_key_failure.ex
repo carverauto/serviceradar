@@ -9,9 +9,9 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessHostKeyFailure do
   and this module is the single place that reads it back.
 
   Only `:unknown` — the target has no entry in the agent known-hosts store —
-  may be offered for acceptance. `:mismatch` means a host that was already
-  trusted offered a different key, which is the man-in-the-middle case and must
-  stay a hard close.
+  may be offered for acceptance. `:mismatch` means the offered key differs from
+  a pinned key, or the retry differs from the approved target and fingerprint.
+  It can indicate interception and must stay a hard close.
   """
 
   @unknown_pattern ~r/

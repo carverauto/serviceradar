@@ -665,7 +665,8 @@ that as a dead end: it ends the session and presents the trust decision instead.
   known-hosts file. The console shows the dialed address, the key algorithm, and
   the offered key's SHA256 fingerprint. Compare that fingerprint against the
   target's own host key (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on
-  the target) before choosing **Trust this host key and reconnect**, which
+  the target for an Ed25519 key; use the matching public-key file for other
+  algorithms) before choosing **Trust this host key and reconnect**, which
   reopens the session with approval for that exact address, port, and SHA256
   fingerprint. The agent checks the approval before pinning the key or
   authenticating; a different target or key is rejected as a mismatch. Approval
@@ -673,15 +674,20 @@ that as a dead end: it ends the session and presents the trust decision instead.
   `trust_on_first_use` remains selectable under **Advanced** for an enrollment
   you want to make up front.
 - **This host key does not match the trusted key.** The target offered a
-  different key than the one already pinned. The console shows the offered
-  fingerprint and offers no accept action: this is the interception case. Verify
-  the change out of band, then remove the stale line from the agent's
-  known-hosts file before connecting again.
+  different key than the one already pinned, or the retry does not match the
+  approved target and fingerprint. The console shows the offered fingerprint
+  and offers no accept action. This can indicate interception or a legitimate
+  host rebuild or key rotation. Verify the target and key out of band; remove
+  a pinned entry only after confirming it is stale, then connect again.
 
-The pinned key lives on the agent's filesystem. An agent whose
-`/var/lib/serviceradar/checkers` directory is not persistent -- a container
-without a volume for it -- loses every pinned key when it restarts, and the next
-session presents first contact again.
+Persist the agent's known-hosts file across container replacement to preserve
+pinned keys. By default it lives under `/var/lib/serviceradar/checkers`; when
+`SERVICERADAR_REMOTE_ACCESS_KNOWN_HOSTS` overrides the path, persist that location
+instead. Losing the file makes the next session first contact again.
+
+Older agents report `knownhosts: key is unknown` for an unenrolled target and
+`knownhosts: key mismatch` for a changed key, without the target or fingerprint.
+Upgrade the agent to receive the console trust decision.
 
 The web UI can expose host-key review and override controls only when the deployment enables them:
 
@@ -888,7 +894,7 @@ Common failures:
 - Route denied: the device is not assigned to an eligible agent or gateway, or the remote access policy does not allow that target.
 - Connection timeout: the selected edge agent cannot reach the target on TCP `22`.
 - `dial tcp: lookup <name>: server misbehaving` or `no such host`: the session is connecting by name rather than by address. The device row has no address, or the target-host field was set to a name the edge agent's resolver cannot answer. Give the device an address in inventory, or supply a name that agent can resolve.
-- Host key rejected: the session reached the target but host-key verification failed. The console replaces the terminal with the trust decision and the offered fingerprint; the close reason is `ssh host key is not trusted: ...` for a target that was never enrolled and `ssh host key does not match the trusted entry: ...` for one whose key changed. See [Host Key Trust](#host-key-trust) for enrollment and address matching. This is independent of certificate account policy and DNS resolution. Agents older than this release report both cases as `ssh: handshake failed: knownhosts: key is unknown`, which names neither the target nor the key; upgrade the agent to get the trust decision.
+- Host key rejected: the session reached the target but host-key verification failed. See [Host Key Trust](#host-key-trust) for the console trust decision, enrollment, address matching, and older-agent errors. This is independent of certificate account policy and DNS resolution.
 - `SSH certificate access requires trusted account and principal policy for the target`: the resolved account/principal policy is missing or invalid. The session is refused before it is created, so no row appears in `remote_access_sessions`. Check the mapping and target selection in [SSH CA Setup](#ssh-ca-setup); console alternatives are described in [Credential Model](#credential-model).
 - Signer failure: check the signer binary path, CA key secret mount, `SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON`, policy file syntax, and signer logs.
 
