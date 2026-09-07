@@ -492,6 +492,32 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
              )
   end
 
+  test "request_open reads the active policy assignment without an explicit resolver" do
+    uid = unique_uid("no-resolver-opt")
+    secret = create_secret!("no-resolver-opt")
+    rule = create_rule!(secret, scope_value: "agent-no-resolver")
+
+    insert_device!(uid,
+      agent_id: "agent-no-resolver",
+      gateway_id: "gateway-no-resolver",
+      source_rule: rule
+    )
+
+    Process.put(:proxmox_console_test_device_uid, uid)
+    insert_console_package_and_assignment!(rule, "agent-no-resolver")
+
+    assert {:ok, %{session: session}} =
+             ProxmoxConsoleSessions.request_open(
+               uid,
+               %{},
+               previewer: Previewer,
+               actor: @console_actor
+             )
+
+    assert session.agent_id == "agent-no-resolver"
+    assert session.credential_rule_id == rule.id
+  end
+
   test "unsupported Proxmox console auth methods are never selected" do
     uid = unique_uid("unsupported-auth")
     secret = create_secret!("unsupported-auth")
@@ -729,6 +755,59 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
       |> Ash.create(actor: @system_actor)
 
     rule
+  end
+
+  defp insert_console_package_and_assignment!(rule, agent_uid) do
+    now = DateTime.utc_now()
+    package_id = Ecto.UUID.generate()
+    policy_id = "network-credential-rule:#{rule.id}:console_access"
+
+    Repo.insert_all("plugins", [
+      %{
+        plugin_id: "proxmox-console",
+        name: "proxmox-console-test-plugin",
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    Repo.insert_all("plugin_packages", [
+      %{
+        id: Ecto.UUID.dump!(package_id),
+        plugin_id: "proxmox-console",
+        name: "proxmox-console-test-package",
+        version: "1.0.0",
+        entrypoint: "run_console",
+        status: "approved",
+        outputs: "console",
+        manifest: %{},
+        config_schema: %{},
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    Repo.insert_all("plugin_assignments", [
+      %{
+        id: Ecto.UUID.dump!(Ecto.UUID.generate()),
+        agent_uid: agent_uid,
+        partition_id: "test-partition",
+        plugin_id: "proxmox-console",
+        plugin_package_id: Ecto.UUID.dump!(package_id),
+        source: "policy",
+        policy_id: policy_id,
+        enabled: true,
+        params: %{
+          "policy_id" => policy_id,
+          "policy_version" => 1,
+          "credential_rule_id" => to_string(rule.id)
+        },
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    :ok
   end
 
   defp unique_uid(label), do: "pve-console-#{label}-#{System.unique_integer([:positive])}"
