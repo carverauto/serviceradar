@@ -292,6 +292,7 @@ vitest_bin.vitest_test(
         "component/test/RemoteAccessSSHConsole.test.jsx",
         "component/test/RemoteAccessSSHConsoleHostKey.test.jsx",
         "component/test/RemoteAccessSSHConsoleSession.test.jsx",
+        "component/test/RemoteAccessTerminal.test.jsx",
     ],
     chdir = package_name(),
     data = [
@@ -301,6 +302,7 @@ vitest_bin.vitest_test(
         "component/test/RemoteAccessSSHConsole.test.jsx",
         "component/test/RemoteAccessSSHConsoleHostKey.test.jsx",
         "component/test/RemoteAccessSSHConsoleSession.test.jsx",
+        "component/test/RemoteAccessTerminal.test.jsx",
         ":node_modules",
     ],
     tags = ["unit_test"],
