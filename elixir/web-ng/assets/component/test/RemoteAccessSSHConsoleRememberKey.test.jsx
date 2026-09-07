@@ -12,7 +12,7 @@ vi.mock("../src/sshEphemeralKeypair.js", async (importOriginal) => {
     supportsEphemeralEd25519: () => true,
     generateEphemeralEd25519Keypair: async () => ({
       algorithm: "Ed25519",
-      privateKeyPem: "SYNTHETIC-EPHEMERAL-KEY-sr-4383",
+      privateKeyPem: "not-a-private-key",
       publicKeyOpenSSH: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPROBE probe",
     }),
   }

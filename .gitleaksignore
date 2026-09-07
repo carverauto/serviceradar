@@ -7,6 +7,10 @@ ddc5367687b6cbb2303b4b6a14954a3529773490:scripts/sign-wasm-plugin-publish.sh:gen
 993886f218e1f847b8d569c12d7a3ff2ed96b8e7:elixir/serviceradar_core/test/serviceradar/automation/ansible/controller_provenance_test.exs:generic-api-key:390
 # Synthetic PEM-shaped rejection fixture removed from the tip but retained in PR history.
 1f50b9c46160066a551450f2362eaceecff655cf:elixir/serviceradar_core/test/serviceradar/automation/ansible/awx_client_test.exs:private-key:711
+# Synthetic PEM-shaped mock in the sr-4383 SSH-console regression test, removed
+# from the tip by de-armoring the fixture. Retained in PR history; listed so a
+# push range that re-scans that commit does not block on it.
+21fa883d46c4a5a3d3916e1255febf74b12cc303:elixir/web-ng/assets/component/test/RemoteAccessSSHConsoleRememberKey.test.jsx:private-key:15
 # Synthetic OpenSSH key fixture: the base64 body decodes to the ASCII string
 # "openssh-test-key-material", and it sits beside "private_key" => "not-a-private-key"
 # in the same test. Already on staging; listed so a push range that re-scans that
