@@ -1,6 +1,14 @@
 import {describe, expect, it} from "vitest"
 
-import {buildSshAttachCredential, sshCertificatePolicyState} from "../src/RemoteAccessSSHConsole.jsx"
+import {
+  atBrowseRoot,
+  buildSshAttachCredential,
+  isFilesystemRoot,
+  resolveUploadPath,
+  sshCertificatePolicyState,
+  validateDownloadStart,
+  validateUploadStart,
+} from "../src/RemoteAccessSSHConsole.jsx"
 
 describe("RemoteAccessSSHConsole credential boundary", () => {
   it("sends only the Unix username and key material for certificate sessions", () => {
@@ -109,5 +117,112 @@ describe("RemoteAccessSSHConsole certificate policy readiness", () => {
         accountNames: [],
       })
     ).toEqual({status: "not_applicable", blocksConnect: false})
+  })
+})
+
+describe("RemoteAccessSSHConsole upload start guards", () => {
+  const file = {name: "report.txt", size: 12}
+
+  it("refuses to start when no local file is selected", () => {
+    expect(validateUploadStart({file: null, destination: "/tmp", remotePath: "/tmp"})).toEqual({
+      ok: false,
+      error: "Select a local file before starting an upload.",
+    })
+    expect(validateUploadStart({file: undefined, destination: "/tmp", remotePath: "/tmp"})).toEqual({
+      ok: false,
+      error: "Select a local file before starting an upload.",
+    })
+  })
+
+  it("refuses to send an empty file", () => {
+    expect(
+      validateUploadStart({file: {name: "empty.txt", size: 0}, destination: "/tmp/", remotePath: "/tmp"})
+    ).toEqual({
+      ok: false,
+      error: 'Refusing to upload "empty.txt": the selected file is empty.',
+    })
+  })
+
+  it("resolves a directory destination against the selected file name", () => {
+    expect(validateUploadStart({file, destination: "/tmp/", remotePath: "/tmp"})).toEqual({
+      ok: true,
+      path: "/tmp/report.txt",
+    })
+    expect(validateUploadStart({file, destination: "/tmp", remotePath: "/tmp"})).toEqual({
+      ok: true,
+      path: "/tmp/report.txt",
+    })
+    expect(validateUploadStart({file, destination: "  ", remotePath: "/var/log"})).toEqual({
+      ok: true,
+      path: "/var/log/report.txt",
+    })
+  })
+
+  it("keeps an explicit destination file path", () => {
+    expect(validateUploadStart({file, destination: "/tmp/renamed.txt", remotePath: "/tmp"})).toEqual({
+      ok: true,
+      path: "/tmp/renamed.txt",
+    })
+  })
+
+  it("never targets bare filesystem root from this UI", () => {
+    expect(
+      validateUploadStart({file: {name: "", size: 12}, destination: "/", remotePath: "/"})
+    ).toEqual({
+      ok: false,
+      error:
+        'Refusing to upload "selected file" to filesystem root "/": choose a destination file path inside a directory.',
+    })
+  })
+
+  it("treats a root destination as the directory for the selected file", () => {
+    expect(validateUploadStart({file, destination: "/", remotePath: "/"})).toEqual({
+      ok: true,
+      path: "/report.txt",
+    })
+  })
+})
+
+describe("RemoteAccessSSHConsole download start guards", () => {
+  it("refuses a missing path", () => {
+    expect(validateDownloadStart({path: "", displayName: "syslog"})).toEqual({
+      ok: false,
+      error: 'Refusing to download "syslog": a file path is required.',
+    })
+  })
+
+  it("refuses bare filesystem root", () => {
+    expect(validateDownloadStart({path: "/", displayName: "/"})).toEqual({
+      ok: false,
+      error: 'Refusing to download filesystem root "/": pick a single file from the listing.',
+    })
+  })
+
+  it("accepts a concrete file path", () => {
+    expect(validateDownloadStart({path: "/var/log/syslog", displayName: "syslog"})).toEqual({
+      ok: true,
+      path: "/var/log/syslog",
+    })
+  })
+})
+
+describe("RemoteAccessSSHConsole root helpers", () => {
+  it("treats only slash-only paths as filesystem root", () => {
+    expect(isFilesystemRoot("/")).toBe(true)
+    expect(isFilesystemRoot("  /// ")).toBe(true)
+    expect(isFilesystemRoot("/tmp")).toBe(false)
+    expect(isFilesystemRoot("")).toBe(false)
+  })
+
+  it("reports the browse root so the parent button can disable itself", () => {
+    expect(atBrowseRoot("/")).toBe(true)
+    expect(atBrowseRoot("")).toBe(true)
+    expect(atBrowseRoot("/var/log")).toBe(false)
+  })
+
+  it("resolves an empty destination against the browsed directory", () => {
+    expect(resolveUploadPath({destination: "", remotePath: "/var/log", fileName: "a.txt"})).toBe(
+      "/var/log/a.txt"
+    )
   })
 })

@@ -5,7 +5,7 @@ title: Remote Access
 
 # Remote Access
 
-ServiceRadar remote access routes interactive sessions through the same edge topology used for monitoring. The current implementation is focused on agent-routed SSH sessions and SSH-backed Proxmox VE host shells. For native Proxmox host and guest consoles, see [Proxmox Console Access](./proxmox#console-access). SFTP/SCP, database access, Kubernetes access, and application access are follow-up capabilities. For the experimental graphical desktop/RDP path, see [Remote Access: RDP](./remote-access-rdp).
+ServiceRadar remote access routes interactive sessions through the same edge topology used for monitoring. The current implementation is focused on agent-routed SSH sessions and SSH-backed Proxmox VE host shells. For file transfers, see [Copy Files Through SSH](#copy-files-through-ssh). For native Proxmox host and guest consoles, see [Proxmox Console Access](./proxmox#console-access). SCP, database access, Kubernetes access, and application access are follow-up capabilities. For the experimental graphical desktop/RDP path, see [Remote Access: RDP](./remote-access-rdp).
 
 The intended enterprise model is short-lived SSH user certificates backed by your identity provider, ServiceRadar RBAC, and an edge agent that can reach the target. Operators should avoid reusable agent-local SSH secrets.
 
@@ -861,6 +861,30 @@ control and server sessions.
 5. ServiceRadar issues a short-lived SSH certificate.
 6. The edge agent connects to the target SSH server and presents the user certificate.
 7. The user lands in the shell as the mapped local or LDAP-backed Linux account.
+
+### Copy Files Through SSH
+
+The SSH console's **Files** sidebar transfers individual files over SFTP through
+the selected agent route, subject to file-transfer permissions and policy.
+
+- The remote path field selects the directory to browse. Press Enter or use
+  refresh to list it. The `..` button browses the parent directory and is disabled
+  at `/`. These controls only list directories; they never start a copy.
+- Set **Upload path** before using **Choose File**: selecting a local file starts
+  its upload. Leave the path blank to use the browsed directory, end it with `/`
+  to append the selected filename, or enter a complete destination filename.
+  A path equal to the browsed directory also appends the selected filename.
+- Uploads require a selected, non-empty local file. A refused selection displays
+  an error below the picker and a `refused` entry under **Transfers**. The server
+  also rejects missing input, an empty stream, or an initial read failure before
+  creating or truncating the destination.
+- Use a file row's download button to download that file. Transfers require a
+  file path; bare `/` cannot be a transfer target. An upload directory of `/`
+  resolves to `/<selected filename>`, subject to policy.
+
+The sidebar does not copy directories recursively or copy a local filesystem
+root to a remote root. Check the displayed errors and **Transfers** status for
+the result of each attempted transfer.
 
 ### Open A Proxmox Host Shell
 
