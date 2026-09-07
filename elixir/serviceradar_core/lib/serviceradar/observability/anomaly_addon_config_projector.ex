@@ -364,9 +364,11 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
 
   # `drift_mode` is a string enum in the add-on schema, but settings rows
   # seeded from unquoted Helm chart defaults carry YAML 1.1 booleans
-  # (`drift_mode: off` parses as `false`). Coerce the legacy `false` back to
-  # `"off"` and drop boolean `true` so a stale settings row
-  # can never fail profile validation (and kill this maintenance job) again.
+  # (`drift_mode: off` parses as `false`, `drift_mode: on` as `true`).
+  # Coerce the legacy `false` back to `"off"` and drop the legacy `true`,
+  # which has no valid string form. Every other value passes through
+  # untouched so a misspelled mode fails loudly at profile validation
+  # instead of being silently discarded.
   defp normalize_metric_class_value("drift_mode", false), do: {:ok, "off"}
 
   defp normalize_metric_class_value("drift_mode", true), do: :drop
