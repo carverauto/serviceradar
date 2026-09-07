@@ -93,6 +93,9 @@
 {{- $remoteAccessSsh := default (dict) $remoteAccess.ssh -}}
 {{- $remoteAccessSshEnabled := false -}}
 {{- if hasKey $remoteAccessSsh "enabled" -}}{{- $remoteAccessSshEnabled = get $remoteAccessSsh "enabled" -}}{{- end -}}
+{{- $remoteAccessSshBrowserKeyRemember := default (dict) $remoteAccessSsh.browserKeyRemember -}}
+{{- $remoteAccessSshBrowserKeyRememberEnabled := false -}}
+{{- if hasKey $remoteAccessSshBrowserKeyRemember "enabled" -}}{{- $remoteAccessSshBrowserKeyRememberEnabled = get $remoteAccessSshBrowserKeyRemember "enabled" -}}{{- end -}}
 {{- $sshCertificatePolicy := default (dict) $remoteAccess.sshCertificatePolicy -}}
 {{- include "serviceradar.validateRemoteAccessSSHCertificatePolicy" . -}}
 {{- $sshCertificatePolicyEnabled := false -}}
@@ -683,6 +686,8 @@ spec:
         {{- end }}
         - name: SERVICERADAR_REMOTE_ACCESS_SSH_ENABLED
           value: {{ $remoteAccessSshEnabled | quote }}
+        - name: SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED
+          value: {{ $remoteAccessSshBrowserKeyRememberEnabled | quote }}
         {{- if $geoipMmdb.enabled }}
         - name: GEOLITE_MMDB_DIR
           value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}

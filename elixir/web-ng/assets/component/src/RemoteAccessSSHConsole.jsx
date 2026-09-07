@@ -103,9 +103,35 @@ async function keyDigestFor(value) {
   return `SHA256:${base64Digest(digest)}`
 }
 
-function loadRemembered(deviceUid) {
+// Remembered private keys must never touch localStorage: it survives browser
+// restart and is readable by any script or extension in the origin, so a
+// stored key is stealable long after the session ends. sessionStorage is
+// tab-scoped and discarded when the tab closes, which bounds the exposure to
+// the lifetime of the tab.
+function rememberedStore() {
   try {
-    const raw = window.localStorage.getItem(storageKey(deviceUid))
+    return window.sessionStorage || null
+  } catch (_error) {
+    return null
+  }
+}
+
+// Older builds persisted remembered keys in localStorage. Purge that entry
+// whenever remembered state is touched so a previously stored key does not
+// linger after upgrading.
+function clearLegacyRemembered(deviceUid) {
+  try {
+    window.localStorage?.removeItem(storageKey(deviceUid))
+  } catch (_error) {
+    // Ignore storage failures.
+  }
+}
+
+function loadRemembered(deviceUid) {
+  clearLegacyRemembered(deviceUid)
+
+  try {
+    const raw = rememberedStore()?.getItem(storageKey(deviceUid))
     return raw ? JSON.parse(raw) : null
   } catch (_error) {
     return null
@@ -114,15 +140,17 @@ function loadRemembered(deviceUid) {
 
 function saveRemembered(deviceUid, value) {
   try {
-    window.localStorage.setItem(storageKey(deviceUid), JSON.stringify(value))
+    rememberedStore()?.setItem(storageKey(deviceUid), JSON.stringify(value))
   } catch (_error) {
     // Ignore storage failures; the session credential still remains usable in memory.
   }
 }
 
 function clearRemembered(deviceUid) {
+  clearLegacyRemembered(deviceUid)
+
   try {
-    window.localStorage.removeItem(storageKey(deviceUid))
+    rememberedStore()?.removeItem(storageKey(deviceUid))
   } catch (_error) {
     // Ignore storage failures.
   }
@@ -379,6 +407,12 @@ export function Component({
       cancelled = true
     }
   }, [resolvedOptionsPath])
+
+  // Purge keys persisted by older builds on every mount, even when the
+  // operator never enters legacy key mode in this tab.
+  useEffect(() => {
+    clearLegacyRemembered(deviceUid)
+  }, [deviceUid])
 
   useEffect(() => {
     if (!allowRememberedKeys) {
@@ -1286,8 +1320,8 @@ export function Component({
                   onChange={(event) => setRememberKey(event.target.checked)}
                 />
                 <span>
-                  <span className="block text-sm font-medium">Remember key in this browser</span>
-                  <span className="block text-xs text-base-content/60">Passphrases are never saved.</span>
+                  <span className="block text-sm font-medium">Remember key for this browser tab</span>
+                  <span className="block text-xs text-base-content/60">Kept in this tab only and cleared when the tab closes. Passphrases are never saved.</span>
                 </span>
               </label>
             </div>

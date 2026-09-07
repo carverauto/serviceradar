@@ -103,6 +103,31 @@ server-side only.
 - Asking operators to paste CA private keys or session private keys for normal SSO
   certificate login.
 
+### Remembered browser keys (opt-in, off by default)
+
+The SSH console offers a **remember key** checkbox only in **user-present key
+(legacy)** mode, and only when the deployment opts in with
+`SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED=true` (Helm:
+`remoteAccess.ssh.browserKeyRemember.enabled=true`). Every deployment path
+defaults this to off — the Elixir component attr, the LiveView gate, the
+runtime config default, the chart default, and the Compose default are all
+`false` — so without an explicit opt-in, pasted keys stay memory-only for the
+session.
+
+When enabled, a remembered private key is kept in `sessionStorage` under
+`serviceradar.remoteAccess.sshKey.v1.<deviceUid>`, never in `localStorage`:
+the entry is tab-scoped and discarded when the tab closes instead of
+surviving browser restarts. Upgrading also purges any key an older build left
+in `localStorage`. Passphrases are never stored.
+
+Tradeoff to accept before enabling: `sessionStorage` still keeps key material
+readable by any script or extension running in the page origin for the life
+of the tab, and it offers no protection on a shared workstation while the tab
+is open. Prefer SSO certificate mode (ephemeral in-memory keys) for routine
+access, reserve remembered keys for break-glass workflows, and close the tab
+when done. If persistence across restarts is truly needed later, it should
+come from a WebAuthn or OS-keychain backed store, not from web storage.
+
 ## SSH CA Setup
 
 Generate a ServiceRadar user CA once per environment:
@@ -695,9 +720,12 @@ The web UI can expose host-key review and override controls only when the deploy
 SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED=false
 SERVICERADAR_REMOTE_ACCESS_TARGET_HOST_OVERRIDE_ENABLED=false
 SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED=false
+SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED=false
 ```
 
 Keep overrides disabled unless an operator workflow explicitly needs them.
+See [Remembered browser keys](#remembered-browser-keys-opt-in-off-by-default)
+for the tradeoff behind the remember-keys flag.
 
 ## Application And TCP Targets
 
