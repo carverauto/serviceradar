@@ -58,7 +58,7 @@ defmodule ServiceRadar.HTTP.EgressClient do
   Fetches `url` with GET.
 
   Redirects are never followed: the caller decides, the same way
-  `Req.get(redirect: false)` behaves. `:into` takes a `Req`-shaped streaming
+  `Req.get(redirect: false)` behaves. The required `:into` option takes a `Req`-shaped streaming
   function -- it is called as `fun.({:data, chunk}, acc)` and must return
   `{:cont, acc}` or `{:halt, acc}` -- so a caller can enforce a size limit while
   the body is still arriving rather than after it is buffered.
@@ -68,6 +68,8 @@ defmodule ServiceRadar.HTTP.EgressClient do
   """
   @spec get(String.t(), [option()]) :: {:ok, Req.Response.t()} | {:error, term()}
   def get(url, opts \\ []) when is_binary(url) do
+    into = Keyword.fetch!(opts, :into)
+    true = is_function(into, 2)
     profile = Keyword.get(opts, :profile, @default_profile)
 
     with {:ok, profile} <- ensure_profile(profile),
@@ -126,14 +128,12 @@ defmodule ServiceRadar.HTTP.EgressClient do
 
     http_options = [
       ssl: tls_options(opts),
-      timeout: timeout,
+      timeout: :infinity,
       connect_timeout: connect_timeout,
       autoredirect: false
     ]
 
-    # `stream: :self` requires `sync: false`, and delivers to the calling
-    # process, which is the default receiver.
-    request_options = [body_format: :binary, sync: false, stream: :self]
+    request_options = [body_format: :binary, sync: false, stream: {:self, :once}]
 
     case :httpc.request(
            :get,
@@ -142,7 +142,7 @@ defmodule ServiceRadar.HTTP.EgressClient do
            request_options,
            profile
          ) do
-      {:ok, request_id} -> await(request_id, profile, opts, deadline(timeout))
+      {:ok, request_id} -> await(request_id, profile, opts, timeout)
       {:error, reason} -> {:error, reason}
     end
   end
@@ -151,10 +151,10 @@ defmodule ServiceRadar.HTTP.EgressClient do
   # is what makes a redirect's `location` header readable here without following
   # it. `:stream_start` does not carry the status, but a GET that sends no Range
   # header cannot draw a 206, so a streamed response here is a 200.
-  defp await(request_id, profile, opts, deadline) do
+  defp await(request_id, profile, opts, timeout) do
     receive do
-      {:http, {^request_id, :stream_start, headers}} ->
-        stream(request_id, profile, opts, deadline, headers, {0, []}, nil)
+      {:http, {^request_id, :stream_start, headers, handler}} ->
+        stream({request_id, handler}, profile, opts, timeout, headers, 0, nil)
 
       {:http, {^request_id, {{_version, status, _reason}, headers, body}}} ->
         # Only 200/206 bodies stream, so a non-2xx body is already buffered by
@@ -169,25 +169,26 @@ defmodule ServiceRadar.HTTP.EgressClient do
       {:http, {^request_id, {:error, reason}}} ->
         {:error, reason}
     after
-      remaining(deadline) ->
+      timeout ->
         cancel(request_id, profile)
         {:error, :timeout}
     end
   end
 
-  defp stream(request_id, profile, opts, deadline, headers, {size, chunks}, acc) do
+  defp stream({request_id, handler} = stream_id, profile, opts, timeout, headers, size, acc) do
+    :ok = :httpc.stream_next(handler)
+
     receive do
       {:http, {^request_id, :stream, chunk}} ->
         size = size + byte_size(chunk)
 
         case consume(chunk, size, opts, acc) do
           {:cont, acc} ->
-            chunks = if Keyword.has_key?(opts, :into), do: chunks, else: [chunk | chunks]
-            stream(request_id, profile, opts, deadline, headers, {size, chunks}, acc)
+            stream(stream_id, profile, opts, timeout, headers, size, acc)
 
           {:halt, _acc} ->
             cancel(request_id, profile)
-            {:ok, response(200, headers, body(opts, chunks))}
+            {:ok, response(200, headers, "")}
 
           {:error, reason} ->
             cancel(request_id, profile)
@@ -195,12 +196,12 @@ defmodule ServiceRadar.HTTP.EgressClient do
         end
 
       {:http, {^request_id, :stream_end, trailers}} ->
-        {:ok, response(200, headers ++ trailers, body(opts, chunks))}
+        {:ok, response(200, headers ++ trailers, "")}
 
       {:http, {^request_id, {:error, reason}}} ->
         {:error, reason}
     after
-      remaining(deadline) ->
+      timeout ->
         cancel(request_id, profile)
         {:error, :timeout}
     end
@@ -210,10 +211,8 @@ defmodule ServiceRadar.HTTP.EgressClient do
     if over_limit?(size, opts) do
       {:error, :response_too_large}
     else
-      case Keyword.get(opts, :into) do
-        nil -> {:cont, acc}
-        fun -> fun.({:data, chunk}, acc || {nil, Req.Response.new(status: 200)})
-      end
+      fun = Keyword.fetch!(opts, :into)
+      fun.({:data, chunk}, acc || {nil, Req.Response.new(status: 200)})
     end
   end
 
@@ -221,14 +220,6 @@ defmodule ServiceRadar.HTTP.EgressClient do
     case Keyword.get(opts, :max_bytes) do
       max when is_integer(max) -> size > max
       _ -> false
-    end
-  end
-
-  defp body(opts, chunks) do
-    if Keyword.has_key?(opts, :into) do
-      ""
-    else
-      chunks |> Enum.reverse() |> IO.iodata_to_binary()
     end
   end
 
@@ -251,14 +242,11 @@ defmodule ServiceRadar.HTTP.EgressClient do
     receive do
       {:http, {^request_id, _}} -> flush(request_id)
       {:http, {^request_id, _, _}} -> flush(request_id)
+      {:http, {^request_id, _, _, _}} -> flush(request_id)
     after
       0 -> :ok
     end
   end
-
-  defp deadline(timeout), do: System.monotonic_time(:millisecond) + timeout
-
-  defp remaining(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
 
   @doc false
   @spec tls_options([option()]) :: keyword()

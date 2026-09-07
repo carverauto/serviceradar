@@ -48,6 +48,10 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
         proxy: %{scheme: :http, host: "127.0.0.1", port: ctx.proxy.port},
         profile: ctx.profile,
         cacerts: ctx.cacerts,
+        into: fn {:data, chunk}, acc ->
+          send(self(), {:chunk, chunk})
+          {:cont, acc}
+        end,
         receive_timeout: 15_000
       ],
       extra
@@ -55,8 +59,10 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
   end
 
   test "tunnels through a proxy that answers CONNECT with HTTP/1.0 and no headers", ctx do
-    assert {:ok, %Req.Response{status: 200, body: @body}} =
+    assert {:ok, %Req.Response{status: 200, body: ""}} =
              EgressClient.get("https://localhost/artifact.tar.gz", opts(ctx, []))
+
+    assert collect_chunks() == @body
   end
 
   test "returns the redirect instead of following it", ctx do
@@ -89,14 +95,13 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
   # option value meaning "no proxy", so getting this wrong fails every
   # deployment that does not set SERVICERADAR_EGRESS_PROXY.
   test "connects directly when no proxy is configured", ctx do
-    assert {:ok, %Req.Response{status: 200, body: @body}} =
+    assert {:ok, %Req.Response{status: 200, body: ""}} =
              EgressClient.get(
                "https://localhost:#{ctx.origin.port}/artifact.tar.gz",
-               proxy: nil,
-               profile: ctx.profile,
-               cacerts: ctx.cacerts,
-               receive_timeout: 15_000
+               opts(ctx, proxy: nil)
              )
+
+    assert collect_chunks() == @body
   end
 
   test "rejects an origin certificate that does not chain to the given anchors", ctx do
@@ -107,6 +112,37 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
                "https://localhost/artifact.tar.gz",
                opts(ctx, cacerts: Keyword.fetch!(other, :cacerts))
              )
+  end
+
+  test "allows a progressing transfer to exceed the receive timeout", ctx do
+    assert {:ok, %Req.Response{status: 200, body: ""}} =
+             EgressClient.get("https://localhost/slow", opts(ctx, receive_timeout: 500))
+
+    assert collect_chunks() == String.duplicate(@body, 5)
+  end
+
+  test "times out while waiting for the next chunk", ctx do
+    assert {:error, :timeout} =
+             EgressClient.get("https://localhost/stall", opts(ctx, receive_timeout: 500))
+
+    assert collect_chunks() == @body
+  end
+
+  test "does not deliver more chunks while the consumer is busy", ctx do
+    into = fn {:data, chunk}, acc ->
+      Process.sleep(600)
+      refute_received {:http, {_, :stream, _}}
+      send(self(), {:chunk, chunk})
+      {:cont, acc}
+    end
+
+    assert {:ok, %Req.Response{status: 200}} =
+             EgressClient.get(
+               "https://localhost/slow",
+               opts(ctx, into: into, receive_timeout: 500)
+             )
+
+    assert collect_chunks() == String.duplicate(@body, 5)
   end
 
   defp collect_chunks(acc \\ "") do
@@ -181,7 +217,26 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
   defp origin_serve(socket) do
     case :ssl.recv(socket, 0, 5_000) do
       {:ok, request} ->
-        :ssl.send(socket, origin_response(to_string(request)))
+        request = to_string(request)
+
+        if String.contains?(request, ["/slow", "/stall"]) do
+          :ssl.send(
+            socket,
+            "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n"
+          )
+
+          delay = if String.contains?(request, "/stall"), do: 1_000, else: 200
+
+          Enum.each(1..5, fn _ ->
+            :ssl.send(socket, [Integer.to_string(byte_size(@body), 16), "\r\n", @body, "\r\n"])
+            Process.sleep(delay)
+          end)
+
+          :ssl.send(socket, "0\r\n\r\n")
+        else
+          :ssl.send(socket, origin_response(request))
+        end
+
         :ssl.close(socket)
 
       _ ->
