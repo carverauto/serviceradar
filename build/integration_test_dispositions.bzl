@@ -82,6 +82,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/inventory/remediation/dire_remediation_test.exs",
     "test/serviceradar/inventory/remediation/link_local_alias_archive_test.exs",
     "test/serviceradar/inventory/remediation/netprobe_alias_debris_test.exs",
+    "test/serviceradar/inventory/remediation/proxmox_unfuse_test.exs",
     "test/serviceradar/inventory/source_identity_drift_db_test.exs",
     "test/serviceradar/inventory/sync_batch_resolution_test.exs",
     "test/serviceradar/inventory/sync_ingestor_agent_id_test.exs",
