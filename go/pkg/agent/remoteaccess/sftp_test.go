@@ -48,7 +48,11 @@ func TestSFTPAdapterUploadRejectsMissingContentBeforeCreate(t *testing.T) {
 					wantErr = ErrSFTPInputEmpty
 				case "stream EOF":
 					reader, writer := io.Pipe()
-					defer reader.Close()
+					defer func() {
+						if err := reader.Close(); err != nil {
+							t.Error(err)
+						}
+					}()
 					if err := writer.Close(); err != nil {
 						t.Fatal(err)
 					}
