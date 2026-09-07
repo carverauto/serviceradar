@@ -44,9 +44,14 @@ published SDK. The root module does not require that SDK at all, so merging them
 and each plugin's own dependencies into the root `go.sum` for code that only ever compiles to
 `wasip1`.
 
-All nine require `github.com/carverauto/serviceradar-sdk-go v0.3.1`.
-`v0.2.0` is the previous GitHub release and does not include later SDK
-contracts. Keep the plugins on one path and one version.
+Keep the plugins on one SDK module path and version; each plugin's `go.mod`
+owns its dependency pin. Commit the generated `vendor/` tree alongside `go.mod`
+and `go.sum`, and declare `vendor/**` in the plugin's Bazel `:srcs` filegroup
+so dependency resolution does not require network access inside the TinyGo sandbox.
+See the [Go template SDK update instructions](../js/cli/templates/plugin-go/README.md#updating-the-sdk)
+when refreshing dependencies. The build wrapper
+[`build_wasm_binary.sh`](../build/wasm_plugins/build_wasm_binary.sh) owns the
+`GOFLAGS` defaults and override behavior.
 
 `go_deps.from_file` accepts a `go_work` label, so a `go.work` listing all eleven
 modules would give one MVS resolution and let Gazelle generate `go_library` and

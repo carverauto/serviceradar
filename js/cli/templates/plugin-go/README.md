@@ -16,18 +16,22 @@ working on the host toolchain.
 
 ## Updating the SDK
 
-The SDK is vendored under `vendor/` because proxy.golang.org does not serve
-`serviceradar-sdk-go` (every version 404s, including the `/v2` module path), so
-a plain `go build` with network cannot resolve it. To move to a newer SDK
-release, fetch it straight from GitHub and re-vendor:
+The SDK and its dependencies are committed under `vendor/` so builds do not
+need the public Go proxy or direct GitHub module resolution. `go.mod` owns the
+SDK version pin. To update it, run these commands from the plugin directory:
 
-```
+```sh
 GOPRIVATE='github.com/carverauto/*' go get github.com/carverauto/serviceradar-sdk-go/v2@latest
-go mod vendor
+GOPRIVATE='github.com/carverauto/*' go mod vendor
 ```
 
-`GOPRIVATE` routes the module around the proxy and takes its hash from your
-`go.sum` instead of the checksum database, which has never seen this module.
+Review and commit `go.mod`, `go.sum`, and the regenerated `vendor/` tree together.
+Do not edit vendored source by hand. `GOPRIVATE` bypasses the public proxy and
+checksum database for matching modules. Existing `go.sum` entries still detect
+changed downloads, but a newly selected version gets its initial checksum from
+the direct download, without public checksum-database verification. Vendored
+builds check `vendor/modules.txt` for consistency with `go.mod`; they do not
+verify vendored source against `go.sum`.
 
 ## Validate and publish
 

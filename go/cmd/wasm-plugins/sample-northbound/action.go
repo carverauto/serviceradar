@@ -183,9 +183,9 @@ func deferAction(invocation sdk.ActionInvocation, suffix string) *sdk.ActionResu
 			ContinuationState:     continuation,
 			MaxDurationSeconds:    120,
 			Result: map[string]any{
-				"message":                      "queued in sample external API",
-				"external_task_id":             taskID,
-				"northbound_job_id":            target.NorthboundJobID,
+				"message":               "queued in sample external API",
+				"external_task_id":      taskID,
+				"northbound_job_id":     target.NorthboundJobID,
 				"callback_url":          target.Callback.URL,
 				"callback_token_header": target.Callback.TokenHeader,
 			},
