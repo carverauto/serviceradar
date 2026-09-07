@@ -646,7 +646,7 @@ ServiceRadar validates the complete file at startup, re-reads the matching polic
 The edge agent verifies the target server host key before opening an SSH session. Prefer one of these modes:
 
 - `known_hosts`: the agent uses a managed known-hosts file.
-- `trust_on_first_use`: acceptable for initial enrollment when an operator can review the first key.
+- `trust_on_first_use`: pins the first offered key without fingerprint review; use only when the operator accepts that initial-enrollment risk.
 - `skip_verify`: only for temporary local testing.
 
 Set `SERVICERADAR_REMOTE_ACCESS_KNOWN_HOSTS` on the agent if it should use a specific known-hosts file.
@@ -660,6 +660,7 @@ key is still rejected.
 A fresh agent has no known-hosts file, so under the default `known_hosts` policy
 the first session to any target fails verification. The console does not leave
 that as a dead end: it ends the session and presents the trust decision instead.
+When the agent reports the offered key, the decision supports fingerprint review:
 
 - **This host key is not trusted yet.** The target has no entry in the agent's
   known-hosts file. The console shows the dialed address, the key algorithm, and
@@ -685,9 +686,17 @@ pinned keys. By default it lives under `/var/lib/serviceradar/checkers`; when
 `SERVICERADAR_REMOTE_ACCESS_KNOWN_HOSTS` overrides the path, persist that location
 instead. Losing the file makes the next session first contact again.
 
-Older agents report `knownhosts: key is unknown` for an unenrolled target and
-`knownhosts: key mismatch` for a changed key, without the target or fingerprint.
-Upgrade the agent to receive the console trust decision.
+Agents older than 1.4.52 report `knownhosts: key is unknown` for an unenrolled
+target and `knownhosts: key mismatch` for a changed key, naming neither the
+target nor the offered key. The console still presents a trust decision for
+those, but an unreviewable one: with no fingerprint to compare it shows none.
+For an unknown key, the accept action reads **Trust on first use and reconnect**.
+That retry asks for the `trust_on_first_use` policy, so the agent
+pins whatever key the target offers -- the same trust you would extend by
+running `ssh-keyscan` against the target and pinning the result, and not the
+reviewed acceptance a newer agent allows. A changed key is still a hard close
+with no accept action. Upgrade the agent to 1.4.52 or newer to review the
+fingerprint before pinning it.
 
 The web UI can expose host-key review and override controls only when the deployment enables them:
 

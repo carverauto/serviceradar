@@ -42,6 +42,7 @@ const UNKNOWN_HOST_KEY_REASON =
 
 const UNKNOWN_HOST_KEY = {
   state: "unknown",
+  reviewable: true,
   target: "host01.example.com:22",
   algorithm: "ssh-ed25519",
   fingerprint: "SHA256:AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKK",
@@ -49,9 +50,28 @@ const UNKNOWN_HOST_KEY = {
 
 const MISMATCHED_HOST_KEY = {
   state: "mismatch",
+  reviewable: true,
   target: "host01.example.com:22",
   algorithm: "ssh-rsa",
   fingerprint: "SHA256:ZZZZYYYYXXXXWWWWVVVVUUUUTTTTSSSSRRR",
+}
+
+// What an agent older than 1.4.52 produces: verification failed and nothing
+// else. No target, no algorithm, no fingerprint to review.
+const LEGACY_UNKNOWN_HOST_KEY = {
+  state: "unknown",
+  reviewable: false,
+  target: null,
+  algorithm: null,
+  fingerprint: null,
+}
+
+const LEGACY_MISMATCHED_HOST_KEY = {
+  state: "mismatch",
+  reviewable: false,
+  target: null,
+  algorithm: null,
+  fingerprint: null,
 }
 
 function jsonResponse(body, status = 200) {
@@ -263,6 +283,68 @@ describe("RemoteAccessSSHConsole host key trust decision", () => {
     expect(decision.dataset.hostKeyState).toBe("mismatch")
     expect(findButton("Trust this host key and reconnect")).toBeFalsy()
     expect(container.textContent).toContain(MISMATCHED_HOST_KEY.fingerprint)
+    expect(sessionRequests).toHaveLength(1)
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+
+  // An agent older than 1.4.52 cannot report the offered key, so the console has
+  // no fingerprint to show. Every deployed agent behaved this way when issue
+  // 4359 was reported, and the opaque hard close it produced is the whole
+  // symptom: the operator must still get a way forward.
+  it("offers trust-on-first-use when the agent cannot report the offered key", async () => {
+    const root = await connect()
+
+    await closeWithHostKey(LEGACY_UNKNOWN_HOST_KEY)
+
+    const decision = container.querySelector("[data-testid='ssh-host-key-decision']")
+    expect(decision).toBeTruthy()
+    expect(decision.dataset.hostKeyState).toBe("unknown")
+    expect(container.textContent).toContain("cannot report the key the target offered")
+    expect(container.textContent).not.toContain("Fingerprint")
+    expect(findButton("Trust on first use and reconnect")).toBeTruthy()
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+
+  // The retry has to ask for a policy the old agent understands. It has no
+  // approval field to read, so binding the retry to an approval would fail the
+  // same way the first attempt did.
+  it("retries an unreviewable acceptance with the trust-on-first-use policy", async () => {
+    const root = await connect()
+
+    await closeWithHostKey(LEGACY_UNKNOWN_HOST_KEY)
+
+    await act(async () => {
+      findButton("Trust on first use and reconnect").click()
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    })
+
+    expect(sessionRequests).toHaveLength(2)
+    expect(sessionRequests.at(-1).ssh_host_key_policy).toBe("trust_on_first_use")
+    expect(sessionRequests.at(-1).metadata?.ssh_host_key_approval).toBeUndefined()
+    expect(container.querySelector("[data-testid='ssh-host-key-decision']")).toBeNull()
+
+    await act(async () => {
+      root.unmount()
+    })
+  })
+
+  // Losing the fingerprint does not soften the man-in-the-middle case.
+  it("never offers to trust an unreviewable key that changed under a trusted host", async () => {
+    const root = await connect()
+
+    await closeWithHostKey(LEGACY_MISMATCHED_HOST_KEY)
+
+    const decision = container.querySelector("[data-testid='ssh-host-key-decision']")
+    expect(decision).toBeTruthy()
+    expect(decision.dataset.hostKeyState).toBe("mismatch")
+    expect(findButton("Trust on first use and reconnect")).toBeFalsy()
+    expect(findButton("Trust this host key and reconnect")).toBeFalsy()
     expect(sessionRequests).toHaveLength(1)
 
     await act(async () => {
