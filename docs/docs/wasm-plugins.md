@@ -251,6 +251,16 @@ TinyGo against `serviceradar-sdk-go`, `--template rust` targets `wasm32-wasip1`
 against `serviceradar-sdk-rust`. `plugin validate` checks `plugin.yaml` against
 the same manifest contract the server enforces and makes no network calls.
 
+Fetching `serviceradar-sdk-go` requires
+`GOPRIVATE=github.com/carverauto/serviceradar-sdk-go` on every `go get`,
+`go mod download`, and `tinygo build` invocation that resolves it — the module
+is not served via the public Go proxy, so without this Go fails against the
+proxy/checksum database instead of fetching directly from GitHub:
+
+```
+export GOPRIVATE=github.com/carverauto/serviceradar-sdk-go
+```
+
 Publishing does three calls: it stages the package, requests a short-lived
 storage token, then uploads the `plugin.wasm` bytes with that token. Track the
 result with `plugin status --id <package-id>`, which reports the approval state
