@@ -26,6 +26,7 @@ AUDITED_CORE = {
     "serviceradar/edge/semantic_digest.ex",
     "serviceradar/edge/semantic_validate.ex",
     "serviceradar/edge/sweep_correlate.ex",
+    "serviceradar/edge/record_validate.ex",
 }
 RECORD_REFERENCE = re.compile(r"\bEdgeRecordV1\b|\bdecode_record\s*\(")
 DATABASE_DEPENDENCY = re.compile(

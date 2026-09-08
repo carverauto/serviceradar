@@ -142,7 +142,7 @@ func TestScalarCorpusInventory(t *testing.T) {
 	want := map[string]scalarRow{
 		"policy_plan_header":         {bound: "MaxPolicyIDBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
 		"policy_assignment_record":   {bound: "MaxPolicyIDBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
-		"principal_producer_context": {bound: "MaxPrincipalBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictNA, owner: proofGroup15N},
+		"principal_producer_context": {bound: "MaxPrincipalBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
 		"principal_edge_slot":        {bound: "MaxPrincipalBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
 		"principal_service_slot":     {bound: "MaxPrincipalBytes", zero: verdictRefuse, min: 1, hasMin: true, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
 		"plan_header_raw":            {bound: "MaxPlanHeaderBytes", zero: verdictNA, goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
@@ -514,8 +514,8 @@ func TestScalarSitePolicyAssignmentRecord(t *testing.T) {
 func TestScalarSitePrincipalProducerContext(t *testing.T) {
 	r := scalarRowFor(t, "principal_producer_context")
 
-	if r.exVerdict != verdictNA || r.owner != proofGroup15N {
-		t.Fatalf("the producer-context principal has no peer here; manifest says %s/%s", r.exVerdict, r.owner)
+	if r.exVerdict != verdictRefuse || r.owner != "-" {
+		t.Fatalf("the producer-context principal requires both peers; manifest says %s/%s", r.exVerdict, r.owner)
 	}
 
 	rec := func(id []byte) *edgev1.EdgeRecordV1 {

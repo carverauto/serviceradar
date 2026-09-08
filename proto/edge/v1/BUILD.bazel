@@ -68,6 +68,7 @@ go_test(
         "golden_test.go",
         "mtr_bounds_test.go",
         "projection_corpus_test.go",
+        "record_boundary_corpus_test.go",
         # The SHARED corpus builder and its gate assertions. Without this Bazel stages the
         # fixtures as data but never EXECUTES the code that writes or checks them, so the
         # required shard would verify nothing about the corpus.
@@ -81,6 +82,7 @@ go_test(
         "//go/pkg/edge/projection",
         "@org_golang_google_protobuf//encoding/protowire",
         "@org_golang_google_protobuf//proto",
+        "@org_golang_google_protobuf//reflect/protoreflect",
     ],
 )
 

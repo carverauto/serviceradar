@@ -13,7 +13,6 @@ import (
 // inventory that cross-checks them, and they must agree, so the id is named once instead of
 // repeated as a literal in every file that asserts on it.
 const (
-	proofGroup15N = "1.5-n"
 	proofGroup16D = "1.6-d"
 )
 
@@ -28,21 +27,8 @@ const (
 
 // Task 1.5-h: THE EXACT PROOF-GROUP INVENTORY.
 //
-// SIX GROUPS, and the number is only meaningful if it is DERIVED rather than asserted. Every
-// prose statement of it in `tasks.md` is a hand count that drifts the moment a corpus changes,
-// which is exactly how "four rows, not three" survived two rounds of review. This guard reads
-// the SHARED MANIFESTS and rebuilds the inventory from them, so a delegated row appearing or
-// disappearing fails here rather than being noticed by eye.
-//
-// FIVE DELEGATED BOUND-SITE ROWS -- sites where one runtime has no peer and an owning subtask
-// is named -- PLUS the projected-cost relation, which is a Go-only RELATIONAL group and NOT a
-// delegated bound site. The two counts are different things and the ledger says so; this test
-// is what keeps them from being reconciled by dropping one.
-//
-// WHY THE PROJECTED-COST GROUP IS NOT A SIXTH DELEGATED ROW: its rows are delegated too (the
-// peer is 1.5-n's), but the group is a RELATION between two values that travel together, not a
-// bound with a frozen value. Counting it among the bound sites would make "five delegated
-// rows" and "six proof groups" the same number and hide that distinction.
+// Rebuild the remaining delegated bound sites from shared manifests. Principal and
+// projected-cost rows now have both peers and must no longer appear as delegations.
 
 // delegatedRow is one manifest row whose peer is absent and whose owner is named.
 type delegatedRow struct{ corpus, site, owner string }
@@ -107,15 +93,14 @@ func TestProofGroupInventoryIsExact(t *testing.T) {
 	got = append(got, scanDelegations(t, "scalar_corpus.txt", 0, 7, 8, 9)...)
 	got = append(got, scanDelegations(t, "lower_bound_corpus.txt", 0, 7, 8, 9)...)
 
-	// THE FIVE DELEGATED BOUND-SITE ROWS, exhaustively. Sites recur across corpora when the
+	// THE FOUR REMAINING DELEGATED BOUND-SITE ROWS, exhaustively. Sites recur across corpora when the
 	// same gap is bounded from both ends -- the single-page span site is delegated for its
 	// ceiling AND its minimum -- so the inventory is keyed by (site, owner) and counted once.
 	want := map[string]string{
-		"recovery_spans_single":      proofGroup16D, // MaxSpansPerPage on the signed single-page path
-		"tombstone_reason_signed":    proofGroup16D, // MaxReasonBytes on the signed body path
-		"tombstone_declared_count":   proofGroup16D, // the signed declared page count
-		"principal_producer_context": proofGroup15N, // record-level MaxPrincipalBytes
-		"abort_reason":               "1.6-c",       // the kind-conditional lifecycle bound
+		"recovery_spans_single":    proofGroup16D, // MaxSpansPerPage on the signed single-page path
+		"tombstone_reason_signed":  proofGroup16D, // MaxReasonBytes on the signed body path
+		"tombstone_declared_count": proofGroup16D, // the signed declared page count
+		"abort_reason":             "1.6-c",       // the kind-conditional lifecycle bound
 	}
 
 	seen := map[string]string{}
@@ -150,22 +135,14 @@ func TestProofGroupInventoryIsExact(t *testing.T) {
 		}
 	}
 
-	// THE SIXTH GROUP is the projected-cost RELATION. It is delegated too, but it is not a
-	// bound site, so it is counted separately and its manifest is checked on its own terms.
+	// Cost relations now have both structural validators.
 	cost := projectedCostCorpus(t)
-	if len(cost) == 0 {
-		t.Fatal("the projected-cost relation is the sixth proof group and its manifest is empty")
+	if len(cost) != 3 {
+		t.Fatal("the projected-cost relation must contain three conjuncts")
 	}
-
 	for _, r := range cost {
-		if r.exVerdict != verdictNA || r.owner != proofGroup15N {
-			t.Fatalf("projected cost %s: the relational group is Go-only and 1.5-n's; got %s/%s",
-				r.conjunct, r.exVerdict, r.owner)
+		if r.exVerdict != verdictRefuse || r.owner != "-" {
+			t.Fatalf("projected cost %s requires both runtime verdicts, got %s/%s", r.conjunct, r.exVerdict, r.owner)
 		}
-	}
-
-	// The number the ledger states, derived rather than repeated.
-	if groups := len(want) + 1; groups != 6 {
-		t.Fatalf("the inventory rebuilds to %d proof groups, the ledger states 6", groups)
 	}
 }

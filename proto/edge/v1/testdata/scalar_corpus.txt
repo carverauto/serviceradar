@@ -26,12 +26,8 @@
 #
 # `tombstone_reason_signed` carries the four, on the signed recovery-control path.
 #
-# A DELEGATED ROW IS NOT A TESTED ROW. `MaxPrincipalBytes` names three sites, but only FIVE
-# CARRIER GATES exist across both runtimes -- three in Go, two in Elixir -- and those five are
-# what the per-carrier mutations cover, each failing exactly its own row. The sixth carrier,
-# Elixir's record-level producer context, has NO GATE TO REMOVE: it is `n/a` with owner 1.5-n.
-# An absent gate cannot be mutation-tested, and counting it with the five would report a proof
-# that does not exist. The same reading applies to every other `n/a` below.
+# Both runtimes now enforce all three principal sites, including the raw record boundary.
+# Remaining n/a rows still name the task that owns their absent peer.
 #
 # THE LITERALS ARE STATED HERE AND NOWHERE ELSE. Deriving `over` from the production constant
 # would move every row with the bound, so a ceiling drifting to 64 or 4096 would keep the whole
@@ -51,7 +47,7 @@
 # site                        bound                 zero    min  at      over    go      elixir  owner
 policy_plan_header            MaxPolicyIDBytes      refuse  1    128     129     refuse  refuse  -
 policy_assignment_record      MaxPolicyIDBytes      refuse  1    128     129     refuse  refuse  -
-principal_producer_context    MaxPrincipalBytes     refuse  1    128     129     refuse  n/a     1.5-n
+principal_producer_context    MaxPrincipalBytes     refuse  1    128     129     refuse  refuse  -
 principal_edge_slot           MaxPrincipalBytes     refuse  1    128     129     refuse  refuse  -
 principal_service_slot        MaxPrincipalBytes     refuse  1    128     129     refuse  refuse  -
 plan_header_raw               MaxPlanHeaderBytes    n/a     n/a  524288  524289  refuse  refuse  -

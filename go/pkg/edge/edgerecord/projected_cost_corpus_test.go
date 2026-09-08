@@ -81,9 +81,9 @@ func projectedCostCorpus(t *testing.T) []costRow {
 // TestProjectedCostInventory pins the full row, both directions.
 func TestProjectedCostInventory(t *testing.T) {
 	want := map[string]costRow{
-		"cost_model_version":    {relation: "equal", accepted: "equal_to_claim", refused: "differs_from_claim", goVerdict: verdictRefuse, exVerdict: verdictNA, owner: proofGroup15N},
-		"projected_row_count":   {relation: "at_most", accepted: "equal_to_maximum", refused: "one_over_maximum", goVerdict: verdictRefuse, exVerdict: verdictNA, owner: proofGroup15N},
-		"projected_write_bytes": {relation: "at_most", accepted: "equal_to_maximum", refused: "one_over_maximum", goVerdict: verdictRefuse, exVerdict: verdictNA, owner: proofGroup15N},
+		"cost_model_version":    {relation: "equal", accepted: "equal_to_claim", refused: "differs_from_claim", goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
+		"projected_row_count":   {relation: "at_most", accepted: "equal_to_maximum", refused: "one_over_maximum", goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
+		"projected_write_bytes": {relation: "at_most", accepted: "equal_to_maximum", refused: "one_over_maximum", goVerdict: verdictRefuse, exVerdict: verdictRefuse, owner: "-"},
 	}
 
 	rows := projectedCostCorpus(t)
@@ -125,10 +125,8 @@ func TestProjectedCostInventory(t *testing.T) {
 			t.Fatalf("%s: relation %q is not recognised", r.conjunct, r.relation)
 		}
 
-		// GO-ONLY, and the gap must NAME AN OWNER rather than sit unexplained.
-		if r.exVerdict != verdictNA || r.owner != proofGroup15N {
-			t.Fatalf("%s: this runtime is the only one that COMPARES these fields; the peer is "+
-				"1.5-n's, manifest says %s/%s", r.conjunct, r.exVerdict, r.owner)
+		if r.exVerdict != verdictRefuse || r.owner != "-" {
+			t.Fatalf("%s: both runtimes must compare costs; manifest says %s/%s", r.conjunct, r.exVerdict, r.owner)
 		}
 	}
 }

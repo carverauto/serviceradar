@@ -6,9 +6,8 @@ defmodule ServiceRadar.Edge.ScalarCorpusTest do
   are both 128 and stay SEPARATE NAMED bounds: they bound different quantities and either may
   move alone, so collapsing them would hide one bound's drift behind the other's rows.
 
-  The three absent sites are recorded in the manifest as `n/a` with an owner -- the producer
-  context principal to 1.5-n, the abort reason to 1.6-c, the signed tombstone reason to 1.6-d
-  -- and the guard below refuses an unowned `n/a`.
+  The abort reason and signed tombstone reason retain explicit owners for their
+  absent peers; the raw record boundary now covers the producer-context principal.
 
   ## A lower bound needs two controls, not one
 
@@ -59,7 +58,7 @@ defmodule ServiceRadar.Edge.ScalarCorpusTest do
         "policy_plan_header" => {"MaxPolicyIDBytes", "refuse", 1, "refuse", "refuse", "-"},
         "policy_assignment_record" => {"MaxPolicyIDBytes", "refuse", 1, "refuse", "refuse", "-"},
         "principal_producer_context" =>
-          {"MaxPrincipalBytes", "refuse", 1, "refuse", "n/a", "1.5-n"},
+          {"MaxPrincipalBytes", "refuse", 1, "refuse", "refuse", "-"},
         "principal_edge_slot" => {"MaxPrincipalBytes", "refuse", 1, "refuse", "refuse", "-"},
         "principal_service_slot" => {"MaxPrincipalBytes", "refuse", 1, "refuse", "refuse", "-"},
         "plan_header_raw" => {"MaxPlanHeaderBytes", "n/a", nil, "refuse", "refuse", "-"},
@@ -147,7 +146,27 @@ defmodule ServiceRadar.Edge.ScalarCorpusTest do
     end
   end
 
-  describe "MaxPrincipalBytes -- two slots here, producer context is 1.5-n's" do
+  describe "MaxPrincipalBytes -- both publication slots and the record" do
+    test "principal_producer_context" do
+      r = row("principal_producer_context")
+
+      for {n, accepted} <- [{0, false}, {r.min, true}, {r.at, true}, {r.over, false}] do
+        raw =
+          File.read!(
+            Path.expand(
+              "../../../../../proto/edge/v1/testdata/record_boundary_principal_#{n}.bin",
+              __DIR__
+            )
+          )
+
+        result = ServiceRadar.Edge.RecordValidate.validate_bytes(raw)
+
+        if accepted,
+          do: assert(match?({:ok, _}, result)),
+          else: assert(result == {:error, :principal})
+      end
+    end
+
     test "principal_edge_slot" do
       r = row("principal_edge_slot")
 
