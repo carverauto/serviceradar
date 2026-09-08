@@ -737,7 +737,7 @@ here.
     `tombstone_reason_signed`, `recovery_spans_single`, and `tombstone_declared_count`.
     The record principal and all three projected-cost relations now have both peers
     (1.5-n); the lifecycle abort reason also has both peers in the 1.6-c implementation.
-    These counts describe the current manifests, not review approval of 1.6-c.
+    These counts describe the current manifests after the reviewed 1.5-n and 1.6-c increments.
     THE INVENTORY IS DERIVED, NOT HAND-COUNTED. `TestProofGroupInventoryIsExact` rebuilds it
     from the SHARED MANIFESTS -- every row whose peer column is `n/a`, keyed by site and owner
     -- and fails if the set or any owner drifts. A hand count is what let "four rows, not
@@ -1386,7 +1386,7 @@ here.
         `recovery_spans_single`, and `tombstone_declared_count`, each owned by 1.6-d.
         The raw record principal has all four controls through `RecordValidate.validate_bytes/1`
         (1.5-n). The lifecycle abort reason has all six controls through `LifecycleValidate.validate/1`
-        (1.6-c implementation, awaiting its separate closeout). Projected-cost equality and
+        (1.6-c, now separately reviewed). Projected-cost equality and
         maxima are compared by both structural record boundaries and no longer form a
         delegated group. `TestProofGroupInventoryIsExact` enforces this current inventory.
         1.5-h CLOSES WITH THOSE OWNERS RECORDED and does not wait for any of
@@ -1786,7 +1786,11 @@ here.
         for the corpus rather than the boundary production trusts -- Go reaches that comparison
         only through `ValidateRecordSigned`. The peer suite therefore runs NOTHING for them, in
         preference to something that resembles a verifier. Task 1.6-d supplies the boundary.
-  - [ ] 1.6-c ELIXIR LIFECYCLE-VALIDATION PEER for `SweepExecutionEventV1`.
+  - [x] 1.6-c ELIXIR LIFECYCLE-VALIDATION PEER for `SweepExecutionEventV1`.
+        CLOSED: `LifecycleValidate.validate/1` mirrors Go's decoded structural boundary;
+        the shared lifecycle corpus covers identity, kinds, counters, proof shape, retained
+        tag 20 and all six abort-reason controls. Existing completion-version artifacts are
+        reused; all 19 version objects now require both runtime verifiers (4b754d85b5).
         WHY IT EXISTS: `mtr_completion` is the one go_only inventory member THIS subtask owns.
         Four members have no Elixir consumer; the other three are the recovery scope transcripts,
         owned by 1.6-d. Calling this one "the sole go_only member" would read as though closing
