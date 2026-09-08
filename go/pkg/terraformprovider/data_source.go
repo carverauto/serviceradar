@@ -31,7 +31,7 @@ func (d *configurationDataSource) Schema(_ context.Context, _ datasource.SchemaR
 			attributes[f.name] = schema.Int64Attribute{Computed: true}
 		case portsField:
 			attributes[f.name] = schema.SetAttribute{ElementType: types.Int64Type, Computed: true}
-		default:
+		case stringField:
 			attributes[f.name] = schema.StringAttribute{Computed: true}
 		}
 	}

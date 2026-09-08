@@ -22,8 +22,8 @@ import (
 )
 
 // Bazel supplies logical runfile paths, never paths into its output cache.
-var terraformBinaryRlocation string
-var providerBinaryRlocation string
+var terraformBinaryRlocation string //nolint:gochecknoglobals // Bazel injects this declared runfile with -X.
+var providerBinaryRlocation string  //nolint:gochecknoglobals // Bazel injects this declared runfile with -X.
 
 func TestTerraformCLILifecycle(t *testing.T) {
 	terraform := declaredTool(t, terraformBinaryRlocation, "TERRAFORM_BINARY")
@@ -146,16 +146,23 @@ resource "serviceradar_ansible_repository" "example" {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer archive.Close()
+		defer func() {
+			if err := archive.Close(); err != nil {
+				t.Error(err)
+			}
+		}()
 		for _, file := range archive.File {
 			entry, err := file.Open()
 			if err != nil {
 				t.Fatal(err)
 			}
 			contents, err := io.ReadAll(entry)
-			entry.Close()
+			closeErr := entry.Close()
 			if err != nil {
 				t.Fatal(err)
+			}
+			if closeErr != nil {
+				t.Fatal(closeErr)
 			}
 			assertNoSecrets(contents)
 		}
@@ -246,13 +253,19 @@ func copyExecutable(t *testing.T, source, destination string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer input.Close()
+	defer func() {
+		if err := input.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o700)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := io.Copy(output, input); err != nil {
-		output.Close()
+		if closeErr := output.Close(); closeErr != nil {
+			t.Error(closeErr)
+		}
 		t.Fatal(err)
 	}
 	if err := output.Close(); err != nil {

@@ -28,26 +28,27 @@ func (f *apiFixture) serve(w http.ResponseWriter, req *http.Request) {
 	defer f.mu.Unlock()
 	f.requests++
 	if req.Header.Get("Authorization") != "Bearer synthetic-api-token" {
-		http.Error(w, "denied", 403)
+		http.Error(w, "denied", http.StatusForbidden)
 		return
 	}
 	if !strings.HasPrefix(req.URL.Path, "/api/admin/") {
-		http.Error(w, "wrong route", 404)
+		http.Error(w, "wrong route", http.StatusNotFound)
 		return
 	}
 	var body map[string]any
 	if req.Body != nil && req.ContentLength != 0 {
 		if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
-			http.Error(w, "invalid json", 400)
+			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
 	}
 	isCollection := len(strings.Split(strings.Trim(req.URL.Path, "/"), "/")) == 3
-	if req.Method == http.MethodPost && isCollection {
+	switch {
+	case req.Method == http.MethodPost && isCollection:
 		encoded, _ := json.Marshal(body)
 		if f.object != nil {
 			if f.createKey != req.Header.Get("Idempotency-Key") || f.createBody != string(encoded) {
-				http.Error(w, "conflicting create", 409)
+				http.Error(w, "conflicting create", http.StatusConflict)
 				return
 			}
 		} else {
@@ -65,18 +66,18 @@ func (f *apiFixture) serve(w http.ResponseWriter, req *http.Request) {
 			}
 			f.version++
 		}
-	} else if f.object == nil || f.missing {
-		http.Error(w, "missing", 404)
+	case f.object == nil || f.missing:
+		http.Error(w, "missing", http.StatusNotFound)
 		return
-	} else if req.Method != http.MethodGet {
+	case req.Method != http.MethodGet:
 		if req.Header.Get("If-Match") != fmt.Sprintf("\"%d\"", f.version) {
-			http.Error(w, "stale", 409)
+			http.Error(w, "stale", http.StatusConflict)
 			return
 		}
 		switch req.Method {
 		case http.MethodDelete:
 			if f.guardDelete {
-				http.Error(w, "in use", 409)
+				http.Error(w, "in use", http.StatusConflict)
 				return
 			}
 			f.object = nil
@@ -84,7 +85,7 @@ func (f *apiFixture) serve(w http.ResponseWriter, req *http.Request) {
 			return
 		case http.MethodPatch:
 			if f.rejectPatch {
-				http.Error(w, fixtureMaterial, 400)
+				http.Error(w, fixtureMaterial, http.StatusBadRequest)
 				return
 			}
 			for key, value := range body {
@@ -93,7 +94,7 @@ func (f *apiFixture) serve(w http.ResponseWriter, req *http.Request) {
 			f.version++
 		case http.MethodPost:
 			if !strings.HasSuffix(req.URL.Path, "/rotate") {
-				http.Error(w, "unexpected action", 400)
+				http.Error(w, "unexpected action", http.StatusBadRequest)
 				return
 			}
 			f.rotations++

@@ -20,6 +20,22 @@ import (
 
 const maxResponseBytes = 2 << 20
 
+// Keep diagnostics static: transport and API errors can contain credential material.
+var (
+	errInvalidEndpoint     = errors.New("endpoint must be an HTTPS origin without credentials, a path, query, or fragment")
+	errAmbiguousCredential = errors.New("configure exactly one of api_token (OAuth/access bearer) or api_key (user-bound API key)")
+	errInvalidCredential   = errors.New("the configured API credential must be nonempty and contain no line breaks")
+	errSystemTrustStore    = errors.New("could not load the system CA trust store")
+	errInvalidCA           = errors.New("ca_certificate contains no valid PEM certificate")
+	errRequestEncoding     = errors.New("could not encode the ServiceRadar request")
+	errRequestConstruction = errors.New("could not construct the ServiceRadar request")
+	errRequestIncomplete   = errors.New("ServiceRadar request did not complete; a mutation may have succeeded; retain the idempotency key and reconcile before retrying")
+	errInvalidResponse     = errors.New("ServiceRadar returned an invalid or oversized resource response")
+	errInvalidIdentity     = errors.New("ServiceRadar returned an invalid resource identity")
+	errMismatchedIdentity  = errors.New("ServiceRadar returned a different resource identity than requested")
+	errMissingETag         = errors.New("ServiceRadar response has no ETag; the declarative configuration API is required")
+)
+
 type apiClient struct {
 	endpoint   string
 	authHeader string
@@ -52,10 +68,10 @@ func (e *apiError) Error() string {
 func newAPIClient(endpoint, apiToken, apiKey string, caPEM []byte) (*apiClient, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Path != "" && u.Path != "/") {
-		return nil, errors.New("endpoint must be an HTTPS origin without credentials, a path, query, or fragment")
+		return nil, errInvalidEndpoint
 	}
 	if (apiToken == "") == (apiKey == "") {
-		return nil, errors.New("configure exactly one of api_token (OAuth/access bearer) or api_key (user-bound API key)")
+		return nil, errAmbiguousCredential
 	}
 	authHeader, authValue := "Authorization", "Bearer "+apiToken
 	material := apiToken
@@ -63,16 +79,16 @@ func newAPIClient(endpoint, apiToken, apiKey string, caPEM []byte) (*apiClient, 
 		authHeader, authValue, material = "X-API-Key", apiKey, apiKey
 	}
 	if strings.TrimSpace(material) == "" || strings.ContainsAny(material, "\r\n") {
-		return nil, errors.New("the configured API credential must be nonempty and contain no line breaks")
+		return nil, errInvalidCredential
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if len(caPEM) > 0 {
 		roots, err := x509.SystemCertPool()
 		if err != nil {
-			return nil, errors.New("could not load the system CA trust store")
+			return nil, errSystemTrustStore
 		}
 		if !roots.AppendCertsFromPEM(caPEM) {
-			return nil, errors.New("ca_certificate contains no valid PEM certificate")
+			return nil, errInvalidCA
 		}
 		transport.TLSClientConfig = &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}
 	}
@@ -90,12 +106,12 @@ func (c *apiClient) request(ctx context.Context, method, route, etag, key string
 		var err error
 		encoded, err = json.Marshal(body)
 		if err != nil {
-			return result, errors.New("could not encode the ServiceRadar request")
+			return result, errRequestEncoding
 		}
 	}
 	req, err := http.NewRequestWithContext(ctx, method, c.endpoint+"/api/admin/"+route, bytes.NewReader(encoded))
 	if err != nil {
-		return result, errors.New("could not construct the ServiceRadar request")
+		return result, errRequestConstruction
 	}
 	req.Header.Set(c.authHeader, c.authValue)
 	req.Header.Set("Accept", "application/json")
@@ -110,9 +126,9 @@ func (c *apiClient) request(ctx context.Context, method, route, etag, key string
 	}
 	res, err := c.http.Do(req)
 	if err != nil {
-		return result, errors.New("ServiceRadar request did not complete; a mutation may have succeeded; retain the idempotency key and reconcile before retrying")
+		return result, errRequestIncomplete
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return result, &apiError{status: res.StatusCode}
 	}
@@ -121,20 +137,20 @@ func (c *apiClient) request(ctx context.Context, method, route, etag, key string
 	}
 	data, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBytes+1))
 	if err != nil || len(data) > maxResponseBytes || json.Unmarshal(data, &result.fields) != nil || result.fields == nil {
-		return result, errors.New("ServiceRadar returned an invalid or oversized resource response")
+		return result, errInvalidResponse
 	}
 	id, ok := result.fields["id"].(string)
 	parsed, identityErr := uuid.Parse(id)
 	if !ok || identityErr != nil || parsed.String() != id {
-		return result, errors.New("ServiceRadar returned an invalid resource identity")
+		return result, errInvalidIdentity
 	}
 	parts := strings.Split(route, "/")
 	if len(parts) > 1 && parts[1] != id {
-		return result, errors.New("ServiceRadar returned a different resource identity than requested")
+		return result, errMismatchedIdentity
 	}
 	result.etag = res.Header.Get("ETag")
 	if result.etag == "" {
-		return result, errors.New("ServiceRadar response has no ETag; the declarative configuration API is required")
+		return result, errMissingETag
 	}
 	return result, nil
 }

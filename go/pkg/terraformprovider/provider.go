@@ -67,16 +67,18 @@ func (p *serviceRadarProvider) Configure(ctx context.Context, req provider.Confi
 }
 
 func (p *serviceRadarProvider) Resources(_ context.Context) []func() resource.Resource {
-	var constructors []func() resource.Resource
-	for _, definition := range resourceDefinitions() {
+	definitions := resourceDefinitions()
+	constructors := make([]func() resource.Resource, 0, len(definitions))
+	for _, definition := range definitions {
 		constructors = append(constructors, func() resource.Resource { return &configurationResource{definition: definition} })
 	}
 	return constructors
 }
 
 func (p *serviceRadarProvider) DataSources(_ context.Context) []func() datasource.DataSource {
-	var constructors []func() datasource.DataSource
-	for _, definition := range resourceDefinitions() {
+	definitions := resourceDefinitions()
+	constructors := make([]func() datasource.DataSource, 0, len(definitions))
+	for _, definition := range definitions {
 		constructors = append(constructors, func() datasource.DataSource { return &configurationDataSource{definition: definition} })
 	}
 	return constructors

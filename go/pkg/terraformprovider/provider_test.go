@@ -58,7 +58,8 @@ func dynamic(t *testing.T, typ tftypes.Type, fields map[string]any) *tfprotov6.D
 		if err != nil {
 			t.Fatal(err)
 		}
-		value, err = tftypes.ValueFromJSON(encoded, typ)
+		wire := tfprotov6.DynamicValue{JSON: encoded}
+		value, err = wire.Unmarshal(typ)
 		if err != nil {
 			t.Fatal(err)
 		}

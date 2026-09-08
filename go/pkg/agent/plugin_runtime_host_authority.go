@@ -42,6 +42,8 @@ const (
 	pluginHostCredentialSentinel          = "__SERVICERADAR_HOST_CREDENTIAL__"
 	proxmoxInventoryPluginID              = "proxmox-inventory"
 	proxmoxInventoryEntrypoint            = "run_check"
+	proxmoxInventoryPurpose               = "inventory_enrichment"
+	proxmoxConsolePurpose                 = "console_access"
 	proxmoxConsolePluginID                = "proxmox-console"
 	proxmoxConsoleEntrypoint              = "run_console"
 	proxmoxConsoleTicketSentinel          = "__SERVICERADAR_HOST_PROXMOX_TICKET__"
@@ -315,9 +317,9 @@ func validatePluginHostAuthorityGrant(grant credentialBrokerGrant, pluginID, cre
 		return errPluginHostAuthorityMalformed
 	}
 
-	expectedPurpose := "inventory_enrichment"
+	expectedPurpose := proxmoxInventoryPurpose
 	if pluginID == proxmoxConsolePluginID {
-		expectedPurpose = "console_access"
+		expectedPurpose = proxmoxConsolePurpose
 	}
 	if grant.Consumer["purpose"] != expectedPurpose {
 		return errPluginHostAuthorityMalformed
@@ -442,6 +444,20 @@ func proxmoxConsoleSourceFieldsMatch(
 		identity.nativeClusterID == targetIDs["native_cluster_id"]
 }
 
+func proxmoxPolicyIDMatches(policyID, ruleID, pluginID, entrypoint string) bool {
+	prefix := "network-credential-rule:" + ruleID
+	switch {
+	case pluginID == proxmoxInventoryPluginID && entrypoint == proxmoxInventoryEntrypoint:
+		// The materializer preserves unsuffixed inventory policy IDs. Match both
+		// exact forms, as the core host-authority validator does.
+		return policyID == prefix || policyID == prefix+":"+proxmoxInventoryPurpose
+	case pluginID == proxmoxConsolePluginID && entrypoint == proxmoxConsoleEntrypoint:
+		return policyID == prefix+":"+proxmoxConsolePurpose
+	default:
+		return false
+	}
+}
+
 func validateProxmoxPublicParams(
 	raw []byte,
 	assignmentID string,
@@ -514,19 +530,7 @@ func validateProxmoxPublicParams(
 		return proxmoxAssignmentPolicyBinding{}, errPluginHostAuthorityMalformed
 	}
 	for ruleID := range ruleIDs {
-		policyMatches := false
-		switch {
-		case pluginID == proxmoxInventoryPluginID && entrypoint == proxmoxInventoryEntrypoint:
-			// The materializer preserves unsuffixed inventory policy IDs. Match
-			// both exact forms, as the core host-authority validator does.
-			policyMatches = policyID == "network-credential-rule:"+ruleID ||
-				policyID == "network-credential-rule:"+ruleID+":inventory_enrichment"
-		case pluginID == proxmoxConsolePluginID && entrypoint == proxmoxConsoleEntrypoint:
-			policyMatches = policyID == "network-credential-rule:"+ruleID+":console_access"
-		default:
-			return proxmoxAssignmentPolicyBinding{}, errPluginHostAuthorityMalformed
-		}
-		if !policyMatches || !validPluginHostAuthorityString(assignmentID) {
+		if !proxmoxPolicyIDMatches(policyID, ruleID, pluginID, entrypoint) || !validPluginHostAuthorityString(assignmentID) {
 			return proxmoxAssignmentPolicyBinding{}, errPluginHostAuthorityMalformed
 		}
 

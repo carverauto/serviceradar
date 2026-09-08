@@ -81,11 +81,12 @@ func fieldValue(ctx context.Context, reader attributeReader, f field) (any, bool
 		d.Append(v.ElementsAs(ctx, &ports, false)...)
 		sort.Slice(ports, func(i, j int) bool { return ports[i] < ports[j] })
 		return ports, true, d
-	default:
+	case stringField:
 		var v types.String
 		d := reader.GetAttribute(ctx, p, &v)
 		return v.ValueString(), !v.IsNull() && !v.IsUnknown(), d
 	}
+	return nil, false, diag.Diagnostics{diag.NewErrorDiagnostic("Unsupported field type", "The provider has an invalid field definition.")}
 }
 
 func (d resourceDefinition) payload(ctx context.Context, reader attributeReader, updating bool) (map[string]any, diag.Diagnostics) {
