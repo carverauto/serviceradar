@@ -321,18 +321,13 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     end
   end
 
-  # The 2026-09-07 cisa-kev outage: SERVICERADAR_EGRESS_PROXY was set on the
-  # deployment, but this release never mirrored :egress_proxy, so
-  # ServiceRadar.Finch started with no CONNECT proxy. Feed downloads went
-  # direct, the default-deny NetworkPolicy dropped the packets, and every
-  # attempt failed with {:download_failed, %Req.TransportError{reason: :timeout}}.
   test "prod config wires the egress CONNECT proxy for external downloads" do
-    with_env("SERVICERADAR_EGRESS_PROXY", "http://smokescreen.egress.svc.cluster.local:4750")
+    with_env("SERVICERADAR_EGRESS_PROXY", "http://proxy.example.com:8080")
 
     assert read_prod_config()[:serviceradar_core][:egress_proxy] == %{
              scheme: :http,
-             host: "smokescreen.egress.svc.cluster.local",
-             port: 4750
+             host: "proxy.example.com",
+             port: 8080
            }
   end
 

@@ -509,13 +509,6 @@ config :serviceradar_core, :spiffe,
 config :serviceradar_core,
   mapper_topology_edge_stale_minutes: parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
 
-# Egress CONNECT proxy for external downloads (advisory feeds). A release
-# evaluates ONLY its own runtime.exs, so without this mirror ServiceRadar.Finch
-# starts with no proxy even when SERVICERADAR_EGRESS_PROXY is set: feed
-# downloads go direct, a default-deny NetworkPolicy drops the packets, and
-# every attempt fails with {:download_failed, %Req.TransportError{reason: :timeout}}
-# (cisa-kev, 2026-09-07). Keep in sync with
-# elixir/serviceradar_core/config/runtime.exs.
 config :serviceradar_core,
   egress_proxy: ServiceRadar.HTTP.EgressProxy.from_env()
 

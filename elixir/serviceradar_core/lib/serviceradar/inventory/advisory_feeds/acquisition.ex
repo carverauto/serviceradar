@@ -9,13 +9,14 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     carries a `sha256` it is verified.
   * **CISA** is a single public JSON streamed to disk.
 
-  All downloads stream to a file (`Req` `into: File.stream!/1`) — the archive is
+  All downloads stream to a file — the archive is
   never held whole in memory. Extraction uses Erlang `:zip`, leaving `*.json.gz`
   members in place for shard-by-shard decoding by `StreamReader`.
 
   `:http_get` / `:http_get_json` are injectable for tests.
   """
 
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Inventory.AdvisoryFeeds.Staging
   alias ServiceRadar.Policies.OutboundFetch
 
@@ -464,7 +465,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     _ = File.rm(dest_path)
 
     # No Authorization header on the presigned S3 GET — the URL is self-signed.
-    case http_get.(url, into: File.stream!(dest_path), receive_timeout: timeout) do
+    download_opts =
+      opts
+      |> Keyword.take([:proxy, :profile, :cacerts, :cacertfile])
+      |> Keyword.merge(into: File.stream!(dest_path), receive_timeout: timeout)
+
+    case http_get.(url, download_opts) do
       :ok -> :ok
       {:ok, %{status: status}} when status in 200..299 -> :ok
       {:ok, %{status: status}} -> download_error(dest_path, {:http_status, status})
@@ -527,11 +533,24 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
   end
 
   defp default_stream_get(url, opts) do
-    require_req!()
+    %{path: path} = Keyword.fetch!(opts, :into)
 
-    Req.get(
-      [url: url, headers: [{"user-agent", @user_agent}], max_retries: 1] ++ req_opts() ++ opts
-    )
+    case File.open(path, [:write, :binary], fn file ->
+           into = fn {:data, chunk}, acc ->
+             case IO.binwrite(file, chunk) do
+               :ok -> {:cont, acc}
+               {:error, reason} -> {:error, reason}
+             end
+           end
+
+           EgressClient.get(
+             url,
+             Keyword.merge(opts, into: into, headers: [{"user-agent", @user_agent}])
+           )
+         end) do
+      {:ok, result} -> result
+      {:error, _} = error -> error
+    end
   end
 
   defp require_req! do

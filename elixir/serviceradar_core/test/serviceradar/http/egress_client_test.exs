@@ -14,7 +14,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
   So the proxy here replies with exactly those 19 bytes.
   """
 
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.HTTP.EgressClient
 
@@ -63,6 +63,49 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
              EgressClient.get("https://localhost/artifact.tar.gz", opts(ctx, []))
 
     assert collect_chunks() == @body
+  end
+
+  @tag :tmp_dir
+  test "acquires CISA through CONNECT and cleans up failed transfers", ctx do
+    previous_root = System.get_env("SERVICERADAR_ADVISORY_STAGING_DIR")
+    System.put_env("SERVICERADAR_ADVISORY_STAGING_DIR", ctx.tmp_dir)
+
+    on_exit(fn ->
+      if previous_root do
+        System.put_env("SERVICERADAR_ADVISORY_STAGING_DIR", previous_root)
+      else
+        System.delete_env("SERVICERADAR_ADVISORY_STAGING_DIR")
+      end
+    end)
+
+    download_opts = opts(ctx, timeout_ms: 2_000)
+
+    assert {:ok, acquired} =
+             ServiceRadar.Inventory.AdvisoryFeeds.Acquisition.acquire_cisa(
+               "https://localhost/cisa.json",
+               "connect-success",
+               download_opts
+             )
+
+    assert File.read!(Path.join(acquired.extracted_dir, "cisa-kev.json")) == @body
+
+    assert {:error, {:download_failed, {:http_status, 302}}} =
+             ServiceRadar.Inventory.AdvisoryFeeds.Acquisition.acquire_cisa(
+               "https://localhost/redirect",
+               "connect-redirect",
+               download_opts
+             )
+
+    refute File.exists?(Path.join([ctx.tmp_dir, "cisa-kev", "connect-redirect"]))
+
+    assert {:error, {:download_failed, :timeout}} =
+             ServiceRadar.Inventory.AdvisoryFeeds.Acquisition.acquire_cisa(
+               "https://localhost/stall",
+               "connect-timeout",
+               download_opts
+             )
+
+    refute File.exists?(Path.join([ctx.tmp_dir, "cisa-kev", "connect-timeout"]))
   end
 
   test "returns the redirect instead of following it", ctx do
