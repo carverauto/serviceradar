@@ -772,3 +772,13 @@ func TestLaunchPreflightCredentialUsesTopLevelKind(t *testing.T) {
 		})
 	}
 }
+
+func TestLaunchPreflightSurveyNormalizesEmptyChoices(t *testing.T) {
+	choices, ok, present := projectAWXSurveyChoices(json.RawMessage(`""`), "text")
+	if !ok || !present {
+		t.Fatal("empty controller choices rejected")
+	}
+	if values, ok := choices.([]string); !ok || len(values) != 0 {
+		t.Fatalf("empty choices not normalized: %#v", choices)
+	}
+}

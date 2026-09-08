@@ -3013,7 +3013,7 @@ func projectAWXSurveyChoices(raw json.RawMessage, fieldType string) (any, bool, 
 			return nil, false, false
 		}
 		if text == "" {
-			return text, true, true
+			return []string{}, true, true
 		}
 		if !stringIn(fieldType, "multiplechoice", "multiselect") {
 			return nil, false, false

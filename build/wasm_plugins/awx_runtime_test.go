@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -59,13 +60,23 @@ func TestAWXPreflightWithoutWASIStart(t *testing.T) {
 				if details["ok"] != true {
 					t.Fatalf("preflight not successful: %v", details)
 				}
+				fields := details["preflight"].(map[string]any)["survey"].(map[string]any)["spec"].([]any)
+				choices, ok := fields[0].(map[string]any)["choices"].([]any)
+				if !ok || len(choices) != 0 {
+					t.Fatal("empty survey choices must normalize to an empty array")
+				}
 				hosts := details["preflight"].(map[string]any)["selected_hosts"].([]any)
 				if hosts[0].(map[string]any)["membership_generation"] != tc.generation {
 					t.Fatal("membership generation lost precision")
 				}
-				for _, key := range []string{"request_digest", "preflight_digest"} {
-					if len(details[key].(string)) != 64 {
-						t.Fatalf("invalid %s", key)
+				for key, value := range map[string]any{"request_digest": config["args"], "preflight_digest": details["preflight"]} {
+					encoded, err := json.Marshal(value)
+					if err != nil {
+						t.Fatal(err)
+					}
+					expected := fmt.Sprintf("%x", sha256.Sum256(encoded))
+					if details[key] != expected {
+						t.Fatalf("noncanonical %s: got %s want %s", key, details[key], expected)
 					}
 				}
 			}
@@ -89,7 +100,7 @@ func awxRuntimeResponses(surveyVariable string) map[string]any {
 	}
 	return map[string]any{
 		"/api/v2/job_templates/11/":             template,
-		"/api/v2/job_templates/11/survey_spec/": map[string]any{"name": "Example survey", "spec": []any{map[string]any{"variable": surveyVariable, "question_name": "Example input", "question_description": "", "type": "text", "required": true, "min": 1, "max": 20, "default": ""}}},
+		"/api/v2/job_templates/11/survey_spec/": map[string]any{"name": "Example survey", "spec": []any{map[string]any{"variable": surveyVariable, "question_name": "Example input", "question_description": "", "type": "text", "required": true, "min": 1, "max": 20, "default": "", "choices": ""}}},
 		"/api/v2/projects/12/":                  map[string]any{"id": 12, "name": "Example project", "modified": modified, "scm_type": "git", "scm_url": "https://git.example.com/ops/example.git", "scm_branch": "main", "scm_revision": strings.Repeat("c", 40), "scm_clean": true, "scm_update_on_launch": false, "status": "successful"},
 		"/api/v2/inventories/13/":               map[string]any{"id": 13, "name": "Example inventory", "modified": modified, "kind": ""},
 		"/api/v2/credentials/14/":               map[string]any{"id": 14, "name": "Example credential", "modified": modified, "credential_type": 1, "kind": "ssh", "summary_fields": map[string]any{"credential_type": map[string]any{"id": 1, "name": "Machine"}}},
