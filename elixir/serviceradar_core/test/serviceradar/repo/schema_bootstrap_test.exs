@@ -39,6 +39,29 @@ defmodule ServiceRadar.Repo.SchemaBootstrapTest do
     end
   end
 
+  describe "migration_ledger_table/1" do
+    # Stubs: the helper only reads `repo.config/0`, which needs no started repo.
+    defmodule DefaultLedgerRepo do
+      def config, do: []
+    end
+
+    defmodule AshLedgerRepo do
+      def config, do: [migration_source: "ash_schema_migrations"]
+    end
+
+    test "defaults to schema_migrations when the repo sets no migration_source" do
+      assert SchemaBootstrap.migration_ledger_table(DefaultLedgerRepo) ==
+               "platform.schema_migrations"
+    end
+
+    test "uses the repo's configured migration_source" do
+      # web-ng sets `migration_source: "ash_schema_migrations"` for the shared repo; the
+      # baseline must record its marks where that repo's migrator reads (issue #321).
+      assert SchemaBootstrap.migration_ledger_table(AshLedgerRepo) ==
+               "platform.ash_schema_migrations"
+    end
+  end
+
   describe "migration_version_from_file/1" do
     test "reads the version prefix from a migration filename" do
       assert SchemaBootstrap.migration_version_from_file(

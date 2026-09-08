@@ -109,7 +109,15 @@ ServiceRadar exposes the operator-tunable knobs as env vars surfaced in both `do
 | Env var | Default | What it does |
 |---|---|---|
 | `AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS` | `30` | `ControllerHealthWorker` cadence (one `awx.ping` per registered controller). |
-| `ANSIBLE_CATALOG_BASE_DIR` | `/var/lib/serviceradar/ansible_catalog` (helm) / `<tmp>` (compose) | Base directory for `GitCatalogSyncWorker` repo clones. Mount a PVC at this path in Kubernetes to keep the cache warm across pod restarts. |
+| `ANSIBLE_CATALOG_BASE_DIR` | `/var/lib/serviceradar/ansible_catalog` (Helm and Compose) | Base directory for `GitCatalogSyncWorker` repo clones. Mount a PVC at this path in Kubernetes to keep the cache warm across pod restarts. |
+
+Set `ANSIBLE_CATALOG_BASE_DIR` to a non-empty path writable by core. It populates
+the `:serviceradar_core` application setting `:ansible_catalog_base_dir`; a
+configured cache bypasses system temporary-directory lookup during sync. Without
+that setting, the worker uses `System.tmp_dir!()/serviceradar_ansible_catalog`
+and still requires a writable system temporary directory. Runtime configuration
+also resolves that fallback when the environment variable is absent, so set the
+variable before startup in environments without writable temporary storage.
 
 In Helm, these live under `core.ansible.*`:
 

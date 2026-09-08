@@ -26,8 +26,8 @@ github.com/bazelbuild/rules_go v0.63.0 h1:G/hGy2pBLxlrxbpQBJKdHSLhu3KFIkFsuNg8m5
 github.com/bazelbuild/rules_go v0.63.0/go.mod h1:6YghDRf6l3FSiAwncK+Ww9jE1naoQzNq28gaKJeB67I=
 github.com/bluenviron/gortsplib/v5 v5.6.4 h1:e3h1QMYUlh+c+yLvxqr6kPL/2dCH5Sk18XRm9k4u2zU=
 github.com/bluenviron/gortsplib/v5 v5.6.4/go.mod h1:0bjv+O0C5AbH8SqrjvjOX67NNpHtpGBtmMEVMQQ6VXU=
-github.com/bluenviron/mediacommon/v2 v2.9.3 h1:cT52JxFnOG2EvI8Imp0sy0NZI773Id+QmY3eOEryR9Y=
-github.com/bluenviron/mediacommon/v2 v2.9.3/go.mod h1:QHNpEjVsUnmP2tfYZ+hgQRfvupR1GRBUd2FJqSvC/qo=
+github.com/bluenviron/mediacommon/v2 v2.9.4 h1:KmV83wTPYGUp32WJd450NnnRr5Db8cpSvO3Y1KiGIKE=
+github.com/bluenviron/mediacommon/v2 v2.9.4/go.mod h1:6KbotxrKqZ6IUyq8g2/9ApcfGGuArFUQOJsH5lYosFk=
 github.com/bufbuild/protocompile v0.14.1 h1:iA73zAf/fyljNjQKwYzUHD6AD4R8KMasmwa/FBatYVw=
 github.com/bufbuild/protocompile v0.14.1/go.mod h1:ppVdAIhbr2H8asPk6k4pY7t9zB1OU5DoEw9xY/FUi1c=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=
@@ -415,8 +415,8 @@ golang.org/x/sys v0.0.0-20220503163025-988cb79eb6c6/go.mod h1:oPkhp1MJrh7nUepCBc
 golang.org/x/sys v0.0.0-20220615213510-4f61da869c0c/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/sys v0.1.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/sys v0.21.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
-golang.org/x/sys v0.47.0 h1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=
-golang.org/x/sys v0.47.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
+golang.org/x/sys v0.48.0 h1:bbX/i/6MgT9BVLM9RT1thmxL04yeTAhbEz4SyadbXoo=
+golang.org/x/sys v0.48.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=
 golang.org/x/term v0.45.0 h1:NwWyBmoJCbfTHpxrWoZ9C6/VxOf7ic219I8xZZFdrf0=
 golang.org/x/term v0.45.0/go.mod h1:9aqxs0blBcrm/n0L9QW0aRVD+ktan8ssZromtqJC43w=
 golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=

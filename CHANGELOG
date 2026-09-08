@@ -1,3 +1,58 @@
+# ServiceRadar v1.4.53
+
+Advisory-feed downloads (CISA KEV, presigned VulnCheck fetches) and
+edge release-artifact mirroring move onto a dedicated `:httpc`
+egress client, fixing outbound-proxy tunnels that closed silently
+under Mint 1.10.0. Seasonal-baseline delivery to the edge anomaly
+add-on batches per device instead of one fleet-wide query. Also:
+pre-1.4.52 agents get a usable remote-access host-key failure
+message, the Bumblebee vulnerability-catalog schema matches what
+agents expect, device identity ignores addresses no device can
+hold, and a merge survivor's first-seen date is restored.
+
+## Whats New
+
+**1.4.53**
+- Advisory feeds: CISA KEV and presigned VulnCheck downloads, plus
+  edge release-artifact mirroring, move to a new `:httpc`-based
+  egress client (`ServiceRadar.HTTP.EgressClient`). Mint 1.10.0 --
+  required for two CVE fixes -- closes the CONNECT tunnel
+  immediately after connecting through this deployment's outbound
+  proxy, which OTP reported only as an opaque `dtls_upgrade: notsup`
+  error with no mention of the proxy. The new client tunnels
+  correctly through the same proxy and reports a real error when a
+  download does fail. The Ubuntu OSV/VEX feed is now enabled by
+  default on installs that never touched its setting.
+- Advisory feeds: plugins can emit a normalized `advisory-feed:v1`
+  batch (purl/CPE/vendor-product coordinates) via
+  `serviceradar-sdk-go/v2`, a new major SDK version.
+- Observability: seasonal-baseline delivery to the edge anomaly
+  add-on now fetches the full 168-bucket profile in bounded
+  per-device (and, for interfaces, per-interface) chunks instead of
+  one fleet-wide query, so delivery no longer times out as a fleet
+  grows.
+- Remote access: SSH host-key failures reported by agents older
+  than 1.4.52 are now classified too, with `reviewable: false` and
+  no fingerprint, instead of falling through to an opaque close.
+  Fingerprint-bearing review is unchanged for 1.4.52+ agents.
+- Vulnerabilities: the Bumblebee exposure-catalog artifact now
+  writes the schema the vendored agent-side parser actually expects
+  (schema version `0.1.0`, `id`/`ecosystem`/`package`/`versions`
+  keys). The previous mismatch failed catalog load for every
+  package on every agent.
+- Inventory: a passive census sighting of an address no device can
+  hold (`::`, `0.0.0.0`, loopback) can no longer mint a device, and
+  a link-local address alone can no longer anchor device identity.
+  A migration restores `first_seen_time` on merge survivors that
+  had absorbed an older device, fixing the "Recently added devices"
+  report.
+- Ansible: `GitCatalogSyncWorker` no longer performs an eager
+  temp-directory lookup for the git catalog cache. Settings >
+  Ansible tab switches reset their stream and count correctly and
+  render timestamps in the viewer's timezone.
+- Schema: `20260907090000` (restore merged device first-seen
+  dates). `migrations.expectedVersion` is `20260907090000`.
+
 # ServiceRadar v1.4.52
 
 An unenrolled SSH host key is a reviewable trust decision at the

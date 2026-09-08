@@ -35,6 +35,10 @@ jobs:
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
       GH_TOKEN: ${{ github.token }}
       GITHUB_TOKEN: ${{ github.token }}
+      # serviceradar-sdk-go is not served via the public Go proxy
+      # (proxy.golang.org/sum.golang.org block), so every Go module
+      # resolution in this job must fetch it directly from GitHub.
+      GOPRIVATE: github.com/carverauto/serviceradar-sdk-go
 
     steps:
       - name: Checkout
