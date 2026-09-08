@@ -591,13 +591,13 @@ here.
     `proto/edge/v1/testdata/mtr_batch.bin`.
 
   SUBTASKS (parent stays unchecked until all close)
-  - [ ] 1.4-a the MTR vectors, INCLUDING the accepted-at-ceiling control for the
+  - [x] 1.4-a the MTR vectors, INCLUDING the accepted-at-ceiling control for the
         assignment-expectation ordinal count, in BOTH runtimes. Named here rather than left to
         "the MTR vectors": each runtime asserts only that ceiling+1 is refused, so tightening
         `>` to `>=` refuses a legal ceiling value and both suites stay green. NOT 1.15-a's --
         that subtask is shared per-value LEAF vectors and closes no validator boundary.
-  - [ ] 1.4-b full-MTR `trace_id` UUIDv7 overflow vector (assigned by 1.3)
-  - [ ] 1.4-c full-MTR `event_id` UUIDv7 overflow vector -- SEPARATE from 1.4-b, because the
+  - [x] 1.4-b full-MTR `trace_id` UUIDv7 overflow vector (assigned by 1.3)
+  - [x] 1.4-c full-MTR `event_id` UUIDv7 overflow vector -- SEPARATE from 1.4-b, because the
         two `uuidTimeWithin` calls are independently removable
 
 - [ ] 1.5 Define compatibility rules for unknown fields/enums, unsupported
