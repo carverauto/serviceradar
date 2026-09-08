@@ -9,9 +9,9 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
   metadata becomes the catalog `Playbook` row, upserted via
   `Playbook.upsert_git` with `source_type: :git`.
 
-  Path layout: `<base_dir>/<repository_id>/`. Default base dir is
-  `System.tmp_dir!()/serviceradar_ansible_catalog`; override with
-  `:ansible_catalog_base_dir`. Each pod has its own cache; sharing
+  Path layout: `<base_dir>/<repository_id>/`. For cache configuration and
+  temporary-directory requirements, see `docs/docs/ansible.md`,
+  "Configure environment variables". Each pod has its own cache; sharing
   across pods isn't required since the upsert is idempotent.
 
   v1 limitations:
@@ -332,12 +332,8 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorker do
   defp sanitize_git_error(other), do: other |> inspect() |> String.slice(0, 200)
 
   defp default_base_dir do
-    # NOTE: fetch without a default on purpose. Application.get_env/3
-    # evaluates its default eagerly, so the previous
-    # `Path.join(System.tmp_dir!(), ...)` default raised "could not get a
-    # writable temporary directory" on every sync whenever TMPDIR was
-    # missing/unwritable -- even with :ansible_catalog_base_dir configured
-    # (see #4392). Only touch the temp dir when no explicit dir is set.
+    # Application.get_env/3 evaluates its default eagerly. Keep temporary-directory
+    # lookup lazy so a configured cache works even when no writable temp dir exists.
     case Application.fetch_env(:serviceradar_core, :ansible_catalog_base_dir) do
       {:ok, dir} when is_binary(dir) and dir != "" ->
         dir
