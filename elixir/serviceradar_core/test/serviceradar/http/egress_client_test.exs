@@ -17,6 +17,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.HTTP.EgressClient
+  alias ServiceRadar.Inventory.AdvisoryFeeds.Acquisition
 
   @goproxy_connect_reply "HTTP/1.0 200 OK\r\n\r\n"
   @body "synthetic-release-artifact"
@@ -82,7 +83,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     download_opts = opts(ctx, timeout_ms: 2_000)
 
     assert {:ok, acquired} =
-             ServiceRadar.Inventory.AdvisoryFeeds.Acquisition.acquire_cisa(
+             Acquisition.acquire_cisa(
                "https://localhost/cisa.json",
                "connect-success",
                download_opts
@@ -91,7 +92,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     assert File.read!(Path.join(acquired.extracted_dir, "cisa-kev.json")) == @body
 
     assert {:error, {:download_failed, {:http_status, 302}}} =
-             ServiceRadar.Inventory.AdvisoryFeeds.Acquisition.acquire_cisa(
+             Acquisition.acquire_cisa(
                "https://localhost/redirect",
                "connect-redirect",
                download_opts
@@ -100,7 +101,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     refute File.exists?(Path.join([ctx.tmp_dir, "cisa-kev", "connect-redirect"]))
 
     assert {:error, {:download_failed, :timeout}} =
-             ServiceRadar.Inventory.AdvisoryFeeds.Acquisition.acquire_cisa(
+             Acquisition.acquire_cisa(
                "https://localhost/stall",
                "connect-timeout",
                download_opts
