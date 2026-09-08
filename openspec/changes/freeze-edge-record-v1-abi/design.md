@@ -156,8 +156,8 @@ WHO PROVES IT. A row's value is read FROM THE SPEC, and from nowhere else -- not
 document's readability tables, and not from a constant in either runtime.
 AN ABSENT SPEC VALUE IS AN IMPLEMENTED CANDIDATE, NOT A FROZEN ONE. The normative
 requirements and reviewed bound corpora now close the obligations identified by this audit;
-implementation defaults such as ACK budgets remain policy. The overall freeze gate is still
-tracked separately in 1.7-d. Sections 2 and 2b restate values for readability, so they are a
+implementation defaults such as ACK budgets remain policy. The overall freeze gate is reviewed and closed in 1.7-d; this does not claim
+that the broader runtime restore has shipped. Sections 2 and 2b restate values for readability, so they are a
 convenience for a reader and never a source for a task. The one place numbers do appear is the
 MEASURED-MAXIMA table below, where the number IS the finding: those are not frozen bounds
 but measurements of what a valid input can actually reach, and the gap between the two is the
@@ -218,9 +218,9 @@ shared-corpus shape. They stay with 1.4-a unless ownership is explicitly moved.
 | `MaxManifestPages` **(plan, DECODED)** | page-list length in `ValidatePlanPages` | both runtimes now count AFTER header validation and BEFORE the walk | LANDED: precedence rows both runtimes; the declared page count stays a header RELATION below the walk; plus the shared N/N+1 corpus (`plan_decoded`) | COMPLETE. LOWER LANDED: 0 refused / 1 accepted. The local arm is classed `retags` -- removing it leaves the header page-count RELATION refusing the same input under a different reason -- so the row asserts the exact reason, which is what kills the removal |
 | `MaxRangesPerPage` | range count, post-decode per page | `plan.go` / `PlanValidate` -- **both now precede descent** | LANDED: precedence rows both runtimes, plus the shared N/N+1 corpus (`plan_ranges`). The page-size ceiling returns the SAME refusal tag, so it is excluded against the LIVE bound rather than a copied number: Go runs the REFUSED pages through the exported `MaxPlanPageBytes`, and this runtime -- whose ceiling is private -- adds an ACCEPTED N-range control built from canonical full-length IPv6 that encodes LARGER than the refused N+1 page, so any ceiling low enough to have refused N+1 for size refuses the control too. The discriminating mutation is a ceiling STRICTLY BETWEEN the two encoded sizes; both runtimes fail it | COMPLETE. LOWER LANDED: 0 refused / 1 accepted, and this is the load-bearing plan arm -- classed `admits`, because removing it ADMITS a page with no ranges outright in both runtimes |
 | `MaxSpansPerPage` **(chain)** | span count, post-decode per page | `ValidateManifestChain` / `RecoveryValidate` -- **both now precede descent** | LANDED: precedence rows both runtimes, plus the shared N/N+1 corpus (`recovery_spans_chain`) | COMPLETE. LOWER LANDED: 0 refused / 1 accepted. Classed `retags` -- the span-body fallback refuses the same input under its own reason -- so the rows assert the exact reason. The fallbacks are RECORDED rather than centralized: restructuring a validator to make a shadowed arm independently killable changes production code to suit a test |
-| `MaxSpansPerPage` **(single page)** | span count on ONE page | `validateSingleManifestPage`, reached from the recovery-control path / **no Elixir peer** | LANDED (GO ONLY): a signed recovery-control wrapper around the shared span pair -- page sealed first, scope digest taken from it, payload/claim/envelope/both signatures built after, nothing mutated post-seal; both artifacts pass `ValidateRecordSigned` before any production claim. Removing ONLY this ceiling ADMITS the over-limit wrapper | COMPLETE (upper + lower), GO ONLY, NOTHING DEFERRED -- all four controls (0/1/N/N+1) run through the SIGNED boundary with `ValidateRecordSigned` asserted first, since the page is reachable only via `ValidateRecoveryControl`. Single-runtime row: the peer is **1.6-d**'s, recorded as `n/a` with that owner in the corpus so an absent peer cannot become a silent exemption. The local arm is classed `retags`, so the rows assert the exact refusal reason |
-| `MaxManifestPages` **(tombstone)** | supplied page-list length, against a DECLARED count | `ValidateTombstone` / `RecoveryValidate.tombstone/2` -- **both now bound BEFORE comparing the declared count** | LANDED: bounds-before-relation parity rows in both runtimes, mutation-verified, plus the shared N/N+1 corpus (`tombstone`). The N+1 tombstone RESEALS its declaration to 1025 and asserts so -- declaring 1024 would be refused by the count RELATION and the row would pass with the ceiling deleted | COMPLETE for the page-LIST bound. An INDEPENDENTLY REMOVABLE eighth site. SEPARATE, AND NOW LANDED IN GO: the signed tombstone's `manifest_page_count` rule bounds a DECLARED SCALAR, not a supplied list, so it is a different site from the page-LIST bound above. BEFORE THIS TASK it had no dedicated count-specific pair in either runtime -- the signed reason rows exercised a count of 1 only INCIDENTALLY, since every wrapper declares one page, with nothing varying the count or asserting a verdict on it -- and `recoveryControlBody` checked `== 0` alone, so a declaration of 2^32-1 was admitted on the only path a SIGNED tombstone reaches. NOW: that gate bounds `1..MaxManifestPages` (detected-at split into its own fault), with FOUR Go controls -- 0 refused, 1 accepted, 1024 accepted, 1025 refused -- each rescoping and re-signing a fresh record and asserting `ValidateRecordSigned` before the production claim. The signed Elixir peer is **1.6-d**'s and MIRRORS ALL FOUR; what is delegated is the TARGET bound, not the `== 0` arm Go carried before |
-| `MaxReasonBytes` | tombstone reason bytes, on the SIGNED recovery-control body path | `recoveryControlBody`, reached only via `ValidateRecoveryControl` / **no signed path exists** (1.6-d) | LANDED (GO ONLY): FOUR controls -- 0 refused, 1 ACCEPTED, 256 accepted, 257 refused -- through a signed wrapper -- tombstone sealed first, scope digest taken from it, payload/claim/envelope/signatures built after, `ValidateRecordSigned` asserted before any production claim. The empty arm is its own rule AND needs its own accepted control: a frozen minimum of 1 is not pinned by a zero-refusal, which a validator rejecting length 1 satisfies unchanged | delegated to **1.6-d**, recorded `n/a` with that owner |
+| `MaxSpansPerPage` **(single page)** | span count at the isolated recovery-control page site | `validateSingleManifestPage` / `RecoveryValidate.single_page/1` | Both signed boundaries have 0/1/N/N+1 controls; exact refusal reasons distinguish the bound from body fallback | CLOSED -- Elixir controls live in `RecoveryControlBoundsTest` (1.6-d), separately from the shared count manifest row |
+| `MaxManifestPages` **(tombstone)** | supplied page-list count and independently bounded declared scalar | `ValidateTombstone` and `recoveryControlBody` / `RecoveryValidate.tombstone/2` and `control_body/1` | Shared list-bound controls plus signed 0/1/N/N+1 declared-count controls in both runtimes | CLOSED -- the separate Elixir signed controls are in `RecoveryControlBoundsTest` (1.6-d) |
+| `MaxReasonBytes` | reason bytes on the signed recovery-control path | `recoveryControlBody` / `RecoveryValidate.control_body/1` | Signed empty/minimum/ceiling/overflow controls in both runtimes | CLOSED -- Elixir controls in `RecoveryControlBoundsTest` (1.6-d); the shared scalar manifest delegates to that separate suite |
 | declared projected cost vs the capability's DECLARED maxima | structural, pre-signature | `ValidateRecord` / `RecordValidate.validate_bytes/1` | Shared model equality and each cost maximum relation, including equality acceptance and one-over refusal; Go signed-boundary ordering test remains distinct from structural parity | CLOSED -- 1.5-n. Actual row accounting is 1.5-k |
 
 ### Which ordinal arms can be mutation-killed, measured -- PER BOUND
@@ -662,9 +662,9 @@ cross-language identity. Full byte-exact field tables are in Appendix A:
 | --- | --- | --- |
 | semantic-envelope digest | `semanticDigestVersion = 3` (committed grammar CONSTANT fixed by the record-schema ABI, NOT a wire field) | frozen: NO leading string domain tag; leads with the `u64` version; FIXED field order (no numeric tags); 8-byte big-endian ints; 8-byte big-endian length prefixes on bytes/string; 1-byte presence markers; `u64` oneof discriminants; field-by-field nested framing; NO `proto.Marshal` at any depth |
 | capability signing bytes | `capability_version = 1` | frozen: a SINGLE leading str domain `serviceradar.edge.capability.v1` plus a `purpose` field (NOT per-purpose tags); then the `u64` version; FIXED field order; 8-byte big-endian ints; `i64` not_before/expires; 8-byte big-endian length prefixes; the claims message framed field-by-field; EXCLUDES the signature; Ed25519 signs the RAW framed preimage bytes; NO `proto.Marshal` |
-| plan / range / recovery content hashes | `PlanDigestVersion = 1` / recovery version `1` | PLAN: the range/page/header preimages CHANGED in this change (`mtr_ordinal_count` added, retired `assignment_epoch` removed), so they are an IMPLEMENTED CANDIDATE, not frozen -- `PlanDigestVersion` stays 1 only because nothing has shipped against them. RECOVERY: task 1.6a has LANDED, and with it the atomic rewrite of the manifest-page and tombstone-scope grammars -- the recovery entries here describe the post-1.6a IMPLEMENTED CANDIDATE. They are still not FROZEN, because task 1.7 is the freeze gate and holds the remaining prerequisites; what no longer applies is "pending 1.6a". DOMAIN-FIRST -- leads with a per-object `str` domain sub-tag (`serviceradar.edge.plan.{range,page,root,header}.v1`, `serviceradar.edge.recovery.{manifest_page,manifest_root}.v1`), THEN the `u64` version; FIXED field order; 8-byte big-endian ints; 8-byte big-endian length prefixes; each excludes its self-hash; NO `proto.Marshal` |
+| plan / range / recovery content hashes | `PlanDigestVersion = 1` / recovery version `1` | Reviewed and frozen by task 1.7, including the completed 1.6a transcript rewrite. DOMAIN-FIRST -- leads with a per-object `str` domain sub-tag (`serviceradar.edge.plan.{range,page,root,header}.v1`, `serviceradar.edge.recovery.{manifest_page,manifest_root}.v1`), THEN the `u64` version; FIXED field order; 8-byte big-endian ints; 8-byte big-endian length prefixes; each excludes its self-hash; NO `proto.Marshal` |
 | compiled-assignment body + artifact digests | `CompiledAssignmentDigestVersion = 1` | frozen (Appendix A grammars 9 and 10): TWO grammars under ONE version, each DOMAIN-FIRST with its own `str` tag (`serviceradar.edge.assignment.compiled.body.v1` and `...compiled.artifact.v1`), THEN the `u64` version; FIXED field order (NOT proto tag order); 8-byte big-endian ints; `i64` window bounds; 8-byte big-endian length prefixes. The BODY digest excludes both digest fields AND the capability; the ARTIFACT digest covers the body digest, a 1-byte capability presence marker and, when present, the capability's grammar-2 signing preimage plus its signature. NO `proto.Marshal` |
-| MTR completion proof | `MtrCompletionDigestVersion = 2` | **CANDIDATE, NOT FROZEN** -- the leaf `disposition` enum is now DECLARED and both runtimes consume it, and the zero-MTR behaviour is DECIDED (candidate B, the mandatory canonical zero-leaf proof). What still holds this entry short of frozen: ONLY task 1.15's shared per-value leaf vectors. Both previously-undefined plan-derived relations are RESOLVED -- `range_root_sha256` is RETIRED (tag 20, reserved by number and name) in favour of the assignment record's resolvable `target_range_id` + `target_range_sha256`, and the required `SweepMtrExpectationV1` STATES the admitted ordinal count, so "32 zero bytes means none admitted" is written down and checkable in both directions. Otherwise: leads with the `u64` version; each leaf = version, ordinal (`u64`), disposition (`u64`), trace_id (bytes, empty unless TRACE_ALLOCATED), `range_sha256`; three accumulators folded by BIG-endian 256-bit modular addition (mod 2^256), arrival-order-independent, no per-block Merkle/sort; ROOT = `SHA-256(version || expected || plan_root_sha256(32) || mtr_ordinal_range_commitment(32) || content-acc(32))`; NO `proto.Marshal` |
+| MTR completion proof | `MtrCompletionDigestVersion = 2` | Reviewed and frozen by task 1.7; 1.15-a supplies shared per-value leaves and both runtimes implement the mandatory canonical zero-leaf proof. Both previously-undefined plan-derived relations are RESOLVED -- `range_root_sha256` is RETIRED (tag 20, reserved by number and name) in favour of the assignment record's resolvable `target_range_id` + `target_range_sha256`, and the required `SweepMtrExpectationV1` STATES the admitted ordinal count, so "32 zero bytes means none admitted" is written down and checkable in both directions. Otherwise: leads with the `u64` version; each leaf = version, ordinal (`u64`), disposition (`u64`), trace_id (bytes, empty unless TRACE_ALLOCATED), `range_sha256`; three accumulators folded by BIG-endian 256-bit modular addition (mod 2^256), arrival-order-independent, no per-block Merkle/sort; ROOT = `SHA-256(version || expected || plan_root_sha256(32) || mtr_ordinal_range_commitment(32) || content-acc(32))`; NO `proto.Marshal` |
 
 Raw `proto.Marshal` output MUST NOT be a runtime-neutral semantic, signing,
 authorization, merge, or logical-content grammar, and there is no decode ->
@@ -684,24 +684,12 @@ check would reject valid records; `Deterministic` marshalling is a local
 reproducibility aid, not a protocol invariant. WHO encodes, fsyncs, or preserves
 the bytes end to end is runtime.
 
-SCOPE NOTE: this appendix is frozen EXCEPT where an entry is marked a candidate.
-Task 1.6a has LANDED (the recovery manifest-page, tombstone-scope and
-RESOLVED-scope entries now describe the IMPLEMENTED CANDIDATE transcript -- landed
-is not shipped, and task 1.7 is still what accepts it), and task 1.4's disposition
-sub-target is DECLARED. What still holds those entries and the
-MTR-completion entry short of frozen is task 1.7, the freeze gate, which carries EVERY
-UNCHECKED LOCAL TASK -- currently 1.1, 1.2, 1.3, 1.4, 1.5, 1.6 and 1.15. Earlier
-revisions named first only 1.15 and then only 1.3/1.5/1.6/1.15; both understated the
-gate, which is why this now states the RULE (all unchecked local tasks) rather than a
-list that goes stale as tasks close. The zero-MTR decision is
-CLOSED (candidate B), and the plan-derived relations are RESOLVED and verified by
-`ValidateAssignmentAgainstPlan` and its Elixir peer -- listing them as a blocker here
-was stale. "TombstoneScopeDigest
-retired" means the OLD TRANSCRIPT is replaced -- the scope OBJECT itself remains,
-and stays in task 1.6's proof inventory; task 1.7 is the freeze gate and
-carries those prerequisites explicitly. Reading the appendix title as "everything
-here is frozen" would let an implementer pin a grammar this plan already schedules
-for atomic rewrite.
+SCOPE NOTE: task 1.7 is reviewed and closed after every local prerequisite,
+including the shared per-value MTR leaves and both runtime version verifiers.
+The appendix describes the reviewed wire ABI, not deployed runtime behavior.
+The recovery rewrite replaced the old transcript, not the scope object itself;
+that object remains in the version/proof inventory. Historical mutation and
+retirement notes below explain the change and do not reopen its freeze gate.
 
 Every SIGNING/DIGEST grammar below is byte-frozen and interoperable ONLY when Go
 and Elixir implement it byte-for-byte. A grammar that does not pin all of the
@@ -1215,8 +1203,8 @@ commits `purpose`).
      clean-room implementation would produce different windows from the same plan.
 
      GRAMMAR VERSION: these entries change the v1 preimages. `PlanDigestVersion` stays 1
-     because the plan grammar is an UNSHIPPED CANDIDATE -- no producer emits it and no
-     fixture predates this change. Any later edit, once shipped, is a version bump.
+     because this rewrite preceded shipment of the plan grammar. The reviewed freeze
+     is now recorded by task 1.7. Any later edit, once shipped, is a version bump.
    - **RETIRED — replaced atomically by task 1.6a, which has LANDED.** The
      ManifestPageDigest entry below hashes the `lost_ranges` + `affected` pair,
      which 1.6a replaced with ONE ordered `classification_spans` list. Nothing had
@@ -1273,9 +1261,9 @@ commits `purpose`).
    it is declared once in `proto/edge/v1/sweep.proto`, Go's `MtrTerminalDisposition`
    is a type alias of it, and Elixir's guards read it through compile-time module
    attributes, so this framing now DOES describe the code and it supersedes #4713's
-   local declarations. STILL CANDIDATE for reasons that are NOT the enum and NOT
-   zero-MTR (decided: candidate B, implemented in both runtimes): task 1.15 owes the
-   shared per-value leaf vectors. That is the ONLY remaining reason. The plan-derived
+   local declarations. The shared per-value leaf vectors are complete (1.15-a),
+   and task 1.7 records the reviewed freeze. Zero-MTR uses the mandatory canonical
+   zero-leaf proof in both runtimes. The plan-derived
    relations are NOT unverifiable -- an earlier revision said so and was wrong: the
    assignment carrier EXISTS (`SweepAssignmentRecordV1`), and
    `ValidateAssignmentAgainstPlan` plus its Elixir peer VERIFY them today by

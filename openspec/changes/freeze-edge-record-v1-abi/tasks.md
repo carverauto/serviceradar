@@ -2249,10 +2249,8 @@ here.
   exists or that the freeze prerequisite it represents is met: that enum is task 1.4's,
   never 1.13's to claim. Slices:
   `usp-v2-02-wire-contract` (#4713), `usp-v2-03-ci-harness` (#4714), and
-  `usp-v2-04-publication-identity` (#4715). This is a field/schema CANDIDATE (draft PRs,
-  reviewable), NOT a frozen/accepted cross-runtime ABI: the freeze/accept gate is task 1.7
-  (still unchecked), consistent with task 0.10 (the implementation is a review candidate,
-  not an approved ABI). `proto.Marshal` was removed from every signed/hashed preimage
+  `usp-v2-04-publication-identity` (#4715). These began as review candidates;
+  task 1.7 now records acceptance of the complete cross-runtime ABI. `proto.Marshal` was removed from every signed/hashed preimage
   (`go/pkg/edge/edgerecord/semantic.go`, `capability.go`, `claims_framing.go`,
   `recovery.go`) and MTR completion field-framed (`domain.go`), with Go+Elixir
   cross-language fixtures regenerated. The candidate ABI and code changes were:
@@ -2300,8 +2298,7 @@ here.
   cross-language Go/Elixir fixtures, so THOSE SLICES no longer block the wire-ABI
   FREEZE gate. This says nothing about the other freeze prerequisites. Task 1.6a is MERGED
   (#4764) and the generated `MtrCompletionDisposition` enum has LANDED (task 1.4's
-  disposition sub-target); both are IMPLEMENTED CANDIDATES, not accepted ABI -- task 1.7 is
-  still the accept gate. THIS CHECKED TASK DOES NOT INVENTORY OPEN WORK: the canonical open
+  disposition sub-target); task 1.7 records their reviewed ABI acceptance. THIS CHECKED TASK DOES NOT INVENTORY OPEN WORK: the canonical open
   state is each open parent's own STATUS block and subtask checklist. A snapshot here would
   go stale silently. The zero-MTR
   decision is CLOSED -- a COMPLETED event always carries the proof. The freeze itself is
