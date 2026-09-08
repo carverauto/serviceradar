@@ -4,9 +4,9 @@ defmodule ServiceRadar.Automation.Ansible.PlaybookRepository do
 
   Catalog repos generally live on github/gitlab.com (reachable from the SaaS
   plane), so the GitCatalogSyncWorker clones / pulls them in Elixir rather
-  than via a plugin. Private repos use an HTTPS deploy token held by the
-  credential broker via `credential_secret_id`. SSH-key auth and on-prem git
-  servers are deferred (see openspec change `add-ansible-integration` design.md).
+  than via a plugin. See `GitCatalogSyncWorker` for supported repository access;
+  the public configuration contract is documented in
+  `docs/docs/ansible-provisioning-api.md`.
   """
 
   use Ash.Resource,

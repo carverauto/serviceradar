@@ -65,12 +65,12 @@ A single playbook can appear via both sources; both source types coexist in the 
 
 ### Apply the schema migration
 
-The Ansible tables are added via a single named Ash migration. From a freshly checked out copy with the runtime running against your target database:
+Apply the committed migrations using the application's database migration task,
+with the runtime configured for your target database:
 
 ```bash
 cd elixir/serviceradar_core
-mix ash.codegen add_ansible_integration   # generates the migration
-mix ash.migrate                           # applies it
+mix serviceradar.db.migrate
 ```
 
 Verify with:
@@ -450,7 +450,6 @@ If a user has `ansible.runs.launch` but cannot use the launch workflow or its re
 These are documented constraints, not bugs. Each is tracked for a future v2:
 
 - **AWX-sourced execution only.** The hardened launch picker accepts only AWX-sourced catalog rows with a current approved binding. Git-sourced rows remain searchable catalog metadata, even when an older row carries an AWX template ID. Direct `ansible-playbook` execution by a ServiceRadar agent is reserved for a follow-up.
-- **Public HTTPS git repos.** The `GitCatalogSyncWorker` supports HTTPS deploy tokens via the credential broker but not SSH keys yet.
+- **Git repository access.** See the supported URL and credential constraints in the [provisioning API](./ansible-provisioning-api.md#configuration-lifecycle).
 - **Scheduled execution unavailable.** The current UI supports interactive launches only. A future delegated design will use canonical operations.
 - **Multi-device UI launches require a single controller.** AWX uses `limit:` to scope to specific hosts; mixed-controller selections are rejected at submit time. Multi-controller fan-out is a v2 design question.
-- **Manual UUID paste for credential secret references.** Both controller and repository forms expect operators to paste a credential UUID from **Settings -> Networks -> Credential Rules** (`/settings/networks/credentials`). A picker UX is a planned v2 improvement.
