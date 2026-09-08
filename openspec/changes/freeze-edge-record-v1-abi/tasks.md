@@ -163,7 +163,7 @@ here.
     `proto/edge/v1/testdata/record.bin`.
 
   SUBTASKS (parent stays unchecked until all close)
-  - [ ] 1.1-a the typed Hello carrier
+  - [x] 1.1-a the typed Hello carrier
   - [ ] 1.1-b the outer-record `event_id` UUIDv7 overflow vector (assigned by 1.3). The
         shared checked helper `UUIDv7Nanos` exists and `validateIdentityTime` calls it, so
         what is owed is the VECTOR proving this call site rejects rather than wraps -- not
