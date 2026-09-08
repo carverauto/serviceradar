@@ -2135,7 +2135,10 @@ here.
   - EVIDENCE: the per-task STATUS blocks above are what this gate reads.
 
   SUBTASKS (parent stays unchecked until all close)
-  - [ ] 1.7-a cross-language N/N+1 vectors for all four raw bounds.
+  - [x] 1.7-a cross-language N/N+1 vectors for all four raw bounds.
+        CLOSED: `DecodeClientMessage` and `DecodeFrame` compose the raw gates before decode;
+        both runtimes consume `raw_bounds_corpus.txt`. `raw-transport-boundary-audit.md`
+        records the service-registration and effective-bound audit (a850c8bece).
         PREREQUISITE: `MaxClientMessageBytes` has NO EDGE-ABI enforcement site in Go. The
         constant and `ErrClientMessageTooLarge` are both declared and neither is ever
         referenced by a code path, while Elixir refuses an oversize client
@@ -2243,7 +2246,7 @@ here.
         first. The raw guard's whole value is that it runs before decode, and a rule a caller
         may decline is not a rule. This is the same conclusion the plan boundary reached when
         it unexported its page-only path.
-  - [ ] 1.7-b the relational envelope budget vector
+  - [x] 1.7-b the relational envelope budget vector; direct and client-wrapped duplicate-field overhead controls in `raw_relational_corpus.txt` (a850c8bece)
   - [ ] 1.7-c FREEZE-CONDITION FIXTURE COVERAGE: Go/Elixir golden fixtures covering
         `EdgeOutputContractRef`, authenticated `EdgeProducerContext`, production authority,
         OPTIONAL source authority, delivery authority, registry epochs, and the finite
