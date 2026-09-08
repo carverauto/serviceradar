@@ -1,15 +1,14 @@
 use super::{
-    addon_fleet, addon_statuses, advisory_coordinates, agents, alerts, bmp_events,
-    build_query_plan, capacity_forecasts, composite_results, cpu_metrics, dashboard_service_views,
-    dashboards, device_graph, device_sweep_overlap, devices, disk_metrics, downsample,
-    endpoint_inventory_scans,
+    PaginationMeta, QueryRequest, TranslateResponse, addon_fleet, addon_statuses,
+    advisory_coordinates, agents, alerts, bmp_events, build_query_plan, capacity_forecasts,
+    composite_results, cpu_metrics, dashboard_service_views, dashboards, device_graph,
+    device_sweep_overlap, devices, disk_metrics, downsample, endpoint_inventory_scans,
     endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
-    field_survey, flows, gateways, graph_cypher, identity, interfaces, is_full_profile_query, logs,
-    memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
+    field_survey, flows, gateways, graph_cypher, identity, interfaces, is_exhaustive_profile_query,
+    logs, memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
     public_endpoints, services, source_fact_disagreements, sweep_coverage, sweep_executions,
     sweep_groups, sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics,
     trace_summaries, traces, virtualization, viz, vulnerability_advisories, wifi_map,
-    PaginationMeta, QueryRequest, TranslateResponse,
 };
 use crate::{
     config::AppConfig,
@@ -129,11 +128,12 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     };
 
     let next_offset = plan.offset.saturating_add(plan.limit);
-    let next_cursor = if next_offset <= config.max_cursor_offset || is_full_profile_query(&plan) {
-        Some(encode_cursor(next_offset, &config.cursor_secret)?)
-    } else {
-        None
-    };
+    let next_cursor =
+        if next_offset <= config.max_cursor_offset || is_exhaustive_profile_query(&plan) {
+            Some(encode_cursor(next_offset, &config.cursor_secret)?)
+        } else {
+            None
+        };
     let prev_cursor = if plan.offset > 0 {
         Some(encode_cursor(
             plan.offset.saturating_sub(plan.limit),

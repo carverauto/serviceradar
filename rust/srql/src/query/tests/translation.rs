@@ -624,6 +624,57 @@ fn full_profiles_continue_past_the_generic_cursor_cap_in_translation() {
 }
 
 #[test]
+fn discovery_profiles_continue_past_the_generic_cursor_cap_in_translation() {
+    let mut config = test_config();
+    config.max_cursor_offset = 100;
+
+    for entity in ["timeseries_metrics", "timeseries_metric_interface_hourly"] {
+        let mut cursor = Some(encode_cursor(100, &config.cursor_secret).expect("cursor"));
+
+        for expected_offset in [150, 200] {
+            let request = QueryRequest {
+                query: format!(
+                    "in:{entity} time:last_180d stats:profile_hour_of_week(value) timezone:\"Etc/UTC\" limit:50"
+                ),
+                limit: None,
+                cursor,
+                direction: QueryDirection::Next,
+                mode: None,
+            };
+
+            let response = translate_request(&config, request).expect("discovery page");
+            let next = response
+                .pagination
+                .next_cursor
+                .expect("discovery continuation");
+            assert_eq!(
+                crate::pagination::decode_cursor(&next, &config.cursor_secret, i64::MAX).unwrap(),
+                expected_offset
+            );
+            cursor = Some(next);
+        }
+    }
+}
+
+#[test]
+fn ordinary_translation_retains_the_generic_cursor_cap() {
+    let mut config = test_config();
+    config.max_cursor_offset = 100;
+    let mut request = QueryRequest {
+        query: "in:devices limit:50".to_string(),
+        limit: None,
+        cursor: Some(encode_cursor(100, &config.cursor_secret).expect("cursor")),
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request.clone()).expect("page at cap");
+    assert!(response.pagination.next_cursor.is_none());
+    request.cursor = Some(encode_cursor(150, &config.cursor_secret).expect("cursor"));
+    assert!(translate_request(&config, request).is_err());
+}
+
+#[test]
 fn translate_downsample_respects_value_field() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {
@@ -1584,7 +1635,10 @@ fn translate_alerts_stats_actually_aggregates() {
         .expect("alerts stats should translate");
 
     assert!(sql.contains("COUNT(*)"), "no aggregate in: {sql}");
-    assert!(sql.contains("GROUP BY src.severity"), "no grouping in: {sql}");
+    assert!(
+        sql.contains("GROUP BY src.severity"),
+        "no grouping in: {sql}"
+    );
     assert!(
         sql.contains("jsonb_build_object('severity'"),
         "the group value must be projected: {sql}"
@@ -1598,7 +1652,10 @@ fn translate_alerts_stats_keeps_the_row_filters() {
     let sql = translate_query("in:alerts severity:critical stats:count() as n by status")
         .expect("filtered alerts stats should translate");
 
-    assert!(sql.contains("\"alerts\".\"severity\""), "filter dropped: {sql}");
+    assert!(
+        sql.contains("\"alerts\".\"severity\""),
+        "filter dropped: {sql}"
+    );
     assert!(sql.contains("GROUP BY src.status"));
 }
 
@@ -1635,7 +1692,11 @@ fn translate_alerts_stats_rejects_ungroupable_fields() {
 /// rules is a number nobody should act on.
 #[test]
 fn translate_alerts_stats_rejects_non_count_aggregations() {
-    for agg in ["avg(metric_value)", "sum(metric_value)", "max(metric_value)"] {
+    for agg in [
+        "avg(metric_value)",
+        "sum(metric_value)",
+        "max(metric_value)",
+    ] {
         let query = format!("in:alerts stats:{agg} as n by severity");
         assert!(translate_query(&query).is_err(), "{agg} must be rejected");
     }
@@ -1665,7 +1726,10 @@ fn translate_alerts_stats_rejects_unsafe_aliases() {
 fn translate_alerts_rows_are_unchanged_without_stats() {
     let sql = translate_query("in:alerts severity:critical").expect("row query still translates");
 
-    assert!(!sql.contains("COUNT(*)"), "a row query must not aggregate: {sql}");
+    assert!(
+        !sql.contains("COUNT(*)"),
+        "a row query must not aggregate: {sql}"
+    );
     assert!(!sql.contains("jsonb_build_object"), "{sql}");
 }
 
