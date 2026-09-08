@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.Api.AnsibleRepositoryController do
         {:ok, nil} when key == "description" ->
           {:cont, :ok}
 
-        {:ok, value} when is_binary(value) and byte_size(value) in 1..max ->
+        {:ok, value} when is_binary(value) and byte_size(value) in 1..max//1 ->
           if String.trim(value) == value and not String.contains?(value, <<0>>),
             do: {:cont, :ok},
             else: {:halt, invalid("#{key} must be a non-empty string without surrounding whitespace")}

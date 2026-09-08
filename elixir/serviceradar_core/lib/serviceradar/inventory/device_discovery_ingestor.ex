@@ -32,6 +32,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   mint a new duplicate device per rotation.
   """
 
+  alias ServiceRadar.Automation.Ansible.AwxInventoryObservationFence
   alias ServiceRadar.Automation.Ansible.AwxMembershipReconciler
   alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -69,9 +70,41 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   end
 
   def ingest(payload, status, opts) when is_map(payload) do
+    with {:ok, aggregates} <- AwxMembershipReconciler.parse(payload) do
+      ingest_with_membership_ordering(aggregates, payload, status, opts)
+    end
+  rescue
+    e ->
+      Logger.warning("Plugin device discovery ingest failed: #{Exception.message(e)}")
+      {:error, e}
+  end
+
+  def ingest(_payload, _status, _opts), do: :ok
+
+  defp ingest_with_membership_ordering([], payload, status, opts),
+    do: ingest_payload(payload, status, opts, false)
+
+  defp ingest_with_membership_ordering(aggregates, payload, status, opts) do
+    transaction =
+      Keyword.get(opts, :membership_transaction, &AwxInventoryObservationFence.with_locks/2)
+
+    emit_state_events =
+      Keyword.get(opts, :emit_state_events, &SyncIngestor.emit_committed_state_events/1)
+
+    with {:ok, %{notifications: notifications, state_events: state_events}} <-
+           transaction.(aggregates, fn -> ingest_payload(payload, status, opts, true) end) do
+      :ok = emit_state_events.(state_events)
+      AwxMembershipReconciler.notify_committed(notifications, opts)
+    end
+  end
+
+  defp ingest_payload(payload, status, opts, serialize_awx?) do
     actor = Keyword.fetch!(opts, :actor)
     device_sync = Keyword.get(opts, :device_sync, &sync_device_inventory/2)
     membership_sync = Keyword.get(opts, :membership_sync, &sync_awx_memberships/2)
+
+    membership_preflight =
+      Keyword.get(opts, :membership_preflight, &preflight_awx_memberships/2)
 
     source_observation_sync =
       Keyword.get(opts, :source_observation_sync, &sync_source_observations/3)
@@ -87,40 +120,54 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
       end)
 
     context = source_observation_context(status, actor)
+    membership_context = %{actor: actor, return_notifications?: serialize_awx?}
+    device_context = %{actor: actor, serialize_awx?: serialize_awx?}
 
-    with {:ok, process_batches} <-
+    with :ok <- membership_preflight.(payload, %{actor: actor}),
+         {:ok, process_batches} <-
            preflight_source_observation_batches(
              discovery_batches,
              context,
              source_observation_preflight
            ),
          updates = Enum.flat_map(process_batches, fn {_envelope, batch} -> batch end),
-         :ok <- sync_devices_if_present(updates, actor, device_sync),
+         {:ok, state_events} <- sync_devices_if_present(updates, device_context, device_sync),
          :ok <-
            sync_source_observation_batches(
              process_batches,
              context,
              source_observation_sync
            ) do
-      membership_sync.(payload, %{actor: actor})
-    end
-  rescue
-    e ->
-      Logger.warning("Plugin device discovery ingest failed: #{Exception.message(e)}")
-      {:error, e}
-  end
+      case membership_sync.(payload, membership_context) do
+        {:ok, notifications} when serialize_awx? and is_list(notifications) ->
+          {:ok, %{notifications: notifications, state_events: state_events}}
 
-  def ingest(_payload, _status, _opts), do: :ok
+        :ok when serialize_awx? ->
+          {:ok, %{notifications: [], state_events: state_events}}
+
+        result ->
+          result
+      end
+    end
+  end
 
   defp sync_device_inventory(updates, context) when is_list(updates) do
-    SyncIngestor.ingest_updates(updates, actor: context.actor)
+    opts = [actor: context.actor]
+
+    opts =
+      if context.serialize_awx?,
+        do: Keyword.merge(opts, batch_concurrency: 1, defer_state_events?: true),
+        else: opts
+
+    SyncIngestor.ingest_updates(updates, opts)
   end
 
-  defp sync_devices_if_present([], _actor, _device_sync), do: :ok
+  defp sync_devices_if_present([], _context, _device_sync), do: {:ok, []}
 
-  defp sync_devices_if_present(updates, actor, device_sync) do
-    case device_sync.(updates, %{actor: actor}) do
-      :ok -> :ok
+  defp sync_devices_if_present(updates, context, device_sync) do
+    case device_sync.(updates, context) do
+      :ok -> {:ok, []}
+      {:ok, effects} when context.serialize_awx? and is_list(effects) -> {:ok, effects}
       {:error, _reason} = error -> error
       other -> {:error, {:invalid_device_sync_result, other}}
     end
@@ -169,7 +216,14 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   end
 
   defp sync_awx_memberships(payload, context) do
-    AwxMembershipReconciler.reconcile(payload, actor: context.actor)
+    AwxMembershipReconciler.reconcile(payload,
+      actor: context.actor,
+      return_notifications?: context.return_notifications?
+    )
+  end
+
+  defp preflight_awx_memberships(payload, _context) do
+    AwxMembershipReconciler.preflight(payload)
   end
 
   defp discovery_envelopes(payload) do

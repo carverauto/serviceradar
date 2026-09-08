@@ -5,9 +5,9 @@ defmodule ServiceRadarWebNGWeb.AnsibleOperationsLiveTest do
 
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
+  alias ServiceRadarWebNG.AnsibleAutomation.History, as: AutomationHistory
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNG.Repo
-  alias ServiceRadarWebNGWeb.AnsibleLive.AutomationHistory
 
   setup %{conn: conn} do
     user = AshTestHelpers.admin_user_fixture()

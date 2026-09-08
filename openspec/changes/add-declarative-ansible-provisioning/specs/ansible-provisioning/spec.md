@@ -40,6 +40,24 @@ Configuration APIs SHALL provide stable IDs, bounded pagination, idempotent crea
 - **WHEN** a client deletes a credential referenced by a controller or another typed consumer
 - **THEN** the canonical usage guard SHALL reject deletion and identify authorized non-secret usage references
 
+### Requirement: Observation ordering preserves unchanged membership authority
+ServiceRadar SHALL track the latest accepted AWX controller observation separately from each membership's authority generation, preserve that authority generation when execution evidence is unchanged, and atomically reconcile device state, memberships, and the observation watermark before publishing resulting state events.
+
+#### Scenario: An unchanged observation arrives during an operation
+- **WHEN** a newer AWX observation preserves the membership's exact execution authority
+- **THEN** ServiceRadar SHALL refresh its observed state without invalidating the operation's membership authority
+- **AND** changes to the target identity, address, enabled/current state, source fingerprint, or linkage evidence SHALL still invalidate previous authority
+
+#### Scenario: An older or conflicting observation races with a newer one
+- **WHEN** controller observations arrive out of order or reuse a generation with conflicting content
+- **THEN** controller serialization SHALL reject the stale or conflicting observation before it changes device or membership state
+- **AND** partial and complete-empty observations SHALL participate in the same durable ordering
+
+#### Scenario: Membership reconciliation fails after device updates
+- **WHEN** any step in a controller observation's reconciliation fails
+- **THEN** its device updates, membership updates, and watermark advancement SHALL roll back together
+- **AND** no device-state event or membership notification for those uncommitted changes SHALL be emitted
+
 ### Requirement: Typed AWX provisioning through the broker
 ServiceRadar SHALL provision managed AWX projects, inventories, inventory sources, execution environments, job templates, and narrowly scoped role assignments through typed edge-agent commands using a distinct provisioning permission and purpose-bound broker grants.
 

@@ -115,6 +115,14 @@ to avoid losing signed 64-bit precision. Approval compares the exact current
 proposal and freshly checks the reviewer's authority. A changed proposal
 requires another review.
 
+The membership's generation identifies the source observation that last changed
+its execution authority. An unchanged sync refreshes its last-seen time without
+invalidating an approved membership or an active operation. ServiceRadar tracks
+the latest accepted observation separately to reject older or conflicting
+snapshots before they can overwrite device or membership state. Changes to the
+target identity, address, enabled/current state, or linkage evidence still
+invalidate the previous authority.
+
 Template binding review has two phases:
 
 1. `POST /ansible-template-bindings/prepare` with `controller_id`, `template_id`,

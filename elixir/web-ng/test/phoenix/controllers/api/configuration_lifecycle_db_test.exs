@@ -115,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.Api.ConfigurationLifecycleDbTest do
       |> put_req_header("idempotency-key", key)
       |> post(~p"/api/admin/ansible-repositories", attrs)
 
-    assert deleted_replay.status == 409
+    assert deleted_replay.status == 410
     assert (token |> request() |> get(~p"/api/admin/ansible-repositories/#{id}")).status == 404
   end
 
@@ -153,6 +153,26 @@ defmodule ServiceRadarWebNGWeb.Api.ConfigurationLifecycleDbTest do
     [etag] = get_resp_header(created, "etag")
     before_delete = version_actions(:controller, id)
     assert "create" in before_delete
+
+    Repo.query!(
+      """
+      UPDATE platform.ansible_controllers
+      SET updated_at = updated_at + interval '1 microsecond'
+      WHERE id = ($1::text)::uuid
+      """,
+      [id]
+    )
+
+    stale_delete =
+      token
+      |> request()
+      |> put_req_header("if-match", etag)
+      |> delete(~p"/api/admin/ansible-controllers/#{id}")
+
+    assert stale_delete.status == 409
+    current = token |> request() |> get(~p"/api/admin/ansible-controllers/#{id}")
+    assert %{"id" => ^id} = json_response(current, 200)
+    [etag] = get_resp_header(current, "etag")
 
     deleted =
       token

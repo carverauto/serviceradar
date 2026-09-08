@@ -4,7 +4,6 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
   """
 
   alias Ash.Error.Invalid
-  alias Ash.Error.Query.NotFound
   alias ServiceRadar.Credentials.CredentialRotation
   alias ServiceRadar.Credentials.CredentialSecretBuilder
   alias ServiceRadar.Credentials.NetworkCredentialRule
@@ -39,12 +38,9 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
   def get_secret(id, opts \\ []) when is_binary(id) do
     scope = Keyword.fetch!(opts, :scope)
 
-    case NetworkCredentialSecret.get_by_id(id, scope: scope) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, secret} -> {:ok, secret}
-      {:error, %NotFound{}} -> {:error, :not_found}
-      {:error, error} -> {:error, error}
-    end
+    id
+    |> NetworkCredentialSecret.get_by_id(scope: scope)
+    |> ConfigurationRequest.require_record()
   end
 
   @spec create_secret(map(), keyword()) :: {:ok, struct()} | {:error, term()}
@@ -155,12 +151,9 @@ defmodule ServiceRadarWebNG.NetworkCredentials do
   def get_rule(id, opts \\ []) when is_binary(id) do
     scope = Keyword.fetch!(opts, :scope)
 
-    case NetworkCredentialRule.get_by_id(id, scope: scope) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, rule} -> {:ok, rule}
-      {:error, %NotFound{}} -> {:error, :not_found}
-      {:error, error} -> {:error, error}
-    end
+    id
+    |> NetworkCredentialRule.get_by_id(scope: scope)
+    |> ConfigurationRequest.require_record()
   end
 
   @spec create_rule(map(), keyword()) :: {:ok, struct()} | {:error, term()}

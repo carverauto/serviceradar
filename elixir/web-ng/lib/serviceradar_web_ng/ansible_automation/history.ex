@@ -1,13 +1,12 @@
-defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistory do
+defmodule ServiceRadarWebNG.AnsibleAutomation.History do
   @moduledoc """
   Secret-safe read model for hardened Ansible operation history.
 
   Every database read uses a history-specific Ash action with an allowlisted
   projection. The second projection in this module converts resource structs
-  into plain maps before they are assigned to a LiveView. This makes the
-  boundary explicit: callback references, credential/authority snapshots,
-  approval internals, arbitrary metadata, and bearer-capable values never
-  enter LiveView state.
+  into plain maps shared by the authenticated API and LiveViews. Callback
+  references, credential/authority snapshots, approval internals, arbitrary
+  metadata, and bearer-capable values stay outside those public projections.
   """
 
   alias ServiceRadar.Automation.Ansible.AutomationExecution

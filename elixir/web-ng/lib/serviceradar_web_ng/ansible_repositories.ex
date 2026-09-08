@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNG.AnsibleRepositories do
   def get(scope, id) do
     id
     |> PlaybookRepository.get_by_id(scope: scope)
-    |> require_record()
+    |> ConfigurationRequest.require_record()
   end
 
   def create(scope, attrs) do
@@ -51,7 +51,7 @@ defmodule ServiceRadarWebNG.AnsibleRepositories do
   def delete(scope, id, opts) do
     # The parent row lock also blocks new catalog rows acquiring their FK lock.
     # This keeps the empty-catalog check valid until the delete commits.
-    Repo.transaction(fn ->
+    fn ->
       with {:ok, repository} <- locked_repository(scope, id),
            :ok <- require_empty_catalog(scope, id),
            :ok <- destroy_repository(scope, repository, opts) do
@@ -59,7 +59,9 @@ defmodule ServiceRadarWebNG.AnsibleRepositories do
       else
         {:error, reason} -> Repo.rollback(reason)
       end
-    end)
+    end
+    |> Repo.transaction()
+    |> ConfigurationRequest.normalize_result()
   end
 
   def sync(scope, id) do
@@ -75,7 +77,7 @@ defmodule ServiceRadarWebNG.AnsibleRepositories do
     |> Ash.Query.for_read(:by_id, %{id: id}, scope: scope)
     |> Ash.Query.lock(:for_update)
     |> Ash.read_one(scope: scope)
-    |> require_record()
+    |> ConfigurationRequest.require_record()
   end
 
   defp require_empty_catalog(scope, id) do
@@ -103,8 +105,4 @@ defmodule ServiceRadarWebNG.AnsibleRepositories do
 
   defp after_cursor(query, nil), do: query
   defp after_cursor(query, cursor), do: Ash.Query.filter(query, id > ^cursor)
-
-  defp require_record({:ok, nil}), do: {:error, :not_found}
-  defp require_record({:error, %Ash.Error.Query.NotFound{}}), do: {:error, :not_found}
-  defp require_record(result), do: result
 end

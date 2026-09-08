@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNG.ConfigurationRequestTest do
   import Phoenix.ConnTest, only: [build_conn: 0]
   import Plug.Conn
 
+  alias Ash.Error.Invalid
   alias ServiceRadar.Automation.Ansible.PlaybookRepository
   alias ServiceRadarWebNG.ConfigurationRequest
 
@@ -43,6 +44,27 @@ defmodule ServiceRadarWebNG.ConfigurationRequestTest do
     assert {:error, :conflict} =
              ConfigurationRequest.normalize_result({:error, %{errors: [%{errors: [error]}]}})
 
+    assert {:error, :conflict} =
+             ConfigurationRequest.normalize_result({:error, %Ash.Changeset{errors: [error]}})
+
     assert {:error, :not_found} = ConfigurationRequest.normalize_result({:error, :not_found})
+  end
+
+  test "single-record lookups normalize missing records and preserve other errors" do
+    missing = %Ash.Error.Query.NotFound{resource: PlaybookRepository}
+    wrapped = %Invalid{errors: [missing]}
+
+    for result <- [{:ok, nil}, {:error, missing}, {:error, wrapped}] do
+      assert {:error, :not_found} = ConfigurationRequest.require_record(result)
+    end
+
+    invalid = %Ash.Error.Changes.InvalidAttribute{field: :id, message: "is invalid"}
+    mixed = %Invalid{errors: [missing, invalid]}
+    forbidden = %Ash.Error.Forbidden{}
+    record = %PlaybookRepository{id: "00000000-0000-4000-8000-000000000901"}
+
+    for result <- [{:error, mixed}, {:error, forbidden}, {:error, invalid}, {:ok, record}] do
+      assert ConfigurationRequest.require_record(result) == result
+    end
   end
 end

@@ -3,7 +3,6 @@ defmodule ServiceRadarWebNG.AnsibleControllers do
   Web-facing operations for AWX/AAP controller registration.
   """
 
-  alias Ash.Error.Query.NotFound
   alias ServiceRadar.Automation.Ansible.AwxHostMembership
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.Playbook
@@ -36,12 +35,9 @@ defmodule ServiceRadarWebNG.AnsibleControllers do
   def get(id, opts \\ []) when is_binary(id) do
     scope = Keyword.fetch!(opts, :scope)
 
-    case Controller.get_by_id(id, scope: scope) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, controller} -> {:ok, controller}
-      {:error, %NotFound{}} -> {:error, :not_found}
-      {:error, error} -> {:error, error}
-    end
+    id
+    |> Controller.get_by_id(scope: scope)
+    |> ConfigurationRequest.require_record()
   end
 
   @spec create(map(), keyword()) :: {:ok, struct()} | {:error, term()}
@@ -84,7 +80,7 @@ defmodule ServiceRadarWebNG.AnsibleControllers do
   def delete(id, opts) do
     scope = Keyword.fetch!(opts, :scope)
 
-    Repo.transaction(fn ->
+    fn ->
       with {:ok, controller} <- locked_controller(id, scope),
            :ok <- require_disabled(controller),
            :ok <- require_no_cascading_dependents(Playbook, id, scope),
@@ -94,21 +90,17 @@ defmodule ServiceRadarWebNG.AnsibleControllers do
       else
         {:error, reason} -> Repo.rollback(reason)
       end
-    end)
+    end
+    |> Repo.transaction()
+    |> ConfigurationRequest.normalize_result()
   end
 
   defp locked_controller(id, scope) do
-    result =
-      Controller
-      |> Ash.Query.for_read(:by_id, %{id: id}, scope: scope)
-      |> Ash.Query.lock(:for_update)
-      |> Ash.read_one(scope: scope)
-
-    case result do
-      {:ok, nil} -> {:error, :not_found}
-      {:error, %NotFound{}} -> {:error, :not_found}
-      other -> other
-    end
+    Controller
+    |> Ash.Query.for_read(:by_id, %{id: id}, scope: scope)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(scope: scope)
+    |> ConfigurationRequest.require_record()
   end
 
   defp require_disabled(%{enabled: false}), do: :ok

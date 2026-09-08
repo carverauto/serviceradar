@@ -70,7 +70,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxBindingReviewTest do
     assert {:error, :binding_review_changed} =
              AwxBindingReview.create(
                Map.put(c.request, "expected_review_digest", prepared.review_digest),
-               c.user, dependencies: changed)
+               c.user,
+               dependencies: changed
+             )
 
     refute_receive {:persisted, _, _}
   end
@@ -95,9 +97,35 @@ defmodule ServiceRadar.Automation.Ansible.AwxBindingReviewTest do
     assert {:error, :current_permission_denied} =
              AwxBindingReview.prepare(
                c.request,
-               Map.put(c.user, :principal_type, :service_principal), dependencies: c.deps)
+               Map.put(c.user, :principal_type, :service_principal),
+               dependencies: c.deps
+             )
 
     refute_receive :server_read
+  end
+
+  test "permission revoked during the live reads prevents approval persistence", c do
+    {:ok, prepared} = AwxBindingReview.prepare(c.request, c.user, dependencies: c.deps)
+
+    deps = %{
+      c.deps
+      | load_authority: fn user ->
+          if Process.get(:synthetic_review_revoked),
+            do: {:ok, %{permissions: MapSet.new()}},
+            else: c.deps.load_authority.(user)
+        end,
+        fetch_review: fn _request ->
+          Process.put(:synthetic_review_revoked, true)
+          {:ok, c.review}
+        end
+    }
+
+    request = Map.put(c.request, "expected_review_digest", prepared.review_digest)
+
+    assert {:error, :current_permission_denied} =
+             AwxBindingReview.create(request, c.user, dependencies: deps)
+
+    refute_receive {:persisted, _, _}
   end
 
   test "invalid identifiers, unbounded TTL and malformed input contracts cannot issue reads", c do

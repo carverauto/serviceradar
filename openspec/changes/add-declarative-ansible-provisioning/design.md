@@ -96,6 +96,23 @@ Deletion is explicit and reference-aware. An active template binding, operation,
 credential consumer, or another managed dependent prevents unsafe deletion.
 Disabling a resource is a distinct action, not a disguised successful delete.
 
+## AWX Observation Ordering and Membership Authority
+
+An AWX observation generation orders complete or partial controller snapshots.
+A membership's `source_generation` identifies the observation that last changed
+its execution authority. Unchanged observations refresh last-seen data while
+preserving that authority generation, so polling does not invalidate active jobs.
+Changes to the exact target tuple, canonical device, address, enabled/current
+state, source fingerprint, or linkage disposition/evidence still change authority.
+
+A separate durable per-controller watermark orders observations, including
+partial and complete-empty snapshots. Controller locks are acquired in stable
+order before device writes. AWX device batches run on the transaction owner;
+device writes, membership reconciliation, and watermark advancement commit
+together. Stale or conflicting observations and failed reconciliation roll back.
+Device-state events, cache invalidation, and membership notifications are emitted
+only after the outer transaction commits.
+
 ## Terraform
 
 Implement the provider in Go with HashiCorp's recommended Plugin Framework and

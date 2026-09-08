@@ -1,7 +1,7 @@
-defmodule ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryTest do
+defmodule ServiceRadarWebNG.AnsibleAutomation.HistoryTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadarWebNGWeb.AnsibleLive.AutomationHistory
+  alias ServiceRadarWebNG.AnsibleAutomation.History, as: AutomationHistory
 
   @moduletag :db_free
 

@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNG.AnsibleAutomation do
   alias ServiceRadar.Automation.Ansible.AwxMembershipApproval
   alias ServiceRadar.Automation.Ansible.AwxTemplateBinding
   alias ServiceRadar.Automation.Ansible.SecureLaunchService
-  alias ServiceRadarWebNGWeb.AnsibleLive.AutomationHistory
+  alias ServiceRadarWebNG.AnsibleAutomation.History, as: AutomationHistory
 
   @membership_fields ~w(id controller_id inventory_id awx_host_id canonical_device_uid host_name ansible_host enabled current link_disposition source_fingerprint last_seen_at)a
   @binding_fields ~w(id controller_id job_template_id binding_version current approval_state approval_expires_at inventory_policy allowed_inventory_ids project_id scm_revision content_sha256 execution_environment_id run_mode_supported check_mode_supported reviewed_at reviewed_launch_snapshot_digest)a

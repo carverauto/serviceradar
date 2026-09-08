@@ -92,6 +92,15 @@ defmodule ServiceRadarWebNG.ConfigurationRequest do
 
   def normalize_result(result), do: result
 
+  @doc "Normalizes a scoped single-record lookup without hiding other Ash errors."
+  def require_record({:ok, nil}), do: {:error, :not_found}
+
+  def require_record({:error, error} = result) do
+    if not_found?(error), do: {:error, :not_found}, else: result
+  end
+
+  def require_record(result), do: result
+
   defp parse_version(encoded) do
     with true <- String.ends_with?(encoded, "\""),
          timestamp = String.slice(encoded, 0, byte_size(encoded) - 1),
@@ -105,4 +114,11 @@ defmodule ServiceRadarWebNG.ConfigurationRequest do
   defp stale?(%Ash.Error.Changes.StaleRecord{}), do: true
   defp stale?(%{errors: errors}) when is_list(errors), do: Enum.any?(errors, &stale?/1)
   defp stale?(_), do: false
+
+  defp not_found?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp not_found?(%Ash.Error.Invalid{errors: errors}) when is_list(errors) and errors != [],
+    do: Enum.all?(errors, &not_found?/1)
+
+  defp not_found?(_), do: false
 end
