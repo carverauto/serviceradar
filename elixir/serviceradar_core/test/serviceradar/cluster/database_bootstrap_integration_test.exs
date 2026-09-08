@@ -206,16 +206,81 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     assert result["recorded_count"] == length(on_disk)
   end
 
+  test "the migrator path records the baseline in the repo's configured ledger", %{
+    admin_url: admin_url,
+    scratch_db: scratch_db,
+    subprocess_ca_file: subprocess_ca_file
+  } do
+    # Regression cover for issue #321. `mix serviceradar.db.migrate` runs under web-ng's
+    # config, where `:migration_source` is `"ash_schema_migrations"`, but the baseline used
+    # to record every covered version in `platform.schema_migrations` -- a table Ecto never
+    # reads there. The migrator then saw zero applied versions and replayed the whole
+    # baseline, dying on duplicate-table errors.
+    #
+    # Like the test above, the decisive number is how many migrations Ecto ACTUALLY applied:
+    # with the marks in the table it reads, only the post-baseline migrations run. Counting
+    # recorded versions in the wrong table could not tell the two paths apart -- which is
+    # exactly how this bug hid.
+    metadata = SchemaBootstrap.baseline_metadata!()
+    included_through = metadata["included_through"]
+
+    on_disk =
+      :serviceradar_core
+      |> Application.app_dir("priv/repo/migrations")
+      |> Path.join("*.exs")
+      |> Path.wildcard()
+      |> Enum.map(&SchemaBootstrap.migration_version_from_file/1)
+
+    expected_applied = Enum.count(on_disk, &(&1 > included_through))
+
+    # Guard the guard: if the baseline ever covered nothing, the assertion below would pass
+    # trivially against a full replay.
+    assert expected_applied < length(on_disk),
+           "baseline covers no migrations; this test could not detect a full replay"
+
+    result =
+      run_migrator_bootstrap_with_source!(
+        admin_url,
+        scratch_db,
+        subprocess_ca_file,
+        "ash_schema_migrations"
+      )
+
+    assert result["applied_count"] == expected_applied,
+           """
+           the migrator path applied #{result["applied_count"]} migrations, expected \
+           #{expected_applied}.
+
+           #{length(on_disk)} migrations exist on disk and the baseline covers through \
+           #{included_through}. Applying all of them means the baseline marks landed in a \
+           ledger the migrator does not read and every fresh database is back to a full \
+           replay -- see issue #321.
+           """
+
+    assert result["baseline_count"] == 1
+    assert result["recorded_count"] == length(on_disk)
+  end
+
   defp run_migrator_bootstrap!(admin_url, database, subprocess_ca_file) do
     run_subprocess!(admin_url, database, subprocess_ca_file, migrator_code())
+  end
+
+  defp run_migrator_bootstrap_with_source!(admin_url, database, subprocess_ca_file, source) do
+    run_subprocess!(
+      admin_url,
+      database,
+      subprocess_ca_file,
+      migrator_code("platform.#{source}"),
+      [{"SERVICERADAR_TEST_MIGRATION_SOURCE", source}]
+    )
   end
 
   defp run_startup_migrations!(admin_url, database, subprocess_ca_file) do
     run_subprocess!(admin_url, database, subprocess_ca_file, startup_code())
   end
 
-  defp run_subprocess!(admin_url, database, subprocess_ca_file, code) do
-    env = subprocess_env(admin_url, database, subprocess_ca_file)
+  defp run_subprocess!(admin_url, database, subprocess_ca_file, code, extra_env \\ []) do
+    env = subprocess_env(admin_url, database, subprocess_ca_file, extra_env)
 
     # `elixir -e`, not `mix run -e`.
     #
@@ -303,6 +368,16 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
       |> Keyword.put(:timeout, :infinity)
       |> Keyword.put(:pool_size, 2)
 
+    # Test-only hook so one test can boot the Repo the way web-ng configures it
+    # (`migration_source: "ash_schema_migrations"`). Unset everywhere else, where this
+    # changes nothing.
+    repo_opts =
+      case System.get_env("SERVICERADAR_TEST_MIGRATION_SOURCE") do
+        nil -> repo_opts
+        "" -> repo_opts
+        source -> Keyword.put(repo_opts, :migration_source, source)
+      end
+
     Application.put_env(:serviceradar_core, ServiceRadar.Repo, repo_opts)
     {:ok, _pid} = ServiceRadar.Repo.start_link()
     '''
@@ -313,7 +388,7 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   # ACTUALLY applied, which is the number that distinguishes a baselined bootstrap from a full
   # replay -- both end with every version recorded, so counting recorded versions cannot tell
   # them apart.
-  defp migrator_code do
+  defp migrator_code(ledger_table \\ "platform.schema_migrations") do
     subprocess_preamble() <>
       ~S'''
       migrations_path = Application.app_dir(:serviceradar_core, "priv/repo/migrations")
@@ -323,9 +398,12 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
       applied = Ecto.Migrator.run(ServiceRadar.Repo, :up, all: true)
 
+      ''' <>
+      """
       %{rows: [[recorded_count]]} =
-        ServiceRadar.Repo.query!("SELECT count(*) FROM platform.schema_migrations")
-
+        ServiceRadar.Repo.query!("SELECT count(*) FROM #{ledger_table}")
+      """ <>
+      ~S'''
       %{rows: [[baseline_count]]} =
         ServiceRadar.Repo.query!("SELECT count(*) FROM platform.serviceradar_schema_baselines")
 
@@ -416,7 +494,7 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     '''
   end
 
-  defp subprocess_env(admin_url, database, subprocess_ca_file) do
+  defp subprocess_env(admin_url, database, subprocess_ca_file, extra_env \\ []) do
     uri = URI.parse(admin_url)
     # Same resolution as the parent's connection, and as ServiceRadar.Repo's. The subprocess
     # boots the real Repo, so handing it a mode the parent did not use would have it fail the
@@ -461,7 +539,7 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
         {"CNPG_KEY_FILE", key_file()},
         {"CNPG_CA_FILE", subprocess_ca_file},
         {"PGSSLROOTCERT", subprocess_ca_file}
-      ],
+      ] ++ extra_env,
       fn {_key, value} -> value in [nil, ""] end
     )
   end

@@ -23,10 +23,11 @@ objects beyond bootstrap metadata and no migration ledger rows.
 
 For an empty database, startup:
 
-1. Applies `platform_schema.sql` through the core Postgrex connection.
-2. Verifies the baseline checksum from `metadata.json`.
-3. Inserts `platform.schema_migrations` rows for every migration included in
-   the baseline marker.
+1. Verifies the baseline checksum from `metadata.json`.
+2. Applies `platform_schema.sql` through the core Postgrex connection.
+3. Records every migration included in the baseline marker in the repository's
+   configured migration ledger. The ledger selection contract is documented in
+   [`SchemaBootstrap.migration_ledger_table/1`](https://github.com/carverauto/serviceradar/blob/staging/elixir/serviceradar_core/lib/serviceradar/repo/schema_bootstrap.ex).
 4. Records the applied baseline in `platform.serviceradar_schema_baselines`.
 5. Runs any migrations newer than the baseline marker.
 
