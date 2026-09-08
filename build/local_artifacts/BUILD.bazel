@@ -7,9 +7,9 @@ package(default_visibility = ["//visibility:public"])
 [
     write_source_files(
         name = name,
-        files = {destination: source},
         check_that_out_file_exists = False,
         diff_test = False,
+        files = {destination: source},
         tags = ["manual"],
     )
     for name, destination, source in [

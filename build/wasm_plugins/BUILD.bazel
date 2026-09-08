@@ -23,8 +23,14 @@ package(default_visibility = ["//visibility:public"])
             "@platforms//cpu:" + cpu_constraint,
         ],
     )
-    for os_name, os_constraint in [("darwin", "macos"), ("linux", "linux")]
-    for cpu_name, cpu_constraint in [("amd64", "x86_64"), ("arm64", "arm64")]
+    for os_name, os_constraint in [
+        ("darwin", "macos"),
+        ("linux", "linux"),
+    ]
+    for cpu_name, cpu_constraint in [
+        ("amd64", "x86_64"),
+        ("arm64", "arm64"),
+    ]
 ]
 
 [
@@ -107,9 +113,9 @@ go_test(
     srcs = ["awx_runtime_test.go"],
     data = [":awx_wasm"],
     deps = [
-        "@io_bazel_rules_go//go/runfiles",
         "@com_github_tetratelabs_wazero//:wazero",
         "@com_github_tetratelabs_wazero//api",
         "@com_github_tetratelabs_wazero//imports/wasi_snapshot_preview1",
+        "@io_bazel_rules_go//go/runfiles",
     ],
 )

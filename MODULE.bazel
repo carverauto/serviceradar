@@ -897,16 +897,16 @@ http_archive = use_repo_rule(
 # workstation install or fetch mutable tooling from inside a test action.
 http_archive(
     name = "terraform_cli_linux_amd64",
-    urls = ["https://releases.hashicorp.com/terraform/1.11.4/terraform_1.11.4_linux_amd64.zip"],
-    sha256 = "1ce994251c00281d6845f0f268637ba50c0005657eb3cf096b92f753b42ef4dc",
     build_file_content = 'exports_files(["terraform"], visibility = ["//visibility:public"])',
+    sha256 = "1ce994251c00281d6845f0f268637ba50c0005657eb3cf096b92f753b42ef4dc",
+    urls = ["https://releases.hashicorp.com/terraform/1.11.4/terraform_1.11.4_linux_amd64.zip"],
 )
 
 http_archive(
     name = "terraform_cli_darwin_arm64",
-    urls = ["https://releases.hashicorp.com/terraform/1.11.4/terraform_1.11.4_darwin_arm64.zip"],
-    sha256 = "867e0808fa971217043e25b7a792b10720c79b1546f8a68479b74f138be73e18",
     build_file_content = 'exports_files(["terraform"], visibility = ["//visibility:public"])',
+    sha256 = "867e0808fa971217043e25b7a792b10720c79b1546f8a68479b74f138be73e18",
+    urls = ["https://releases.hashicorp.com/terraform/1.11.4/terraform_1.11.4_darwin_arm64.zip"],
 )
 
 # The arm64 OTP an arm64 Elixir image SHIPS; the amd64 pin above still RUNS the build.

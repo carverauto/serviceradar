@@ -42,7 +42,7 @@ const (
 
 // Static arrays keep validation available when the host calls an exported
 // TinyGo entrypoint without running WASI _start and its map initializers.
-var launchPreflightRequestKeys = [...]string{
+var launchPreflightRequestKeys = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
 	"schema",
 	"controller_id",
 	"template_id",
@@ -53,7 +53,7 @@ var launchPreflightRequestKeys = [...]string{
 	"selected_hosts",
 }
 
-var launchPreflightTargetKeys = [...]string{
+var launchPreflightTargetKeys = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
 	"membership_id",
 	"controller_id",
 	"inventory_id",

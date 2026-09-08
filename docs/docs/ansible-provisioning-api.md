@@ -111,7 +111,9 @@ source tuple and displayed link evidence. To approve one proposal, send
 `inventory_id`, `awx_host_id`, `canonical_device_uid`, `source_generation`,
 `source_fingerprint`, and `link_evidence_digest` from that observation.
 `source_generation` is returned as a decimal string; preserve it as a string
-to avoid losing signed 64-bit precision. Approval compares the exact current
+to avoid losing signed 64-bit precision. Use the canonical positive decimal form
+without signs, whitespace, or leading zeros, up to `9223372036854775807`.
+Approval compares the exact current
 proposal and freshly checks the reviewer's authority. A changed proposal
 requires another review.
 

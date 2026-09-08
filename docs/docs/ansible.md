@@ -109,7 +109,10 @@ ServiceRadar exposes the operator-tunable knobs as env vars surfaced in both `do
 | Env var | Default | What it does |
 |---|---|---|
 | `AWX_CONTROLLER_HEALTH_INTERVAL_SECONDS` | `30` | `ControllerHealthWorker` cadence (one `awx.ping` per registered controller). |
-| `ANSIBLE_CATALOG_BASE_DIR` | `/var/lib/serviceradar/ansible_catalog` (Helm and Compose) | Base directory for `GitCatalogSyncWorker` repo clones. Mount a PVC at this path in Kubernetes to keep the cache warm across pod restarts. |
+| `ANSIBLE_CATALOG_BASE_DIR` | `/var/lib/serviceradar/ansible_catalog` (Helm and Compose) | Base directory for `GitCatalogSyncWorker` repo clones. The Helm chart mounts a writable `emptyDir` here; clones are recreated after pod replacement, while catalog metadata remains in CNPG. |
+
+Core images include Git for catalog synchronization. The Helm chart also mounts
+a writable `/tmp` for Git and other temporary files.
 
 Set `ANSIBLE_CATALOG_BASE_DIR` to a non-empty path writable by core. It populates
 the `:serviceradar_core` application setting `:ansible_catalog_base_dir`; a
@@ -235,7 +238,7 @@ Navigate to **Settings → Ansible → Repositories** and click **+ Add reposito
 | Ref | Branch or tag. Default `main`. |
 | Description | Optional. |
 | Git URL | HTTPS only. SSH is a v2 feature. |
-| Deploy token secret ID | Optional. Public repos: leave blank. Private repos: create a NetworkCredentialSecret with the HTTPS deploy token (same shape as the AWX API secret) and paste the UUID here. |
+| Deploy token secret ID | Leave blank. See the supported repository constraints in the [provisioning API](./ansible-provisioning-api.md#configuration-lifecycle). |
 | Sync interval (s) | `GitCatalogSyncWorker` cadence. Min 60s; default 600s. |
 
 Save. `GitCatalogSyncWorker` clones the repo to `$ANSIBLE_CATALOG_BASE_DIR/<repository_id>/`, walks `.yml` / `.yaml` files, parses each as an Ansible playbook (the first play's metadata becomes the row), and upserts one `Playbook` row per file with `source_type: :git`.
@@ -405,7 +408,7 @@ The token is wrong, expired, or missing scope. Check `Controller.last_health_sum
 ### No playbooks appear in `/ansible/catalog`
 
 - **AWX-sourced**: `AwxCatalogSyncWorker` ticks every 600s by default. The first sync after registering a controller can take that long. Lower `catalog_sync_interval_seconds` on the controller if you want faster turnaround for setup.
-- **Git-sourced**: `GitCatalogSyncWorker` ticks every 600s by default. Confirm the agent / pod has filesystem write access to `ANSIBLE_CATALOG_BASE_DIR`. Look for `[warning] AWX GitCatalogSyncWorker: git sync failed` in logs — the `PlaybookRepository.last_sync_summary` field surfaces the sanitized error.
+- **Git-sourced**: `GitCatalogSyncWorker` ticks every 600s by default. Confirm core has the Git runtime and writable storage described in [Configure environment variables](#configure-environment-variables). Look for `[warning] AWX GitCatalogSyncWorker: git sync failed` in logs — the `PlaybookRepository.last_sync_summary` field surfaces the sanitized error.
 
 ### Devices don't flip to `ansible_managed: true`
 

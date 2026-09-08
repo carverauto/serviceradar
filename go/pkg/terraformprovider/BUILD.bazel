@@ -52,7 +52,7 @@ go_test(
     ],
     data = [
         "//go/cmd/terraform-provider-serviceradar",
-        "//third_party/terraform:terraform",
+        "//third_party/terraform",
     ],
     embed = [":terraformprovider"],
     x_defs = {

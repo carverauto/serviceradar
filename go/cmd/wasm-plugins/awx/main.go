@@ -1810,7 +1810,7 @@ const (
 	awxEventFetchFailure  = "awx_event_fetch_failed"
 )
 
-var handledAWXEventNames = [...]string{
+var handledAWXEventNames = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
 	"playbook_on_play_start",
 	"playbook_on_task_start",
 	"playbook_on_handler_task_start",
@@ -2768,7 +2768,7 @@ func stringIn(value string, allowed ...string) bool {
 	return false
 }
 
-var reservedAWXSurveyVariables = [...]string{
+var reservedAWXSurveyVariables = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
 	"allowed_callback_origin", "allowed_origin", "callback_manifest_sha256",
 	"callback_operation", "callback_origin", "callback_phase",
 	"callback_policy", "callback_response_policy_provider", "callback_state",
@@ -2780,12 +2780,12 @@ var reservedAWXSurveyVariables = [...]string{
 	"omit", "play_hosts", "playbook_dir", "role_name", "role_path",
 }
 
-var sensitiveAWXSurveyVariableTokens = [...]string{
+var sensitiveAWXSurveyVariableTokens = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
 	"authorization", "bearer", "credential", "credentials",
 	"passwd", "password", "secret", "token",
 }
 
-var sensitiveAWXSurveyVariableTokenPairs = [...]string{
+var sensitiveAWXSurveyVariableTokenPairs = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
 	"access_key", "access_token", "api_key", "api_token",
 	"bearer_token", "client_secret", "credential_value",
 	"private_key",
@@ -2794,7 +2794,7 @@ var sensitiveAWXSurveyVariableTokenPairs = [...]string{
 // Compact compounds cover all-uppercase or otherwise unsegmentable spellings
 // such as APIKEY. Token-level matching remains the primary classifier so safe
 // names containing an unrelated word such as "tokenizer" stay allowed.
-var sensitiveAWXSurveyVariableCompounds = [...]string{
+var sensitiveAWXSurveyVariableCompounds = [...]string{ //nolint:gochecknoglobals // Static data must work before TinyGo/WASI initialization.
 	"accesskey", "accesstoken", "apikey", "apitoken",
 	"bearertoken", "clientsecret", "credentialvalue",
 	"privatekey",

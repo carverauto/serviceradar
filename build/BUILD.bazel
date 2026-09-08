@@ -21,8 +21,8 @@ ex_unit_test(
     size = "small",
     srcs = ["web_ng_db_config_test.exs"],
     data = [
-        "//elixir/web-ng:config/test.exs",
         "//elixir/serviceradar_core:config/test_database_guard.exs",
+        "//elixir/web-ng:config/test.exs",
     ],
 )
 

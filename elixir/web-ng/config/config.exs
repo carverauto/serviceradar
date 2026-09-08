@@ -398,27 +398,6 @@ config :serviceradar_web_ng,
 
 # Configure tailwind (the version is required).
 config :tailwind,
-  # Lint-only builds opt out of building the Rustler NIFs.
-  #
-  # //elixir/web-ng:precommit_check runs `mix precommit_fast`, which is
-  # ["deps.unlock --unused", "format --check-formatted", "credo"] -- three source-level checks
-  # that never load a NIF (`mix credo` declares @requirements ["loadpaths"], not ["compile"]).
-  # Building them anyway costs several minutes per run: cargo updates the crates.io index and
-  # compiles four crates in release mode.
-  #
-  # Rustler resolves its options as
-  #   defaults |> Keyword.merge(use_opts) |> Keyword.merge(app_env_config)
-  # (rustler/lib/rustler/compiler/config.ex), so this app-env config wins over the
-  # `use Rustler, ...` options in each module. With :skip_compilation? set, Rustler also skips
-  # the `cargo metadata` shell-out, so cargo is never invoked at all -- which is what lets the
-  # precommit action drop the Rust toolchain and the rust/* source staging entirely.
-  #
-  # The root project's config applies to path dependencies too, because `mix deps.compile`
-  # loads it before compiling them. That is why all four modules are configured from here.
-  #
-  # Guarded by an env var so lint-only CI and the Bazel lint action are affected;
-  # every other build (dev, test, prod, //elixir/web-ng:release_tar) still
-  # compiles the NIFs normally.
   version: "4.1.12",
   serviceradar_web_ng: [
     args: ~w(
@@ -429,6 +408,8 @@ config :tailwind,
   ]
 
 if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
+  # Rustler app-env options override module options, including in path dependencies.
+  # Skip both cargo metadata and NIF builds for source-only lint; other builds keep them.
   config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
 

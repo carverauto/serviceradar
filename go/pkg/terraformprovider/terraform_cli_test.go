@@ -223,6 +223,7 @@ resource "serviceradar_ansible_repository" "example" {
 		if deletes != 0 {
 			t.Fatal("rejected replacement issued DELETE")
 		}
+		t.Logf("Replacement %s/%s with reused key: server credential intact, DELETE count=%d\n%s", replacement.provider, replacement.method, deletes, output)
 		credentialKey = replacement.key
 		configure(2, false)
 		command(0, "plan", "-out=replacement.plan", "-input=false", "-no-color")
@@ -237,6 +238,7 @@ resource "serviceradar_ansible_repository" "example" {
 		if !replaced {
 			t.Fatal("fresh-key replacement did not delete and recreate the unused credential")
 		}
+		t.Logf("Replacement %s/%s with fresh key: applied successfully; server credential recreated with requested key after one DELETE; plan and state contain no secret material", replacement.provider, replacement.method)
 		command(0, "plan", "-detailed-exitcode", "-input=false", "-no-color")
 	}
 

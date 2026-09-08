@@ -119,6 +119,7 @@ EOF
 
 def elixir_release_rootfs_amd64(name, release_tar, visibility = None):
     """Wrap an Elixir release tarball under /app for OCI packaging."""
+
     # Still gzipped, via extension, to keep the layer bytes' shape as close to the previous
     # behaviour as possible -- the win here is the removed extract and touch passes, not the
     # compression. Consumers take this by LABEL (image_rootfs_tar below), so the output file
@@ -406,14 +407,10 @@ def declare_web_ng_release_container_amd64(
             bun_layer_name = name + "_bun_runtime_layer_amd64"
 
     cosign_layer_name = (
-        name[:-len("_image_amd64")] + "_cosign_runtime_layer_amd64"
-        if name.endswith("_image_amd64")
-        else name + "_cosign_runtime_layer_amd64"
+        name[:-len("_image_amd64")] + "_cosign_runtime_layer_amd64" if name.endswith("_image_amd64") else name + "_cosign_runtime_layer_amd64"
     )
     ca_bundle_layer_name = (
-        name[:-len("_image_amd64")] + "_ca_bundle_layer_amd64"
-        if name.endswith("_image_amd64")
-        else name + "_ca_bundle_layer_amd64"
+        name[:-len("_image_amd64")] + "_ca_bundle_layer_amd64" if name.endswith("_image_amd64") else name + "_ca_bundle_layer_amd64"
     )
     base_digest = ":{}.digest".format(base_image_name) if base_image_name else ":{}.digest".format(name)
 
