@@ -732,17 +732,12 @@ here.
     one creating Elixir's signed recovery-control path for 1.5-m's framing rule to attach to.
     1.6-d has landed, so 1.5-m is unblocked and every remaining 1.5 subtask depends on nothing
     open.
-    1.5-h DEPENDS ON NOTHING. Its single closure policy is that a single-runtime row closes
-    once its owner is NAMED, so the `MaxReasonBytes`, single-page `MaxSpansPerPage` and
-    record-level `MaxPrincipalBytes` rows are DELEGATED, NOT AWAITED, and SHALL NOT be listed
-    as dependencies of 1.5-h. THE LIST IS EXHAUSTIVE and is FIVE rows, not three: the
-    lifecycle `abort_reason` bound is delegated to 1.6-c on the same rule, whose evidence
-    obligation is widened for it there, and the signed tombstone's `manifest_page_count`
-    bound -- the TARGET rule 1..`MaxManifestPages`, not the FORMER pre-follow-up `> 0` arm --
-    is delegated to
-    1.6-d, which creates the only Elixir boundary that could run it. WITH PROJECTED COST as a sixth, Go-only RELATIONAL group, the final inventory is SIX
-    PROOF GROUPS, not five -- the delegated-row count and the proof-group count are different
-    numbers and SHALL NOT be reconciled by dropping one.
+    1.5-h DEPENDS ON NOTHING. A single-runtime row closes once its owner is NAMED.
+    The remaining manifest delegations are three bound sites owned by 1.6-d:
+    `tombstone_reason_signed`, `recovery_spans_single`, and `tombstone_declared_count`.
+    The record principal and all three projected-cost relations now have both peers
+    (1.5-n); the lifecycle abort reason also has both peers in the 1.6-c implementation.
+    These counts describe the current manifests, not review approval of 1.6-c.
     THE INVENTORY IS DERIVED, NOT HAND-COUNTED. `TestProofGroupInventoryIsExact` rebuilds it
     from the SHARED MANIFESTS -- every row whose peer column is `n/a`, keyed by site and owner
     -- and fails if the set or any owner drifts. A hand count is what let "four rows, not
@@ -1179,13 +1174,14 @@ here.
         CLOSED. Delivered on `usp-41-bounds-impl` as five CORPUS AND FOLLOW-UP slices -- the
         structural-count corpus, the scalar/carrier corpus, the lower bounds, the
         transport-provenance guard, and the projected-cost relation with a DERIVED
-        six-proof-group inventory -- PLUS the earlier decision, count-stage hardening, zone-gate
+        proof-group inventory -- PLUS the earlier decision, count-stage hardening, zone-gate
         and reconciliation commits this subtask also carried. The five are the corpus slices,
         NOT the whole of 1.5-h. Every single-runtime
         row names an owning subtask, and `TestProofGroupInventoryIsExact` REBUILDS that
         inventory from the shared manifests rather than trusting this prose -- which is the
-        closure condition, mechanised. Five delegated bound sites (1.5-n, 1.6-c, 1.6-d x3) plus
-        the projected-cost relational group; none is awaited, each owner flips its own row.
+        closure condition, mechanised. The current manifests retain three delegated
+        bound sites (1.6-d x3). The record principal, lifecycle abort reason and projected-cost
+        relations now have both runtime gates; no projected-cost conjunct remains delegated.
         SCOPE IS RESIDUE, NOT AN INVENTORY. This subtask owns ONLY the per-family
         string/count/canonical-body limits that no other task owns, plus VERIFYING THE
         RELATION that a declared projected cost does not exceed the capability's declared
@@ -1386,23 +1382,13 @@ here.
         the missing side has a NAMED OWNING SUBTASK. Not "an owner is recorded somewhere" --
         a subtask id. This subtask SHALL NOT close while any single-runtime row names no
         owner, and SHALL NOT wait on a row whose owner is named.
-        By that rule, and EXHAUSTIVELY -- FIVE rows, not three: the `MaxReasonBytes` row
-        records 1.6-d, the Elixir record-level `MaxPrincipalBytes` site records 1.5-n, the
-        `MaxSpansPerPage` single-page site records 1.6-d, the signed tombstone's
-        `manifest_page_count` bound records 1.6-d, and the lifecycle `abort_reason`
-        bound records 1.6-c, whose evidence obligation is widened there because the version
-        row it already owns cannot prove a string length. THAT WIDENING IS ALL SIX CONTROLS,
-        not the upper bound alone: `abort_reason` is TWO independently removable predicates --
-        an ABORTED event SHALL carry a reason of 1..`MaxTraceStrBytes`, and every other kind
-        SHALL carry NONE -- so 1.6-c owes, on the ABORTED arm, length 0 REFUSED, length 1
-        ACCEPTED, at ACCEPTED and over REFUSED, AND both non-ABORTED controls. The length-1
-        acceptance is not optional either: a frozen minimum of 1 is not pinned by a zero
-        refusal, which a peer tightened to reject length 1 satisfies unchanged. The non-ABORTED ACCEPTED control is not optional: without it a
-        peer that refused every non-aborted event would satisfy the negative row.
-        PROJECTED COST IS NOT ONE OF THOSE FIVE: it is a Go-only RELATIONAL group, not a
-        delegated bound-site row, so the closing inventory is FIVE DELEGATED ROWS PLUS
-        PROJECTED COST -- SIX PROOF GROUPS. The two numbers are different and SHALL NOT be
-        reconciled by dropping one.
+        The current manifest delegation set is `tombstone_reason_signed`,
+        `recovery_spans_single`, and `tombstone_declared_count`, each owned by 1.6-d.
+        The raw record principal has all four controls through `RecordValidate.validate_bytes/1`
+        (1.5-n). The lifecycle abort reason has all six controls through `LifecycleValidate.validate/1`
+        (1.6-c implementation, awaiting its separate closeout). Projected-cost equality and
+        maxima are compared by both structural record boundaries and no longer form a
+        delegated group. `TestProofGroupInventoryIsExact` enforces this current inventory.
         1.5-h CLOSES WITH THOSE OWNERS RECORDED and does not wait for any of
         them; each owner stays independently open and flips its own row to both-runtime when
         it lands. A subtask that both delegates a gap and blocks on it has not delegated it.
@@ -1633,15 +1619,18 @@ here.
         raises `Protobuf.DecodeError`, classified `poison` -- the same permanent refusal Go gives
         those bytes. This measurement REPLACES the earlier 3-4% estimate that this task carried;
         nothing here reproduces that figure.
-  - [ ] 1.5-n ELIXIR STRUCTURAL RECORD BOUNDARY, carrying the projected-cost comparison
+  - [x] 1.5-n ELIXIR STRUCTURAL RECORD BOUNDARY, carrying the projected-cost comparison
         against the production capability's DECLARED maxima.
+        CLOSED: `RecordValidate.validate_bytes/1` composes raw decode, enum and payload
+        validation, contract/producer identity, production/source bindings, cost relations,
+        recovery routing, identity time and semantic digest. The Go-authored structural corpus
+        and inherited cost/principal manifests run through this boundary in Elixir (5b8af178b2).
         Go compares a record's declared cost against the maxima carried in its production
         capability inside `ValidateRecord` -- `cost_model_version` equality plus
         `projected_row_count` and `projected_write_bytes`. That comparison is STRUCTURAL and
         PRE-SIGNATURE: `ValidateRecord` performs no cryptographic verification, so the maxima
         it reads are unverified at that point and the check is a shape rule, not an
-        authorization one. This runtime only DIGESTS those three fields in `SemanticDigest`
-        and `ClaimsFraming` and never COMPARES them.
+        authorization one. Elixir now compares them through the complete raw record boundary.
         A COMPLETE STRUCTURAL BOUNDARY IS THE DELIVERABLE, not a comparator bolted onto a
         function that applies no other record rule.
         "PRODUCTION-SHAPED" MEANS THE SAME HERE AS IN 1.7-e/f: a COMPLETE VALIDATOR API,
