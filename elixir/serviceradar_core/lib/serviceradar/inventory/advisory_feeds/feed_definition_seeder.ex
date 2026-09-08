@@ -12,9 +12,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder do
       "never") before the first run; and
     * the worker's status writes always land.
 
-  The upsert is idempotent and only touches definition metadata
-  (`display_name`/`feed_type`/`refresh_interval_seconds`); it never overwrites
-  operator-set `enabled`, cadence-changes the operator may make, or run status.
+  Existing rows are left unchanged except for the guarded enablement backfill;
+  seeding does not refresh their definition metadata, cadence, or run status.
+  The operator-facing defaults and upgrade policy are documented in
+  `docs/docs/endpoint-software-security.md` under "Built-in feed enablement".
   """
 
   use ServiceRadar.DelayedSeeder, callback: :seed_defaults
@@ -50,8 +51,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder do
 
   defp ensure_definition(entry, actor) do
     case existing(entry, actor) do
-      {:ok, %VulnerabilityFeedDefinition{}} ->
-        :ok
+      {:ok, %VulnerabilityFeedDefinition{} = definition} ->
+        maybe_enable_pristine(definition, entry, actor)
 
       {:ok, nil} ->
         create_definition(entry, actor)
@@ -60,6 +61,49 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder do
         Logger.warning(
           "advisory_feeds: feed-def seed check failed for #{entry.provider}/#{entry.feed_key}: #{inspect(reason)}"
         )
+    end
+  end
+
+  defp default_enabled?(%{provider: "ubuntu", feed_key: "ubuntu-osv-vex"}), do: true
+  defp default_enabled?(_), do: false
+
+  # A row is seed-pristine when it never ran (no attempt of any outcome) and
+  # no operator ever edited it (any settings-UI edit bumps `updated_at` past
+  # `inserted_at`). Only pristine rows are backfilled, so an explicit operator
+  # disable is never overwritten.
+  defp seed_pristine?(%VulnerabilityFeedDefinition{
+         enabled: false,
+         last_attempt_at: nil,
+         last_success_at: nil,
+         last_failure_at: nil,
+         inserted_at: %DateTime{} = inserted_at,
+         updated_at: %DateTime{} = updated_at
+       }) do
+    DateTime.compare(inserted_at, updated_at) == :eq
+  end
+
+  defp seed_pristine?(_), do: false
+
+  defp maybe_enable_pristine(definition, entry, actor) do
+    if default_enabled?(entry) and seed_pristine?(definition) do
+      definition
+      |> Ash.Changeset.for_update(:update, %{enabled: true}, actor: actor)
+      |> Ash.update(actor: actor)
+      |> case do
+        {:ok, _definition} ->
+          Logger.info(
+            "advisory_feeds: enabled pristine feed definition #{entry.provider}/#{entry.feed_key}"
+          )
+
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "advisory_feeds: failed to enable pristine feed definition #{entry.provider}/#{entry.feed_key}: #{inspect(reason)}"
+          )
+      end
+    else
+      :ok
     end
   end
 
@@ -76,6 +120,7 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder do
       feed_key: entry.feed_key,
       display_name: entry.display_name,
       feed_type: entry.feed_type,
+      enabled: default_enabled?(entry),
       refresh_interval_seconds: entry.refresh_interval_seconds,
       metadata: %{"source" => "core-scheduled"}
     }
