@@ -551,6 +551,55 @@ fn translate_timeseries_metric_interface_hourly_profile_uses_rate_cagg() {
 }
 
 #[test]
+fn translate_interface_full_profile_with_device_id_list_scopes_to_any() {
+    // The seasonal edge-baseline producer fetches the 168-bucket full profile
+    // in per-device chunks (`device_id:(...)`), so each statement aggregates a
+    // bounded device set instead of the whole fleet (issues #4391/#4393). The
+    // chunk filter must survive translation as a bound `= ANY(...)` predicate.
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metric_interface_hourly metric_name:\"ifInOctets\" time:last_180d stats:profile_hour_of_week_full(value) timezone:\"Etc/UTC\" device_id:(\"sr:router-1\",\"sr:router-2\") sort:series:asc,if_index:asc,dow:asc,hod:asc limit:50000".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+
+    assert!(
+        response
+            .sql
+            .contains("FROM timeseries_metrics_interface_hourly"),
+        "expected interface hourly CAGG, got: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("device_id = ANY("),
+        "expected chunk device filter as a bound ANY predicate, got: {}",
+        response.sql
+    );
+    assert!(
+        response.params.iter().any(|param| matches!(
+            param,
+            BindParam::TextArray(ids)
+              if ids == &vec!["sr:router-1".to_string(), "sr:router-2".to_string()]
+        )),
+        "expected chunk device ids as one text-array bind, got: {:?}",
+        response.params
+    );
+
+    let max_placeholder = super::max_dollar_placeholder(&response.sql);
+    assert_eq!(
+        max_placeholder,
+        response.params.len(),
+        "sql placeholders must match params length\nsql: {}\nparams: {:?}",
+        response.sql,
+        response.params
+    );
+}
+
+#[test]
 fn full_profiles_continue_past_the_generic_cursor_cap_in_translation() {
     let mut config = test_config();
     config.max_cursor_offset = 100;
