@@ -20,6 +20,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
 
   @goproxy_connect_reply "HTTP/1.0 200 OK\r\n\r\n"
   @body "synthetic-release-artifact"
+  @stall_body String.duplicate(@body, 4_096)
 
   setup do
     {:ok, _} = Application.ensure_all_started(:ssl)
@@ -205,7 +206,7 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     assert {:error, :timeout} =
              EgressClient.get("https://localhost/stall", opts(ctx, receive_timeout: 2_000))
 
-    assert collect_chunks() == @body
+    assert collect_chunks() == @stall_body
   end
 
   test "does not deliver more chunks while the consumer is busy", ctx do
@@ -299,22 +300,33 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
       {:ok, request} ->
         request = to_string(request)
 
-        if String.contains?(request, ["/slow", "/stall"]) do
-          :ssl.send(
-            socket,
-            "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n"
-          )
+        cond do
+          String.contains?(request, "/stall") ->
+            # Deliver a substantial partial body without waiting for the chunked
+            # decoder to emit a tiny chunk before the origin stalls.
+            :ssl.send(socket, [
+              "HTTP/1.1 200 OK\r\ncontent-length: #{2 * byte_size(@stall_body)}\r\n",
+              "connection: close\r\n\r\n",
+              @stall_body
+            ])
 
-          delay = if String.contains?(request, "/stall"), do: 5_000, else: 800
+            Process.sleep(5_000)
 
-          Enum.each(1..5, fn _ ->
-            :ssl.send(socket, [Integer.to_string(byte_size(@body), 16), "\r\n", @body, "\r\n"])
-            Process.sleep(delay)
-          end)
+          String.contains?(request, "/slow") ->
+            :ssl.send(
+              socket,
+              "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\nconnection: close\r\n\r\n"
+            )
 
-          :ssl.send(socket, "0\r\n\r\n")
-        else
-          :ssl.send(socket, origin_response(request))
+            Enum.each(1..5, fn _ ->
+              :ssl.send(socket, [Integer.to_string(byte_size(@body), 16), "\r\n", @body, "\r\n"])
+              Process.sleep(800)
+            end)
+
+            :ssl.send(socket, "0\r\n\r\n")
+
+          true ->
+            :ssl.send(socket, origin_response(request))
         end
 
         :ssl.close(socket)
