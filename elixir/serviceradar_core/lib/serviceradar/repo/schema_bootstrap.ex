@@ -78,10 +78,27 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
   end
 
   @doc """
+  The migration ledger table Ecto's migrator actually reads and writes.
+
+  Ecto names its ledger from the repo's `:migration_source` (defaulting to
+  `"schema_migrations"`) and resolves it in the `platform` schema here, so the baseline must
+  record the migrations it contains under exactly that name. Recording them anywhere else --
+  notably a hardcoded `platform.schema_migrations` -- leaves Ecto blind to them and the next
+  `Ecto.Migrator.run/3` replays the whole baseline from scratch (issue #321).
+  """
+  @spec migration_ledger_table(module()) :: String.t()
+  def migration_ledger_table(repo) do
+    source = repo.config()[:migration_source] || "schema_migrations"
+    "platform.#{source}"
+  end
+
+  @doc """
   Versions recorded in any of the ledgers this deployment may have used.
 
   Three locations are read because a database can legitimately hold more than one: the ledger's
-  schema follows `search_path`, and its name follows the repo's `:migration_source`.
+  schema follows `search_path`, and its name follows the repo's `:migration_source`. Writers
+  must use `migration_ledger_table/1`; this union exists only so classification recognises
+  history however it was recorded.
   """
   @spec migration_ledger_versions(module()) :: [integer()]
   def migration_ledger_versions(repo) do
@@ -259,8 +276,13 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
   defp mark_baseline_migrations_applied!(repo, migrations_path, %{
          "included_through" => included_through
        }) do
+    # The ledger Ecto reads, not a hardcoded name: under a repo configured with
+    # `migration_source: "ash_schema_migrations"` (web-ng) anything recorded in
+    # `platform.schema_migrations` is invisible to the migrator (issue #321).
+    ledger = migration_ledger_table(repo)
+
     repo.query!("""
-    CREATE TABLE IF NOT EXISTS platform.schema_migrations (
+    CREATE TABLE IF NOT EXISTS #{ledger} (
       version bigint NOT NULL PRIMARY KEY,
       inserted_at timestamp(0) without time zone
     )
@@ -274,17 +296,17 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
       |> Enum.filter(&(&1 <= included_through))
       |> Enum.sort()
 
-    Enum.each(versions, &mark_platform_migration_applied!(repo, &1))
+    Enum.each(versions, &mark_platform_migration_applied!(repo, ledger, &1))
   end
 
   defp mark_baseline_migrations_applied!(_repo, _migrations_path, _metadata) do
     raise RuntimeError, "schema baseline metadata missing included_through"
   end
 
-  defp mark_platform_migration_applied!(repo, version) when is_integer(version) do
+  defp mark_platform_migration_applied!(repo, ledger, version) when is_integer(version) do
     repo.query!(
       """
-      INSERT INTO platform.schema_migrations (version, inserted_at)
+      INSERT INTO #{ledger} (version, inserted_at)
       VALUES ($1, NOW())
       ON CONFLICT (version) DO NOTHING
       """,

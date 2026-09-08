@@ -1206,9 +1206,14 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   defp postgres_error_summary(error), do: inspect(error)
 
   defp mark_platform_migration_applied!(version) when is_integer(version) do
+    # The self-repair loop converges on `next_pending_migration_version/1`, which reads the
+    # ledger Ecto's migrator reads. Marking a hardcoded table here would leave that version
+    # pending forever under a repo configured with a different `:migration_source` (issue #321).
+    ledger = SchemaBootstrap.migration_ledger_table(ServiceRadar.Repo)
+
     ServiceRadar.Repo.query!(
       """
-      INSERT INTO platform.schema_migrations (version, inserted_at)
+      INSERT INTO #{ledger} (version, inserted_at)
       VALUES ($1, NOW())
       ON CONFLICT (version) DO NOTHING
       """,
