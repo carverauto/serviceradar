@@ -1,5 +1,5 @@
 defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorkerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Automation.Ansible.GitCatalogSyncWorker, as: Worker
   alias ServiceRadar.Automation.Ansible.PlaybookRepository
@@ -251,6 +251,63 @@ defmodule ServiceRadar.Automation.Ansible.GitCatalogSyncWorkerTest do
 
       assert_received {:git_args, ["clone" | _] = args}
       assert String.starts_with?(List.last(args), Path.join(configured, "repo-cfg-1"))
+    end
+
+    @tag :tmp_dir
+    test "configured cache reaches git when temporary directory resolution raises", %{tmp_dir: tmp} do
+      configured = Path.join(tmp, "catalog")
+      File.mkdir_p!(configured)
+      {:ok, peer, _node} = :peer.start_link(%{connection: :standard_io})
+
+      try do
+        :ok = :peer.call(peer, :code, :add_paths, [:code.get_path()])
+
+        {result, _bindings} =
+          :peer.call(peer, Code, :eval_string, [
+            """
+            import ExUnit.Assertions
+            alias ServiceRadar.Automation.Ansible.GitCatalogSyncWorker, as: Worker
+            alias ServiceRadar.Automation.Ansible.PlaybookRepository
+
+            Code.compiler_options(ignore_module_conflict: true)
+
+            defmodule System do
+              def tmp_dir! do
+                raise "could not get a writable temporary directory"
+              end
+            end
+
+            assert_raise RuntimeError, "could not get a writable temporary directory", fn ->
+              System.tmp_dir!()
+            end
+
+            Application.put_env(:serviceradar_core, :ansible_catalog_base_dir, configured)
+
+            repo = %PlaybookRepository{
+              id: "repo-unavailable-temp",
+              git_url: "https://github.com/example/playbooks.git",
+              git_ref: "main",
+              sync_interval_seconds: 600
+            }
+
+            assert {:git_called, ["clone" | _] = args} =
+                     catch_throw(
+                       Worker.sync_repo(repo,
+                         actor: nil,
+                         git_runner: fn "git", args, _opts -> throw({:git_called, args}) end
+                       )
+                     )
+
+            assert List.last(args) == Path.join(configured, repo.id)
+            :ok
+            """,
+            [configured: configured]
+          ])
+
+        assert result == :ok
+      after
+        :peer.stop(peer)
+      end
     end
 
     test "falls back to a tmp-based dir when :ansible_catalog_base_dir app env is unset" do
