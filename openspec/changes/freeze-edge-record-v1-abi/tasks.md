@@ -90,7 +90,7 @@ producer sinks, spool mechanics, gateway relay, JetStream, projectors, migration
 stays in the downstream `unify-sweep-results-proto` change and is NOT reviewed
 here.
 
-- [ ] 1.1 Add a producer-neutral authoritative `EdgeRecordV1`, a separate
+- [x] 1.1 Add a producer-neutral authoritative `EdgeRecordV1`, a separate
   `EdgeDeliveryFrameV1`, the typed disposition and resolved-watermark
   contracts, and lane-opening/session handshake.
   ASSIGNED HERE BY TASK 1.3: the OUTER RECORD `event_id` UUIDv7 OVERFLOW vector.
@@ -156,7 +156,7 @@ here.
     lane-open/session handshake shapes are frozen in Appendix A and generated in both
     runtimes; the semantic-envelope digest and record validator are implemented and
     mutation-verified.
-  - REMAINING: see subtasks 1.1-a..b below; not restated here.
+  - REMAINING: nothing; all 1.1-a..b subtasks are reviewed and closed.
   - DEPENDS ON: nothing open. 1.15 supplies the shared fixture corpus but does not gate the
     local vector.
   - EVIDENCE: `go/pkg/edge/edgerecord/validate.go`, `proto/edge/v1/record.proto`,
@@ -187,7 +187,7 @@ here.
     decode, the full body validator and correlation into ONE call, so a body rejection and a
     correlation rejection no longer reach callers from two places. What keeps 1.2 open is
     1.2-a's closeout audit -- not missing work. 1.2-c's 1.5-f dependency is satisfied.
-  - REMAINING: see subtasks 1.2-a..c below; not restated here.
+  - REMAINING: nothing; all 1.2-a..c subtasks are reviewed and closed.
   - DEPENDS ON: nothing open. The 1.5-f CLOSURE dependency is DISCHARGED -- 1.5-f is closed
     and 1.2-c is checked; see 1.5-f for the ownership and the original reason.
     NOT a dependency on 1.3-f; that edge runs the other way, 1.3-f -> 1.2-c.
@@ -498,7 +498,7 @@ here.
     and its `test/serviceradar/edge/sweep_matrix_test.exs` (slice 2 Elixir peer table);
     the per-predicate label vectors in `proto/edge/v1/golden_test.go`; and
     `proto/edge/v1/testdata/sweep_batch.bin`.
-- [ ] 1.4 Add lossless `MtrTraceBatchV1` and `MtrTraceEventV1` contracts covering
+- [x] 1.4 Add lossless `MtrTraceBatchV1` and `MtrTraceEventV1` contracts covering
   every current trace/hop/ECMP/MPLS/ASN/DNS/timing/outcome/source/correlation
   field without generic metric attributes. Require every batch to share one
   network-scope/agent/source/authorization/execution-or-command/range/traffic-
@@ -585,8 +585,8 @@ here.
   - LANDED: `MtrTraceBatchV1`/`MtrTraceEventV1` contracts, the per-variant correlation
     dispatch, `MtrCompletionDisposition` as a generated enum (#4766), and zero-MTR
     completion as a mandatory canonical zero-leaf proof (#4769).
-  - REMAINING: see subtasks 1.4-a..c below; not restated here.
-  - DEPENDS ON: 1.15's shared per-value leaf vectors.
+  - REMAINING: nothing; all 1.4-a..c subtasks are reviewed and closed.
+  - DEPENDS ON: nothing open; 1.15-a's shared per-value leaf vectors are reviewed and closed.
   - EVIDENCE: `joinMtrAuthority` in `go/pkg/edge/edgerecord/domain.go`,
     `proto/edge/v1/testdata/mtr_batch.bin`.
 
@@ -600,7 +600,7 @@ here.
   - [x] 1.4-c full-MTR `event_id` UUIDv7 overflow vector -- SEPARATE from 1.4-b, because the
         two `uuidTimeWithin` calls are independently removable
 
-- [ ] 1.5 Define compatibility rules for unknown fields/enums, unsupported
+- [x] 1.5 Define compatibility rules for unknown fields/enums, unsupported
   versions, timestamp units, optional zero-valued measurements, ASN observation semantics,
   ASSIGNED HERE BY TASK 1.3, AND RESOLVED BY 1.5-g. `dispatchContract` compares only the four
   `EdgeOutputContractRef` members and does not read `payload_family` -- deliberately, because the
@@ -726,8 +726,9 @@ here.
   STATUS
   - LANDED: the enum-compatibility parity analysis and the Elixir `SemanticValidate` /
     `WireDecode` / `WireValidate` gates.
-  - REMAINING: 1.5-k..1.5-n. 1.5-a..1.5-j are CLOSED. The subtask list is
-    exhaustive against this task's body -- see the EXHAUSTIVENESS note under the subtasks.
+  - REMAINING: nothing; every 1.5 subtask is closed, including row accounting (1.5-k)
+    and the complete Elixir structural record boundary (1.5-n). The subtask list remains
+    exhaustive against this task's body.
   - DEPENDS ON: NOTHING OPEN. This read "1.6-d, and ONLY for 1.5-m" while that subtask was the
     one creating Elixir's signed recovery-control path for 1.5-m's framing rule to attach to.
     1.6-d has landed, so 1.5-m is unblocked and every remaining 1.5 subtask depends on nothing
@@ -1667,7 +1668,7 @@ here.
   body names has a subtask; nothing is carried as an unlisted assumption. If the body gains
   an obligation, it gains a subtask in the same edit.
 
-- [ ] 1.6 Generate Go and Elixir modules, update Bazel targets, and add
+- [x] 1.6 Generate Go and Elixir modules, update Bazel targets, and add
   cross-language golden fixtures proving equivalence across Go and Elixir for the
   semantic-envelope digest (`semantic_digest_version = 3`), payload digest,
   capability signing bytes (`capability_version = 1`), plan/range/
@@ -1734,13 +1735,9 @@ here.
     `verify-proto-edge-go` / `verify-proto-edge-elixir` as manifest+byte drift guards. The
     nineteen-object version corpus is complete: 1.6-a and 1.6-b are CLOSED, and every member
     has a committed control and alternate artifact driven through a production verifier.
-  - REMAINING: 1.6-c and 1.6-d. This parent stays UNCHECKED because its rule is that BOTH
-    runtimes prove every inventory member, and FIFTEEN OF NINETEEN do. The four exceptions are
-    recorded as the `go_only` column of `version_corpus.txt` and asserted as an EXACT set by
-    both suites, so none can quietly become an exemption: `mtr_completion` (1.6-c) and the three
-    recovery scope transcripts (1.6-d).
-    ELIXIR DOES NOT YET ENFORCE MTR COMPLETION OR THE RECOVERY SCOPE COMPARISON; nothing in
-    1.6-a/1.6-b claims otherwise.
+  - REMAINING: nothing. All nineteen version-corpus members run in both runtimes;
+    the Go-only exception set is empty. `LifecycleValidate` supplies the structural
+    lifecycle peer (1.6-c), and signed recovery scope validation is covered by 1.6-d.
   - DEPENDS ON: nothing open.
   - EVIDENCE: `Makefile` verify-proto-edge-* targets, `hash_grammar.ex`.
 
@@ -2128,9 +2125,10 @@ here.
   route profiles.
 
   STATUS
-  - LANDED: nothing; this is a GATE, not a build. Its condition that 1.3's normative deltas
-    exist is now met.
-  - REMAINING: see subtasks 1.7-a..f below; not restated here.
+  - LANDED: the raw and relational bounds (1.7-a/b), both lane handshake halves
+    (1.7-e, 72d6409c4b), and composed ACK admission (1.7-f, 19e37a307a) are reviewed.
+    The required normative assignment and correlation deltas exist.
+  - REMAINING: fixture coverage review (1.7-c, bb77274131) and the freeze gate (1.7-d).
   - DEPENDS ON: every other open task in this change. It cannot close first by construction.
   - EVIDENCE: the per-task STATUS blocks above are what this gate reads.
 
@@ -2187,7 +2185,7 @@ here.
         and this subtask SHALL NOT claim live enforcement for either. Requiring real ingress
         attachment would be a fair rule too -- but then it applies to Go as well, and neither
         runtime meets it today.
-  - [ ] 1.7-f ACKNOWLEDGEMENT BOUNDS -- a SEPARATE subtask because the ACK path is not the
+  - [x] 1.7-f ACKNOWLEDGEMENT BOUNDS -- a SEPARATE subtask because the ACK path is not the
         lane-open handshake. `MaxRejectionCodeLen` belongs here, not with the nonce and credit
         caps: a disposition's machine-token code is carried on a delivery ACK, a different
         message on a different leg.
@@ -2403,7 +2401,7 @@ here.
     not yet stable across machines and is deliberately not quoted here; see the PR and
     `design.md` for the raw runs.
 
-- [ ] 1.15 Add Go and Elixir cross-language vector fixtures for the frozen
+- [x] 1.15 Add Go and Elixir cross-language vector fixtures for the frozen
   completion-leaf disposition enum. The inventory is NOT "one per value": VALID
   leaf/preimage vectors, naming values by the numbers the enum requirement freezes
   (this is a COVERAGE inventory, not a second declaration), for
@@ -2489,8 +2487,8 @@ here.
   STATUS
   - LANDED: the shared Go-authored fixture corpus under `proto/edge/v1/testdata/`, consumed
     byte-for-byte by the Elixir golden test.
-  - REMAINING: see subtasks 1.15-a..b below; not restated here. The matrix's cross-language
-    vectors are OWNED BY 1.3-f, not by this task; 1.15 ACKNOWLEDGES them as parity evidence.
+  - REMAINING: nothing; the per-value leaf vectors and matrix parity acknowledgement
+    are closed. The matrix vectors remain owned by 1.3-f.
   - DEPENDS ON: nothing open. 1.3-f OWNS the matrix vectors and is checked, so 1.15-b's
     dependency is DISCHARGED and 1.15-b is checked. The matrix SHAPE was already merged
     (#4779) and was never the blocker.
