@@ -2501,7 +2501,7 @@ here.
   - EVIDENCE: `proto/edge/v1/testdata/`, `edge_v1_golden_test.exs`.
 
   SUBTASKS (parent stays unchecked until all close)
-  - [ ] 1.15-a shared per-value leaf vectors (blocks 1.4)
+  - [x] 1.15-a shared per-value leaf vectors (blocks 1.4)
   - [x] 1.15-b ACKNOWLEDGE 1.3-f's matrix vectors as cross-language parity EVIDENCE for this
         task. 1.3-f authors them and owns any fixture change they cause; this subtask records
         that they satisfy 1.15's parity obligation for the sweep correlation surface. It is
