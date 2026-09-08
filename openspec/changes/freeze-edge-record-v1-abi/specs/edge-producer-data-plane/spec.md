@@ -3326,3 +3326,32 @@ NOT frozen here.
 - **WHEN** a record exceeds exactly one of row count or write bytes, or disagrees on
   `cost_model_version`, with the others valid
 - **THEN** it is refused
+
+### Requirement: Both lane handshake halves enforce bounded credit negotiation
+
+An `EdgeRecordLaneOpen` request SHALL carry a session nonce of 16 through 64 bytes
+inclusive, request 1 through 1073741824 byte credits inclusive, and request 1
+through 1048576 frame credits inclusive. Zero credits in either dimension SHALL
+be refused. Its spool identifier SHALL be UUIDv7, sequence_base SHALL be 1, and
+first_unresolved_sequence SHALL be at least 1. Route and traffic class SHALL be
+members of their admitted platform sets. Unknown retained fields SHALL be refused.
+
+The `EdgeRecordLaneOpenAck` validator SHALL validate the request it answers and
+refuse retained unknown fields in the acknowledgement. Spool identifier, session
+nonce, route and traffic class SHALL equal the request. For each credit dimension
+independently, the grant SHALL satisfy `1 <= granted <= requested`. Equality and
+strictly smaller positive grants SHALL both be accepted when all other rules hold.
+The valid request establishes the hard caps; the return relation cannot widen them.
+These are validator API requirements and do not assert live ingress attachment.
+
+#### Scenario: Nonce endpoints and credit caps are inclusive
+- **GIVEN** an otherwise valid request
+- **WHEN** the nonce has 16 or 64 bytes and each credit is positive and no greater than its cap
+- **THEN** the request is accepted
+- **AND** nonce lengths 15 or 65, zero credits and one-over-cap credits are refused
+
+#### Scenario: Grant bounds are independent of hard caps
+- **GIVEN** a valid request whose byte and frame credits are well below their hard caps
+- **WHEN** either granted dimension is zero or exceeds its requested value
+- **THEN** the acknowledgement is refused even when the other dimension is legal
+- **AND** equality or a strictly smaller positive grant in either dimension is accepted
