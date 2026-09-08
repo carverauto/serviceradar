@@ -154,21 +154,6 @@ export function Component({
             socket.send(JSON.stringify({type: "file_transfer_data", ...payload}))
             return true
           },
-          // Lets the owner close the session socket on demand (for example a
-          // Disconnect button). This mirrors the unmount cleanup below, so the
-          // server tears the session down the same way it does when the shell
-          // exits via logout/Ctrl-D.
-          closeSocket(code = 1000, reason = "operator disconnected") {
-            if (
-              socket.readyState === WebSocket.OPEN ||
-              socket.readyState === WebSocket.CONNECTING
-            ) {
-              socket.close(code, reason)
-              return true
-            }
-
-            return false
-          },
         }
       }
 
