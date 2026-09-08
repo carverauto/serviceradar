@@ -33,6 +33,39 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
   - PATCH /api/v2/alerts/:id/acknowledge - Acknowledge alert
   - PATCH /api/v2/alerts/:id/resolve - Resolve alert
 
+  ### Observability Domain
+  - GET /api/v2/stateful-alert-rules - List alert rules
+  - GET /api/v2/stateful-alert-rules/:id - Get alert rule by ID
+  - GET /api/v2/stateful-alert-rules/active - List active alert rules
+  - POST /api/v2/stateful-alert-rules - Create alert rule
+  - PATCH /api/v2/stateful-alert-rules/:id - Update alert rule
+  - DELETE /api/v2/stateful-alert-rules/:id - Delete alert rule
+
+  The following 19 resources also carry pre-existing, read-only `json_api`
+  blocks and become reachable now that `ServiceRadar.Observability` is
+  mounted (each is gated by `system_bypass()` + `read_viewer_plus()`, i.e.
+  requires an authenticated actor with at least the `:viewer` role — a nil
+  actor reads nothing from any of them):
+  - GET /api/v2/logs - List logs
+  - GET /api/v2/service_status - List service status records
+  - GET /api/v2/capacity_forecasts - List capacity forecasts
+  - GET /api/v2/cpu_cluster_metrics - List CPU cluster metrics
+  - GET /api/v2/otel_metrics - List OTel metrics
+  - GET /api/v2/otel_metric_points - List OTel metric points
+  - GET /api/v2/otel_traces - List OTel traces
+  - GET /api/v2/otel_trace_summaries - List OTel trace summaries
+  - GET /api/v2/cpu_metrics - List raw CPU metrics
+  - GET /api/v2/memory_metrics - List raw memory metrics
+  - GET /api/v2/disk_metrics - List raw disk metrics
+  - GET /api/v2/process_metrics - List raw process metrics
+  - GET /api/v2/timeseries_metrics - List raw timeseries metrics
+  - GET /api/v2/cpu_metrics_hourly - List hourly CPU metric rollups
+  - GET /api/v2/memory_metrics_hourly - List hourly memory metric rollups
+  - GET /api/v2/disk_metrics_hourly - List hourly disk metric rollups
+  - GET /api/v2/process_metrics_hourly - List hourly process metric rollups
+  - GET /api/v2/timeseries_metrics_hourly - List hourly timeseries metric rollups
+  - GET /api/v2/timeseries_metrics_interface_hourly - List hourly per-interface timeseries metric rollups
+
   Node probe actions and notification routes are defined by the resources'
   JSON:API DSL. Consult the generated OpenAPI document below for their paths,
   request schemas, and supported operations.
@@ -62,7 +95,8 @@ defmodule ServiceRadarWebNGWeb.AshJsonApiRouter do
       ServiceRadar.Inventory,
       ServiceRadar.Infrastructure,
       ServiceRadar.Monitoring,
-      ServiceRadar.Notifications
+      ServiceRadar.Notifications,
+      ServiceRadar.Observability
     ],
     open_api_title: "ServiceRadar API",
     open_api_version: "2.0.0"
