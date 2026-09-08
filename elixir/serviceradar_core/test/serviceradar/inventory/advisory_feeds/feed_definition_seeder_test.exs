@@ -81,6 +81,108 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
     assert cisa.display_name == "CISA Known Exploited Vulnerabilities"
     assert cisa.last_status == "never"
     assert cisa.refresh_interval_seconds == 3_600
+
+    by_key = Map.new(definitions, &{{&1.provider, &1.feed_key}, &1})
+
+    # Credential-free feeds run without operator configuration, so they seed
+    # enabled; credential-gated feeds stay off until a credential is attached.
+    # Without the Ubuntu feed nothing confirms distro-managed packages (#4396).
+    assert by_key[{"cisa", "cisa-kev"}].enabled == true
+    assert by_key[{"ubuntu", "ubuntu-osv-vex"}].enabled == true
+    assert by_key[{"vulncheck", "vulncheck-kev"}].enabled == false
+    assert by_key[{"nvd", "nist-nvd2"}].enabled == false
+  end
+
+  test "seed_defaults/0 never re-enables an operator disable or a gated feed", %{
+    actor: actor
+  } do
+    # Simulate rows seeded before credential-free feeds defaulted enabled.
+    for {provider, feed_key} <- [{"ubuntu", "ubuntu-osv-vex"}, {"cisa", "cisa-kev"}] do
+      {:ok, _} =
+        VulnerabilityFeedDefinition
+        |> Ash.Changeset.for_create(
+          :upsert,
+          %{
+            provider: provider,
+            feed_key: feed_key,
+            display_name: "#{provider}/#{feed_key}",
+            feed_type: "addon_normalized_advisory_feed"
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+    end
+
+    # An explicit operator disable bumps updated_at past inserted_at (two fields
+    # so the edit is a real change even where the flag already reads false).
+    {:ok, _} =
+      actor
+      |> fetch("ubuntu", "ubuntu-osv-vex")
+      |> Ash.Changeset.for_update(
+        :update,
+        %{enabled: false, refresh_interval_seconds: 999},
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    # ... as does a failed run attempt, which also stamps last_failure_at.
+    {:ok, _} =
+      actor
+      |> fetch("cisa", "cisa-kev")
+      |> Ash.Changeset.for_update(
+        :update_status,
+        %{last_status: "error", last_failure_at: DateTime.utc_now()},
+        actor: actor
+      )
+      |> Ash.update(actor: actor)
+
+    # A pristine credential-gated row must stay off.
+    {:ok, _} =
+      VulnerabilityFeedDefinition
+      |> Ash.Changeset.for_create(
+        :upsert,
+        %{
+          provider: "nvd",
+          feed_key: "nist-nvd2",
+          display_name: "nvd/nist-nvd2",
+          feed_type: "addon_normalized_advisory_feed"
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    assert fetch(actor, "ubuntu", "ubuntu-osv-vex").enabled == false
+    assert fetch(actor, "cisa", "cisa-kev").enabled == false
+
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    assert fetch(actor, "ubuntu", "ubuntu-osv-vex").enabled == false
+    assert fetch(actor, "cisa", "cisa-kev").enabled == false
+    assert fetch(actor, "nvd", "nist-nvd2").enabled == false
+  end
+
+  test "seed_defaults/0 enables a pristine credential-free row left by an old seed", %{
+    actor: actor
+  } do
+    {:ok, _} =
+      VulnerabilityFeedDefinition
+      |> Ash.Changeset.for_create(
+        :upsert,
+        %{
+          provider: "ubuntu",
+          feed_key: "ubuntu-osv-vex",
+          display_name: "ubuntu/ubuntu-osv-vex",
+          feed_type: "addon_normalized_advisory_feed"
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    assert fetch(actor, "ubuntu", "ubuntu-osv-vex").enabled == false
+
+    assert :ok = FeedDefinitionSeeder.seed_defaults()
+
+    assert fetch(actor, "ubuntu", "ubuntu-osv-vex").enabled == true
   end
 
   test "seed_defaults/0 is idempotent and does not clobber operator edits", %{actor: actor} do
@@ -306,12 +408,12 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
     assert :ok = FeedDefinitionSeeder.seed_defaults()
     ubuntu = fetch(actor, "ubuntu", "ubuntu-osv-vex")
 
-    refute ubuntu.enabled
+    assert ubuntu.enabled
     assert ubuntu.credential_ref in [nil, ""]
 
     {:ok, ubuntu} =
       ubuntu
-      |> Ash.Changeset.for_update(:update, %{url: nil, enabled: true}, actor: actor)
+      |> Ash.Changeset.for_update(:update, %{url: nil}, actor: actor)
       |> Ash.update(actor: actor)
 
     assert Config.source("ubuntu-osv-vex").url =~ "security-metadata.canonical.com"
@@ -370,16 +472,16 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeederTest do
   test "Config.feed_enabled?/1 follows the operator feed row", %{actor: actor} do
     assert :ok = FeedDefinitionSeeder.seed_defaults()
 
-    refute Config.feed_enabled?("cisa-kev")
+    assert Config.feed_enabled?("cisa-kev")
 
     cisa = fetch(actor, "cisa", "cisa-kev")
 
     {:ok, _edited} =
       cisa
-      |> Ash.Changeset.for_update(:update, %{enabled: true}, actor: actor)
+      |> Ash.Changeset.for_update(:update, %{enabled: false}, actor: actor)
       |> Ash.update(actor: actor)
 
-    assert Config.feed_enabled?("cisa-kev")
+    refute Config.feed_enabled?("cisa-kev")
   end
 
   defp read_seeded(actor) do
